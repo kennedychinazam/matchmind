@@ -154,6 +154,15 @@
   .sfchip{flex:1; padding:8px 0; border-radius:10px; border:1px solid var(--border); background:var(--card2); color:var(--muted); font-size:.72rem; font-weight:700; cursor:pointer;}
   .sfchip.active{background:var(--card3); color:var(--gold); border-color:var(--gold);}
 
+  /* ---------- slip summary ---------- */
+  .slipsum{background:linear-gradient(160deg,#14532d,#166534); border:1px solid #22c55e55; border-radius:16px; padding:16px; text-align:center; margin:12px 0;}
+  .ssrow{display:flex; justify-content:space-around; margin-bottom:10px;}
+  .sslbl{font-size:.62rem; letter-spacing:.14em; color:#bbf7d0; font-weight:700;}
+  .ssval{font-size:1.6rem; font-weight:900;}
+  .ssret{background:#ffffff14; border-radius:10px; padding:9px; font-weight:700; font-size:.9rem;}
+  .ssbadge{margin-top:10px; font-weight:800; color:var(--gold2);}
+  .favstar{margin-left:auto; cursor:pointer; color:var(--gold); font-size:1rem;}
+
   /* ---------- bottom nav ---------- */
   .bottomnav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:rgba(9,14,26,.96); backdrop-filter:blur(10px); border-top:1px solid var(--border); display:flex; padding:10px 0 14px; z-index:50;}
   .nav-btn{flex:1; background:none; border:none; color:var(--muted2); font-size:.7rem; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px;}
@@ -171,14 +180,8 @@
   </div>
 
   <!-- ================= PREDICT VIEW ================= -->
-  <div class="view" id="view-predict">
-    <div class="seg">
-      <button class="seg-btn active" id="segComps">🏆 Competitions ▾</button>
-      <button class="seg-btn" id="segAnalysis">📊 Analysis</button>
-    </div>
-    <div class="card hidden" id="compsDrop"></div>
-
-    <div id="feedView">
+  <!-- ================= SCORES TAB ================= -->
+  <div class="view" id="view-scores">
 
     <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center;">Today's Matches
       <button class="btn" id="scoresRefresh" style="padding:6px 12px; font-size:.72rem;">↻ Refresh</button>
@@ -187,6 +190,12 @@
       <div class="muted" id="scoresMeta">Add your API key in Data, then refresh.</div>
       <div id="scoresList"></div>
     </div>
+  </div>
+
+  <!-- ================= PREDICTIONS TAB ================= -->
+  <div class="view hidden" id="view-predict">
+    <button class="seg-btn active" id="segComps" style="width:100%; margin:4px 0 10px;">🏆 All competitions ▾</button>
+    <div class="card hidden" id="compsDrop"></div>
 
     <div class="card" id="discoverCard">
       <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> in the selected sport — World Cup, friendlies, qualifiers, NBA, any active competition worldwide.</div>
@@ -210,16 +219,41 @@
     </div>
     <button class="cta" id="analyzeBtn">⚡ Analyze Fixture</button>
 
-    </div><!-- /feedView -->
+  </div>
 
-    <div id="results" class="hidden">
-      <button class="btn" id="backToFeed" style="margin-bottom:12px">‹ Matches</button>
+  <!-- ================= TIPS TAB ================= -->
+  <div class="view hidden" id="view-tips">
+    <div class="sec-label">Slip generator</div>
+    <div class="card">
+      <h2>🎰 Bet Slip Generator</h2>
+      <div class="field"><label>Number of games</label><div class="sfilters" id="slipN"></div></div>
+      <div class="field"><label>Risk level</label><div class="sfilters" id="slipRisk"></div></div>
+      <div class="field"><label>Scope</label><div class="sfilters" id="slipToday"></div></div>
+      <div class="field"><label>Leagues</label><div class="sfilters" id="slipLeagues" style="flex-wrap:wrap;"></div></div>
+      <div class="field"><label>Bet types</label><div class="sfilters" id="slipMarkets"></div></div>
+      <button class="cta green" id="genSlipBtn" style="margin:6px 0 4px;">⚡ Generate Slip</button>
+      <div id="slipOut"></div>
+    </div>
+    <div class="sec-label">AI strong picks</div>
+    <div class="card">
+      <h2>🔥 AI Strong Picks</h2>
+      <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
+      <div id="strongPicks"></div>
+    </div>
+  </div>
 
-      <div class="card">
-        <h2>🔥 AI Strong Picks</h2>
-        <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
-        <div id="strongPicks"></div>
-      </div>
+  <!-- ================= FAVOURITES TAB ================= -->
+  <div class="view hidden" id="view-favs">
+    <div class="sec-label">Your favourites</div>
+    <div class="card" id="favManage"></div>
+    <div class="sec-label">Favourite matches</div>
+    <div class="card" id="favFeed"></div>
+  </div>
+
+  <!-- ================= DETAIL VIEW (analysis & match centre) ================= -->
+  <div class="view hidden" id="view-detail">
+    <div id="results">
+      <button class="btn" id="backToFeed" style="margin-bottom:12px">‹ Back</button>
 
       <div class="hero">
         <div class="teams">
@@ -229,8 +263,10 @@
         </div>
         <div class="pick" id="heroPick">—</div>
         <div class="conf" id="heroConf">—</div>
-        <div class="strong">AI's strongest recommendation for this match</div>
+        <div class="strong" id="heroStrong">AI's strongest recommendation for this match</div>
       </div>
+
+      <div id="favRow" style="display:flex; gap:8px; justify-content:center; margin:0 0 12px;"></div>
 
       <div class="acc open" id="acc-result">
         <div class="acc-head"><span class="ic">📊</span><span class="t">Match Result Predictions</span><span class="side" id="resultSide"></span><span class="chev">▼</span></div>
@@ -276,6 +312,19 @@
           <div id="analysisText" class="analysis"></div>
           <div id="verdictBox" class="verdict"></div>
         </div>
+      </div>
+
+      <div class="acc open hidden" id="acc-timeline">
+        <div class="acc-head"><span class="ic">⏱️</span><span class="t">Timeline</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="tlBox"></div></div>
+      </div>
+      <div class="acc open hidden" id="acc-stats">
+        <div class="acc-head"><span class="ic">📊</span><span class="t">Match Stats</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="msBox"></div></div>
+      </div>
+      <div class="acc hidden" id="acc-lineups">
+        <div class="acc-head" id="lineupsHead"><span class="ic">👥</span><span class="t">Lineups</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="luBox"></div></div>
       </div>
 
     </div>
@@ -347,10 +396,7 @@
       <button class="btn" id="saveKeyBtn">Use this key</button>
       <div class="status" id="keyStatus"></div>
     </div>
-  </div>
 
-  <!-- ================= HOW VIEW ================= -->
-  <div class="view hidden" id="view-how">
     <div class="sec-label">How it works</div>
     <div class="card howit">
       <p><b>Part 1 — The Math Engine.</b> It reads your historical results and, for football, builds an <b>attack strength</b> and <b>defence strength</b> for every team (goals scored/conceded versus league average, recent matches weighted more heavily). For any fixture it computes expected goals for each side, then uses the <b>Poisson distribution</b> to price every scoreline (0-0, 1-0, 2-1 …). Summing those cells gives Win / Draw / Loss, Over/Under, Both Teams To Score and correct-score probabilities. Scorer odds come from each player's share of his team's goals applied to today's expected goals. Basketball uses offensive/defensive point ratings and a normal distribution over the margin.</p>
@@ -358,13 +404,15 @@
       <p><b>Live data:</b> with an API-Football key the app loads real fixtures and top scorers for a league season and pulls injury news for both teams on every analysis. The injury list is shown and fed to the AI writer, though the probability engine itself is results-based and does not discount for absences.</p>
       <p><b>Honest limits:</b> lineups, motivation and weather aren't modelled yet, and no model can predict sport reliably. Treat outputs as probabilities, not certainties.</p>
     </div>
-  </div>
+    </div>
 
   <!-- ================= BOTTOM NAV ================= -->
   <div class="bottomnav">
-    <button class="nav-btn active" data-view="predict"><span class="nic">🏆</span>Predict</button>
-    <button class="nav-btn" data-view="data"><span class="nic">🗄️</span>Data</button>
-    <button class="nav-btn" data-view="how"><span class="nic">💡</span>How</button>
+    <button class="nav-btn active" data-view="scores"><span class="nic">⚽</span>Scores</button>
+    <button class="nav-btn" data-view="predict"><span class="nic">📊</span>Predict</button>
+    <button class="nav-btn" data-view="tips"><span class="nic">🔥</span>Tips</button>
+    <button class="nav-btn" data-view="favs"><span class="nic">⭐</span>Favs</button>
+    <button class="nav-btn" data-view="data"><span class="nic">⚙️</span>More</button>
   </div>
 
 </div>
@@ -824,7 +872,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[] };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[] };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 async function afFetch(path, base){
@@ -1066,6 +1114,7 @@ async function analyze(){
   // hero card
   $('heroHome').innerHTML = heroSide(home,'Home');
   $('heroAway').innerHTML = heroSide(away,'Away');
+  setFavRow(home, away);
   let scorerCtx = [];
   if(sport==='football'){
     const arr=[[pred.pW, home+' WIN'],[pred.pD,'DRAW'],[pred.pL, away+' WIN']].sort((a,b)=>b[0]-a[0]);
@@ -1214,6 +1263,7 @@ async function apiAnalyze(f, L){
   showAnalysis();
   $('heroHome').innerHTML = heroSide(f.home,'Home');
   $('heroAway').innerHTML = heroSide(f.away,'Away');
+  setFavRow(f.home, f.away);
   $('heroPick').textContent = '…';
   $('heroConf').textContent = 'fetching prediction… (may pause briefly for API rate limits)';
   for(const id of ['acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
@@ -1294,16 +1344,216 @@ function visibleLeagues(){
   return Ls.sort((a,b)=> leaguePriority(b)-leaguePriority(a) || b.upcoming.length-a.upcoming.length);
 }
 
-/* ---------- top tabs: Competitions | Analysis ---------- */
-function showFeed(){
-  $('feedView').classList.remove('hidden'); $('results').classList.add('hidden');
-  $('segComps').classList.add('active'); $('segAnalysis').classList.remove('active');
+/* ================================================================
+   TAB NAVIGATION (Scores | Predict | Tips | Favs | More) + detail view
+   ================================================================ */
+const NAV_VIEWS = ['scores','predict','tips','favs','data','detail'];
+let lastTab = 'scores';
+function navTo(t){
+  if(t !== 'detail') lastTab = t;
+  for(const v of NAV_VIEWS){ const el = $('view-'+v); if(el) el.classList.toggle('hidden', v!==t); }
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===t));
+  if(t==='predict') renderFixtures();
+  if(t==='tips'){ renderSlipUI(); renderStrongPicks(); }
+  if(t==='favs') renderFavs();
+  window.scrollTo({top:0});
+}
+function showFeed(){ navTo(lastTab); }
+function prepAnalysisView(){
+  for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.add('hidden');
+  for(const id of ['acc-result','acc-form','acc-analysis']) $(id).classList.remove('hidden');
+  $('heroStrong').classList.remove('hidden');
 }
 function showAnalysis(){
-  renderStrongPicks();
-  $('compsDrop').classList.add('hidden');
-  $('feedView').classList.add('hidden'); $('results').classList.remove('hidden');
-  $('segAnalysis').classList.add('active'); $('segComps').classList.remove('active');
+  if($('compsDrop')) $('compsDrop').classList.add('hidden');
+  prepAnalysisView();
+  navTo('detail');
+}
+
+/* ================================================================
+   FAVOURITES
+   ================================================================ */
+let curFavHome='', curFavAway='';
+function toggleFavLeague(id){
+  const i = afState.favL.indexOf(id);
+  i>=0 ? afState.favL.splice(i,1) : afState.favL.push(id);
+  saveState(); renderFixtures();
+}
+function setFavRow(h,a){
+  curFavHome=h; curFavAway=a;
+  const btn = n=>`<button class="sfchip${afState.favT.includes(n)?' active':''}" data-t="${n}">${afState.favT.includes(n)?'★':'☆'} ${n}</button>`;
+  $('favRow').innerHTML = btn(h)+btn(a);
+  $('favRow').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
+    const n=b.dataset.t, i=afState.favT.indexOf(n);
+    i>=0 ? afState.favT.splice(i,1) : afState.favT.push(n);
+    saveState(); setFavRow(curFavHome,curFavAway);
+  }));
+}
+function footballLeagues(){
+  const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
+  return order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
+}
+function renderFavs(){
+  const man=$('favManage');
+  const lgs=afState.favL.map(id=>afState.leagues[id]).filter(Boolean);
+  man.innerHTML = (lgs.length || afState.favT.length)
+    ? (lgs.length?`<div class="sec-label" style="margin:2px 4px 6px">Competitions</div><div class="sfilters" style="flex-wrap:wrap">${lgs.map(l=>`<button class="sfchip active" data-lid="${l.id}">✕ ${l.name}</button>`).join('')}</div>`:'')
+      + (afState.favT.length?`<div class="sec-label" style="margin:10px 4px 6px">Teams</div><div class="sfilters" style="flex-wrap:wrap">${afState.favT.map(t=>`<button class="sfchip active" data-t="${t}">✕ ${t}</button>`).join('')}</div>`:'')
+    : '<div class="subnote">No favourites yet. Star a competition with ☆ on the Predict tab, or star a team from any match analysis.</div>';
+  man.querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{ toggleFavLeague(+b.dataset.lid); renderFavs(); }));
+  man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0)afState.favT.splice(i,1); saveState(); renderFavs(); }));
+  const rows=[];
+  for(const L of footballLeagues())
+    for(const f of L.upcoming)
+      if(afState.favL.includes(L.id) || afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) rows.push({L,f});
+  rows.sort((a,b)=> (a.f.date+a.f.time) < (b.f.date+b.f.time) ? -1:1);
+  const feed=$('favFeed'); const refs=[];
+  feed.innerHTML = rows.length ? rows.slice(0,25).map(({L,f})=>{
+    const i=refs.length; refs.push({L,f});
+    const chip=f.pick?`<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>`:'';
+    return `<div class="fxrow"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span><span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="muted" style="font-size:.7rem">${L.name}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
+  }).join('') : '<div class="subnote">Matches involving your favourites will appear here.</div>';
+  feed.querySelectorAll('.fvopen').forEach(b=>b.addEventListener('click',()=>{ const {L,f}=refs[+b.dataset.i]; openFixture(L.id,f,b); }));
+}
+
+/* ================================================================
+   MATCH DETAIL (live & finished: timeline, stats, lineups)
+   ================================================================ */
+let curDetail = null;
+async function matchDetail(s){
+  curDetail = s;
+  navTo('detail');
+  $('heroHome').innerHTML = heroSide(s.home,'Home');
+  $('heroAway').innerHTML = heroSide(s.away,'Away');
+  setFavRow(s.home, s.away);
+  $('heroPick').textContent = (s.gh!=null?s.gh:'–') + ' – ' + (s.ga!=null?s.ga:'–');
+  const isLive = LIVE_CODES.includes(s.status);
+  $('heroConf').textContent = isLive ? '🔴 LIVE · '+(s.elapsed?s.elapsed+"'":s.status) : (s.status==='NS'?'Kick-off '+s.time:s.status);
+  $('resultSide').textContent = '';
+  $('heroStrong').classList.add('hidden');
+  for(const id of ['acc-result','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
+  for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.remove('hidden');
+  $('tlBox').innerHTML = '<div class="subnote">Loading timeline…</div>';
+  $('msBox').innerHTML = '';
+  $('luBox').innerHTML = '<div class="subnote">Tap to load lineups (1 request).</div>';
+  $('luBox').dataset.loaded = '';
+  try{
+    const ev = await afFetch(`/fixtures/events?fixture=${s.fxid}`);
+    $('tlBox').innerHTML = ev.length ? ev.map(e=>{
+      const ic = e.type==='Goal' ? '⚽' : e.type==='Card' ? ((e.detail||'').includes('Red')?'🟥':'🟨') : (String(e.type).toLowerCase()==='subst' ? '🔁' : '▪️');
+      const extra = e.assist && e.assist.name ? ` <span class="muted">— ${String(e.type).toLowerCase()==='subst'?'for':'assist'} ${e.assist.name}</span>` : '';
+      return `<div class="frow"><span class="muted" style="width:44px">${e.time.elapsed}${e.time.extra?'+'+e.time.extra:''}'</span><span style="flex:1">${ic} ${e.player&&e.player.name||''} <span class="muted">(${e.team&&e.team.name||''})</span>${extra}</span></div>`;
+    }).join('') : '<div class="subnote">No events yet.</div>';
+  }catch(e){ $('tlBox').innerHTML = '<div class="subnote">Timeline unavailable: '+e.message+'</div>'; }
+  try{
+    const st = await afFetch(`/fixtures/statistics?fixture=${s.fxid}`);
+    if(st.length>=2){
+      const H=st[0].statistics, A=st[1].statistics;
+      const get=(arr,t)=>{ const x=(arr||[]).find(v=>v.type===t); return x&&x.value!=null?x.value:'–'; };
+      const rows=[['Ball Possession','Possession'],['Total Shots','Total shots'],['Shots on Goal','Shots on target'],['Corner Kicks','Corners'],['Fouls','Fouls'],['Yellow Cards','Yellow cards'],['expected_goals','Expected goals (xG)']];
+      $('msBox').innerHTML = rows.map(([t,lbl])=>`<div class="frow"><b style="width:58px">${get(H,t)}</b><span class="muted" style="flex:1;text-align:center">${lbl}</span><b style="width:58px;text-align:right">${get(A,t)}</b></div>`).join('');
+    } else $('msBox').innerHTML = '<div class="subnote">Stats not available for this match.</div>';
+  }catch(e){ $('msBox').innerHTML = '<div class="subnote">Stats unavailable.</div>'; }
+}
+
+/* ================================================================
+   BET SLIP GENERATOR
+   ================================================================ */
+const slipState = { n:2, risk:'safe', today:false, leagues:null, markets:new Set(['1X2','OU','BTTS']) };
+function renderSlipUI(){
+  $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
+  $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
+  $('slipRisk').innerHTML = [['safe','🛡️ Safe'],['balanced','⚖️ Balanced'],['risky','🎲 Risky']].map(([v,l])=>`<button class="sfchip${slipState.risk===v?' active':''}" data-r="${v}">${l}</button>`).join('');
+  $('slipRisk').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.risk=b.dataset.r; renderSlipUI(); }));
+  $('slipToday').innerHTML = `<button class="sfchip${slipState.today?' active':''}" id="tglToday">${slipState.today?'✓ Today’s matches only':'All upcoming matches'}</button>`;
+  $('tglToday').addEventListener('click',()=>{ slipState.today=!slipState.today; renderSlipUI(); });
+  const Ls = footballLeagues(), sel = slipState.leagues;
+  $('slipLeagues').innerHTML = `<button class="sfchip${!sel?' active':''}" data-lid="all">All leagues</button>` +
+    Ls.map(l=>`<button class="sfchip${sel&&sel.has(l.id)?' active':''}" data-lid="${l.id}">${l.name}</button>`).join('');
+  $('slipLeagues').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
+    if(b.dataset.lid==='all') slipState.leagues=null;
+    else{
+      if(!slipState.leagues) slipState.leagues=new Set();
+      const id=+b.dataset.lid;
+      slipState.leagues.has(id)?slipState.leagues.delete(id):slipState.leagues.add(id);
+      if(!slipState.leagues.size) slipState.leagues=null;
+    }
+    renderSlipUI();
+  }));
+  $('slipMarkets').innerHTML = [['1X2','Winner'],['OU','Over/Under 2.5'],['BTTS','BTTS']].map(([v,l])=>`<button class="sfchip${slipState.markets.has(v)?' active':''}" data-m="${v}">${l}</button>`).join('');
+  $('slipMarkets').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
+    const m=b.dataset.m;
+    if(slipState.markets.has(m) && slipState.markets.size>1) slipState.markets.delete(m); else slipState.markets.add(m);
+    renderSlipUI();
+  }));
+}
+function genSlip(){
+  const todayStr = new Date().toISOString().slice(0,10);
+  const cands=[];
+  for(const L of footballLeagues()){
+    if(slipState.leagues && !slipState.leagues.has(L.id)) continue;
+    let tmp=null;
+    if(L.matches.length>=15){ tmp=Object.create(footballEngine); tmp.matches=L.matches; }
+    for(const f of L.upcoming){
+      if(f.date < todayStr) continue;
+      if(slipState.today && f.date!==todayStr) continue;
+      const key = f.fxid || (f.home+f.away+f.date);
+      if(tmp){
+        const p=tmp.predict(f.home,f.away);
+        if(!p) continue;
+        if(slipState.markets.has('1X2')){
+          cands.push({key,L,f,market:'Winner',sel:f.home+' to win',code:'1',prob:p.pW});
+          cands.push({key,L,f,market:'Winner',sel:'Draw',code:'X',prob:p.pD});
+          cands.push({key,L,f,market:'Winner',sel:f.away+' to win',code:'2',prob:p.pL});
+        }
+        if(slipState.markets.has('OU')){
+          cands.push({key,L,f,market:'Goals',sel:'Over 2.5',prob:p.over[2.5]});
+          cands.push({key,L,f,market:'Goals',sel:'Under 2.5',prob:1-p.over[2.5]});
+        }
+        if(slipState.markets.has('BTTS')){
+          cands.push({key,L,f,market:'BTTS',sel:'Yes',prob:p.btts});
+          cands.push({key,L,f,market:'BTTS',sel:'No',prob:1-p.btts});
+        }
+      } else if(f.pick && slipState.markets.has('1X2')){
+        const lbl = f.pick==='1' ? f.home+' to win' : f.pick==='X' ? 'Draw' : f.away+' to win';
+        cands.push({key,L,f,market:'Winner',sel:lbl,code:f.pick,prob:f.prob});
+      }
+    }
+  }
+  const bands={safe:[0.60,0.96],balanced:[0.47,0.66],risky:[0.28,0.50]};
+  const [lo,hi]=bands[slipState.risk], mid=(lo+hi)/2;
+  const byFx={};
+  for(const c of cands){
+    if(c.prob<lo || c.prob>hi) continue;
+    const score = slipState.risk==='safe' ? c.prob : slipState.risk==='risky' ? -c.prob : -Math.abs(c.prob-mid);
+    if(!byFx[c.key] || score>byFx[c.key]._s){ c._s=score; byFx[c.key]=c; }
+  }
+  let legs=Object.values(byFx).sort((a,b)=>b._s-a._s).slice(0, slipState.n);
+  if(legs.length < slipState.n){
+    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} qualifying match(es) for this risk level. Load more competitions (Predict → Discover) or adjust the settings.</div>`;
+    return;
+  }
+  let comb=1, odds=1;
+  for(const l of legs){ comb*=l.prob; odds*=1/l.prob; }
+  const badge = comb>=0.5 ? '👍 High probability slip' : comb>=0.3 ? '⚖️ Balanced slip' : '🎲 Long-shot slip';
+  $('slipOut').innerHTML = `
+    <div class="slipsum">
+      <div class="ssrow">
+        <div><div class="sslbl">TOTAL ODDS</div><div class="ssval">${odds.toFixed(2)}</div></div>
+        <div><div class="sslbl">SLIP WIN %</div><div class="ssval" style="color:var(--green2)">${(100*comb).toFixed(1)}%</div></div>
+      </div>
+      <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
+      <div class="ssbadge">${badge}</div>
+      <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds derived from engine probabilities — bookmaker odds will differ.</div>
+    </div>` +
+    legs.map(l=>`<div class="fxrow"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time}</span>
+      <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
+      <span class="muted" style="font-size:.74rem">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
+      <span class="predchip">${(100*l.prob).toFixed(0)}%</span></div>`).join('') +
+    `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
+  $('reGen').addEventListener('click', genSlip);
+  for(const l of legs) if(l.code) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
+  saveState();
 }
 
 /* ---------- prediction record (self-grading) ---------- */
@@ -1401,7 +1651,7 @@ function renderScores(){
       const done = ['FT','AET','PEN'].includes(s.status);
       const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? s.time : s.status;
       const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}` : '–';
-      const canOpen = s.status==='NS' || s.status==='TBD';
+      const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow${isLive?' islive':''}">
         <span class="scstat">${stat}</span>
@@ -1414,8 +1664,12 @@ function renderScores(){
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
   box.querySelectorAll('.scopen').forEach(b=>b.addEventListener('click',()=>{
     const s = rowRefs[+b.dataset.i];
-    const {L, f} = ensureLeagueFromScore(s);
-    openFixture(L.id, f, b);
+    if(s.status==='NS' || s.status==='TBD'){
+      const {L, f} = ensureLeagueFromScore(s);
+      openFixture(L.id, f, b);
+    } else {
+      matchDetail(s);
+    }
   }));
 }
 
@@ -1512,7 +1766,7 @@ function renderCompsDrop(){
     const lbl = v==='all' ? 'Competitions' : v==='football' ? 'Football' : v==='basketball' ? 'Basketball'
               : (afState.leagues[v] ? afState.leagues[v].name : 'Competitions');
     $('segComps').innerHTML = '🏆 ' + lbl + ' ▾';
-    showFeed(); renderFixtures(); saveState();
+    navTo('predict'); saveState();
   }));
 }
 
@@ -1560,7 +1814,7 @@ function renderFixtures(){
     const todays = L.upcoming.filter(f=>f.date===afState.selectedDate);
     if(!todays.length) continue;
     const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
-    html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span></div>`;
+    html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span><span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
   $('fixtureList').innerHTML = html || '<div class="subnote">No fixtures on this day.</div>';
@@ -1568,6 +1822,9 @@ function renderFixtures(){
   document.querySelectorAll('#fixtureList .fxbtn').forEach(b=>b.addEventListener('click', ()=>{
     const {leagueId, f} = dayList[+b.dataset.i];
     openFixture(leagueId, f, b);
+  }));
+  document.querySelectorAll('#fixtureList .favstar, .lghead .favstar').forEach(st=>st.addEventListener('click', e=>{
+    e.stopPropagation(); toggleFavLeague(+st.dataset.lid);
   }));
 }
 
@@ -1579,7 +1836,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
 }
@@ -1601,6 +1858,8 @@ function restoreState(){
       afState.logos = s.af.logos || {};
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
+      afState.favL = s.af.favL || [];
+      afState.favT = s.af.favT || [];
       if(afState.activeLeagueId && afState.leagues[afState.activeLeagueId])
         afState.teamIds = afState.leagues[afState.activeLeagueId].teamIds || {};
     }
@@ -1610,20 +1869,24 @@ function restoreState(){
 }
 
 /* ---------- events ---------- */
-document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-  for(const v of ['predict','data','how'])
-    $('view-'+v).classList.toggle('hidden', v!==b.dataset.view);
-  window.scrollTo({top:0});
-}));
+document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>navTo(b.dataset.view)));
 
-$('segComps').addEventListener('click', ()=>{
-  if($('feedView').classList.contains('hidden')) showFeed();
-  else $('compsDrop').classList.toggle('hidden');
-});
-$('segAnalysis').addEventListener('click', showAnalysis);
+$('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
 $('backToFeed').addEventListener('click', showFeed);
+$('genSlipBtn').addEventListener('click', genSlip);
+$('lineupsHead').addEventListener('click', async ()=>{
+  if(!curDetail || $('luBox').dataset.loaded===String(curDetail.fxid)) return;
+  $('luBox').innerHTML='<div class="subnote">Loading lineups…</div>';
+  try{
+    const lu = await afFetch(`/fixtures/lineups?fixture=${curDetail.fxid}`);
+    if(!lu.length){ $('luBox').innerHTML='<div class="subnote">Lineups not available yet.</div>'; return; }
+    $('luBox').dataset.loaded=String(curDetail.fxid);
+    $('luBox').innerHTML = lu.map(t=>
+      `<div class="sec-label" style="margin:10px 0 4px">${t.team.name} <span class="muted">${t.formation||''}</span></div>`+
+      (t.startXI||[]).map(p=>`<div class="frow"><span class="muted" style="width:30px">${p.player.number||''}</span><span style="flex:1">${p.player.name}</span><span class="muted">${p.player.pos||''}</span></div>`).join('')
+    ).join('');
+  }catch(e){ $('luBox').innerHTML='<div class="subnote">Lineups unavailable: '+e.message+'</div>'; }
+});
 
 
 document.querySelectorAll('.acc-head').forEach(h=>h.addEventListener('click',()=>{
