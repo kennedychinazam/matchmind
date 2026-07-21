@@ -141,6 +141,19 @@
   span.crest.big{display:flex; font-size:.9rem;}
   .tline{display:block; padding:1px 0;}
 
+  /* ---------- scores feed ---------- */
+  .scrow{display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--border);}
+  .scrow:last-child{border-bottom:none;}
+  .scstat{width:48px; font-size:.72rem; color:var(--muted); font-weight:700; flex-shrink:0;}
+  .livedot{color:var(--red); margin-right:3px; animation:pulse 1.4s infinite;}
+  @keyframes pulse{50%{opacity:.35}}
+  .scscore{width:52px; text-align:center; font-weight:800; font-size:.98rem; color:var(--muted); flex-shrink:0;}
+  .scscore.final{color:var(--text);}
+  .scscore.liven{color:var(--green2);}
+  .sfilters{display:flex; gap:6px; margin:4px 0 8px;}
+  .sfchip{flex:1; padding:8px 0; border-radius:10px; border:1px solid var(--border); background:var(--card2); color:var(--muted); font-size:.72rem; font-weight:700; cursor:pointer;}
+  .sfchip.active{background:var(--card3); color:var(--gold); border-color:var(--gold);}
+
   /* ---------- bottom nav ---------- */
   .bottomnav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:rgba(9,14,26,.96); backdrop-filter:blur(10px); border-top:1px solid var(--border); display:flex; padding:10px 0 14px; z-index:50;}
   .nav-btn{flex:1; background:none; border:none; color:var(--muted2); font-size:.7rem; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px;}
@@ -167,10 +180,17 @@
 
     <div id="feedView">
 
+    <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center;">Today's Matches
+      <button class="btn" id="scoresRefresh" style="padding:6px 12px; font-size:.72rem;">↻ Refresh</button>
+    </div>
+    <div class="card">
+      <div class="muted" id="scoresMeta">Add your API key in Data, then refresh.</div>
+      <div id="scoresList"></div>
+    </div>
+
     <div class="card" id="discoverCard">
       <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> in the selected sport — World Cup, friendlies, qualifiers, NBA, any active competition worldwide.</div>
-      <button class="btn gold" id="discoverBtn">🔍 Scan football</button>
-      <button class="btn" id="discoverBtnBk">🏀 Scan basketball</button>
+      <button class="btn gold" id="discoverBtn">🔍 Discover competitions</button>
       <div class="status" id="discoverStatus"></div>
     </div>
 
@@ -182,9 +202,6 @@
 
     <div class="sec-label">Manual matchup</div>
     <div class="card">
-      <div class="field" style="margin-bottom:12px"><label>Sport</label>
-        <select id="manualSport"><option value="football">⚽ Football</option><option value="basketball">🏀 Basketball</option></select>
-      </div>
       <div class="picker">
         <div class="pick-side"><label>Home</label><select id="homeTeam"></select></div>
         <div class="vs">VS</div>
@@ -197,6 +214,12 @@
 
     <div id="results" class="hidden">
       <button class="btn" id="backToFeed" style="margin-bottom:12px">‹ Matches</button>
+
+      <div class="card">
+        <h2>🔥 AI Strong Picks</h2>
+        <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
+        <div id="strongPicks"></div>
+      </div>
 
       <div class="hero">
         <div class="teams">
@@ -801,7 +824,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{} };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[] };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 async function afFetch(path, base){
@@ -863,6 +886,7 @@ async function afLoadAll(){
         if(p){
           const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]);
           fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3);
+          recordPick(L.name, fx);
         }
       }
       afState.leagues[L.id] = {id:L.id, name:L.name, country:L.country, flag:L.flag, logo:'', matches, teamIds, upcoming, scorerText:'', season:afState.season};
@@ -948,7 +972,6 @@ function activateLeague(id){
     else { scorers = []; $('scorerData').value = ''; }
   }
   currentSport = bk ? 'basketball' : 'football'; syncSportChips(); refreshTeams();
-  if($('manualSport')) $('manualSport').value = currentSport;
   setDataChip('Live · '+L.name);
 }
 
@@ -1230,6 +1253,7 @@ Match history for this competition isn't available on your current API plan, so 
 Model note: ${comment}.` : '');
     $('verdictBox').textContent = advice ? `Verdict (API-Football): ${advice}` : `Verdict: ${arr[0][1]} (${pct(arr[0][0])}).`;
     f.pick = arr[0][2]; f.prob = +arr[0][0].toFixed(3);   // chip appears on the feed
+    recordPick(L.name, f);
     saveState(); renderFixtures();
   }catch(e){
     $('heroPick').textContent = f.home+' vs '+f.away;
@@ -1263,7 +1287,7 @@ function leaguePriority(L){
 
 function visibleLeagues(){
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
-  let Ls = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length);
+  let Ls = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
@@ -1276,15 +1300,196 @@ function showFeed(){
   $('segComps').classList.add('active'); $('segAnalysis').classList.remove('active');
 }
 function showAnalysis(){
+  renderStrongPicks();
   $('compsDrop').classList.add('hidden');
   $('feedView').classList.add('hidden'); $('results').classList.remove('hidden');
   $('segAnalysis').classList.add('active'); $('segComps').classList.remove('active');
 }
 
+/* ---------- prediction record (self-grading) ---------- */
+function recordPick(leagueName, f){
+  if(!f || !f.fxid || !f.pick) return;
+  if(afState.record.some(r=>r.fxid===f.fxid)) return;
+  afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob, league:leagueName, result:null});
+  if(afState.record.length > 500) afState.record = afState.record.slice(-500);
+}
+function gradeRecord(scoreList){
+  const byId = {};
+  for(const s of scoreList) byId[s.fxid] = s;
+  for(const r of afState.record){
+    if(r.result) continue;
+    const s = byId[r.fxid];
+    if(s && ['FT','AET','PEN'].includes(s.status) && s.gh!=null && s.ga!=null)
+      r.result = s.gh>s.ga ? '1' : s.gh===s.ga ? 'X' : '2';
+  }
+}
+function recordStats(){
+  const graded = afState.record.filter(r=>r.result);
+  if(!graded.length) return null;
+  const hits = graded.filter(r=>r.result===r.pick).length;
+  return {n:graded.length, hits, pct:(100*hits/graded.length).toFixed(1)};
+}
+
+/* ---------- today's scores (score-app home) ---------- */
+const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
+async function afScores(){
+  afState.key = afState.key || $('afKey').value.trim();
+  if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab, then refresh.'; return; }
+  $('scoresMeta').textContent = 'Loading today’s matches…';
+  try{
+    const day = new Date().toISOString().slice(0,10);
+    const fx = await afFetch(`/fixtures?date=${day}`);
+    const keep = fx.filter(f=>
+      leaguePriority({id:f.league.id, name:f.league.name}) >= 50 ||
+      afState.leagues[f.league.id] ||
+      FAMOUS_CLUBS.some(c=>f.teams.home.name.includes(c) || f.teams.away.name.includes(c))
+    ).slice(0,120);
+    keep.forEach(f=>{ regLogo(f.teams.home); regLogo(f.teams.away); });
+    afState.scores = { at: Date.now(), list: keep.map(f=>({
+      fxid:f.fixture.id, lid:f.league.id, lname:f.league.name, lcountry:f.league.country||'', llogo:f.league.logo||'', season:f.league.season,
+      date:f.fixture.date.slice(0,10), time:f.fixture.date.slice(11,16),
+      status:f.fixture.status.short, elapsed:f.fixture.status.elapsed,
+      home:f.teams.home.name, away:f.teams.away.name, gh:f.goals.home, ga:f.goals.away })) };
+    gradeRecord(afState.scores.list);
+    saveState();
+    renderScores();
+  }catch(e){ $('scoresMeta').textContent = '✗ ' + e.message; }
+}
+
+function ensureLeagueFromScore(s){
+  if(!afState.leagues[s.lid]){
+    afState.leagues[s.lid] = {id:s.lid, name:s.lname, country:s.lcountry, flag:'', logo:s.llogo,
+      matches:[], teamIds:{}, upcoming:[], scorerText:'', season:s.season, histTried:false, sport:'football'};
+    if(!afState.leagueOrder.includes(s.lid)) afState.leagueOrder.push(s.lid);
+  }
+  const L = afState.leagues[s.lid];
+  let f = L.upcoming.find(x=>x.fxid===s.fxid);
+  if(!f){ f = {fxid:s.fxid, date:s.date, time:s.time, home:s.home, away:s.away}; L.upcoming.push(f); }
+  return {L, f};
+}
+
+function renderScores(){
+  const box = $('scoresList');
+  if(!afState.scores || !afState.scores.list.length){
+    $('scoresMeta').textContent = afState.scores ? 'No major matches today.' : $('scoresMeta').textContent;
+    box.innerHTML = ''; return;
+  }
+  const t = new Date(afState.scores.at);
+  const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
+  const live = afState.scores.list.filter(s=>LIVE_CODES.includes(s.status)).length;
+  $('scoresMeta').innerHTML = `Updated ${hh}:${mm} · ${afState.scores.list.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
+  const sf = afState.scoreFilter || 'all';
+  let list = afState.scores.list;
+  if(sf==='live') list = list.filter(s=>LIVE_CODES.includes(s.status));
+  else if(sf==='ns') list = list.filter(s=>s.status==='NS'||s.status==='TBD');
+  else if(sf==='ft') list = list.filter(s=>['FT','AET','PEN'].includes(s.status));
+  // group by league, sorted by importance
+  const groups = {};
+  for(const s of list) (groups[s.lid] = groups[s.lid] || []).push(s);
+  const ordered = Object.values(groups).sort((a,b)=>
+    leaguePriority({id:b[0].lid,name:b[0].lname}) - leaguePriority({id:a[0].lid,name:a[0].lname}));
+  let html = `<div class="sfilters">
+    ${[['all','All'],['live','🔴 Live'],['ns','Upcoming'],['ft','Finished']].map(([v,l])=>
+      `<button class="sfchip${sf===v?' active':''}" data-sf="${v}">${l}</button>`).join('')}</div>`;
+  const rowRefs = [];
+  for(const g of ordered){
+    const s0 = g[0];
+    const badge = s0.llogo ? `<img src="${s0.llogo}" style="width:16px;height:16px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆';
+    html += `<div class="lghead">${badge} ${s0.lname} <span class="muted" style="font-size:.7rem;font-weight:600">${s0.lcountry}</span></div>`;
+    for(const s of g){
+      const isLive = LIVE_CODES.includes(s.status);
+      const done = ['FT','AET','PEN'].includes(s.status);
+      const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? s.time : s.status;
+      const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}` : '–';
+      const canOpen = s.status==='NS' || s.status==='TBD';
+      const i = rowRefs.length; rowRefs.push(s);
+      html += `<div class="scrow${isLive?' islive':''}">
+        <span class="scstat">${stat}</span>
+        <span class="fxteams"><span class="tline">${crest(s.home)}${s.home}</span><span class="tline">${crest(s.away)}${s.away}</span></span>
+        <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span>
+        ${canOpen?`<button class="fxbtn scopen" data-i="${i}">›</button>`:''}</div>`;
+    }
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
+  box.querySelectorAll('.scopen').forEach(b=>b.addEventListener('click',()=>{
+    const s = rowRefs[+b.dataset.i];
+    const {L, f} = ensureLeagueFromScore(s);
+    openFixture(L.id, f, b);
+  }));
+}
+
+/* ---------- open a fixture for full analysis (engine first, API fallback) ---------- */
+async function openFixture(leagueId, f, btn){
+  const L = afState.leagues[leagueId]; if(!L) return;
+  if((L.sport||'football')!=='football') return;
+  if(btn) btn.disabled = true;
+  if(L.matches.length < 15 && !L.histTried){
+    L.histTried = true;
+    try{
+      const ft = await afFetch(`/fixtures?league=${leagueId}&season=${L.season||afState.season}&status=FT`);
+      if(ft.length){
+        L.matches = ft.map(x=>{
+          L.teamIds[x.teams.home.name]=x.teams.home.id; L.teamIds[x.teams.away.name]=x.teams.away.id;
+          regLogo(x.teams.home); regLogo(x.teams.away);
+          return {date:x.fixture.date.slice(0,10), home:x.teams.home.name, away:x.teams.away.name, hg:+x.goals.home, ag:+x.goals.away};
+        }).sort((a,b)=> a.date<b.date?-1:1);
+        const tmp = Object.create(footballEngine); tmp.matches = L.matches;
+        for(const fx of L.upcoming){
+          const p = tmp.predict(fx.home, fx.away);
+          if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]);
+                 fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3); recordPick(L.name, fx); }
+        }
+      }
+    }catch(e){ /* plan-blocked — API prediction fallback below */ }
+    saveState();
+  }
+  activateLeague(leagueId);
+  if(btn) btn.disabled = false;
+  const ts = footballEngine.teams();
+  if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
+    await afEnsureScorers(leagueId);
+    $('homeTeam').value = f.home; $('awayTeam').value = f.away;
+    await analyze();
+    renderFixtures();
+  } else {
+    await apiAnalyze(f, L);
+  }
+}
+
+/* ---------- AI strong picks (Analysis tab) ---------- */
+function renderStrongPicks(){
+  const box = $('strongPicks'); if(!box) return;
+  const stats = recordStats();
+  $('recordLine').innerHTML = stats
+    ? `Engine record: <b style="color:var(--green2)">${stats.hits}/${stats.n} correct (${stats.pct}%)</b> — picks are recorded and graded automatically as results arrive.`
+    : 'Every prediction is recorded and graded automatically once its match finishes — your accuracy record builds here.';
+  const picks = [];
+  for(const id of afState.leagueOrder){
+    const L = afState.leagues[id];
+    if(!L || (L.sport||'football')!=='football') continue;
+    for(const f of L.upcoming) if(f.pick && f.prob>=0.55) picks.push({L, f});
+  }
+  picks.sort((a,b)=>b.f.prob-a.f.prob);
+  if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
+  let html=''; const refs=[];
+  for(const {L,f} of picks.slice(0,15)){
+    const i=refs.length; refs.push({L,f});
+    html += `<div class="fxrow"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span>
+      <span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>
+      <span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>
+      <button class="fxbtn spopen" data-i="${i}">›</button></div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('.spopen').forEach(b=>b.addEventListener('click',()=>{
+    const {L,f}=refs[+b.dataset.i]; openFixture(L.id, f, b);
+  }));
+}
+
 function renderCompsDrop(){
   const box = $('compsDrop'); if(!box) return;
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
-  const all = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length);
+  const all = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
   const fb = all.filter(l=>(l.sport||'football')==='football').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const cnt = ls=>ls.reduce((s,l)=>s+l.upcoming.length,0);
@@ -1360,87 +1565,9 @@ function renderFixtures(){
   }
   $('fixtureList').innerHTML = html || '<div class="subnote">No fixtures on this day.</div>';
 
-  document.querySelectorAll('.fxbtn').forEach(b=>b.addEventListener('click', async ()=>{
+  document.querySelectorAll('#fixtureList .fxbtn').forEach(b=>b.addEventListener('click', ()=>{
     const {leagueId, f} = dayList[+b.dataset.i];
-    const L = afState.leagues[leagueId];
-    b.disabled = true;
-
-    if((L.sport||'football')==='basketball'){
-      if(L.matches.length < 15 && !L.histTried){
-        L.histTried = true;
-        try{
-          const gs = await afFetch(`/games?league=${leagueId}&season=${L.season}`, BK_BASE);
-          const fin = gs.filter(g=>g.status && g.status.short==='FT' && g.scores && g.scores.home && g.scores.home.total!=null);
-          if(fin.length){
-            L.matches = fin.map(g=>{
-              L.teamIds[g.teams.home.name]=g.teams.home.id; L.teamIds[g.teams.away.name]=g.teams.away.id;
-              regLogo(g.teams.home); regLogo(g.teams.away);
-              return {date:String(g.date||'').slice(0,10), home:g.teams.home.name, away:g.teams.away.name, hp:+g.scores.home.total, ap:+g.scores.away.total};
-            }).sort((a,b)=> a.date<b.date?-1:1);
-            const tmp = Object.create(basketballEngine); tmp.matches = L.matches;
-            for(const fx of L.upcoming){
-              const p = tmp.predict(fx.home, fx.away);
-              if(p){ fx.pick = p.pHome>=0.5?'1':'2'; fx.prob = +Math.max(p.pHome,p.pAway).toFixed(3); }
-            }
-          }
-        }catch(e){ L.histErr = e.message; }
-        saveState();
-      }
-      activateLeague(leagueId);
-      b.disabled = false;
-      const ts = basketballEngine.teams();
-      if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
-        $('homeTeam').value = f.home; $('awayTeam').value = f.away;
-        analyze();
-        renderFixtures();
-      } else {
-        showAnalysis();
-        $('heroHome').innerHTML = heroSide(f.home,'Home');
-        $('heroAway').innerHTML = heroSide(f.away,'Away');
-        $('heroPick').textContent = f.home + ' vs ' + f.away;
-        $('heroConf').textContent = '';
-        $('resultSide').textContent = '';
-        for(const id of ['acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
-        $('outcomeRows').innerHTML=''; $('xgInfo').textContent=''; $('formBox').innerHTML=''; $('h2hBox').innerHTML='No data.';
-        $('analysisText').textContent = L.histErr
-          ? `Could not load this competition's game history: ${L.histErr}${L.histErr.toLowerCase().includes('not subscribed')||L.histErr.toLowerCase().includes('http 4')?' — your key may not be activated for the Basketball API. Get a free basketball key at dashboard.api-sports.io.':''}`
-          : 'Not enough game history is available for this competition on your plan, and basketball has no API prediction fallback. Try an NBA season 2021-2023, or upload basketball results as CSV in the Data tab.';
-        $('verdictBox').textContent = '';
-      }
-      return;
-    }
-
-    if(L.matches.length < 15 && !L.histTried){
-      L.histTried = true;
-      try{
-        const ft = await afFetch(`/fixtures?league=${leagueId}&season=${L.season||afState.season}&status=FT`);
-        if(ft.length){
-          L.matches = ft.map(x=>{
-            L.teamIds[x.teams.home.name]=x.teams.home.id; L.teamIds[x.teams.away.name]=x.teams.away.id;
-            regLogo(x.teams.home); regLogo(x.teams.away);
-            return {date:x.fixture.date.slice(0,10), home:x.teams.home.name, away:x.teams.away.name, hg:+x.goals.home, ag:+x.goals.away};
-          }).sort((a,b)=> a.date<b.date?-1:1);
-          const tmp = Object.create(footballEngine); tmp.matches = L.matches;
-          for(const fx of L.upcoming){
-            const p = tmp.predict(fx.home, fx.away);
-            if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]);
-                   fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3); }
-          }
-        }
-      }catch(e){ /* season blocked on this plan — fall through to API prediction */ }
-      saveState();
-    }
-    activateLeague(leagueId);
-    b.disabled = false;
-    const ts = footballEngine.teams();
-    if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
-      await afEnsureScorers(leagueId);
-      $('homeTeam').value = f.home; $('awayTeam').value = f.away;
-      analyze();
-      renderFixtures();
-    } else {
-      apiAnalyze(f, L);
-    }
+    openFixture(leagueId, f, b);
   }));
 }
 
@@ -1452,7 +1579,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
 }
@@ -1472,6 +1599,8 @@ function restoreState(){
       afState.selectedDate = s.af.selectedDate || '';
       afState.filter = s.af.filter || 'all';
       afState.logos = s.af.logos || {};
+      afState.scores = s.af.scores || null;
+      afState.record = s.af.record || [];
       if(afState.activeLeagueId && afState.leagues[afState.activeLeagueId])
         afState.teamIds = afState.leagues[afState.activeLeagueId].teamIds || {};
     }
@@ -1495,10 +1624,7 @@ $('segComps').addEventListener('click', ()=>{
 });
 $('segAnalysis').addEventListener('click', showAnalysis);
 $('backToFeed').addEventListener('click', showFeed);
-$('manualSport').addEventListener('change', ()=>{
-  currentSport = $('manualSport').value;
-  refreshTeams();
-});
+
 
 document.querySelectorAll('.acc-head').forEach(h=>h.addEventListener('click',()=>{
   h.parentElement.classList.toggle('open');
@@ -1537,8 +1663,8 @@ $('saveScorersBtn').addEventListener('click', ()=>{
   alert(`Saved ${scorers.length} players.`);
 });
 $('afLoadBtn').addEventListener('click', afLoadAll);
-$('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; if($('manualSport'))$('manualSport').value='football'; afDiscover(); });
-$('discoverBtnBk').addEventListener('click', ()=>{ currentSport='basketball'; if($('manualSport'))$('manualSport').value='basketball'; afDiscover(); });
+$('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
+$('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
 $('saveKeyBtn').addEventListener('click', ()=>{
   apiKey = $('apiKey').value.trim();
@@ -1551,8 +1677,12 @@ basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
 loadScorers(SAMPLE_SCORERS);
 $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
-if(restoreState()){ refreshTeams(); renderFixtures(); }
+if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
+setTimeout(()=>{
+  const k = ($('afKey').value||'').trim();
+  if(k && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000)) afScores();
+}, 800);
 /* end of app */
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
