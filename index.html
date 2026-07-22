@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<meta name="theme-color" content="#070c18">
+<meta name="theme-color" content="#070c18" id="themeColorMeta">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <title>MatchMind PRO — AI Sports Predictions</title>
 <style>
   :root{
@@ -16,7 +16,21 @@
     --text:#eef2fa; --muted:#7e8db0; --muted2:#5a6a8f;
     --gold:#f6c344; --gold2:#ffd966; --green:#22c55e; --green2:#4ade80;
     --blue:#3b82f6; --red:#ef4444; --orange:#fb923c;
+    --navbg:rgba(9,14,26,.96); --topfade:rgba(7,12,24,.94); --overlay:rgba(7,12,24,.97);
+    --themecolor:#070c18;
   }
+  html[data-theme="light"]{
+    --bg:#eef1f8; --bg2:#ffffff; --card:#ffffff; --card2:#f3f6fc; --card3:#e8edf7;
+    --border:#dbe2f0; --border2:#c7d1e6;
+    --text:#0e1830; --muted:#5f6d8e; --muted2:#93a0bd;
+    --gold:#c9920f; --gold2:#e6a91a; --green:#15a34a; --green2:#12924a;
+    --blue:#2563eb; --red:#dc2626; --orange:#e07a16;
+    --navbg:rgba(255,255,255,.97); --topfade:rgba(238,241,248,.9); --overlay:rgba(238,241,248,.98);
+    --themecolor:#eef1f8;
+  }
+  html[data-theme="light"] .nav-btn .nic{ filter:grayscale(1) brightness(.7); }
+  html[data-theme="light"] .nav-btn.active .nic{ filter:none; }
+  html[data-theme="light"] .pro{ color:#1a1405; }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
   html,body{background:var(--bg);}
   body{color:var(--text); font-family:'Inter','Segoe UI',Roboto,system-ui,sans-serif; display:flex; justify-content:center; min-height:100vh;}
@@ -127,7 +141,7 @@
   .predchip{background:rgba(34,197,94,.12); border:1px solid var(--green); color:var(--green2); font-size:.74rem; font-weight:800; padding:5px 9px; border-radius:9px; white-space:nowrap;}
 
   /* ---------- top tabs & competitions dropdown ---------- */
-  .seg{display:flex; gap:8px; margin:4px 0 12px; position:sticky; top:0; z-index:40; background:linear-gradient(180deg,var(--bg2),rgba(7,12,24,.94)); backdrop-filter:blur(12px); padding:10px 2px;}
+  .seg{display:flex; gap:8px; margin:4px 0 12px; position:sticky; top:0; z-index:40; background:linear-gradient(180deg,var(--bg2),var(--topfade)); backdrop-filter:blur(12px); padding:10px 2px;}
   .seg-btn{flex:1; padding:12px 0; border-radius:14px; border:1px solid var(--border); background:var(--card); color:var(--muted); font-size:.93rem; font-weight:800; cursor:pointer; transition:transform .08s;}
   .seg-btn:active{transform:scale(.97);}
   .seg-btn.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
@@ -164,11 +178,64 @@
   .favstar{margin-left:auto; cursor:pointer; color:var(--gold); font-size:1rem;}
 
   /* ---------- bottom nav ---------- */
-  .bottomnav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:rgba(9,14,26,.96); backdrop-filter:blur(10px); border-top:1px solid var(--border); display:flex; padding:10px 0 14px; z-index:50;}
+  .bottomnav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:var(--navbg); backdrop-filter:blur(10px); border-top:1px solid var(--border); display:flex; padding:10px 0 14px; z-index:50;}
   .nav-btn{flex:1; background:none; border:none; color:var(--muted2); font-size:.7rem; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px;}
   .nav-btn .nic{font-size:1.25rem; line-height:1; filter:grayscale(1) brightness(1.4); opacity:.55;}
   .nav-btn.active{color:var(--gold);}
   .nav-btn.active .nic{filter:none; opacity:1;}
+
+  /* ---------- v0.8 additions ---------- */
+  /* top-bar search */
+  .iconbtn{background:var(--card); border:1px solid var(--border); color:var(--muted); width:36px; height:36px; border-radius:11px; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .topright{display:flex; align-items:center; gap:8px;}
+  .searchOverlay{position:fixed; inset:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:var(--overlay); backdrop-filter:blur(14px); z-index:120; padding:14px; overflow-y:auto;}
+  .searchBar{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
+  .searchBar input{flex:1; background:var(--card2); color:var(--text); border:1px solid var(--border2); border-radius:12px; padding:13px 14px; font-size:.95rem;}
+  .sres-grp{font-size:.66rem; font-weight:700; letter-spacing:.14em; color:var(--muted); text-transform:uppercase; margin:16px 4px 6px;}
+  .sres{display:flex; align-items:center; gap:10px; padding:12px 6px; border-bottom:1px solid var(--border); cursor:pointer; font-size:.92rem; font-weight:600;}
+  .sres:last-child{border-bottom:none;}
+  .sres .sub{color:var(--muted); font-size:.74rem; font-weight:600;}
+
+  /* horizontal scrollable market tabs */
+  .htabs{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 12px; scrollbar-width:none; position:sticky; top:0; z-index:30; background:linear-gradient(180deg,var(--bg2),var(--topfade)); backdrop-filter:blur(10px);}
+  .htabs::-webkit-scrollbar{display:none;}
+  .htab{flex:0 0 auto; padding:10px 15px; border-radius:13px; border:1px solid var(--border); background:var(--card); color:var(--muted); font-size:.86rem; font-weight:800; cursor:pointer; white-space:nowrap;}
+  .htab.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
+
+  /* grading chips on fixtures */
+  .predchip.hit{background:rgba(34,197,94,.16); border-color:var(--green); color:var(--green2);}
+  .predchip.miss{background:rgba(239,68,68,.14); border-color:var(--red); color:#fca5a5;}
+  html[data-theme="light"] .predchip.miss{color:#b91c1c;}
+  .fxtime.ft{color:var(--text); font-weight:800; text-align:center; line-height:1.25;}
+  .fxtime.ft .ftl{font-size:.6rem; color:var(--muted); font-weight:700; letter-spacing:.1em;}
+
+  /* match favourite star */
+  .mstar{cursor:pointer; color:var(--gold); font-size:1.05rem; flex-shrink:0; width:22px; text-align:center;}
+  .mstar.off{color:var(--muted2);}
+
+  /* risk slider */
+  .rslider{width:100%; margin:8px 0 4px; -webkit-appearance:none; appearance:none; height:8px; border-radius:6px; background:linear-gradient(90deg,var(--green),var(--gold),var(--red)); outline:none;}
+  .rslider::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:22px; border-radius:50%; background:var(--text); border:3px solid var(--gold); cursor:pointer;}
+  .rslider::-moz-range-thumb{width:20px; height:20px; border-radius:50%; background:var(--text); border:3px solid var(--gold); cursor:pointer;}
+  .rlabel{font-size:.82rem; font-weight:700; color:var(--gold); text-align:center; margin-bottom:4px;}
+
+  /* country accordion in slip */
+  .cgroup{width:100%;}
+  .cghead{display:flex; align-items:center; justify-content:space-between; width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:var(--card2); color:var(--text); font-size:.86rem; font-weight:700; cursor:pointer; margin-top:6px;}
+  .cghead.has{border-color:var(--gold); color:var(--gold);}
+  .cgleagues{display:flex; flex-wrap:wrap; gap:6px; padding:8px 4px 2px;}
+
+  /* toast */
+  .toast{position:fixed; bottom:92px; left:50%; transform:translateX(-50%); background:var(--card3); color:var(--text); border:1px solid var(--border2); border-radius:22px; padding:11px 20px; font-size:.86rem; font-weight:700; z-index:200; box-shadow:0 8px 30px rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none;}
+  .toast.show{opacity:1;}
+
+  /* settings rows */
+  .setrow{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--border);}
+  .setrow:last-child{border-bottom:none;}
+  .setrow .sl{font-size:.9rem; font-weight:600;}
+  .setrow .sd{font-size:.72rem; color:var(--muted);}
+  .segsm{display:flex; gap:6px;}
+  .segsm .sfchip{padding:8px 12px;}
 </style>
 </head>
 <body>
@@ -176,8 +243,22 @@
 
   <div class="topbar">
     <div class="brand"><span class="ball">⚽</span>MatchMind <span class="pro">PRO</span></div>
-    <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
+    <div class="topright">
+      <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
+      <button class="iconbtn" id="searchOpen" aria-label="Search">🔍</button>
+    </div>
   </div>
+
+  <!-- ================= SEARCH OVERLAY ================= -->
+  <div class="searchOverlay hidden" id="searchOverlay">
+    <div class="searchBar">
+      <input id="searchInput" type="search" placeholder="Search teams, competitions, matches…" autocomplete="off">
+      <button class="iconbtn" id="searchClose" aria-label="Close">✕</button>
+    </div>
+    <div id="searchResults"><div class="subnote">Type to search everything loaded on your device — instant, no data used.</div></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
 
   <!-- ================= PREDICT VIEW ================= -->
   <!-- ================= SCORES TAB ================= -->
@@ -209,45 +290,62 @@
       <div class="card" id="fixtureList"></div>
     </div>
 
-    <div class="sec-label">Manual matchup</div>
-    <div class="card">
-      <div class="picker">
-        <div class="pick-side"><label>Home</label><select id="homeTeam"></select></div>
-        <div class="vs">VS</div>
-        <div class="pick-side"><label>Away</label><select id="awayTeam"></select></div>
-      </div>
-    </div>
-    <button class="cta" id="analyzeBtn">⚡ Analyze Fixture</button>
-
   </div>
 
   <!-- ================= TIPS TAB ================= -->
   <div class="view hidden" id="view-tips">
-    <div class="sec-label">Slip generator</div>
-    <div class="card">
-      <h2>🎰 Bet Slip Generator</h2>
-      <div class="field"><label>Number of games</label><div class="sfilters" id="slipN"></div></div>
-      <div class="field"><label>Risk level</label><div class="sfilters" id="slipRisk"></div></div>
-      <div class="field"><label>Scope</label><div class="sfilters" id="slipToday"></div></div>
-      <div class="field"><label>Leagues</label><div class="sfilters" id="slipLeagues" style="flex-wrap:wrap;"></div></div>
-      <div class="field"><label>Bet types</label><div class="sfilters" id="slipMarkets"></div></div>
-      <button class="cta green" id="genSlipBtn" style="margin:6px 0 4px;">⚡ Generate Slip</button>
-      <div id="slipOut"></div>
+    <div class="htabs" id="tipTabs"></div>
+
+    <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
+    <div id="tipListWrap">
+      <div class="sfilters" style="margin:2px 0 8px">
+        <button class="sfchip" id="tipFairToggle">Show fair odds</button>
+      </div>
+      <div class="card" id="tipList"></div>
     </div>
-    <div class="sec-label">AI strong picks</div>
-    <div class="card">
-      <h2>🔥 AI Strong Picks</h2>
-      <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
-      <div id="strongPicks"></div>
+
+    <!-- Smart Bet also shows the accuracy record + strong picks -->
+    <div id="strongCard" class="hidden">
+      <div class="sec-label">AI strong picks</div>
+      <div class="card">
+        <h2>🔥 AI Strong Picks</h2>
+        <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
+        <div id="strongPicks"></div>
+      </div>
+    </div>
+
+    <!-- Slip generator -->
+    <div id="slipCard" class="hidden">
+      <div class="sec-label">Slip generator</div>
+      <div class="card">
+        <h2>🎰 Bet Slip Generator</h2>
+        <div class="field"><label>Number of games</label><div class="sfilters" id="slipN"></div></div>
+        <div class="field"><label>Target risk</label>
+          <div class="rlabel" id="riskLabel"></div>
+          <input type="range" min="1" max="99" value="30" class="rslider" id="riskSlider">
+        </div>
+        <div class="field"><label>Scope</label><div class="sfilters" id="slipToday"></div></div>
+        <div class="field"><label>Leagues</label><div id="slipLeagues"></div></div>
+        <div class="field"><label>Bet types</label><div class="sfilters" id="slipMarkets" style="flex-wrap:wrap;"></div></div>
+        <button class="cta green" id="genSlipBtn" style="margin:6px 0 4px;">⚡ Generate Slip</button>
+        <div id="slipOut"></div>
+      </div>
     </div>
   </div>
 
   <!-- ================= FAVOURITES TAB ================= -->
   <div class="view hidden" id="view-favs">
-    <div class="sec-label">Your favourites</div>
-    <div class="card" id="favManage"></div>
-    <div class="sec-label">Favourite matches</div>
-    <div class="card" id="favFeed"></div>
+    <div class="sfilters" id="favTabs" style="margin-top:6px"></div>
+    <div id="favMatchesWrap">
+      <div class="sec-label">Starred matches</div>
+      <div class="card" id="favFeed"></div>
+    </div>
+    <div id="favLeaguesWrap" class="hidden">
+      <div class="sec-label">Competitions &amp; teams</div>
+      <div class="card" id="favManage"></div>
+      <div class="sec-label">Upcoming in your favourites</div>
+      <div class="card" id="favLeagueFeed"></div>
+    </div>
   </div>
 
   <!-- ================= DETAIL VIEW (analysis & match centre) ================= -->
@@ -332,6 +430,42 @@
 
   <!-- ================= DATA VIEW ================= -->
   <div class="view hidden" id="view-data">
+
+    <div class="sec-label">Settings</div>
+    <div class="card">
+      <h2>⚙️ Settings</h2>
+      <div class="setrow">
+        <div><div class="sl">Theme</div><div class="sd">Appearance of the app</div></div>
+        <div class="segsm" id="themeChips"></div>
+      </div>
+      <div class="setrow">
+        <div><div class="sl">Language</div><div class="sd">More languages coming soon</div></div>
+        <div class="segsm"><button class="sfchip active">English</button></div>
+      </div>
+      <div class="setrow">
+        <div><div class="sl">Notifications</div><div class="sd">Daily picks &amp; kickoff alerts — coming soon</div></div>
+        <div class="segsm"><button class="sfchip" id="notifToggle">Off</button></div>
+      </div>
+      <div class="setrow">
+        <div><div class="sl">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div>
+        <button class="btn" id="goFavs">Open ⭐</button>
+      </div>
+      <div class="setrow">
+        <div><div class="sl">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.8</span></div></div>
+        <span class="muted" style="font-size:.72rem">AI sports predictions</span>
+      </div>
+    </div>
+
+    <div class="sec-label">Custom matchup</div>
+    <div class="card">
+      <div class="notice">Analyze any two teams from the loaded data — a power tool independent of the fixtures feed.</div>
+      <div class="picker">
+        <div class="pick-side"><label>Home</label><select id="homeTeam"></select></div>
+        <div class="vs">VS</div>
+        <div class="pick-side"><label>Away</label><select id="awayTeam"></select></div>
+      </div>
+      <button class="cta" id="analyzeBtn" style="margin-top:12px">⚡ Analyze Fixture</button>
+    </div>
 
     <div class="sec-label">Live data</div>
     <div class="card">
@@ -420,7 +554,7 @@
 <script>
 "use strict";
 /* ================================================================
-   MatchMind PRO v0.3
+   MatchMind PRO v0.8
    PART 1: math engine   PART 2: AI writer
    PART 2.5: API-Football live data   PART 3: UI glue
    ================================================================ */
@@ -687,6 +821,7 @@ const footballEngine = {
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
     const MAX=13;
     let pW=0,pD=0,pL=0, scores=[], over={1.5:0,2.5:0,3.5:0}, btts=0, total=0;
+    let hHcap=0,aHcap=0,hT15=0,aT15=0;   // handicap -1.5 (win by 2+) and team over 1.5
     for(let i=0;i<MAX;i++)for(let j=0;j<MAX;j++){
       const p = poissonPMF(lambdaH,i)*poissonPMF(lambdaA,j);
       total+=p;
@@ -694,10 +829,13 @@ const footballEngine = {
       const tot=i+j;
       if(tot>1.5)over[1.5]+=p; if(tot>2.5)over[2.5]+=p; if(tot>3.5)over[3.5]+=p;
       if(i>0&&j>0)btts+=p;
+      if(i-j>=2)hHcap+=p; if(j-i>=2)aHcap+=p;
+      if(i>=2)hT15+=p; if(j>=2)aT15+=p;
       scores.push({score:`${i}-${j}`, p});
     }
     pW/=total; pD/=total; pL/=total; btts/=total;
     for(const k of [1.5,2.5,3.5]) over[k]/=total;
+    hHcap/=total; aHcap/=total; hT15/=total; aT15/=total;
     scores.forEach(s=>s.p/=total);
     scores.sort((x,y)=>y.p-x.p);
     // calibration: flatten probabilities so stated confidence matches real-world hit rates
@@ -707,7 +845,9 @@ const footballEngine = {
     const flat2 = p=>{ const x=Math.pow(p,T), y=Math.pow(1-p,T); return x/(x+y); };
     for(const k of [1.5,2.5,3.5]) over[k]=flat2(over[k]);
     btts = flat2(btts);
-    return {lambdaH, lambdaA, pW, pD, pL, over, btts, topScores:scores.slice(0,5)};
+    const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
+    const team = {h15:flat2(hT15), a15:flat2(aT15)};    // team total over 1.5
+    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, topScores:scores.slice(0,5)};
   },
 
   form(team, k=5){
@@ -872,7 +1012,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[] };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[], favM:[], favTab:'matches' };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 async function afFetch(path, base){
@@ -1098,6 +1238,240 @@ function probRow(label, p, gold){
 }
 
 function pill(r){ return `<span class="form-pill fp-${r}">${r}</span>`; }
+
+/* ================================================================
+   v0.8 — SHARED HELPERS
+   ================================================================ */
+function todayStrLocal(){ const d=new Date(); d.setHours(0,0,0,0);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function daysPast(dateStr){
+  const d=new Date((dateStr||'')+'T00:00:00'); if(isNaN(d)) return 0;
+  const now=new Date(); now.setHours(0,0,0,0);
+  return Math.round((now-d)/86400000);
+}
+const FINISHED=['FT','AET','PEN'];
+function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(const s of afState.scores.list) m[s.fxid]=s; return m; }
+function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!=null && s.ga!=null); }
+// final result for a fixture: today's scores by id, else league history by teams+date
+function fixtureResult(L,f,smap){
+  smap=smap||scoreMap();
+  const s = f.fxid!=null ? smap[f.fxid] : null;
+  if(isFinishedScore(s)) return {gh:s.gh, ga:s.ga};
+  if(L && L.matches){ const m=L.matches.find(x=>x.date===f.date && x.home===f.home && x.away===f.away); if(m) return {gh:m.hg, ga:m.ag}; }
+  return null;
+}
+function actualCode(gh,ga){ return gh>ga?'1':gh===ga?'X':'2'; }
+// time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
+function fxCells(L,f,smap){
+  const res=fixtureResult(L,f,smap);
+  if(res){
+    const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">FT</span></span>`;
+    let chip='';
+    if(f.pick){ const hit=f.pick===actualCode(res.gh,res.ga); chip=`<span class="predchip ${hit?'hit':'miss'}">${f.pick} ${hit?'✓':'✗'}</span>`; }
+    return {timeCell, chip, finished:true};
+  }
+  return {timeCell:`<span class="fxtime">${f.time||''}</span>`,
+          chip: f.pick?`<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>`:'',
+          finished:false};
+}
+let _toastT=null;
+function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
+
+// engine prediction for a loaded fixture (needs league history)
+function fxPredict(L,f){
+  if(L && L.matches && L.matches.length>=15){ const tmp=Object.create(footballEngine); tmp.matches=L.matches; return tmp.predict(f.home,f.away); }
+  return null;
+}
+// every priceable selection for a fixture, from the engine's numbers
+function allSelections(P,f){
+  const S=[]; const add=(m,sel,prob,code)=>{ if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null}); };
+  add('Winner', f.home+' to win', P.pW,'1'); add('Winner','Draw',P.pD,'X'); add('Winner', f.away+' to win', P.pL,'2');
+  add('Double Chance', f.home+' or Draw', P.pW+P.pD); add('Double Chance','Home or Away', P.pW+P.pL); add('Double Chance','Draw or '+f.away, P.pD+P.pL);
+  const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb); }
+  add('Goals','Over 2.5',P.over[2.5]); add('Goals','Under 2.5',1-P.over[2.5]);
+  add('Goals','Over 1.5',P.over[1.5]); add('Goals','Under 1.5',1-P.over[1.5]);
+  add('Goals','Over 3.5',P.over[3.5]); add('Goals','Under 3.5',1-P.over[3.5]);
+  add('BTTS','BTTS Yes',P.btts); add('BTTS','BTTS No',1-P.btts);
+  if(P.hcap){ add('Handicap', f.home+' -1.5',P.hcap.h); add('Handicap', f.away+' -1.5',P.hcap.a); add('Handicap', f.home+' +1.5',1-P.hcap.a); add('Handicap', f.away+' +1.5',1-P.hcap.h); }
+  if(P.team){ add('Team total', f.home+' Over 1.5',P.team.h15); add('Team total', f.away+' Over 1.5',P.team.a15); add('Team total', f.home+' Under 1.5',1-P.team.h15); add('Team total', f.away+' Under 1.5',1-P.team.a15); }
+  if(P.topScores&&P.topScores[0]) add('Correct score', P.topScores[0].score, P.topScores[0].p);
+  return S;
+}
+function fairOdds(p){ return p>0 ? (1/p).toFixed(2) : '—'; }
+
+/* ---------- match favourites (#7) ---------- */
+function isFavMatch(fxid){ return fxid!=null && afState.favM.some(x=>x.fxid===fxid); }
+function toggleFavMatch(f,meta){
+  if(f.fxid==null){ toast('This match can’t be starred yet'); return; }
+  const i=afState.favM.findIndex(x=>x.fxid===f.fxid);
+  if(i>=0) afState.favM.splice(i,1);
+  else afState.favM.push({fxid:f.fxid, date:f.date, time:f.time||'', home:f.home, away:f.away, lid:(meta&&meta.lid)||null, lname:(meta&&meta.lname)||'', pick:f.pick||null, prob:f.prob||null});
+  saveState();
+}
+function starHtml(fxid){ return `<span class="mstar${isFavMatch(fxid)?'':' off'}">${isFavMatch(fxid)?'★':'☆'}</span>`; }
+
+/* ---------- theme (#10) ---------- */
+let themeMode='dark';
+function themeEffective(){ if(themeMode==='auto') return (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark'; return themeMode; }
+function applyTheme(){ const eff=themeEffective(); document.documentElement.setAttribute('data-theme',eff);
+  const meta=$('themeColorMeta'); if(meta) meta.setAttribute('content', eff==='light'?'#eef1f8':'#070c18'); renderThemeChips(); }
+function setTheme(m){ themeMode=m; try{ localStorage.setItem('mm_theme',m); }catch(e){} applyTheme(); }
+function renderThemeChips(){ const box=$('themeChips'); if(!box) return;
+  box.innerHTML=[['dark','🌙 Dark'],['light','☀️ Light'],['auto','🅰 Auto']].map(([v,l])=>`<button class="sfchip${themeMode===v?' active':''}" data-th="${v}">${l}</button>`).join('');
+  box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.th))); }
+
+/* ---------- in-app / Android back (#5) ---------- */
+let _exitArmed=false;
+function setupBackHandler(){ try{ history.replaceState({mm:'root'},''); history.pushState({mm:'app'},''); }catch(e){} window.addEventListener('popstate', onBack); }
+function onBack(){
+  const so=$('searchOverlay');
+  if(so && !so.classList.contains('hidden')){ closeSearch(); history.pushState({mm:'app'},''); return; }
+  const drop=$('compsDrop');
+  if(drop && !drop.classList.contains('hidden')){ drop.classList.add('hidden'); history.pushState({mm:'app'},''); return; }
+  if(!$('view-detail').classList.contains('hidden')){ navTo(lastTab); history.pushState({mm:'app'},''); return; }
+  if(lastTab!=='scores'){ navTo('scores'); history.pushState({mm:'app'},''); return; }
+  if(_exitArmed){ window.removeEventListener('popstate', onBack); history.back(); return; }
+  _exitArmed=true; toast('Press back again to exit'); setTimeout(()=>_exitArmed=false,2000); history.pushState({mm:'app'},'');
+}
+
+/* ---------- on-device search (#12) ---------- */
+function openSearch(){ $('searchOverlay').classList.remove('hidden'); const i=$('searchInput'); i.value=''; renderSearch(''); setTimeout(()=>i.focus(),50); }
+function closeSearch(){ $('searchOverlay').classList.add('hidden'); }
+function searchData(q){
+  q=(q||'').trim().toLowerCase(); const comps=[], teamSet=new Set(), matches=[], seen=new Set();
+  if(!q) return {comps,teams:[],matches:[]};
+  const order=afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues);
+  for(const id of order){ const L=afState.leagues[id]; if(!L) continue;
+    if((L.name||'').toLowerCase().includes(q)||(L.country||'').toLowerCase().includes(q)) comps.push(L);
+    for(const t of Object.keys(L.teamIds||{})) if(t.toLowerCase().includes(q)) teamSet.add(t);
+    for(const f of (L.upcoming||[])){
+      if((f.home||'').toLowerCase().includes(q)) teamSet.add(f.home);
+      if((f.away||'').toLowerCase().includes(q)) teamSet.add(f.away);
+      if((f.home+' '+f.away).toLowerCase().includes(q)){ const k='u'+(f.fxid||f.home+f.away+f.date); if(!seen.has(k)){ seen.add(k); matches.push({type:'up',L,f}); } }
+    }
+  }
+  if(afState.scores) for(const s of afState.scores.list){
+    if((s.home||'').toLowerCase().includes(q)) teamSet.add(s.home);
+    if((s.away||'').toLowerCase().includes(q)) teamSet.add(s.away);
+    if((s.home+' '+s.away).toLowerCase().includes(q)){ const k='s'+s.fxid; if(!seen.has(k)){ seen.add(k); matches.push({type:'score',s}); } }
+  }
+  return {comps:comps.slice(0,8), teams:[...teamSet].slice(0,14), matches:matches.slice(0,18)};
+}
+function renderSearch(q){
+  const box=$('searchResults'); const {comps,teams,matches}=searchData(q);
+  if(!q){ box.innerHTML='<div class="subnote">Type to search everything loaded on your device — instant, no data used.</div>'; return; }
+  if(!comps.length&&!teams.length&&!matches.length){ box.innerHTML='<div class="subnote">No matches for “'+q+'”. Load more via More → API-Football or Predict → Discover.</div>'; return; }
+  let html=''; const mrefs=[], crefs=[], trefs=[];
+  if(matches.length){ html+='<div class="sres-grp">Matches</div>';
+    for(const m of matches){ const i=mrefs.length; mrefs.push(m);
+      const h=m.type==='up'?m.f.home:m.s.home, a=m.type==='up'?m.f.away:m.s.away, ln=m.type==='up'?m.L.name:(m.s.lname||'');
+      html+=`<div class="sres" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
+  if(comps.length){ html+='<div class="sres-grp">Competitions</div>';
+    for(const L of comps){ const i=crefs.length; crefs.push(L);
+      html+=`<div class="sres" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
+  if(teams.length){ html+='<div class="sres-grp">Teams</div>';
+    for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" data-t="${i}">${crest(t)}${t}</div>`; } }
+  box.innerHTML=html;
+  box.querySelectorAll('[data-m]').forEach(el=>el.addEventListener('click',()=>{ const m=mrefs[+el.dataset.m]; closeSearch();
+    if(m.type==='up') openFixture(m.L.id,m.f);
+    else if(['NS','TBD'].includes(m.s.status)){ const {L,f}=ensureLeagueFromScore(m.s); openFixture(L.id,f); }
+    else matchDetail(m.s); }));
+  box.querySelectorAll('[data-c]').forEach(el=>el.addEventListener('click',()=>{ const L=crefs[+el.dataset.c]; closeSearch();
+    afState.filter=L.id; $('segComps').innerHTML='🏆 '+L.name+' ▾'; navTo('predict'); saveState(); }));
+  box.querySelectorAll('[data-t]').forEach(el=>el.addEventListener('click',()=>openTeam(trefs[+el.dataset.t])));
+}
+function openTeam(name){
+  closeSearch();
+  for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
+    const L=afState.leagues[id]; if(!L) continue;
+    const f=(L.upcoming||[]).find(x=>x.home===name||x.away===name);
+    if(f){ openFixture(L.id,f); return; }
+  }
+  if(afState.scores){ const s=afState.scores.list.find(x=>x.home===name||x.away===name);
+    if(s){ if(['NS','TBD'].includes(s.status)){ const {L,f}=ensureLeagueFromScore(s); openFixture(L.id,f); } else matchDetail(s); return; } }
+  toast('No loaded fixtures for '+name);
+}
+
+/* ---------- Tips market tabs (#9) ---------- */
+const tipState={ tab:'winner', fair:false };
+const TIP_TABS=[['winner','Winner'],['ou','O/U 2.5'],['btts','BTTS'],['smart','Smart Bet'],['slip','Slip Generator']];
+function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
+  box.innerHTML=TIP_TABS.map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
+  box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
+function renderTips(){
+  renderTipTabs();
+  const t=tipState.tab, isList=['winner','ou','btts','smart'].includes(t);
+  $('tipListWrap').classList.toggle('hidden', !isList);
+  $('slipCard').classList.toggle('hidden', t!=='slip');
+  $('strongCard').classList.toggle('hidden', t!=='smart');
+  $('tipFairToggle').textContent = tipState.fair?'Show %':'Show fair odds';
+  if(t==='slip'){ renderSlipUI(); return; }
+  if(t==='smart') renderStrongPicks();
+  if(isList) renderTipList(t);
+}
+function collectUpcoming(){
+  const today=todayStrLocal(), smap=scoreMap(), out=[];
+  for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
+    const L=afState.leagues[id]; if(!L||(L.sport||'football')!=='football') continue;
+    for(const f of (L.upcoming||[])){ if(f.date<today) continue;
+      const s=f.fxid!=null?smap[f.fxid]:null; if(isFinishedScore(s)) continue; out.push({L,f}); }
+  }
+  return out;
+}
+function tipPickFor(market,P,f){
+  if(market==='winner'){ const a=[['1',f.home+' win',P.pW],['X','Draw',P.pD],['2',f.away+' win',P.pL]].sort((x,y)=>y[2]-x[2])[0]; return {sel:a[1],prob:a[2],code:a[0]}; }
+  if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5]}:{sel:'Under 2.5',prob:1-P.over[2.5]};
+  if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts}:{sel:'BTTS No',prob:1-P.btts};
+  const sels=allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet'].includes(s.m)).sort((a,b)=>b.prob-a.prob);
+  return {sel:sels[0].sel, prob:sels[0].prob, m:sels[0].m};
+}
+function renderTipList(market){
+  const box=$('tipList'); if(!box) return;
+  const rows=[];
+  for(const {L,f} of collectUpcoming()){
+    const P=fxPredict(L,f);
+    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:(f.pick==='1'?f.home+' win':f.pick==='X'?'Draw':f.away+' win'),prob:f.prob,tag:''}); continue; }
+    const tp=tipPickFor(market,P,f);
+    rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||''});
+  }
+  rows.sort((a,b)=>b.prob-a.prob);
+  if(!rows.length){ box.innerHTML='<div class="subnote">No priceable fixtures yet — open fixtures or load competitions so the engine can price them.</div>'; return; }
+  const refs=[];
+  box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
+    const val = tipState.fair ? `<span class="predchip">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip">${(100*r.prob).toFixed(0)}%</span>`;
+    return `<div class="fxrow"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${r.f.time||''}</span>
+      <span class="fxteams"><span class="tline">${crest(r.f.home)}${r.f.home}</span><span class="tline">${crest(r.f.away)}${r.f.away}</span>
+      <span class="muted" style="font-size:.72rem">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b></span></span>
+      ${val}<button class="fxbtn tlopen" data-i="${i}">›</button></div>`; }).join('');
+  box.querySelectorAll('.tlopen').forEach(b=>b.addEventListener('click',()=>{ const r=refs[+b.dataset.i]; openFixture(r.L.id,r.f,b); }));
+}
+
+/* ---------- slip generator: markets + country groups (#6) ---------- */
+const SLIP_MARKETS=[['1X2','Winner'],['DC','Double Ch.'],['DNB','DNB'],['OU25','O/U 2.5'],['OU15','O/U 1.5'],['OU35','O/U 3.5'],['BTTS','BTTS'],['AH','Hcap ±1.5'],['TT','Team totals'],['CS','Correct score']];
+function slipCountryGroups(){
+  const g=[], idx={};
+  for(const L of footballLeagues()){
+    const key = (L.country && L.country!=='International') ? L.country : '🌍 World / International';
+    if(idx[key]==null){ idx[key]=g.length; g.push({country:key, Ls:[]}); }
+    g[idx[key]].Ls.push(L);
+  }
+  return g;
+}
+function slipMarketMatch(mKey,sel){
+  switch(mKey){
+    case '1X2': return sel.m==='Winner';
+    case 'DC': return sel.m==='Double Chance';
+    case 'DNB': return sel.m==='Draw No Bet';
+    case 'OU25': return sel.m==='Goals'&&sel.sel.includes('2.5');
+    case 'OU15': return sel.m==='Goals'&&sel.sel.includes('1.5');
+    case 'OU35': return sel.m==='Goals'&&sel.sel.includes('3.5');
+    case 'BTTS': return sel.m==='BTTS';
+    case 'AH': return sel.m==='Handicap';
+    case 'TT': return sel.m==='Team total';
+    case 'CS': return sel.m==='Correct score';
+  }
+  return false;
+}
 
 async function analyze(){
   const sport = currentSport;
@@ -1354,7 +1728,7 @@ function navTo(t){
   for(const v of NAV_VIEWS){ const el = $('view-'+v); if(el) el.classList.toggle('hidden', v!==t); }
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===t));
   if(t==='predict') renderFixtures();
-  if(t==='tips'){ renderSlipUI(); renderStrongPicks(); }
+  if(t==='tips') renderTips();
   if(t==='favs') renderFavs();
   window.scrollTo({top:0});
 }
@@ -1394,26 +1768,50 @@ function footballLeagues(){
   return order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
 }
 function renderFavs(){
+  const tabsBox=$('favTabs');
+  const tabs=[['matches','⭐ Matches'],['leagues','🏆 Leagues & teams']];
+  tabsBox.innerHTML=tabs.map(([v,l])=>`<button class="sfchip${afState.favTab===v?' active':''}" data-ft="${v}">${l}</button>`).join('');
+  tabsBox.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ afState.favTab=b.dataset.ft; saveState(); renderFavs(); }));
+  const showM = afState.favTab!=='leagues';
+  $('favMatchesWrap').classList.toggle('hidden', !showM);
+  $('favLeaguesWrap').classList.toggle('hidden', showM);
+  if(showM) renderFavMatches(); else renderFavLeagues();
+}
+function renderFavMatches(){
+  const feed=$('favFeed'), smap=scoreMap();
+  const list=afState.favM.filter(m=>daysPast(m.date)<=2).sort((a,b)=>(a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
+  if(!list.length){ feed.innerHTML='<div class="subnote">No starred matches yet. Tap the ☆ on any fixture (Scores, Predict, or a competition feed) to follow it here — it keeps its final score after kickoff.</div>'; return; }
+  const refs=[];
+  feed.innerHTML=list.map(m=>{ const i=refs.length; refs.push(m);
+    const L=m.lid!=null?afState.leagues[m.lid]:null;
+    const {timeCell,chip}=fxCells(L,m,smap);
+    return `<div class="fxrow"><span class="mstar" data-star="${i}">★</span>${timeCell}<span class="fxteams"><span class="tline">${crest(m.home)}${m.home}</span><span class="tline">${crest(m.away)}${m.away}</span><span class="muted" style="font-size:.7rem">${m.lname||''}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
+  }).join('');
+  feed.querySelectorAll('.fvopen').forEach(b=>b.addEventListener('click',()=>{ const m=refs[+b.dataset.i];
+    if(m.lid!=null && afState.leagues[m.lid]) openFixture(m.lid,m,b);
+    else{ const s=afState.scores&&afState.scores.list.find(x=>x.fxid===m.fxid); if(s) matchDetail(s); else toast('Open this match from its competition feed'); } }));
+  feed.querySelectorAll('[data-star]').forEach(st=>st.addEventListener('click',()=>{ const m=refs[+st.dataset.star]; toggleFavMatch(m,{lid:m.lid,lname:m.lname}); renderFavMatches(); }));
+}
+function renderFavLeagues(){
   const man=$('favManage');
   const lgs=afState.favL.map(id=>afState.leagues[id]).filter(Boolean);
   man.innerHTML = (lgs.length || afState.favT.length)
     ? (lgs.length?`<div class="sec-label" style="margin:2px 4px 6px">Competitions</div><div class="sfilters" style="flex-wrap:wrap">${lgs.map(l=>`<button class="sfchip active" data-lid="${l.id}">✕ ${l.name}</button>`).join('')}</div>`:'')
       + (afState.favT.length?`<div class="sec-label" style="margin:10px 4px 6px">Teams</div><div class="sfilters" style="flex-wrap:wrap">${afState.favT.map(t=>`<button class="sfchip active" data-t="${t}">✕ ${t}</button>`).join('')}</div>`:'')
-    : '<div class="subnote">No favourites yet. Star a competition with ☆ on the Predict tab, or star a team from any match analysis.</div>';
-  man.querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{ toggleFavLeague(+b.dataset.lid); renderFavs(); }));
-  man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0)afState.favT.splice(i,1); saveState(); renderFavs(); }));
-  const rows=[];
-  for(const L of footballLeagues())
-    for(const f of L.upcoming)
-      if(afState.favL.includes(L.id) || afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) rows.push({L,f});
-  rows.sort((a,b)=> (a.f.date+a.f.time) < (b.f.date+b.f.time) ? -1:1);
-  const feed=$('favFeed'); const refs=[];
-  feed.innerHTML = rows.length ? rows.slice(0,25).map(({L,f})=>{
-    const i=refs.length; refs.push({L,f});
-    const chip=f.pick?`<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>`:'';
-    return `<div class="fxrow"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span><span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="muted" style="font-size:.7rem">${L.name}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
-  }).join('') : '<div class="subnote">Matches involving your favourites will appear here.</div>';
+    : '<div class="subnote">No favourite competitions or teams yet. Star a competition with ☆ on the Predict tab, or star a team from any match analysis.</div>';
+  man.querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{ toggleFavLeague(+b.dataset.lid); renderFavLeagues(); }));
+  man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0)afState.favT.splice(i,1); saveState(); renderFavLeagues(); }));
+  const rows=[], smap=scoreMap();
+  for(const L of footballLeagues()) for(const f of L.upcoming)
+    if((afState.favL.includes(L.id)||afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) && daysPast(f.date)<=2) rows.push({L,f});
+  rows.sort((a,b)=>(a.f.date+(a.f.time||''))<(b.f.date+(b.f.time||''))?-1:1);
+  const feed=$('favLeagueFeed'), refs=[];
+  feed.innerHTML=rows.length?rows.slice(0,25).map(({L,f})=>{ const i=refs.length; refs.push({L,f});
+    const {timeCell,chip}=fxCells(L,f,smap);
+    return `<div class="fxrow"><span class="mstar${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="muted" style="font-size:.7rem">${L.name}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
+  }).join('') : '<div class="subnote">Matches involving your favourite competitions and teams will appear here.</div>';
   feed.querySelectorAll('.fvopen').forEach(b=>b.addEventListener('click',()=>{ const {L,f}=refs[+b.dataset.i]; openFixture(L.id,f,b); }));
+  feed.querySelectorAll('[data-star]').forEach(st=>st.addEventListener('click',()=>{ const {L,f}=refs[+st.dataset.star]; toggleFavMatch(f,{lid:L.id,lname:L.name}); renderFavLeagues(); }));
 }
 
 /* ================================================================
@@ -1459,28 +1857,38 @@ async function matchDetail(s){
 /* ================================================================
    BET SLIP GENERATOR
    ================================================================ */
-const slipState = { n:2, risk:'safe', today:false, leagues:null, markets:new Set(['1X2','OU','BTTS']) };
+const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, markets:new Set(['1X2','OU25','BTTS']) };
 function renderSlipUI(){
+  // number of games
   $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
   $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
-  $('slipRisk').innerHTML = [['safe','🛡️ Safe'],['balanced','⚖️ Balanced'],['risky','🎲 Risky']].map(([v,l])=>`<button class="sfchip${slipState.risk===v?' active':''}" data-r="${v}">${l}</button>`).join('');
-  $('slipRisk').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.risk=b.dataset.r; renderSlipUI(); }));
+  // risk slider (target risk = 100 − win probability)
+  const sl=$('riskSlider'); sl.value=slipState.riskPct;
+  const upd=()=>{ $('riskLabel').textContent=`Risk ${slipState.riskPct}% ≈ legs win ~${100-slipState.riskPct}%`; };
+  sl.oninput=()=>{ slipState.riskPct=+sl.value; upd(); };
+  upd();
+  // scope
   $('slipToday').innerHTML = `<button class="sfchip${slipState.today?' active':''}" id="tglToday">${slipState.today?'✓ Today’s matches only':'All upcoming matches'}</button>`;
   $('tglToday').addEventListener('click',()=>{ slipState.today=!slipState.today; renderSlipUI(); });
-  const Ls = footballLeagues(), sel = slipState.leagues;
-  $('slipLeagues').innerHTML = `<button class="sfchip${!sel?' active':''}" data-lid="all">All leagues</button>` +
-    Ls.map(l=>`<button class="sfchip${sel&&sel.has(l.id)?' active':''}" data-lid="${l.id}">${l.name}</button>`).join('');
-  $('slipLeagues').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
-    if(b.dataset.lid==='all') slipState.leagues=null;
-    else{
-      if(!slipState.leagues) slipState.leagues=new Set();
-      const id=+b.dataset.lid;
-      slipState.leagues.has(id)?slipState.leagues.delete(id):slipState.leagues.add(id);
-      if(!slipState.leagues.size) slipState.leagues=null;
-    }
-    renderSlipUI();
+  // leagues grouped by country (tap a country to expand its leagues)
+  const groups=slipCountryGroups(), sel=slipState.leagues;
+  let lh=`<div class="sfilters" style="margin-bottom:2px"><button class="sfchip${!sel?' active':''}" data-allc="1">🌍 All leagues</button></div>`;
+  groups.forEach((grp,gi)=>{
+    const ids=grp.Ls.map(l=>l.id), cnt = sel ? ids.filter(id=>sel.has(id)).length : 0, open = slipState.openCountry===grp.country;
+    lh+=`<div class="cgroup"><button class="cghead${cnt?' has':''}" data-cg="${gi}"><span>${grp.country}${cnt?` · ${cnt}`:''}</span><span>${open?'▾':'▸'}</span></button>`;
+    if(open) lh+=`<div class="cgleagues">`+grp.Ls.map(l=>`<button class="sfchip${sel&&sel.has(l.id)?' active':''}" data-lid="${l.id}">${l.name}</button>`).join('')+`</div>`;
+    lh+=`</div>`;
+  });
+  $('slipLeagues').innerHTML=lh;
+  const allc=$('slipLeagues').querySelector('[data-allc]'); if(allc) allc.addEventListener('click',()=>{ slipState.leagues=null; renderSlipUI(); });
+  $('slipLeagues').querySelectorAll('[data-cg]').forEach(b=>b.addEventListener('click',()=>{ const grp=groups[+b.dataset.cg]; slipState.openCountry = slipState.openCountry===grp.country?null:grp.country; renderSlipUI(); }));
+  $('slipLeagues').querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{
+    if(!slipState.leagues) slipState.leagues=new Set();
+    const id=+b.dataset.lid; slipState.leagues.has(id)?slipState.leagues.delete(id):slipState.leagues.add(id);
+    if(!slipState.leagues.size) slipState.leagues=null; renderSlipUI();
   }));
-  $('slipMarkets').innerHTML = [['1X2','Winner'],['OU','Over/Under 2.5'],['BTTS','BTTS']].map(([v,l])=>`<button class="sfchip${slipState.markets.has(v)?' active':''}" data-m="${v}">${l}</button>`).join('');
+  // bet types
+  $('slipMarkets').innerHTML = SLIP_MARKETS.map(([v,l])=>`<button class="sfchip${slipState.markets.has(v)?' active':''}" data-m="${v}">${l}</button>`).join('');
   $('slipMarkets').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
     const m=b.dataset.m;
     if(slipState.markets.has(m) && slipState.markets.size>1) slipState.markets.delete(m); else slipState.markets.add(m);
@@ -1488,49 +1896,38 @@ function renderSlipUI(){
   }));
 }
 function genSlip(){
-  const todayStr = new Date().toISOString().slice(0,10);
-  const cands=[];
+  const today=todayStrLocal(), smap=scoreMap(), cands=[];
   for(const L of footballLeagues()){
     if(slipState.leagues && !slipState.leagues.has(L.id)) continue;
     let tmp=null;
     if(L.matches.length>=15){ tmp=Object.create(footballEngine); tmp.matches=L.matches; }
     for(const f of L.upcoming){
-      if(f.date < todayStr) continue;
-      if(slipState.today && f.date!==todayStr) continue;
+      if(f.date < today) continue;
+      if(slipState.today && f.date!==today) continue;
+      const s=f.fxid!=null?smap[f.fxid]:null; if(isFinishedScore(s)) continue;   // skip already-played
       const key = f.fxid || (f.home+f.away+f.date);
       if(tmp){
-        const p=tmp.predict(f.home,f.away);
-        if(!p) continue;
-        if(slipState.markets.has('1X2')){
-          cands.push({key,L,f,market:'Winner',sel:f.home+' to win',code:'1',prob:p.pW});
-          cands.push({key,L,f,market:'Winner',sel:'Draw',code:'X',prob:p.pD});
-          cands.push({key,L,f,market:'Winner',sel:f.away+' to win',code:'2',prob:p.pL});
-        }
-        if(slipState.markets.has('OU')){
-          cands.push({key,L,f,market:'Goals',sel:'Over 2.5',prob:p.over[2.5]});
-          cands.push({key,L,f,market:'Goals',sel:'Under 2.5',prob:1-p.over[2.5]});
-        }
-        if(slipState.markets.has('BTTS')){
-          cands.push({key,L,f,market:'BTTS',sel:'Yes',prob:p.btts});
-          cands.push({key,L,f,market:'BTTS',sel:'No',prob:1-p.btts});
-        }
+        const P=tmp.predict(f.home,f.away); if(!P) continue;
+        const sels=allSelections(P,f);
+        for(const mKey of slipState.markets)
+          for(const sel of sels) if(slipMarketMatch(mKey,sel))
+            cands.push({key,L,f,market:sel.m,sel:sel.sel,code:sel.code,prob:sel.prob});
       } else if(f.pick && slipState.markets.has('1X2')){
         const lbl = f.pick==='1' ? f.home+' to win' : f.pick==='X' ? 'Draw' : f.away+' to win';
         cands.push({key,L,f,market:'Winner',sel:lbl,code:f.pick,prob:f.prob});
       }
     }
   }
-  const bands={safe:[0.60,0.96],balanced:[0.47,0.66],risky:[0.28,0.50]};
-  const [lo,hi]=bands[slipState.risk], mid=(lo+hi)/2;
-  const byFx={};
+  // pick legs whose risk (=1−prob) is closest to the slider's target
+  const target=(slipState.riskPct||30)/100, byFx={};
   for(const c of cands){
-    if(c.prob<lo || c.prob>hi) continue;
-    const score = slipState.risk==='safe' ? c.prob : slipState.risk==='risky' ? -c.prob : -Math.abs(c.prob-mid);
+    if(c.prob<=0.02 || c.prob>=0.995) continue;
+    const score = -Math.abs((1-c.prob)-target);
     if(!byFx[c.key] || score>byFx[c.key]._s){ c._s=score; byFx[c.key]=c; }
   }
   let legs=Object.values(byFx).sort((a,b)=>b._s-a._s).slice(0, slipState.n);
   if(legs.length < slipState.n){
-    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} qualifying match(es) for this risk level. Load more competitions (Predict → Discover) or adjust the settings.</div>`;
+    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} qualifying match(es). Select more leagues or bet types, move the risk slider, or load more competitions (Predict → Discover).</div>`;
     return;
   }
   let comb=1, odds=1;
@@ -1544,15 +1941,15 @@ function genSlip(){
       </div>
       <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
       <div class="ssbadge">${badge}</div>
-      <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds derived from engine probabilities — bookmaker odds will differ.</div>
+      <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds from engine probabilities · target risk ${slipState.riskPct}%. Bookmaker odds will differ.</div>
     </div>` +
-    legs.map(l=>`<div class="fxrow"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time}</span>
+    legs.map(l=>`<div class="fxrow"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time||''}</span>
       <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
       <span class="muted" style="font-size:.74rem">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
       <span class="predchip">${(100*l.prob).toFixed(0)}%</span></div>`).join('') +
     `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
   $('reGen').addEventListener('click', genSlip);
-  for(const l of legs) if(l.code) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
+  for(const l of legs) if(l.code==='1'||l.code==='X'||l.code==='2') recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
   saveState();
 }
 
@@ -1573,7 +1970,21 @@ function gradeRecord(scoreList){
       r.result = s.gh>s.ga ? '1' : s.gh===s.ga ? 'X' : '2';
   }
 }
+// grade outstanding picks against finished matches sitting in league history (#4)
+function gradeFromHistory(){
+  const pend = afState.record.filter(r=>!r.result);
+  if(!pend.length) return;
+  for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
+    const L=afState.leagues[id]; if(!L||!L.matches||!L.matches.length) continue;
+    for(const r of pend){
+      if(r.result) continue;
+      const m=L.matches.find(x=>x.date===r.date && x.home===r.home && x.away===r.away);
+      if(m) r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2';
+    }
+  }
+}
 function recordStats(){
+  gradeFromHistory();
   const graded = afState.record.filter(r=>r.result);
   if(!graded.length) return null;
   const hits = graded.filter(r=>r.result===r.pick).length;
@@ -1654,6 +2065,7 @@ function renderScores(){
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow${isLive?' islive':''}">
+        <span class="mstar${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
         <span class="scstat">${stat}</span>
         <span class="fxteams"><span class="tline">${crest(s.home)}${s.home}</span><span class="tline">${crest(s.away)}${s.away}</span></span>
         <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span>
@@ -1670,6 +2082,12 @@ function renderScores(){
     } else {
       matchDetail(s);
     }
+  }));
+  box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click', e=>{
+    e.stopPropagation();
+    const s = rowRefs[+st.dataset.star];
+    toggleFavMatch({fxid:s.fxid, date:s.date, time:s.time, home:s.home, away:s.away, pick:null, prob:null}, {lid:s.lid, lname:s.lname});
+    renderScores();
   }));
 }
 
@@ -1777,7 +2195,8 @@ function renderFixtures(){
   renderCompsDrop();
   if(!Ls.length){ wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');
-  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].sort().slice(0,14);
+  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].filter(d=>daysPast(d)<=2).sort().slice(0,14);
+  if(!dates.length){ wrap.classList.add('hidden'); return; }
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -1791,10 +2210,11 @@ function renderFixtures(){
 
   let html = '';
   const dayList = [];
+  const smap = scoreMap();
   const rowHtml = (L, f)=>{
     const i = dayList.length; dayList.push({leagueId:L.id, f});
-    const chip = f.pick ? `<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>` : '';
-    return `<div class="fxrow"><span class="fxtime">${f.time}</span><span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}<button class="fxbtn" data-i="${i}">›</button></div>`;
+    const {timeCell, chip} = fxCells(L, f, smap);
+    return `<div class="fxrow"><span class="mstar${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}<button class="fxbtn" data-i="${i}">›</button></div>`;
   };
 
   // ⭐ featured: fixtures involving famous clubs/nations float to the top
@@ -1823,6 +2243,13 @@ function renderFixtures(){
     const {leagueId, f} = dayList[+b.dataset.i];
     openFixture(leagueId, f, b);
   }));
+  document.querySelectorAll('#fixtureList .mstar[data-star]').forEach(st=>st.addEventListener('click', e=>{
+    e.stopPropagation();
+    const {leagueId, f} = dayList[+st.dataset.star];
+    const L = afState.leagues[leagueId];
+    toggleFavMatch(f, {lid:leagueId, lname:L?L.name:''});
+    renderFixtures();
+  }));
   document.querySelectorAll('#fixtureList .favstar, .lghead .favstar').forEach(st=>st.addEventListener('click', e=>{
     e.stopPropagation(); toggleFavLeague(+st.dataset.lid);
   }));
@@ -1836,7 +2263,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
 }
@@ -1860,6 +2287,8 @@ function restoreState(){
       afState.record = s.af.record || [];
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
+      afState.favM = s.af.favM || [];
+      afState.favTab = s.af.favTab || 'matches';
       if(afState.activeLeagueId && afState.leagues[afState.activeLeagueId])
         afState.teamIds = afState.leagues[afState.activeLeagueId].teamIds || {};
     }
@@ -1870,6 +2299,14 @@ function restoreState(){
 
 /* ---------- events ---------- */
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>navTo(b.dataset.view)));
+
+/* v0.8 — search, tips fair-odds, settings */
+$('searchOpen').addEventListener('click', openSearch);
+$('searchClose').addEventListener('click', closeSearch);
+$('searchInput').addEventListener('input', e=>renderSearch(e.target.value));
+$('tipFairToggle').addEventListener('click', ()=>{ tipState.fair=!tipState.fair; renderTips(); });
+$('goFavs').addEventListener('click', ()=>navTo('favs'));
+$('notifToggle').addEventListener('click', ()=>toast('Notifications are coming in a later build'));
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
 $('backToFeed').addEventListener('click', showFeed);
@@ -1935,6 +2372,16 @@ $('saveKeyBtn').addEventListener('click', ()=>{
 });
 
 /* ---------- boot ---------- */
+/* theme first, to avoid a flash of the wrong palette (#10) */
+try{ themeMode = localStorage.getItem('mm_theme') || 'dark'; }catch(e){ themeMode='dark'; }
+applyTheme();
+if(window.matchMedia){
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const onmq = ()=>{ if(themeMode==='auto') applyTheme(); };
+  mq.addEventListener ? mq.addEventListener('change', onmq) : mq.addListener(onmq);
+}
+setupBackHandler();
+
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
 loadScorers(SAMPLE_SCORERS);
@@ -1946,10 +2393,10 @@ setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   if(k && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000)) afScores();
 }, 800);
-/* end of app */
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
+/* end of app */
 </script>
 </body>
 </html>
