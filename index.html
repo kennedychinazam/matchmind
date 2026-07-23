@@ -213,6 +213,15 @@
   .mstar{cursor:pointer; color:var(--gold); font-size:1.05rem; flex-shrink:0; width:22px; text-align:center;}
   .mstar.off{color:var(--muted2);}
 
+  /* favourites row (SofaScore-style): names one line, prediction+star stacked right, whole row taps */
+  .favrow{cursor:pointer;}
+  .favrow .fxteams{min-width:0;}
+  .favrow .fxteams .tline{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;}
+  .favrow .fxteams .lname{display:block; font-size:.66rem; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .favright{display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:6px; margin-left:8px; flex-shrink:0; min-width:40px;}
+  .favright .mstar{font-size:1.25rem; width:auto;}
+  .predchip.sm{font-size:.6rem; padding:3px 7px;}
+
   /* risk slider */
   .rslider{width:100%; margin:8px 0 4px; -webkit-appearance:none; appearance:none; height:8px; border-radius:6px; background:linear-gradient(90deg,var(--green),var(--gold),var(--red)); outline:none;}
   .rslider::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:22px; border-radius:50%; background:var(--text); border:3px solid var(--gold); cursor:pointer;}
@@ -224,6 +233,8 @@
   .cghead{display:flex; align-items:center; justify-content:space-between; width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--border); background:var(--card2); color:var(--text); font-size:.86rem; font-weight:700; cursor:pointer; margin-top:6px;}
   .cghead.has{border-color:var(--gold); color:var(--gold);}
   .cgleagues{display:flex; flex-wrap:wrap; gap:6px; padding:8px 4px 2px;}
+  .cgpanel{margin-top:6px; padding:8px 10px; border:1px solid var(--border); border-radius:12px; background:var(--bg2);}
+  .cghead.sub{margin-top:4px; background:var(--card); font-size:.82rem;}
 
   /* toast */
   .toast{position:fixed; bottom:92px; left:50%; transform:translateX(-50%); background:var(--card3); color:var(--text); border:1px solid var(--border2); border-radius:22px; padding:11px 20px; font-size:.86rem; font-weight:700; z-index:200; box-shadow:0 8px 30px rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none;}
@@ -278,16 +289,16 @@
     <button class="seg-btn active" id="segComps" style="width:100%; margin:4px 0 10px;">🏆 All competitions ▾</button>
     <div class="card hidden" id="compsDrop"></div>
 
-    <div class="card" id="discoverCard">
-      <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> in the selected sport — World Cup, friendlies, qualifiers, NBA, any active competition worldwide.</div>
-      <button class="btn gold" id="discoverBtn">🔍 Discover competitions</button>
-      <div class="status" id="discoverStatus"></div>
-    </div>
-
     <div id="fixturesWrap" class="hidden">
       <div class="sec-label">Upcoming fixtures</div>
       <div class="datebar" id="dateBar"></div>
       <div class="card" id="fixtureList"></div>
+    </div>
+
+    <div class="card hidden" id="discoverCard">
+      <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> — World Cup, friendlies, qualifiers, any active competition worldwide.</div>
+      <button class="btn gold" id="discoverBtn">🔍 Discover competitions</button>
+      <div class="status" id="discoverStatus"></div>
     </div>
 
   </div>
@@ -1127,7 +1138,7 @@ async function afDiscover(){
       .filter(g=>!afState.leagues[g.meta.id])
       .sort((a,b)=>b.fx.length-a.fx.length)
       .slice(0,30);
-    if(!cands.length){ st.textContent = 'No new live competitions found' + windowNote + '.'; btn.disabled=false; return; }
+    if(!cands.length){ st.textContent = 'No new live competitions found' + windowNote + '.'; toast('No new competitions found'); btn.disabled=false; return; }
     let added = 0;
     for(const g of cands){
       const teamIds = {};
@@ -1144,6 +1155,7 @@ async function afDiscover(){
     }
     renderFixtures(); saveState();
     st.textContent = `✓ Added ${added} live competitions${windowNote} (requests this session: ${afState.requests}). Tap any fixture for its prediction — competition history loads on demand where your plan allows.`;
+    toast(`Added ${added} competition${added!==1?'s':''}`);
   }catch(e){ st.textContent = '✗ ' + e.message; }
   btn.disabled = false;
 }
@@ -1199,6 +1211,7 @@ async function afInjuries(team){
 let scorers = [];
 let apiKey = '';
 let currentSport = 'football';
+let discoverPinned = false;   // keep Discover card visible while a dropdown-triggered scan runs (#15)
 
 function $(id){ return document.getElementById(id); }
 
@@ -1725,6 +1738,7 @@ const NAV_VIEWS = ['scores','predict','tips','favs','data','detail'];
 let lastTab = 'scores';
 function navTo(t){
   if(t !== 'detail') lastTab = t;
+  if(t !== 'predict' && t !== 'detail') discoverPinned = false;   // un-pin Discover when leaving Predict (#15)
   for(const v of NAV_VIEWS){ const el = $('view-'+v); if(el) el.classList.toggle('hidden', v!==t); }
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===t));
   if(t==='predict') renderFixtures();
@@ -1777,20 +1791,39 @@ function renderFavs(){
   $('favLeaguesWrap').classList.toggle('hidden', showM);
   if(showM) renderFavMatches(); else renderFavLeagues();
 }
+function favDateHeader(dateStr){
+  const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(dateStr===todayStrLocal()) return 'Today';
+  const d=new Date(dateStr+'T00:00:00'); if(isNaN(d)) return dateStr;
+  return `${DOW[d.getDay()]} • ${String(d.getDate()).padStart(2,'0')} ${MON[d.getMonth()]}`;
+}
+// compact row: names on one line (ellipsis), small prediction stacked above the star at far right, whole row taps through
+function favRow(L,f,i,smap){
+  const {timeCell,chip}=fxCells(L,f,smap);
+  const chipSmall = chip ? chip.replace('predchip','predchip sm') : '';
+  const on=isFavMatch(f.fxid);
+  return `<div class="fxrow favrow" data-i="${i}">${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="lname">${(L&&L.name)||f.lname||''}</span></span><span class="favright">${chipSmall}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
+}
+function wireFavRows(feed,refs,rerender,isMatches){
+  feed.querySelectorAll('.favrow').forEach(row=>row.addEventListener('click',()=>{
+    const r=refs[+row.dataset.i];
+    if(isMatches){ if(r.lid!=null && afState.leagues[r.lid]) openFixture(r.lid,r); else{ const s=afState.scores&&afState.scores.list.find(x=>x.fxid===r.fxid); if(s) matchDetail(s); else toast('Open this match from its competition feed'); } }
+    else openFixture(r.L.id,r.f);
+  }));
+  feed.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{
+    e.stopPropagation(); const r=refs[+st.dataset.star];
+    if(isMatches) toggleFavMatch(r,{lid:r.lid,lname:r.lname}); else toggleFavMatch(r.f,{lid:r.L.id,lname:r.L.name});
+    rerender();
+  }));
+}
 function renderFavMatches(){
   const feed=$('favFeed'), smap=scoreMap();
   const list=afState.favM.filter(m=>daysPast(m.date)<=2).sort((a,b)=>(a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
   if(!list.length){ feed.innerHTML='<div class="subnote">No starred matches yet. Tap the ☆ on any fixture (Scores, Predict, or a competition feed) to follow it here — it keeps its final score after kickoff.</div>'; return; }
-  const refs=[];
-  feed.innerHTML=list.map(m=>{ const i=refs.length; refs.push(m);
-    const L=m.lid!=null?afState.leagues[m.lid]:null;
-    const {timeCell,chip}=fxCells(L,m,smap);
-    return `<div class="fxrow"><span class="mstar" data-star="${i}">★</span>${timeCell}<span class="fxteams"><span class="tline">${crest(m.home)}${m.home}</span><span class="tline">${crest(m.away)}${m.away}</span><span class="muted" style="font-size:.7rem">${m.lname||''}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
-  }).join('');
-  feed.querySelectorAll('.fvopen').forEach(b=>b.addEventListener('click',()=>{ const m=refs[+b.dataset.i];
-    if(m.lid!=null && afState.leagues[m.lid]) openFixture(m.lid,m,b);
-    else{ const s=afState.scores&&afState.scores.list.find(x=>x.fxid===m.fxid); if(s) matchDetail(s); else toast('Open this match from its competition feed'); } }));
-  feed.querySelectorAll('[data-star]').forEach(st=>st.addEventListener('click',()=>{ const m=refs[+st.dataset.star]; toggleFavMatch(m,{lid:m.lid,lname:m.lname}); renderFavMatches(); }));
+  const refs=[]; let html='', cur=null;
+  for(const m of list){ if(m.date!==cur){ cur=m.date; html+=`<div class="lghead">${favDateHeader(m.date)}</div>`; }
+    const i=refs.length; refs.push(m); html+=favRow(m.lid!=null?afState.leagues[m.lid]:null, m, i, smap); }
+  feed.innerHTML=html; wireFavRows(feed, refs, renderFavMatches, true);
 }
 function renderFavLeagues(){
   const man=$('favManage');
@@ -1806,12 +1839,11 @@ function renderFavLeagues(){
     if((afState.favL.includes(L.id)||afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) && daysPast(f.date)<=2) rows.push({L,f});
   rows.sort((a,b)=>(a.f.date+(a.f.time||''))<(b.f.date+(b.f.time||''))?-1:1);
   const feed=$('favLeagueFeed'), refs=[];
-  feed.innerHTML=rows.length?rows.slice(0,25).map(({L,f})=>{ const i=refs.length; refs.push({L,f});
-    const {timeCell,chip}=fxCells(L,f,smap);
-    return `<div class="fxrow"><span class="mstar${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="muted" style="font-size:.7rem">${L.name}</span></span>${chip}<button class="fxbtn fvopen" data-i="${i}">›</button></div>`;
-  }).join('') : '<div class="subnote">Matches involving your favourite competitions and teams will appear here.</div>';
-  feed.querySelectorAll('.fvopen').forEach(b=>b.addEventListener('click',()=>{ const {L,f}=refs[+b.dataset.i]; openFixture(L.id,f,b); }));
-  feed.querySelectorAll('[data-star]').forEach(st=>st.addEventListener('click',()=>{ const {L,f}=refs[+st.dataset.star]; toggleFavMatch(f,{lid:L.id,lname:L.name}); renderFavLeagues(); }));
+  if(!rows.length){ feed.innerHTML='<div class="subnote">Matches involving your favourite competitions and teams will appear here.</div>'; return; }
+  let html='', cur=null;
+  for(const {L,f} of rows.slice(0,40)){ if(f.date!==cur){ cur=f.date; html+=`<div class="lghead">${favDateHeader(f.date)}</div>`; }
+    const i=refs.length; refs.push({L,f}); html+=favRow(L,f,i,smap); }
+  feed.innerHTML=html; wireFavRows(feed, refs, renderFavLeagues, false);
 }
 
 /* ================================================================
@@ -1857,7 +1889,7 @@ async function matchDetail(s){
 /* ================================================================
    BET SLIP GENERATOR
    ================================================================ */
-const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, markets:new Set(['1X2','OU25','BTTS']) };
+const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','OU25','BTTS']) };
 function renderSlipUI(){
   // number of games
   $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
@@ -1870,16 +1902,24 @@ function renderSlipUI(){
   // scope
   $('slipToday').innerHTML = `<button class="sfchip${slipState.today?' active':''}" id="tglToday">${slipState.today?'✓ Today’s matches only':'All upcoming matches'}</button>`;
   $('tglToday').addEventListener('click',()=>{ slipState.today=!slipState.today; renderSlipUI(); });
-  // leagues grouped by country (tap a country to expand its leagues)
+  // leagues — collapsed "Select league" control (#14): nothing lists until you drill in
   const groups=slipCountryGroups(), sel=slipState.leagues;
-  let lh=`<div class="sfilters" style="margin-bottom:2px"><button class="sfchip${!sel?' active':''}" data-allc="1">🌍 All leagues</button></div>`;
-  groups.forEach((grp,gi)=>{
-    const ids=grp.Ls.map(l=>l.id), cnt = sel ? ids.filter(id=>sel.has(id)).length : 0, open = slipState.openCountry===grp.country;
-    lh+=`<div class="cgroup"><button class="cghead${cnt?' has':''}" data-cg="${gi}"><span>${grp.country}${cnt?` · ${cnt}`:''}</span><span>${open?'▾':'▸'}</span></button>`;
-    if(open) lh+=`<div class="cgleagues">`+grp.Ls.map(l=>`<button class="sfchip${sel&&sel.has(l.id)?' active':''}" data-lid="${l.id}">${l.name}</button>`).join('')+`</div>`;
+  const wi=groups.findIndex(g=>g.country.includes('World')); if(wi>0){ const [w]=groups.splice(wi,1); groups.unshift(w); }
+  const selCount = sel ? sel.size : 0;
+  const summary = !sel ? 'All leagues' : `${selCount} league${selCount>1?'s':''} selected`;
+  let lh=`<button class="cghead${sel?' has':''}" id="slipLeagueBtn"><span>🏆 ${summary}</span><span>${slipState.slipPanelOpen?'▾':'Select ▸'}</span></button>`;
+  if(slipState.slipPanelOpen){
+    lh+=`<div class="cgpanel"><div class="sfilters" style="margin:2px 0 6px"><button class="sfchip${!sel?' active':''}" data-allc="1">All leagues</button></div>`;
+    groups.forEach((grp,gi)=>{
+      const ids=grp.Ls.map(l=>l.id), cnt = sel ? ids.filter(id=>sel.has(id)).length : 0, open = slipState.openCountry===grp.country;
+      lh+=`<div class="cgroup"><button class="cghead sub${cnt?' has':''}" data-cg="${gi}"><span>${grp.country}${cnt?` · ${cnt}`:''}</span><span>${open?'▾':'▸'}</span></button>`;
+      if(open) lh+=`<div class="cgleagues">`+grp.Ls.map(l=>`<button class="sfchip${sel&&sel.has(l.id)?' active':''}" data-lid="${l.id}">${l.name}</button>`).join('')+`</div>`;
+      lh+=`</div>`;
+    });
     lh+=`</div>`;
-  });
+  }
   $('slipLeagues').innerHTML=lh;
+  $('slipLeagueBtn').addEventListener('click',()=>{ slipState.slipPanelOpen=!slipState.slipPanelOpen; renderSlipUI(); });
   const allc=$('slipLeagues').querySelector('[data-allc]'); if(allc) allc.addEventListener('click',()=>{ slipState.leagues=null; renderSlipUI(); });
   $('slipLeagues').querySelectorAll('[data-cg]').forEach(b=>b.addEventListener('click',()=>{ const grp=groups[+b.dataset.cg]; slipState.openCountry = slipState.openCountry===grp.country?null:grp.country; renderSlipUI(); }));
   $('slipLeagues').querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{
@@ -2175,9 +2215,10 @@ function renderCompsDrop(){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
           + bk.map(l=>item(l.id, '🏀 '+l.name, l.upcoming.length)).join('');
   }
-  if(!all.length) html = '<div class="subnote">No competitions loaded yet — use Discover below.</div>';
+  if(!all.length) html = '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
+  html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
-  box.querySelectorAll('.lgitem').forEach(it=>it.addEventListener('click', ()=>{
+  box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
     const v = it.dataset.f;
     afState.filter = (v==='all'||v==='football'||v==='basketball') ? v : +v;
     box.classList.add('hidden');
@@ -2186,12 +2227,21 @@ function renderCompsDrop(){
     $('segComps').innerHTML = '🏆 ' + lbl + ' ▾';
     navTo('predict'); saveState();
   }));
+  const dbtn = box.querySelector('[data-discover]');
+  if(dbtn) dbtn.addEventListener('click', ()=>{
+    box.classList.add('hidden'); discoverPinned=true; currentSport='football'; renderFixtures();
+    const dc=$('discoverCard'); if(dc) dc.scrollIntoView({behavior:'smooth', block:'center'});
+    afDiscover();
+  });
 }
 
 function renderFixtures(){
   const wrap = $('fixturesWrap');
   const Ls = visibleLeagues();
-  $('discoverCard').classList.remove('hidden');
+  // Discover now lives below the feed / in the competitions dropdown — only surface the card
+  // in the empty state, or while a dropdown-triggered scan is running (#15)
+  const anyLeagues = footballLeagues().length>0;
+  $('discoverCard').classList.toggle('hidden', anyLeagues && !discoverPinned);
   renderCompsDrop();
   if(!Ls.length){ wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');
