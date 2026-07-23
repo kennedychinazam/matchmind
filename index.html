@@ -132,9 +132,9 @@
   .dpill .dd{font-size:.9rem; font-weight:800; color:var(--text);}
   .dpill.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold);}
   .dpill.active .dw,.dpill.active .dd{color:#1a1405;}
-  .fxrow{display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--border);}
+  .fxrow{display:flex; align-items:center; gap:7px; padding:12px 0; border-bottom:1px solid var(--border);}
   .fxrow:last-child{border-bottom:none;}
-  .fxtime{width:52px; font-size:.78rem; color:var(--muted); font-weight:600;}
+  .fxtime{width:42px; font-size:.73rem; color:var(--muted); font-weight:600; flex-shrink:0;}
   .fxteams{flex:1; font-size:.9rem; font-weight:600; line-height:1.5;}
   .fxbtn{background:var(--card3); border:1px solid var(--gold); color:var(--gold); font-size:.74rem; font-weight:800; padding:7px 12px; border-radius:10px; cursor:pointer;}
   .lghead{display:flex; align-items:center; gap:8px; font-weight:800; font-size:.9rem; padding:14px 0 6px; border-bottom:1px solid var(--border);}
@@ -156,9 +156,9 @@
   .tline{display:block; padding:1px 0;}
 
   /* ---------- scores feed ---------- */
-  .scrow{display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--border);}
+  .scrow{display:flex; align-items:center; gap:7px; padding:11px 0; border-bottom:1px solid var(--border);}
   .scrow:last-child{border-bottom:none;}
-  .scstat{width:48px; font-size:.72rem; color:var(--muted); font-weight:700; flex-shrink:0;}
+  .scstat{width:42px; font-size:.71rem; color:var(--muted); font-weight:700; flex-shrink:0;}
   .livedot{color:var(--red); margin-right:3px; animation:pulse 1.4s infinite;}
   @keyframes pulse{50%{opacity:.35}}
   .scscore{width:52px; text-align:center; font-weight:800; font-size:.98rem; color:var(--muted); flex-shrink:0;}
@@ -221,6 +221,10 @@
   .favright{display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:6px; margin-left:8px; flex-shrink:0; min-width:40px;}
   .favright .mstar{font-size:1.25rem; width:auto;}
   .predchip.sm{font-size:.6rem; padding:3px 7px;}
+  /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
+  .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
+  /* slip summary note: readable on the green background (was faint grey) */
+  .slipsum .muted{color:#d8f5e3;}
 
   /* risk slider */
   .rslider{width:100%; margin:8px 0 4px; -webkit-appearance:none; appearance:none; height:8px; border-radius:6px; background:linear-gradient(90deg,var(--green),var(--gold),var(--red)); outline:none;}
@@ -1451,12 +1455,14 @@ function renderTipList(market){
   if(!rows.length){ box.innerHTML='<div class="subnote">No priceable fixtures yet — open fixtures or load competitions so the engine can price them.</div>'; return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
-    const val = tipState.fair ? `<span class="predchip">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip">${(100*r.prob).toFixed(0)}%</span>`;
-    return `<div class="fxrow"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${r.f.time||''}</span>
+    const val = tipState.fair ? `<span class="predchip sm">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>`;
+    const on=isFavMatch(r.f.fxid);
+    return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${r.f.time||''}</span>
       <span class="fxteams"><span class="tline">${crest(r.f.home)}${r.f.home}</span><span class="tline">${crest(r.f.away)}${r.f.away}</span>
-      <span class="muted" style="font-size:.72rem">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b></span></span>
-      ${val}<button class="fxbtn tlopen" data-i="${i}">›</button></div>`; }).join('');
-  box.querySelectorAll('.tlopen').forEach(b=>b.addEventListener('click',()=>{ const r=refs[+b.dataset.i]; openFixture(r.L.id,r.f,b); }));
+      <span class="lname">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b></span></span>
+      <span class="favright">${val}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`; }).join('');
+  box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const r=refs[+row.dataset.i]; openFixture(r.L.id,r.f); }));
+  box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const r=refs[+st.dataset.star]; toggleFavMatch(r.f,{lid:r.L.id,lname:r.L.name}); renderTipList(market); }));
 }
 
 /* ---------- slip generator: markets + country groups (#6) ---------- */
@@ -1983,12 +1989,13 @@ function genSlip(){
       <div class="ssbadge">${badge}</div>
       <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds from engine probabilities · target risk ${slipState.riskPct}%. Bookmaker odds will differ.</div>
     </div>` +
-    legs.map(l=>`<div class="fxrow"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time||''}</span>
+    legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time||''}</span>
       <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
-      <span class="muted" style="font-size:.74rem">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
-      <span class="predchip">${(100*l.prob).toFixed(0)}%</span></div>`).join('') +
+      <span class="lname">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
+      <span class="favright"><span class="predchip sm">${(100*l.prob).toFixed(0)}%</span></span></div>`).join('') +
     `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
   $('reGen').addEventListener('click', genSlip);
+  $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
   for(const l of legs) if(l.code==='1'||l.code==='X'||l.code==='2') recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
   saveState();
 }
@@ -2104,24 +2111,19 @@ function renderScores(){
       const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
-      html += `<div class="scrow${isLive?' islive':''}">
-        <span class="mstar${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
+      html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
+        <span class="mstar lft${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
         <span class="scstat">${stat}</span>
         <span class="fxteams"><span class="tline">${crest(s.home)}${s.home}</span><span class="tline">${crest(s.away)}${s.away}</span></span>
-        <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span>
-        ${canOpen?`<button class="fxbtn scopen" data-i="${i}">›</button>`:''}</div>`;
+        <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span></div>`;
     }
   }
   box.innerHTML = html;
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
-  box.querySelectorAll('.scopen').forEach(b=>b.addEventListener('click',()=>{
-    const s = rowRefs[+b.dataset.i];
-    if(s.status==='NS' || s.status==='TBD'){
-      const {L, f} = ensureLeagueFromScore(s);
-      openFixture(L.id, f, b);
-    } else {
-      matchDetail(s);
-    }
+  box.querySelectorAll('.scrow.favrow').forEach(row=>row.addEventListener('click',()=>{
+    const s = rowRefs[+row.dataset.i];
+    if(s.status==='NS' || s.status==='TBD'){ const {L, f} = ensureLeagueFromScore(s); openFixture(L.id, f); }
+    else matchDetail(s);
   }));
   box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click', e=>{
     e.stopPropagation();
@@ -2187,15 +2189,14 @@ function renderStrongPicks(){
   let html=''; const refs=[];
   for(const {L,f} of picks.slice(0,15)){
     const i=refs.length; refs.push({L,f});
-    html += `<div class="fxrow"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span>
+    const on=isFavMatch(f.fxid);
+    html += `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span>
       <span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>
-      <span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>
-      <button class="fxbtn spopen" data-i="${i}">›</button></div>`;
+      <span class="favright"><span class="predchip sm">${f.pick} · ${(100*f.prob).toFixed(0)}%</span><span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
   }
   box.innerHTML = html;
-  box.querySelectorAll('.spopen').forEach(b=>b.addEventListener('click',()=>{
-    const {L,f}=refs[+b.dataset.i]; openFixture(L.id, f, b);
-  }));
+  box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const {L,f}=refs[+row.dataset.i]; openFixture(L.id,f); }));
+  box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const {L,f}=refs[+st.dataset.star]; toggleFavMatch(f,{lid:L.id,lname:L.name}); renderStrongPicks(); }));
 }
 
 function renderCompsDrop(){
@@ -2264,7 +2265,7 @@ function renderFixtures(){
   const rowHtml = (L, f)=>{
     const i = dayList.length; dayList.push({leagueId:L.id, f});
     const {timeCell, chip} = fxCells(L, f, smap);
-    return `<div class="fxrow"><span class="mstar${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}<button class="fxbtn" data-i="${i}">›</button></div>`;
+    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}</div>`;
   };
 
   // ⭐ featured: fixtures involving famous clubs/nations float to the top
@@ -2289,9 +2290,9 @@ function renderFixtures(){
   }
   $('fixtureList').innerHTML = html || '<div class="subnote">No fixtures on this day.</div>';
 
-  document.querySelectorAll('#fixtureList .fxbtn').forEach(b=>b.addEventListener('click', ()=>{
-    const {leagueId, f} = dayList[+b.dataset.i];
-    openFixture(leagueId, f, b);
+  document.querySelectorAll('#fixtureList .fxrow.favrow').forEach(row=>row.addEventListener('click', ()=>{
+    const {leagueId, f} = dayList[+row.dataset.i];
+    openFixture(leagueId, f);
   }));
   document.querySelectorAll('#fixtureList .mstar[data-star]').forEach(st=>st.addEventListener('click', e=>{
     e.stopPropagation();
