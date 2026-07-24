@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#070c18" id="themeColorMeta">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23070c18'/%3E%3Crect x='20.5' y='6' width='7' height='5' rx='1.6' fill='%23f6c344'/%3E%3Ccircle cx='24' cy='28' r='15' fill='none' stroke='%23f6c344' stroke-width='3.2'/%3E%3Cpath d='M16 35 V21 L24 29 L32 21 V35' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <title>MatchMind PRO — AI Sports Predictions</title>
@@ -40,6 +41,7 @@
   .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px;}
   .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px;}
   .brand .ball{font-size:1.35rem;}
+  .brandmark{width:26px; height:26px; flex-shrink:0;}
   .pro{background:linear-gradient(135deg,var(--gold),#e0a72e); color:#1a1405; font-size:.62rem; font-weight:800; padding:3px 8px; border-radius:7px; letter-spacing:.08em;}
   .chip-status{font-size:.68rem; color:var(--muted); background:var(--card); border:1px solid var(--border); padding:5px 10px; border-radius:20px;}
   .chip-status b{color:var(--green2); font-weight:600;}
@@ -122,6 +124,7 @@
 
   /* ---------- how view ---------- */
   .howit p{margin-bottom:12px; line-height:1.75; font-size:.9rem; color:#c9d4ea;}
+  html[data-theme="light"] .howit p{color:#33405c;}
   .howit b{color:var(--text);}
 
   /* ---------- date pills & fixture list ---------- */
@@ -225,6 +228,13 @@
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
   .slipsum .muted{color:#d8f5e3;}
+  /* detail-header meta (#16): competition + date/time + score */
+  .herometa{margin-bottom:10px; text-align:center;}
+  .hm-comp{font-size:.8rem; font-weight:800; color:var(--gold);}
+  .hm-dt{font-size:.72rem; color:var(--muted); margin-top:2px;}
+  /* AI compare blocks (#20) */
+  .cmp{border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:10px; white-space:pre-wrap;}
+  .cmp-h{font-size:.72rem; font-weight:800; letter-spacing:.08em; color:var(--gold); text-transform:uppercase; margin-bottom:6px;}
 
   /* risk slider */
   .rslider{width:100%; margin:8px 0 4px; -webkit-appearance:none; appearance:none; height:8px; border-radius:6px; background:linear-gradient(90deg,var(--green),var(--gold),var(--red)); outline:none;}
@@ -257,7 +267,7 @@
 <div class="app">
 
   <div class="topbar">
-    <div class="brand"><span class="ball">⚽</span>MatchMind <span class="pro">PRO</span></div>
+    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>MatchMind <span class="pro">PRO</span></div>
     <div class="topright">
       <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
       <button class="iconbtn" id="searchOpen" aria-label="Search">🔍</button>
@@ -369,6 +379,7 @@
       <button class="btn" id="backToFeed" style="margin-bottom:12px">‹ Back</button>
 
       <div class="hero">
+        <div class="herometa hidden" id="heroMeta"></div>
         <div class="teams">
           <div class="tname" id="heroHome">—<div class="venue">Home</div></div>
           <div class="hvs">VS</div>
@@ -539,10 +550,12 @@
 
     <div class="sec-label">AI writer</div>
     <div class="card">
-      <h2>🤖 Claude API Key (optional)</h2>
-      <div class="notice">With a key, the analysis is written by Claude from your engine's numbers. Get one at console.anthropic.com. The key stays in this page's memory only.</div>
-      <div class="field"><label>API key</label><input type="password" id="apiKey" placeholder="sk-ant-..."></div>
-      <button class="btn" id="saveKeyBtn">Use this key</button>
+      <h2>🤖 AI analysis writer</h2>
+      <div class="notice">Choose which AI writes the pre-match analysis from your engine's numbers. Each uses your own API key, stored on this device only. The engine's probabilities never change — the model only writes them up. Claude runs directly in the browser; DeepSeek &amp; Kimi may be blocked by the browser (CORS) and need the upcoming backend.</div>
+      <div class="field"><label>Writer</label><div class="sfilters" id="aiProviderChips"></div></div>
+      <div class="field"><label id="aiKeyLabel">Claude API key</label><input type="password" id="aiKeyInput" placeholder="sk-ant-…"></div>
+      <div class="field"><label>Compare with (optional — two write-ups side by side)</label><div class="sfilters" id="aiCompareChips" style="flex-wrap:wrap"></div></div>
+      <button class="btn gold" id="aiSaveBtn">Save AI settings</button>
       <div class="status" id="keyStatus"></div>
     </div>
 
@@ -987,32 +1000,72 @@ function localVerdict(ctx){
   return `Verdict: ${fav} to win (${pct(Math.max(pred.pHome,pred.pAway))}). Projected margin ${Math.abs(pred.expH-pred.expA).toFixed(1)} pts.`;
 }
 
-async function claudeAnalysis(ctx, apiKey){
-  const enginePayload = JSON.stringify({
+/* ---- AI writer: multiple providers + head-to-head compare (#20) ----
+   The engine's probabilities are always the source of truth; the model only writes them up. */
+const AI_PROMPT = `You are a professional football/basketball analyst. Below is raw output from a statistical prediction engine. Write a sharp, engaging pre-match analysis (3-4 short paragraphs) covering: the probabilities and what drives them, recent form, head-to-head, injury news and its likely impact (note the engine's numbers do NOT account for absences), goals/points expectations, and likely scorers if provided. End with a one-line verdict including the confidence level. Do not invent facts not present in the data. Data:\n`;
+function enginePayloadStr(ctx){
+  return JSON.stringify({
     sport: ctx.sport, fixture: `${ctx.home} vs ${ctx.away}`,
-    prediction: ctx.pred,
-    homeForm: ctx.formH, awayForm: ctx.formA,
-    headToHead: ctx.h2h, likelyScorers: ctx.scorers || [],
-    injuryNews: ctx.injuries || 'not available'
+    prediction: ctx.pred, homeForm: ctx.formH, awayForm: ctx.formA,
+    headToHead: ctx.h2h, likelyScorers: ctx.scorers || [], injuryNews: ctx.injuries || 'not available'
   }, null, 1);
+}
+async function callClaude(payload, key){
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
-    headers:{
-      'content-type':'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body: JSON.stringify({
-      model:'claude-haiku-4-5-20251001',
-      max_tokens:700,
-      messages:[{role:'user', content:
-`You are a professional football/basketball analyst. Below is raw output from a statistical prediction engine. Write a sharp, engaging pre-match analysis (3-4 short paragraphs) covering: the probabilities and what drives them, recent form, head-to-head, injury news and its likely impact (note the engine's numbers do NOT account for absences), goals/points expectations, and likely scorers if provided. End with a one-line verdict including the confidence level. Do not invent facts not present in the data. Data:\n${enginePayload}`}]
-    })
+    headers:{ 'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+    body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:700, messages:[{role:'user', content:AI_PROMPT+payload}] })
   });
-  if(!res.ok) throw new Error('API error '+res.status);
+  if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   return data.content.map(c=>c.text||'').join('');
+}
+// OpenAI-compatible chat/completions (DeepSeek, Kimi/Moonshot, etc.)
+function openAICompat(url, model){
+  return async (payload, key)=>{
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+key },
+      body: JSON.stringify({ model, max_tokens:700, messages:[{role:'user', content:AI_PROMPT+payload}] })
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  };
+}
+const AI_PROVIDERS = [
+  {id:'claude',   name:'Claude',   run:callClaude, browser:true,  hint:'sk-ant-…', where:'console.anthropic.com'},
+  {id:'deepseek', name:'DeepSeek', run:openAICompat('https://api.deepseek.com/chat/completions','deepseek-chat'), browser:false, hint:'sk-…', where:'platform.deepseek.com'},
+  {id:'kimi',     name:'Kimi',     run:openAICompat('https://api.moonshot.ai/v1/chat/completions','kimi-k2.6'),    browser:false, hint:'sk-…', where:'platform.moonshot.ai'}
+];
+function aiProviderById(id){ return AI_PROVIDERS.find(p=>p.id===id) || AI_PROVIDERS[0]; }
+function syncAIKeyField(){
+  const p = aiProviderById(aiProvider);
+  if($('aiKeyLabel')) $('aiKeyLabel').textContent = p.name + ' API key';
+  if($('aiKeyInput')){ $('aiKeyInput').placeholder = p.hint + '  ·  ' + p.where; $('aiKeyInput').value = aiKeys[aiProvider] || ''; }
+}
+function renderAISettings(){
+  const pc = $('aiProviderChips'); if(!pc) return;
+  pc.innerHTML = AI_PROVIDERS.map(p=>`<button class="sfchip${aiProvider===p.id?' active':''}" data-aip="${p.id}">${p.name}${p.browser?'':' *'}</button>`).join('');
+  pc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ aiProvider=b.dataset.aip; if(aiCompare===aiProvider) aiCompare=''; renderAISettings(); }));
+  const cc = $('aiCompareChips');
+  cc.innerHTML = `<button class="sfchip${!aiCompare?' active':''}" data-aic="">None</button>` +
+    AI_PROVIDERS.filter(p=>p.id!==aiProvider).map(p=>`<button class="sfchip${aiCompare===p.id?' active':''}" data-aic="${p.id}">${p.name}</button>`).join('');
+  cc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ aiCompare=b.dataset.aic; renderAISettings(); }));
+  syncAIKeyField();
+}
+function aiSave(){
+  aiKeys[aiProvider] = ($('aiKeyInput').value||'').trim();
+  try{ localStorage.setItem('mm_ai', JSON.stringify({provider:aiProvider, compare:aiCompare, keys:aiKeys})); }catch(e){}
+  const p = aiProviderById(aiProvider), has = !!aiKeys[aiProvider];
+  $('keyStatus').textContent = has
+    ? `✓ ${p.name} set — analyses written by ${p.name}${aiCompare?` (comparing with ${aiProviderById(aiCompare).name})`:''}.`
+    : `${p.name} key cleared — using the built-in local writer.`;
+  renderAISettings();
+}
+function loadAISettings(){
+  try{ const a=JSON.parse(localStorage.getItem('mm_ai')||'null');
+    if(a){ aiProvider=a.provider||'claude'; aiCompare=a.compare||''; Object.assign(aiKeys, a.keys||{}); } }catch(e){}
 }
 
 /* ================================================================
@@ -1213,9 +1266,13 @@ async function afInjuries(team){
    PART 3 — UI GLUE
    ================================================================ */
 let scorers = [];
-let apiKey = '';
 let currentSport = 'football';
+/* AI writer selection (#20) */
+let aiProvider = 'claude';
+let aiCompare = '';                    // '' = off, else a provider id to compare against
+const aiKeys = { claude:'', deepseek:'', kimi:'' };
 let discoverPinned = false;   // keep Discover card visible while a dropdown-triggered scan runs (#15)
+let pendingMeta = null;       // {comp,country,date,time,fxid,lid,home,away} threaded openFixture→analyze for the detail header (#16)
 
 function $(id){ return document.getElementById(id); }
 
@@ -1315,6 +1372,19 @@ function allSelections(P,f){
   return S;
 }
 function fairOdds(p){ return p>0 ? (1/p).toFixed(2) : '—'; }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+/* ---------- detail-header meta: competition + date/time + score (#16) ---------- */
+function setHeroMeta(meta){
+  const box=$('heroMeta'); if(!box) return;
+  if(!meta || (!meta.comp && !meta.date)){ box.classList.add('hidden'); box.innerHTML=''; return; }
+  box.classList.remove('hidden');
+  const comp = meta.comp ? `${meta.comp}${meta.country && !(meta.comp||'').toLowerCase().includes((meta.country||'').toLowerCase()) ? ` · ${meta.country}` : ''}` : '';
+  const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${meta.time}`:''}` : '';
+  let sc='';
+  if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} FT</b>`;
+  box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
+}
 
 /* ---------- match favourites (#7) ---------- */
 function isFavMatch(fxid){ return fxid!=null && afState.favM.some(x=>x.fxid===fxid); }
@@ -1508,6 +1578,13 @@ async function analyze(){
   $('heroHome').innerHTML = heroSide(home,'Home');
   $('heroAway').innerHTML = heroSide(away,'Away');
   setFavRow(home, away);
+  // competition + date/time (+ score if it kicked off) header (#16)
+  { const meta = pendingMeta; pendingMeta = null;
+    if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
+      const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
+      if(res){ meta.score = `${res.gh}–${res.ga}`; }
+      setHeroMeta(meta);
+    } else setHeroMeta(null); }
   let scorerCtx = [];
   if(sport==='football'){
     const arr=[[pred.pW, home+' WIN'],[pred.pD,'DRAW'],[pred.pL, away+' WIN']].sort((a,b)=>b[0]-a[0]);
@@ -1580,14 +1657,27 @@ async function analyze(){
   $('analysisText').textContent = localAnalysis(ctx);
   $('verdictBox').textContent = localVerdict(ctx);
 
-  if(apiKey){
+  const _prov = aiProviderById(aiProvider), _key = aiKeys[aiProvider];
+  if(_key){
+    $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_prov.name+'…';
     $('aiStatus').classList.remove('hidden');
+    const payload = enginePayloadStr(ctx);
     try{
-      const text = await claudeAnalysis(ctx, apiKey);
+      const text = await _prov.run(payload, _key);
       $('analysisText').textContent = text;
-      $('verdictBox').textContent = '✨ Written by Claude from the engine output above.';
+      $('verdictBox').textContent = `✨ Written by ${_prov.name} from the engine output above.`;
+      // head-to-head compare against a second provider (#20)
+      if(aiCompare && aiCompare!==aiProvider && aiKeys[aiCompare]){
+        const _p2 = aiProviderById(aiCompare);
+        $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_p2.name+' too…';
+        try{
+          const t2 = await _p2.run(payload, aiKeys[aiCompare]);
+          $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${_prov.name}</div>${escapeHtml(text)}</div><div class="cmp"><div class="cmp-h">${_p2.name}</div>${escapeHtml(t2)}</div>`;
+          $('verdictBox').textContent = `✨ ${_prov.name} vs ${_p2.name} — compare their takes above.`;
+        }catch(e2){ $('verdictBox').textContent += `  (${_p2.name} compare failed: ${e2.message}${_p2.browser?'':' — may need the backend'}.)`; }
+      }
     }catch(e){
-      $('verdictBox').textContent += `  (Claude call failed: ${e.message} — showing local analysis.)`;
+      $('verdictBox').textContent += `  (${_prov.name} call failed: ${e.message} — showing local analysis.${_prov.browser?'':' This provider may be blocked from the browser (CORS) and need the backend phase.'})`;
     }finally{
       $('aiStatus').classList.add('hidden');
     }
@@ -1657,6 +1747,8 @@ async function apiAnalyze(f, L){
   $('heroHome').innerHTML = heroSide(f.home,'Home');
   $('heroAway').innerHTML = heroSide(f.away,'Away');
   setFavRow(f.home, f.away);
+  pendingMeta = null;
+  { const res = fixtureResult(L, f); const meta = {comp:L.name, country:L.country||'', date:f.date, time:f.time}; if(res) meta.score = `${res.gh}–${res.ga}`; setHeroMeta(meta); }
   $('heroPick').textContent = '…';
   $('heroConf').textContent = 'fetching prediction… (may pause briefly for API rate limits)';
   for(const id of ['acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
@@ -1862,6 +1954,8 @@ async function matchDetail(s){
   $('heroHome').innerHTML = heroSide(s.home,'Home');
   $('heroAway').innerHTML = heroSide(s.away,'Away');
   setFavRow(s.home, s.away);
+  pendingMeta = null;
+  setHeroMeta({comp:s.lname, country:s.lcountry||'', date:s.date, time:s.time});
   $('heroPick').textContent = (s.gh!=null?s.gh:'–') + ' – ' + (s.ga!=null?s.ga:'–');
   const isLive = LIVE_CODES.includes(s.status);
   $('heroConf').textContent = isLive ? '🔴 LIVE · '+(s.elapsed?s.elapsed+"'":s.status) : (s.status==='NS'?'Kick-off '+s.time:s.status);
@@ -2038,6 +2132,45 @@ function recordStats(){
   return {n:graded.length, hits, pct:(100*hits/graded.length).toFixed(1)};
 }
 
+/* ---------- reconcile past-dated scores on open/refresh (#17) ----------
+   For loaded fixtures whose date has passed but have no known result, fetch that league's
+   finished results once (budget-aware: stale-checked per league, capped per run) and merge
+   into league history so the feeds, the detail header (#16) and the accuracy record update. */
+let _reconciling = false;
+async function reconcilePastScores(){
+  if(_reconciling || !afState.key) return;
+  const today = todayStrLocal(), smap = scoreMap(), need = [];
+  for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
+    const L = afState.leagues[id]; if(!L || (L.sport||'football')!=='football') continue;
+    const hasUnresolvedPast = (L.upcoming||[]).some(f=> f.date < today && !fixtureResult(L, f, smap));
+    if(hasUnresolvedPast && (Date.now()-(L.resultsAt||0) > 6*3600*1000)) need.push(L);   // only if stale (>6h)
+  }
+  if(!need.length) return;
+  _reconciling = true;
+  try{
+    for(const L of need.slice(0,3)){   // budget cap: at most 3 leagues per run
+      try{
+        const ft = await afFetch(`/fixtures?league=${L.id}&season=${L.season||afState.season}&status=FT`);
+        L.resultsAt = Date.now();
+        if(ft.length){
+          const seen = new Set((L.matches||[]).map(m=>m.date+m.home+m.away));
+          for(const x of ft){
+            const m = {date:x.fixture.date.slice(0,10), home:x.teams.home.name, away:x.teams.away.name, hg:+x.goals.home, ag:+x.goals.away};
+            L.teamIds[x.teams.home.name]=x.teams.home.id; L.teamIds[x.teams.away.name]=x.teams.away.id;
+            regLogo(x.teams.home); regLogo(x.teams.away);
+            if(!seen.has(m.date+m.home+m.away)){ (L.matches = L.matches||[]).push(m); seen.add(m.date+m.home+m.away); }
+          }
+          L.matches.sort((a,b)=> a.date<b.date?-1:1);
+        }
+      }catch(e){ /* plan/budget blocked — skip this league */ }
+    }
+    gradeFromHistory(); saveState();
+    if(lastTab==='predict') renderFixtures();
+    else if(lastTab==='favs') renderFavs();
+    else if(lastTab==='scores') renderScores();
+  } finally { _reconciling = false; }
+}
+
 /* ---------- today's scores (score-app home) ---------- */
 const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
 async function afScores(){
@@ -2061,6 +2194,7 @@ async function afScores(){
     gradeRecord(afState.scores.list);
     saveState();
     renderScores();
+    reconcilePastScores();   // also refresh finished results for past-dated fixtures (#17)
   }catch(e){ $('scoresMeta').textContent = '✗ ' + e.message; }
 }
 
@@ -2160,6 +2294,7 @@ async function openFixture(leagueId, f, btn){
   }
   activateLeague(leagueId);
   if(btn) btn.disabled = false;
+  pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away};   // for detail header (#16)
   const ts = footballEngine.teams();
   if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
     await afEnsureScorers(leagueId);
@@ -2207,14 +2342,16 @@ function renderCompsDrop(){
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const cnt = ls=>ls.reduce((s,l)=>s+l.upcoming.length,0);
   const item = (val,label,count)=>`<div class="lgitem${String(afState.filter)===String(val)?' sel':''}" data-f="${val}"><span>${label}</span><span class="muted">${count}</span></div>`;
+  // show country next to the competition name so generic names ("Cup", "Super Cup"…) are identifiable (#19)
+  const lgLabel = (l, ic) => `${ic} ${l.name}` + (l.country && !(l.name||'').toLowerCase().includes((l.country||'').toLowerCase()) ? ` <span class="muted" style="font-weight:500">· ${l.country}</span>` : '');
   let html = item('all','🌍 All competitions', cnt(all));
   if(fb.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">⚽ Football</div>` + item('football','All football', cnt(fb))
-          + fb.map(l=>item(l.id, (l.flag||'🏆')+' '+l.name, l.upcoming.length)).join('');
+          + fb.map(l=>item(l.id, lgLabel(l, l.flag||'🏆'), l.upcoming.length)).join('');
   }
   if(bk.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
-          + bk.map(l=>item(l.id, '🏀 '+l.name, l.upcoming.length)).join('');
+          + bk.map(l=>item(l.id, lgLabel(l, '🏀'), l.upcoming.length)).join('');
   }
   if(!all.length) html = '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
   html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
@@ -2417,10 +2554,7 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
-$('saveKeyBtn').addEventListener('click', ()=>{
-  apiKey = $('apiKey').value.trim();
-  $('keyStatus').textContent = apiKey ? '✓ Key set — analyses will use Claude.' : 'Key cleared — using local writer.';
-});
+$('aiSaveBtn').addEventListener('click', aiSave);
 
 /* ---------- boot ---------- */
 /* theme first, to avoid a flash of the wrong palette (#10) */
@@ -2432,6 +2566,7 @@ if(window.matchMedia){
   mq.addEventListener ? mq.addEventListener('change', onmq) : mq.addListener(onmq);
 }
 setupBackHandler();
+loadAISettings(); renderAISettings();   // AI writer provider selection (#20)
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
@@ -2443,6 +2578,7 @@ else refreshTeams();
 setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   if(k && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000)) afScores();
+  if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
