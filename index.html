@@ -457,6 +457,12 @@
   <!-- ================= DATA VIEW ================= -->
   <div class="view hidden" id="view-data">
 
+    <div class="sec-label">Account</div>
+    <div class="card">
+      <h2>👤 Account &amp; sync</h2>
+      <div id="acctBox"></div>
+    </div>
+
     <div class="sec-label">Settings</div>
     <div class="card">
       <h2>⚙️ Settings</h2>
@@ -579,8 +585,19 @@
 
 </div>
 
+<!-- Supabase SDK (accounts + sync). Fails silently offline → app stays in guest mode. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
+/* ================================================================
+   BACKEND (Supabase) — paste your two values here to enable accounts + sync.
+   Leave blank and the app runs exactly as before (guest mode, on-device only).
+   Get them from Supabase → Project Settings → API. See MatchMind-Backend-Setup.md.
+   ================================================================ */
+const SUPA_URL = '';   // ← your Supabase Project URL, e.g. https://abcd.supabase.co
+const SUPA_KEY = '';   // ← your anon public key (safe to ship; protected by row-level security)
+let supa = null, authUser = null, _cloudPushT = null;
+
 /* ================================================================
    MatchMind PRO v0.8
    PART 1: math engine   PART 2: AI writer
@@ -2460,6 +2477,91 @@ function saveState(){
       af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
+  cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
+}
+
+/* ================================================================
+   ACCOUNTS & SYNC (Supabase) — guest mode when unconfigured
+   ================================================================ */
+function cloudEnabled(){ return !!(SUPA_URL && SUPA_KEY && window.supabase); }
+function initSupabase(){
+  if(!cloudEnabled()){ renderAccount(); return; }
+  try{
+    supa = window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:true, autoRefreshToken:true}});
+    supa.auth.getSession().then(({data})=> onAuth(data && data.session ? data.session.user : null));
+    supa.auth.onAuthStateChange((_e, session)=> onAuth(session ? session.user : null));
+  }catch(e){ supa = null; }
+  renderAccount();
+}
+function onAuth(user){
+  const was = authUser; authUser = user || null;
+  renderAccount();
+  if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
+}
+async function authSignup(){
+  if(!supa) return;
+  const email=($('acctEmail').value||'').trim(), pw=$('acctPass').value||'';
+  if(!email || !pw){ toast('Enter email and password'); return; }
+  $('acctStatus').textContent='Creating account…';
+  const {error}=await supa.auth.signUp({email, password:pw});
+  $('acctStatus').textContent = error ? '✗ '+error.message : '✓ Account created — you are signed in.';
+}
+async function authLogin(){
+  if(!supa) return;
+  const email=($('acctEmail').value||'').trim(), pw=$('acctPass').value||'';
+  if(!email || !pw){ toast('Enter email and password'); return; }
+  $('acctStatus').textContent='Signing in…';
+  const {error}=await supa.auth.signInWithPassword({email, password:pw});
+  $('acctStatus').textContent = error ? '✗ '+error.message : '✓ Signed in.';
+}
+async function authLogout(){ if(supa){ try{ await supa.auth.signOut(); }catch(e){} } authUser=null; renderAccount(); toast('Logged out'); }
+async function cloudPullMerge(){
+  if(!supa || !authUser) return;
+  try{
+    const {data, error}=await supa.from('app_state').select('*').eq('user_id', authUser.id).maybeSingle();
+    if(error) throw error;
+    if(data){
+      const uniq=(a,b)=>[...new Set([...(a||[]), ...(b||[])])];
+      afState.favL = uniq(afState.favL, data.fav_leagues);
+      afState.favT = uniq(afState.favT, data.fav_teams);
+      const byId=(arr,key)=>{ const m={}; for(const x of (arr||[])) if(x && x[key]!=null) m[x[key]]=x; return m; };
+      const mergeById=(a,b,key)=> Object.values({ ...byId(b,key), ...byId(a,key) });   // local wins on conflict
+      afState.favM = mergeById(afState.favM, data.fav_matches, 'fxid');
+      afState.record = mergeById(afState.record, data.record, 'fxid');
+    }
+    saveState();   // persists locally + pushes the merged result back up
+    if(lastTab==='favs') renderFavs(); else if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
+  }catch(e){ const s=$('acctStatus'); if(s) s.textContent='Sync issue: '+(e.message||e); }
+}
+function cloudPush(){
+  if(!supa || !authUser) return;
+  clearTimeout(_cloudPushT);
+  _cloudPushT=setTimeout(async ()=>{
+    try{
+      await supa.from('app_state').upsert({ user_id:authUser.id,
+        fav_leagues:afState.favL, fav_teams:afState.favT, fav_matches:afState.favM,
+        record:afState.record, prefs:{theme:themeMode, aiProvider}, updated_at:new Date().toISOString() });
+    }catch(e){ /* offline/transient — retries on the next saveState */ }
+  }, 1200);
+}
+function renderAccount(){
+  const box=$('acctBox'); if(!box) return;
+  if(!cloudEnabled()){
+    box.innerHTML='<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
+    return;
+  }
+  if(authUser){
+    box.innerHTML=`<div class="setrow"><div><div class="sl">${escapeHtml(authUser.email||'Signed in')}</div><div class="sd">✓ Favourites &amp; record sync across your devices</div></div><button class="btn" id="acctLogout">Log out</button></div>`;
+    $('acctLogout').addEventListener('click', authLogout);
+  } else {
+    box.innerHTML=`<div class="notice">Create an account (or log in) to sync your favourites and prediction record across devices. Your data stays private to you.</div>
+      <div class="field"><input id="acctEmail" type="email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="field"><input id="acctPass" type="password" placeholder="password" autocomplete="current-password"></div>
+      <div style="display:flex; gap:8px"><button class="btn gold" id="acctLogin">Log in</button><button class="btn" id="acctSignup">Sign up</button></div>
+      <div class="status" id="acctStatus"></div>`;
+    $('acctLogin').addEventListener('click', authLogin);
+    $('acctSignup').addEventListener('click', authSignup);
+  }
 }
 function restoreState(){
   try{
@@ -2573,6 +2675,7 @@ if(window.matchMedia){
 }
 setupBackHandler();
 loadAISettings(); renderAISettings();   // AI writer provider selection (#20)
+initSupabase();                          // accounts + sync (guest mode until configured)
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
