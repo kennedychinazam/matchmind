@@ -1834,15 +1834,21 @@ function visibleLeagues(){
    ================================================================ */
 const NAV_VIEWS = ['scores','predict','tips','favs','data','detail'];
 let lastTab = 'scores';
+let scrollPos = {};        // remembered scroll offset per view
+let curView = 'scores';    // the view currently shown
 function navTo(t){
-  if(t !== 'detail') lastTab = t;
+  try{ scrollPos[curView] = window.scrollY || 0; }catch(e){}   // save where we were on the view we're leaving
+  if(t !== 'detail'){ lastTab = t; try{ localStorage.setItem('mm_tab', t); }catch(e){} }   // remember tab so refresh stays put
   if(t !== 'predict' && t !== 'detail') discoverPinned = false;   // un-pin Discover when leaving Predict (#15)
   for(const v of NAV_VIEWS){ const el = $('view-'+v); if(el) el.classList.toggle('hidden', v!==t); }
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===t));
   if(t==='predict') renderFixtures();
   if(t==='tips') renderTips();
   if(t==='favs') renderFavs();
-  window.scrollTo({top:0});
+  // restore scroll: returning to a feed brings you back to where you tapped; detail/first-visit start at top
+  const target = (t!=='detail' && (t in scrollPos)) ? scrollPos[t] : 0;
+  curView = t;
+  requestAnimationFrame(()=>{ try{ window.scrollTo(0, target); }catch(e){ try{ window.scrollTo({top:target}); }catch(_){} } });
 }
 function showFeed(){ navTo(lastTab); }
 function prepAnalysisView(){
@@ -2575,6 +2581,8 @@ $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
 if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
+// stay on the tab you were on before a refresh (#refresh keeps page)
+try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
 setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   if(k && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000)) afScores();
