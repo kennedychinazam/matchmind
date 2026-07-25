@@ -1,5 +1,5 @@
 // MatchMind PRO service worker — offline app shell
-const CACHE = 'matchmind-v7';
+const CACHE = 'matchmind-v26';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e=>{
@@ -12,12 +12,12 @@ self.addEventListener('activate', e=>{
 });
 self.addEventListener('fetch', e=>{
   const url = new URL(e.request.url);
-  if(url.origin !== location.origin) return;             // API calls go straight to network
+  if(url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request).then(res=>{                          // network-first so updates arrive
+    fetch(e.request).then(res=>{
       const copy = res.clone();
       caches.open(CACHE).then(c=>c.put(e.request, copy));
       return res;
-    }).catch(()=>caches.match(e.request))                 // offline -> cached shell
+    }).catch(()=>caches.match(e.request))
   );
 });
