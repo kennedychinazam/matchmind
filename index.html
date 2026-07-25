@@ -1880,6 +1880,7 @@ function navTo(t){
   if(t !== 'predict' && t !== 'detail') discoverPinned = false;   // un-pin Discover when leaving Predict (#15)
   for(const v of NAV_VIEWS){ const el = $('view-'+v); if(el) el.classList.toggle('hidden', v!==t); }
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===t));
+  if((t==='predict'||t==='tips') && supa) loadCloudLeagues();   // refresh fixtures+predictions from the cloud (throttled)
   if(t==='predict') renderFixtures();
   if(t==='tips') renderTips();
   if(t==='favs') renderFavs();
@@ -2186,6 +2187,55 @@ async function loadCloudResults(){
     if(lastTab==='predict') renderFixtures(); else if(lastTab==='favs') renderFavs(); else if(lastTab==='tips') renderTips();
   }catch(e){}
 }
+
+/* ---- build the whole league model (fixtures, history, predictions) from the cloud ---- */
+const FD_COMP_IDS = [2021,2014,2002,2019,2015,2001,2003,2017,2016,2013,2000,2018];
+let _leaguesLoadedAt = 0;
+async function loadCloudLeagues(force){
+  if(!supa) return;
+  if(!force && Date.now()-_leaguesLoadedAt < 5*60*1000) return;   // throttle
+  try{
+    const today = todayStrLocal();
+    const results = await Promise.all(FD_COMP_IDS.map(id =>
+      supa.from('fixtures').select('*').eq('lid', id).order('date')
+    ));
+    const leagues = {}, order = [], cf = {};
+    for(const {data, error} of results){
+      if(error || !data || !data.length) continue;
+      const f0 = data[0];
+      const L = { id:f0.lid, name:f0.lname, country:f0.lcountry||'', flag:'', logo:f0.llogo||'', sport:'football', season:f0.season, matches:[], upcoming:[], teamIds:{}, scorerText:'' };
+      for(const r of data){
+        if(r.home_logo) afState.logos[r.home]=r.home_logo;
+        if(r.away_logo) afState.logos[r.away]=r.away_logo;
+        if(FINISHED.includes(r.status) && r.gh!=null && r.ga!=null){
+          L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga});
+          cf[r.fxid] = {gh:r.gh, ga:r.ga};
+        } else if(r.status==='NS' && r.date >= today){
+          L.upcoming.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away});
+        }
+      }
+      L.matches.sort((a,b)=> a.date<b.date?-1:1);
+      // predictions from the engine (needs enough history)
+      if(L.matches.length>=15){
+        const tmp=Object.create(footballEngine); tmp.matches=L.matches;
+        for(const f of L.upcoming){ const p=tmp.predict(f.home,f.away);
+          if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]); f.pick=arr[0][1]; f.prob=+arr[0][0].toFixed(3); recordPick(L.name,f); } }
+      }
+      L.upcoming.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
+      if(L.upcoming.length || L.matches.length){ leagues[L.id]=L; order.push(L.id); }
+    }
+    if(order.length){
+      afState.leagues = leagues; afState.leagueOrder = order; afState.cloudFix = cf;
+      // one-time cleanup: drop favourites orphaned by the data-source switch (old provider IDs no longer exist)
+      const validFx = new Set(); for(const id of order){ for(const f of leagues[id].upcoming) validFx.add(f.fxid); } for(const fx in cf) validFx.add(+fx);
+      afState.favM = (afState.favM||[]).filter(m => validFx.has(m.fxid));
+      afState.favL = (afState.favL||[]).filter(id => leagues[id]);
+      _leaguesLoadedAt = Date.now();
+      gradeFromHistory(); saveState();
+      if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips(); else if(lastTab==='favs') renderFavs();
+    }
+  }catch(e){}
+}
 function recordStats(){
   gradeFromHistory();
   const graded = afState.record.filter(r=>r.result);
@@ -2239,17 +2289,18 @@ const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
 async function afScoresFromCloud(){
   if(!supa) return false;
   try{
-    const day = todayStrLocal();
-    const { data, error } = await supa.from('fixtures').select('*').eq('date', day);
-    if(error || !data || !data.length) return false;
-    for(const r of data){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
-    const keep = data.filter(r =>
-      leaguePriority({id:r.lid, name:r.lname}) >= 50 ||
-      afState.leagues[r.lid] ||
-      FAMOUS_CLUBS.some(c => (r.home||'').includes(c) || (r.away||'').includes(c))
-    ).slice(0,150);
-    if(!keep.length) return false;
-    afState.scores = { at: Date.now(), source:'cloud', list: keep.map(r=>({
+    const today = todayStrLocal();
+    // pull a ±1-day UTC window and keep matches whose LOCAL kick-off date is today (timezone-correct)
+    const dm1 = new Date(Date.now()-86400000).toISOString().slice(0,10);
+    const dp1 = new Date(Date.now()+86400000).toISOString().slice(0,10);
+    const { data, error } = await supa.from('fixtures').select('*').gte('date', dm1).lte('date', dp1);
+    if(error) return false;
+    const localDate = (r)=>{ const d=new Date((r.date||'')+'T'+(r.time||'00:00')+':00Z'); if(isNaN(d)) return r.date;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+    const todays = (data||[]).filter(r=> localDate(r)===today);
+    for(const r of todays){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
+    // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
+    afState.scores = { at: Date.now(), source:'cloud', list: todays.map(r=>({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
       date:r.date, time:r.time, status:r.status, elapsed:r.elapsed,
       home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
@@ -2777,7 +2828,7 @@ setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
   if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || (afState.scores && afState.scores.source!=='cloud'))) afScores();
-  if(supa) loadCloudResults();   // fill in FT scores for recent played fixtures (Predict/Favs feeds)
+  if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (Football-Data.org)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
 // keep things fresh on their own (reads the DB only — no API cost): recent results every 2 min,
