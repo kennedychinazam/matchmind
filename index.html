@@ -1345,6 +1345,13 @@ function pill(r){ return `<span class="form-pill fp-${r}">${r}</span>`; }
    ================================================================ */
 function todayStrLocal(){ const d=new Date(); d.setHours(0,0,0,0);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// stored kickoff date+time are UTC — convert to the viewer's local HH:MM for display
+function localHM(dateStr, timeStr){
+  if(!dateStr || !timeStr) return timeStr || '';
+  const d = new Date(dateStr+'T'+timeStr+':00Z');
+  if(isNaN(d)) return timeStr;
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
 function daysPast(dateStr){
   const d=new Date((dateStr||'')+'T00:00:00'); if(isNaN(d)) return 0;
   const now=new Date(); now.setHours(0,0,0,0);
@@ -1373,7 +1380,7 @@ function fxCells(L,f,smap){
     if(f.pick){ const hit=f.pick===actualCode(res.gh,res.ga); chip=`<span class="predchip ${hit?'hit':'miss'}">${f.pick} ${hit?'✓':'✗'}</span>`; }
     return {timeCell, chip, finished:true};
   }
-  return {timeCell:`<span class="fxtime">${f.time||''}</span>`,
+  return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`,
           chip: f.pick?`<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>`:'',
           finished:false};
 }
@@ -1409,7 +1416,7 @@ function setHeroMeta(meta){
   if(!meta || (!meta.comp && !meta.date)){ box.classList.add('hidden'); box.innerHTML=''; return; }
   box.classList.remove('hidden');
   const comp = meta.comp ? `${meta.comp}${meta.country && !(meta.comp||'').toLowerCase().includes((meta.country||'').toLowerCase()) ? ` · ${meta.country}` : ''}` : '';
-  const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${meta.time}`:''}` : '';
+  const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '';
   let sc='';
   if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} FT</b>`;
   box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
@@ -1556,7 +1563,7 @@ function renderTipList(market){
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
     const val = tipState.fair ? `<span class="predchip sm">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>`;
     const on=isFavMatch(r.f.fxid);
-    return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${r.f.time||''}</span>
+    return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${localHM(r.f.date, r.f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(r.f.home)}${r.f.home}</span><span class="tline">${crest(r.f.away)}${r.f.away}</span>
       <span class="lname">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b></span></span>
       <span class="favright">${val}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`; }).join('');
@@ -2120,7 +2127,7 @@ function genSlip(){
       <div class="ssbadge">${badge}</div>
       <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds from engine probabilities · target risk ${slipState.riskPct}%. Bookmaker odds will differ.</div>
     </div>` +
-    legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${l.f.time||''}</span>
+    legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${localHM(l.f.date, l.f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
       <span class="lname">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
       <span class="favright"><span class="predchip sm">${(100*l.prob).toFixed(0)}%</span></span></div>`).join('') +
@@ -2322,7 +2329,7 @@ function renderScores(){
     for(const s of g){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
-      const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? s.time : s.status;
+      const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : s.status;
       const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
@@ -2406,7 +2413,7 @@ function renderStrongPicks(){
   for(const {L,f} of picks.slice(0,15)){
     const i=refs.length; refs.push({L,f});
     const on=isFavMatch(f.fxid);
-    html += `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${f.time}</span>
+    html += `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${localHM(f.date, f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>
       <span class="favright"><span class="predchip sm">${f.pick} · ${(100*f.prob).toFixed(0)}%</span><span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
   }
