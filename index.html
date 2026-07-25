@@ -1107,7 +1107,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[], favM:[], favTab:'matches' };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{} };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 async function afFetch(path, base){
@@ -1358,6 +1358,8 @@ function fixtureResult(L,f,smap){
   smap=smap||scoreMap();
   const s = f.fxid!=null ? smap[f.fxid] : null;
   if(isFinishedScore(s)) return {gh:s.gh, ga:s.ga};
+  // recent finished results from the shared cloud collector (covers past days too)
+  if(f.fxid!=null && afState.cloudFix && afState.cloudFix[f.fxid]){ const c=afState.cloudFix[f.fxid]; return {gh:c.gh, ga:c.ga}; }
   if(L && L.matches){ const m=L.matches.find(x=>x.date===f.date && x.home===f.home && x.away===f.away); if(m) return {gh:m.hg, ga:m.ag}; }
   return null;
 }
@@ -1827,7 +1829,9 @@ Model note: ${comment}.` : '');
 /* ---------- importance ranking ---------- */
 const LEAGUE_PRIORITY = {1:100, 2:95, 4:93, 9:90, 39:94, 140:92, 135:90, 78:89, 61:85, 3:80, 848:70,
   5:75, 13:78, 71:75, 128:70, 88:70, 94:70, 40:62, 45:68, 48:58, 137:60, 143:65, 81:60, 66:55,
-  203:63, 253:64, 262:64, 307:60, 32:55, 34:55, 29:55, 30:55, 31:55, 12:95, 120:80};
+  203:63, 253:64, 262:64, 307:60, 32:55, 34:55, 29:55, 30:55, 31:55, 12:95, 120:80,
+  // Football-Data.org competition IDs (free tier — the 12 covered competitions)
+  2021:94, 2014:92, 2002:89, 2019:90, 2015:85, 2001:88, 2003:74, 2017:70, 2016:78, 2013:75, 2000:97, 2018:82};
 const FAMOUS_CLUBS = ['Real Madrid','Barcelona','Manchester United','Man United','Manchester City','Man City',
   'Liverpool','Arsenal','Chelsea','Tottenham','Bayern','Borussia Dortmund','PSG','Paris Saint',
   'Juventus','Inter','AC Milan','Napoli','Atletico','Roma','Newcastle','Aston Villa',
@@ -2148,6 +2152,10 @@ function gradeRecord(scoreList){
 function gradeFromHistory(){
   const pend = afState.record.filter(r=>!r.result);
   if(!pend.length) return;
+  // first, grade from the shared cloud results (fxid match)
+  if(afState.cloudFix){
+    for(const r of pend){ if(r.result) continue; const c=afState.cloudFix[r.fxid]; if(c) r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; }
+  }
   for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
     const L=afState.leagues[id]; if(!L||!L.matches||!L.matches.length) continue;
     for(const r of pend){
@@ -2156,6 +2164,20 @@ function gradeFromHistory(){
       if(m) r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2';
     }
   }
+}
+// pull recent finished results (last few days) from the cloud collector so past fixtures show FT + ✓/✗
+async function loadCloudResults(){
+  if(!supa) return;
+  try{
+    const from = new Date(Date.now()-3*86400000).toISOString().slice(0,10);
+    const { data, error } = await supa.from('fixtures').select('fxid,gh,ga,status').gte('date', from);
+    if(error || !data) return;
+    const m = {};
+    for(const r of data){ if(r.gh!=null && r.ga!=null && FINISHED.includes(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }
+    afState.cloudFix = m;
+    gradeFromHistory();
+    if(lastTab==='predict') renderFixtures(); else if(lastTab==='favs') renderFavs(); else if(lastTab==='tips') renderTips();
+  }catch(e){}
 }
 function recordStats(){
   gradeFromHistory();
@@ -2748,12 +2770,17 @@ setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
   if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || (afState.scores && afState.scores.source!=='cloud'))) afScores();
+  if(supa) loadCloudResults();   // fill in FT scores for recent played fixtures (Predict/Favs feeds)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
-// keep the Scores tab fresh on its own: re-read the cloud collector every 2 min while it's open,
-// and whenever the app returns to the foreground (reads the DB only — no API cost)
-setInterval(()=>{ if(supa && lastTab==='scores' && document.visibilityState!=='hidden') afScores(true); }, 120000);
-document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibilityState==='visible' && lastTab==='scores') afScores(true); });
+// keep things fresh on their own (reads the DB only — no API cost): recent results every 2 min,
+// plus the Scores tab while it's open and whenever the app returns to the foreground
+setInterval(()=>{
+  if(!supa) return;
+  loadCloudResults();
+  if(lastTab==='scores' && document.visibilityState!=='hidden') afScores(true);
+}, 120000);
+document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibilityState==='visible'){ loadCloudResults(); if(lastTab==='scores') afScores(true); } });
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
