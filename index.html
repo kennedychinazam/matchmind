@@ -2206,10 +2206,36 @@ async function reconcilePastScores(){
 
 /* ---------- today's scores (score-app home) ---------- */
 const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
+// read today's scores from the shared cloud collector (fixtures table); returns true if it rendered
+async function afScoresFromCloud(){
+  if(!supa) return false;
+  try{
+    const day = todayStrLocal();
+    const { data, error } = await supa.from('fixtures').select('*').eq('date', day);
+    if(error || !data || !data.length) return false;
+    for(const r of data){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
+    const keep = data.filter(r =>
+      leaguePriority({id:r.lid, name:r.lname}) >= 50 ||
+      afState.leagues[r.lid] ||
+      FAMOUS_CLUBS.some(c => (r.home||'').includes(c) || (r.away||'').includes(c))
+    ).slice(0,150);
+    if(!keep.length) return false;
+    afState.scores = { at: Date.now(), source:'cloud', list: keep.map(r=>({
+      fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
+      date:r.date, time:r.time, status:r.status, elapsed:r.elapsed,
+      home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
+    gradeRecord(afState.scores.list);
+    saveState(); renderScores();
+    return true;
+  }catch(e){ return false; }
+}
 async function afScores(){
+  $('scoresMeta').textContent = 'Loading today’s matches…';
+  // 1) prefer the shared cloud collector — always-current, costs no per-device API request
+  if(await afScoresFromCloud()) return;
+  // 2) fall back to a direct API-Football call (needs the user's own key)
   afState.key = afState.key || $('afKey').value.trim();
   if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab, then refresh.'; return; }
-  $('scoresMeta').textContent = 'Loading today’s matches…';
   try{
     const day = new Date().toISOString().slice(0,10);
     const fx = await afFetch(`/fixtures?date=${day}`);
@@ -2720,7 +2746,8 @@ else refreshTeams();
 try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
 setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
-  if(k && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000)) afScores();
+  // cloud scores work for everyone (no personal key needed); direct API is the fallback
+  if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || (afState.scores && afState.scores.source!=='cloud'))) afScores();
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
