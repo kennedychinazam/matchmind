@@ -615,7 +615,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 40;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 41;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -903,6 +903,9 @@ const footballEngine = {
     hHcap/=total; aHcap/=total; hT15/=total; aT15/=total;
     scores.forEach(s=>s.p/=total);
     scores.sort((x,y)=>y.p-x.p);
+    // keep the untouched probabilities: the calibration report sweeps TEMP over these, which is
+    // what lets it recommend a value from your own data instead of an assumed one (build 41)
+    const raw = {pW, pD, pL, over:{...over}, btts};
     // calibration: flatten probabilities so stated confidence matches real-world hit rates
     const T = TUNE.TEMP;
     { const x=Math.pow(pW,T), y=Math.pow(pD,T), z=Math.pow(pL,T), s=x+y+z;
@@ -912,7 +915,7 @@ const footballEngine = {
     btts = flat2(btts);
     const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
     const team = {h15:flat2(hT15), a15:flat2(aT15)};    // team total over 1.5
-    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, topScores:scores.slice(0,5)};
+    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw, topScores:scores.slice(0,5)};
   },
 
   form(team, k=5){
@@ -1874,45 +1877,135 @@ async function analyze(){
   $('results').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
+/* ---------- calibration report (build 41) ----------
+   The old backtest answered "how often is the favourite right?". That can't tell you which picks to
+   trust. This answers the question that matters: WHEN THE APP SAYS 70%, DO THOSE MATCHES WIN 70%?
+   Predictions are grouped into confidence bands and each band's stated confidence is compared with
+   what actually happened. A band where stated and actual agree is a band you can publish; a band
+   where they diverge is one to stay quiet about.
+   It also sweeps TUNE.TEMP over the stored raw probabilities and reports the value that would have
+   fitted your own data best — evidence for tuning, rather than an assumed constant. */
+const CAL_BANDS = [[.34,.40],[.40,.50],[.50,.60],[.60,.70],[.70,.80],[.80,1.01]];
+
+function calBucket(rows, probOf, hitOf){
+  const bs = CAL_BANDS.map(([lo,hi])=>({lo,hi,n:0,stated:0,hit:0}));
+  for(const r of rows){
+    const c = probOf(r); if(c==null) continue;
+    const b = bs.find(x=> c>=x.lo && c<x.hi); if(!b) continue;
+    b.n++; b.stated += c; b.hit += hitOf(r) ? 1 : 0;
+  }
+  return bs.filter(b=>b.n>0).map(b=>({
+    band:`${Math.round(b.lo*100)}–${Math.round(b.hi*100)}%`, n:b.n,
+    stated:b.stated/b.n, actual:b.hit/b.n, gap:(b.hit/b.n)-(b.stated/b.n) }));
+}
+function calTable(title, rows, note){
+  if(!rows.length) return '';
+  const cell = (t,w,extra)=>`<span style="width:${w};${extra||''}">${t}</span>`;
+  const head = `<div class="frow" style="font-size:.68rem; letter-spacing:.1em; color:var(--muted); text-transform:uppercase;">
+      ${cell('Band','24%')}${cell('N','14%','text-align:right')}${cell('Says','20%','text-align:right')}${cell('Really','20%','text-align:right')}${cell('Gap','22%','text-align:right')}</div>`;
+  const body = rows.map(r=>{
+    // a band is only judged once it has enough matches to mean anything
+    const thin = r.n < 25;
+    const col = thin ? 'var(--muted)' : Math.abs(r.gap)<=0.05 ? 'var(--green2)' : Math.abs(r.gap)<=0.10 ? 'var(--gold)' : 'var(--red)';
+    const sign = r.gap>0 ? '+' : '';
+    return `<div class="frow">${cell(r.band,'24%')}${cell(r.n,'14%','text-align:right')}
+      ${cell(pct(r.stated),'20%','text-align:right')}${cell('<b>'+pct(r.actual)+'</b>','20%','text-align:right')}
+      ${cell(`<b style="color:${col}">${sign}${pct(r.gap)}${thin?' ?':''}</b>`,'22%','text-align:right')}</div>`;
+  }).join('');
+  return `<div class="sec-label" style="margin-top:16px">${title}</div>${head}${body}` +
+         (note?`<div class="subnote">${note}</div>`:'');
+}
+
 function runBacktest(){
   const ms = footballEngine.matches;
   const out = $('btResults');
   if(ms.length < 60){ out.innerHTML = '<div class="subnote">Need at least 60 football matches loaded — load a real season first.</div>'; return; }
+  out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
+
   const start = Math.max(30, Math.floor(ms.length*0.3));
-  let n=0, favHit=0, homeHit=0, brier=0, o25hit=0, bttsHit=0, confSum=0;
+  const rows = [];
+  let homeHit=0, drawActual=0, drawStated=0;
   for(let i=start; i<ms.length; i++){
     const m = ms[i];
     const p = footballEngine.predict(m.home, m.away, i);
-    if(!p) continue;
-    n++;
+    if(!p || !p.raw) continue;
     const actual = m.hg>m.ag ? 'W' : m.hg===m.ag ? 'D' : 'L';
-    const probs = {W:p.pW, D:p.pD, L:p.pL};
-    const fav = Object.keys(probs).reduce((a,b)=> probs[a]>=probs[b]?a:b);
-    if(fav===actual) favHit++;
-    confSum += probs[fav];
+    const goals = m.hg + m.ag;
+    rows.push({ p, raw:p.raw, actual, over25: goals>2.5, btts: m.hg>0 && m.ag>0 });
     if(actual==='W') homeHit++;
-    brier += (p.pW-(actual==='W'?1:0))**2 + (p.pD-(actual==='D'?1:0))**2 + (p.pL-(actual==='L'?1:0))**2;
-    if((p.over[2.5]>.5) === (m.hg+m.ag>2.5)) o25hit++;
-    if((p.btts>.5) === (m.hg>0&&m.ag>0)) bttsHit++;
+    if(actual==='D') drawActual++;
+    drawStated += p.pD;
   }
+  const n = rows.length;
   if(!n){ out.innerHTML = '<div class="subnote">Could not test any matches.</div>'; return; }
-  const acc = favHit/n, homeBase = homeHit/n, brierAvg = brier/n;
+
+  // headline accuracy + proper scoring rules
+  let favHit=0, confSum=0, brier=0, logloss=0;
+  for(const r of rows){
+    const probs = {W:r.p.pW, D:r.p.pD, L:r.p.pL};
+    const fav = Object.keys(probs).reduce((a,b)=> probs[a]>=probs[b]?a:b);
+    if(fav===r.actual) favHit++;
+    confSum += probs[fav];
+    brier += (r.p.pW-(r.actual==='W'))**2 + (r.p.pD-(r.actual==='D'))**2 + (r.p.pL-(r.actual==='L'))**2;
+    logloss += -Math.log(Math.max(1e-9, probs[r.actual]));
+  }
+  const acc = favHit/n, homeBase = homeHit/n;
+
+  // reliability per market — the heart of the report
+  const favProb = r=>Math.max(r.p.pW, r.p.pD, r.p.pL);
+  const favRight = r=>{ const p={W:r.p.pW,D:r.p.pD,L:r.p.pL};
+    return Object.keys(p).reduce((a,b)=>p[a]>=p[b]?a:b)===r.actual; };
+  const t1x2  = calBucket(rows, favProb, favRight);
+  const tOver = calBucket(rows, r=>Math.max(r.p.over[2.5], 1-r.p.over[2.5]),
+                                r=>(r.p.over[2.5]>.5) === r.over25);
+  const tBtts = calBucket(rows, r=>Math.max(r.p.btts, 1-r.p.btts),
+                                r=>(r.p.btts>.5) === r.btts);
+
+  // TEMP sweep on the stored raw probabilities (cheap — no re-prediction needed)
+  const lossAt = T=>{ let s=0;
+    for(const r of rows){ const x=r.raw.pW**T, y=r.raw.pD**T, z=r.raw.pL**T, d=x+y+z;
+      const q={W:x/d, D:y/d, L:z/d}; s += -Math.log(Math.max(1e-9, q[r.actual])); }
+    return s/n; };
+  let bestT=TUNE.TEMP, bestL=Infinity;
+  for(let T=0.50; T<=1.401; T+=0.05){ const l=lossAt(T); if(l<bestL){ bestL=l; bestT=T; } }
+  const curL = lossAt(TUNE.TEMP);
+
   const statRow = (l,v,hl)=>`<div class="frow"><span class="muted">${l}</span><b${hl?' style="color:var(--green2)"':''}>${v}</b></div>`;
-  const edge = acc - Math.max(homeBase, 1/3);
+
+  // Worth publishing = enough matches to judge, honest to within 5 points, AND confident enough to
+  // be worth acting on. A well-calibrated 38% pick is honest but useless, so the floor matters.
+  const solid = t1x2.filter(b=>b.n>=25 && Math.abs(b.gap)<=0.05 && b.lo>=0.50);
+  const bias  = t1x2.filter(b=>b.n>=25).reduce((s,b)=>s+b.gap*b.n, 0) /
+                Math.max(1, t1x2.filter(b=>b.n>=25).reduce((s,b)=>s+b.n,0));
   let verdict, col;
-  if(edge > 0.03){ verdict = 'The engine clearly beats naive baselines on this data — it is adding real signal.'; col='var(--green2)'; }
-  else if(edge > -0.01){ verdict = 'The engine roughly matches the naive baselines here. More data (full season, top league) usually sharpens it.'; col='var(--gold)'; }
-  else { verdict = 'The engine is below the naive baseline on this data — treat its picks with caution and load more/better data.'; col='var(--red)'; }
+  if(Math.abs(bias) <= 0.03){ col='var(--green2)';
+    verdict = 'Stated confidence broadly matches reality — the numbers can be published as they are.'; }
+  else if(bias > 0.03){ col='var(--gold)';
+    verdict = `The engine is UNDER-confident here: picks win about ${pct(bias)} more often than it claims. Raising TEMP toward ${bestT.toFixed(2)} would state the case more accurately.`; }
+  else { col='var(--red)';
+    verdict = `The engine is OVER-confident here: picks win about ${pct(-bias)} less often than it claims. Lowering TEMP toward ${bestT.toFixed(2)} would make the numbers honest.`; }
+
   out.innerHTML =
     statRow('Matches tested (walk-forward)', n) +
     statRow('Favourite pick accuracy', pct(acc), true) +
     statRow('Baseline: always pick home', pct(homeBase)) +
     statRow('Baseline: random guess', '33.3%') +
     statRow('Avg confidence of picks', pct(confSum/n)) +
-    statRow('Brier score (lower = better, 0.667 = uniform)', brierAvg.toFixed(3)) +
-    statRow('Over/Under 2.5 accuracy', pct(o25hit/n)) +
-    statRow('BTTS accuracy', pct(bttsHit/n)) +
-    `<div class="verdict" style="border-color:${col}">${verdict} For a fair read, bookmakers hit roughly 53–55% on favourites in top leagues.</div>`;
+    statRow('Brier score (lower is better)', (brier/n).toFixed(3)) +
+    statRow('Log loss (lower is better)', (logloss/n).toFixed(3)) +
+    statRow('Draws — engine says / really', `${pct(drawStated/n)} / ${pct(drawActual/n)}`) +
+
+    calTable('Reliability — match result', t1x2,
+      'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
+    calTable('Reliability — over/under 2.5', tOver) +
+    calTable('Reliability — both teams to score', tBtts) +
+
+    `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
+    statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
+    statRow('Best on this data', bestT.toFixed(2), bestT!==TUNE.TEMP) +
+    statRow('Log loss now / at best', `${curL.toFixed(4)} / ${bestL.toFixed(4)}`) +
+    `<div class="verdict" style="border-color:${col}">${verdict}</div>` +
+    `<div class="subnote">Trustworthy bands on this data: ${solid.length ? solid.map(b=>b.band).join(', ') : 'none yet — needs more matches'}. Those are the picks worth surfacing; the rest are guesses wearing a number. Bookmakers hit roughly 53–55% on favourites in top leagues, for reference.</div>`;
 }
 
 /* ---------- crests & hero helpers ---------- */
