@@ -519,6 +519,13 @@
         Costs 10–15 of your 100 free daily requests. If a league fails, your plan may not cover that season — try 2023.
       </div>
       <div class="field"><label>API key</label><input type="password" id="afKey" placeholder="your api-football key"></div>
+      <div class="field"><label>Match extras</label>
+        <label class="frow" style="gap:8px; cursor:pointer; align-items:center;">
+          <input type="checkbox" id="afExtrasChk" style="width:auto;">
+          <span style="flex:1">Use API-Football for timeline, stats, lineups &amp; injuries</span>
+        </label>
+        <div class="muted" id="afExtrasNote" style="font-size:.72rem; margin-top:4px;"></div>
+      </div>
       <div class="field"><label>Season (start year)</label>
         <select id="afSeason">
           <option>2026</option><option selected>2025</option><option>2024</option><option>2023</option><option>2022</option><option>2021</option>
@@ -608,7 +615,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 39;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 40;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1172,6 +1179,29 @@ function loadAISettings(){
     if(a){ aiProvider=a.provider||'gemini'; aiCompare=a.compare||''; Object.assign(aiKeys, a.keys||{}); } }catch(e){}
 }
 
+/* ---- the API-Football extras toggle (build 40) ---- */
+function renderAFExtras(){
+  const chk = $('afExtrasChk'), note = $('afExtrasNote');
+  if(!chk || !note) return;
+  chk.checked = afExtras;
+  chk.disabled = !supa;                       // without the backend the app has no other source
+  note.textContent = !supa
+    ? 'No backend configured, so API-Football supplies everything.'
+    : afExtras
+      ? 'On — opening a finished match spends 2–3 of your API-Football requests. The free plan allows 100 a day.'
+      : 'Off — scores, fixtures and predictions all come from your own database, costing no API-Football requests. Turn on only if you want the timeline, stats and lineups.';
+}
+function loadAFExtras(){
+  try{ afExtras = localStorage.getItem('mm_af_extras') === '1'; }catch(e){}
+  const chk = $('afExtrasChk');
+  if(chk) chk.addEventListener('change', ()=>{
+    afExtras = chk.checked;
+    try{ localStorage.setItem('mm_af_extras', afExtras ? '1' : '0'); }catch(e){}
+    renderAFExtras();
+  });
+  renderAFExtras();
+}
+
 /* ================================================================
    PART 2.5 — API-FOOTBALL LIVE DATA (v3.football.api-sports.io)
    ================================================================ */
@@ -1187,6 +1217,26 @@ const LEAGUES = [
 const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{} };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
+/* ---- API-Football request discipline (build 40) ----
+   With the Supabase backend on, the cloud is the source of truth for fixtures, results and history,
+   so asking API-Football for the same data only spends the free plan's 100 requests/day. That drain
+   is what left the account showing "Suspended" every evening: a saved key made every automatic path
+   fire — league history on each match opened, score reconciliation, timeline, stats and lineups.
+   Rules from here:
+     • Cloud-redundant automatic calls are skipped entirely whenever the backend is configured.
+     • Extras only API-Football provides (timeline, statistics, lineups, injuries, top scorers, its
+       own prediction endpoint) are OPT-IN via the Data tab — default off — so a saved key can no
+       longer quietly burn the quota.
+     • Manual buttons (Load leagues, Discover) are untouched; they only run when pressed. */
+let afExtras = false;
+function afCloudOwnsFixtures(){ return !!supa; }
+function afExtrasOn(){ return !!afState.key && (afExtras || !supa); }
+const AF_OFF_MSG = 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).';
+async function afAuto(path, base){
+  if(!afExtrasOn()) throw new Error(AF_OFF_MSG);
+  return afFetch(path, base);
+}
+
 async function afFetch(path, base){
   // self-throttle: never fire more than 9 requests in any 60s window
   for(;;){
@@ -1339,9 +1389,9 @@ function activateLeague(id){
 // top scorers per league, fetched once on first analysis (1 request)
 async function afEnsureScorers(id){
   const L = afState.leagues[id];
-  if(!L || L.scorerText) return;
+  if(!L || L.scorerText || !afExtrasOn()) return;
   try{
-    const ts = await afFetch(`/players/topscorers?league=${id}&season=${L.season||afState.season}`);
+    const ts = await afAuto(`/players/topscorers?league=${id}&season=${L.season||afState.season}`);
     const lines = ts.map(p=>{ const st=p.statistics[0];
       return `${p.player.name},${st.team.name},${st.goals.total||0},${st.games.appearences||0}`; });
     if(lines.length){ L.scorerText = lines.join('\n'); $('scorerData').value = L.scorerText; loadScorers(L.scorerText); saveState(); }
@@ -1351,8 +1401,8 @@ async function afEnsureScorers(id){
 // latest injury news for a team (1 request)
 async function afInjuries(team){
   const id = afState.teamIds[team];
-  if(!id || !afState.key) return null;
-  const list = await afFetch(`/injuries?team=${id}&season=${afState.season}`);
+  if(!id || !afState.key || !afExtrasOn()) return null;
+  const list = await afAuto(`/injuries?team=${id}&season=${afState.season}`);
   if(!list.length) return [];
   const latest = {};
   for(const item of list){
@@ -1895,7 +1945,7 @@ async function apiAnalyze(f, L){
   $('analysisText').textContent=''; $('verdictBox').textContent='';
   $('results').scrollIntoView({behavior:'smooth', block:'start'});
   try{
-    const resp = await afFetch(`/predictions?fixture=${f.fxid}`);
+    const resp = await afAuto(`/predictions?fixture=${f.fxid}`);
     const P = resp[0]; if(!P) throw new Error('no prediction returned');
     const pc = (P.predictions && P.predictions.percent) || {};
     const num = s => parseFloat(String(s||'').replace('%',''))||0;
@@ -2123,7 +2173,7 @@ async function matchDetail(s){
   $('luBox').innerHTML = '<div class="subnote">Tap to load lineups (1 request).</div>';
   $('luBox').dataset.loaded = '';
   try{
-    const ev = await afFetch(`/fixtures/events?fixture=${s.fxid}`);
+    const ev = await afAuto(`/fixtures/events?fixture=${s.fxid}`);
     $('tlBox').innerHTML = ev.length ? ev.map(e=>{
       const ic = e.type==='Goal' ? '⚽' : e.type==='Card' ? ((e.detail||'').includes('Red')?'🟥':'🟨') : (String(e.type).toLowerCase()==='subst' ? '🔁' : '▪️');
       const extra = e.assist && e.assist.name ? ` <span class="muted">— ${String(e.type).toLowerCase()==='subst'?'for':'assist'} ${e.assist.name}</span>` : '';
@@ -2131,7 +2181,7 @@ async function matchDetail(s){
     }).join('') : '<div class="subnote">No events yet.</div>';
   }catch(e){ $('tlBox').innerHTML = '<div class="subnote">Timeline unavailable: '+e.message+'</div>'; }
   try{
-    const st = await afFetch(`/fixtures/statistics?fixture=${s.fxid}`);
+    const st = await afAuto(`/fixtures/statistics?fixture=${s.fxid}`);
     if(st.length>=2){
       const H=st[0].statistics, A=st[1].statistics;
       const get=(arr,t)=>{ const x=(arr||[]).find(v=>v.type===t); return x&&x.value!=null?x.value:'–'; };
@@ -2372,7 +2422,8 @@ function recordStats(){
    into league history so the feeds, the detail header (#16) and the accuracy record update. */
 let _reconciling = false;
 async function reconcilePastScores(){
-  if(_reconciling || !afState.key) return;
+  // superseded by loadCloudResults() when the backend is on (build 40)
+  if(_reconciling || !afState.key || afCloudOwnsFixtures()) return;
   const today = todayStrLocal(), smap = scoreMap(), need = [];
   for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
     const L = afState.leagues[id]; if(!L || (L.sport||'football')!=='football') continue;
@@ -2591,7 +2642,8 @@ async function openFixture(leagueId, f, btn){
   const L = afState.leagues[leagueId]; if(!L) return;
   if((L.sport||'football')!=='football') return;
   if(btn) btn.disabled = true;
-  if(L.matches.length < 15 && !L.histTried){
+  // the cloud already carries this league's history — don't buy it twice (build 40)
+  if(L.matches.length < 15 && !L.histTried && !afCloudOwnsFixtures()){
     L.histTried = true;
     try{
       const ft = await afFetch(`/fixtures?league=${leagueId}&season=${L.season||afState.season}&status=FT`);
@@ -2930,7 +2982,7 @@ $('lineupsHead').addEventListener('click', async ()=>{
   if(!curDetail || $('luBox').dataset.loaded===String(curDetail.fxid)) return;
   $('luBox').innerHTML='<div class="subnote">Loading lineups…</div>';
   try{
-    const lu = await afFetch(`/fixtures/lineups?fixture=${curDetail.fxid}`);
+    const lu = await afAuto(`/fixtures/lineups?fixture=${curDetail.fxid}`);
     if(!lu.length){ $('luBox').innerHTML='<div class="subnote">Lineups not available yet.</div>'; return; }
     $('luBox').dataset.loaded=String(curDetail.fxid);
     $('luBox').innerHTML = lu.map(t=>
@@ -2994,6 +3046,7 @@ if(window.matchMedia){
 }
 setupBackHandler();
 loadAISettings(); renderAISettings();   // AI writer provider selection (#20)
+loadAFExtras();                         // API-Football extras opt-in (build 40)
 if(supa) refreshServerProviders();      // ask the proxy which writers it has keys for (build 39)
 initSupabase();                          // accounts + sync (guest mode until configured)
 try{ if($('verLabel')) $('verLabel').textContent = 'v0.9 · build '+APP_BUILD; }catch(e){}   // visible version
