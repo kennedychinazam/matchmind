@@ -607,7 +607,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 37;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 38;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2326,8 +2326,10 @@ function localDateOf(r){
   if(isNaN(d)) return r.date;
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-// how far the Scores date strip reaches (the collector keeps a rolling window, so past days stay available)
-const SCORES_PAST_DAYS = 6, SCORES_AHEAD_DAYS = 1;
+/* How far the Scores date strip reaches. Both directions are covered by the collector's rolling
+   window (10 days back → 9 ahead), so these can be raised up to that without any backend change —
+   but not beyond it, or the outer pills render empty. */
+const SCORES_PAST_DAYS = 6, SCORES_AHEAD_DAYS = 7;
 function ymdOffset(days){
   const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+days);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2427,6 +2429,7 @@ function renderScores(){
   renderScoresDateBar();
   $('scoresTitle').textContent = isToday ? "Today's Matches"
     : day===ymdOffset(-1) ? "Yesterday's Matches"
+    : day===ymdOffset(1) ? "Tomorrow's Matches"
     : new Date(day+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'short'});
   if(!afState.scores || !afState.scores.list.length){
     $('scoresMeta').textContent = afState.scores ? 'No matches on this date.' : $('scoresMeta').textContent;
