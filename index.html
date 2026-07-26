@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#070c18" id="themeColorMeta">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="apple-touch-icon" href="./icon-192.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23070c18'/%3E%3Crect x='20.5' y='6' width='7' height='5' rx='1.6' fill='%23f6c344'/%3E%3Ccircle cx='24' cy='28' r='15' fill='none' stroke='%23f6c344' stroke-width='3.2'/%3E%3Cpath d='M16 35 V21 L24 29 L32 21 V35' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <title>MatchMind PRO — AI Sports Predictions</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <style>
   :root{
     --bg:#070c18; --bg2:#0a1120; --card:#111a2e; --card2:#182339; --card3:#1e2c48;
@@ -299,9 +299,10 @@
   <!-- ================= SCORES TAB ================= -->
   <div class="view" id="view-scores">
 
-    <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center;">Today's Matches
+    <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center;"><span id="scoresTitle">Today's Matches</span>
       <button class="btn" id="scoresRefresh" style="padding:6px 12px; font-size:.72rem;">↻ Refresh</button>
     </div>
+    <div class="datebar" id="scoresDateBar"></div>
     <div class="card">
       <div class="muted" id="scoresMeta">Add your API key in Data, then refresh.</div>
       <div id="scoresList"></div>
@@ -606,7 +607,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 36;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 37;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1108,7 +1109,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{} };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{} };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 async function afFetch(path, base){
@@ -1359,6 +1360,12 @@ function daysPast(dateStr){
   return Math.round((now-d)/86400000);
 }
 const FINISHED=['FT','AET','PEN'];
+/* Provider fence (build 37). The `fixtures` table still holds legacy rows written by the RETIRED
+   API-Football collector — nothing updates them, so they used to sit in the Scores feed forever
+   with a kick-off time and a blank score. Football-Data.org competition IDs start at 2000;
+   API-Football's league IDs are all well below it. So: only trust rows at or above the fence.
+   (A threshold rather than a fixed list, so any competition the live collector adds still shows.) */
+const CLOUD_LID_MIN = 2000;
 function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(const s of afState.scores.list) m[s.fxid]=s; return m; }
 function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!=null && s.ga!=null); }
 // final result for a fixture: today's scores by id, else league history by teams+date
@@ -2187,7 +2194,8 @@ async function loadCloudResults(){
   if(!supa) return;
   try{
     const from = new Date(Date.now()-3*86400000).toISOString().slice(0,10);
-    const { data, error } = await supa.from('fixtures').select('fxid,gh,ga,status').gte('date', from);
+    const { data, error } = await supa.from('fixtures').select('fxid,gh,ga,status')
+      .gte('lid', CLOUD_LID_MIN).gte('date', from);   // ignore legacy rows from the retired collector
     if(error || !data) return;
     const m = {};
     for(const r of data){ if(r.gh!=null && r.ga!=null && FINISHED.includes(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }
@@ -2304,34 +2312,56 @@ async function reconcilePastScores(){
   } finally { _reconciling = false; }
 }
 
-/* ---------- today's scores (score-app home) ---------- */
+/* ---------- scores feed (score-app home) ---------- */
 const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
-// read today's scores from the shared cloud collector (fixtures table); returns true if it rendered
+
+/* The Predict path already filtered to the competitions the live collector writes; the Scores path
+   did not, which is why retired-provider leagues (USL League One, MLS Next Pro, Liga de Expansión
+   MX…) still showed up here with times that never resolved into scores. Both are fenced now —
+   see CLOUD_LID_MIN. */
+
+// the LOCAL (device-timezone) calendar date of a fixtures row, which is stored in UTC
+function localDateOf(r){
+  const d = new Date((r.date||'')+'T'+(r.time||'00:00')+':00Z');
+  if(isNaN(d)) return r.date;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// how far the Scores date strip reaches (the collector keeps a rolling window, so past days stay available)
+const SCORES_PAST_DAYS = 6, SCORES_AHEAD_DAYS = 1;
+function ymdOffset(days){
+  const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function scoresDayList(){
+  const out = [];
+  for(let i=-SCORES_PAST_DAYS; i<=SCORES_AHEAD_DAYS; i++) out.push(ymdOffset(i));
+  return out;
+}
+
+// read the scores window from the shared cloud collector (fixtures table); returns true if it rendered
 async function afScoresFromCloud(){
   if(!supa) return false;
   try{
-    const today = todayStrLocal();
-    // pull a ±1-day UTC window and keep matches whose LOCAL kick-off date is today (timezone-correct)
-    const dm1 = new Date(Date.now()-86400000).toISOString().slice(0,10);
-    const dp1 = new Date(Date.now()+86400000).toISOString().slice(0,10);
-    const { data, error } = await supa.from('fixtures').select('*').gte('date', dm1).lte('date', dp1);
+    // pull the whole browsable window (+1 day of UTC slack each side so local-date grouping is exact)
+    const dm = new Date(Date.now()-(SCORES_PAST_DAYS+1)*86400000).toISOString().slice(0,10);
+    const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
+    const { data, error } = await supa.from('fixtures').select('*')
+      .gte('lid', CLOUD_LID_MIN).gte('date', dm).lte('date', dp);
     if(error){ afState.scores={at:Date.now(), source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(error.message||error.code||'error'); return true; }
-    const localDate = (r)=>{ const d=new Date((r.date||'')+'T'+(r.time||'00:00')+':00Z'); if(isNaN(d)) return r.date;
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
-    const todays = (data||[]).filter(r=> localDate(r)===today);
-    for(const r of todays){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
+    const rows = data||[];
+    for(const r of rows){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
-    afState.scores = { at: Date.now(), source:'cloud', list: todays.map(r=>({
+    afState.scores = { at: Date.now(), source:'cloud', list: rows.map(r=>({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
-      date:r.date, time:r.time, status:r.status, elapsed:r.elapsed,
+      date:r.date, time:r.time, ldate:localDateOf(r), status:r.status, elapsed:r.elapsed,
       home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
-    gradeRecord(afState.scores.list);
+    gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
     return true;
   }catch(e){ try{ afState.scores={at:Date.now(), source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(e.message||e); }catch(_){}; return true; }
 }
 async function afScores(silent){
-  if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading today’s matches…';
+  if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading matches…';
   // when the backend is connected, the cloud is authoritative — never fall back to stale device data
   if(supa){ await afScoresFromCloud(); return; }
   // legacy path: direct API-Football call (only when no backend is configured)
@@ -2349,6 +2379,7 @@ async function afScores(silent){
     afState.scores = { at: Date.now(), list: keep.map(f=>({
       fxid:f.fixture.id, lid:f.league.id, lname:f.league.name, lcountry:f.league.country||'', llogo:f.league.logo||'', season:f.league.season,
       date:f.fixture.date.slice(0,10), time:f.fixture.date.slice(11,16),
+      ldate:localDateOf({date:f.fixture.date.slice(0,10), time:f.fixture.date.slice(11,16)}),
       status:f.fixture.status.short, elapsed:f.fixture.status.elapsed,
       home:f.teams.home.name, away:f.teams.away.name, gh:f.goals.home, ga:f.goals.away })) };
     gradeRecord(afState.scores.list);
@@ -2370,18 +2401,53 @@ function ensureLeagueFromScore(s){
   return {L, f};
 }
 
+// the Scores date strip: last 6 days → tomorrow, so yesterday's results stay reachable
+function renderScoresDateBar(){
+  const bar = $('scoresDateBar'); if(!bar) return;
+  const days = scoresDayList(), today = ymdOffset(0);
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  bar.innerHTML = days.map(d=>{
+    const label = d===today ? 'Today' : d===ymdOffset(-1) ? 'Yest' : d===ymdOffset(1) ? 'Tmrw'
+                : DOW[new Date(d+'T00:00:00').getDay()];
+    return `<div class="dpill${d===afState.scoresDate?' active':''}" data-sdate="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
+  }).join('');
+  bar.querySelectorAll('.dpill[data-sdate]').forEach(p=>p.addEventListener('click',()=>{
+    afState.scoresDate = p.dataset.sdate; renderScores();
+    const a = bar.querySelector('.dpill.active'); if(a) a.scrollIntoView({block:'nearest', inline:'center', behavior:'smooth'});
+  }));
+  const a = bar.querySelector('.dpill.active'); if(a) a.scrollIntoView({block:'nearest', inline:'center'});
+}
+
 function renderScores(){
   const box = $('scoresList');
+  // default to today, and don't strand the user on a date that has scrolled out of the window
+  const days = scoresDayList();
+  if(!afState.scoresDate || !days.includes(afState.scoresDate)) afState.scoresDate = ymdOffset(0);
+  const day = afState.scoresDate, isToday = day===ymdOffset(0);
+  renderScoresDateBar();
+  $('scoresTitle').textContent = isToday ? "Today's Matches"
+    : day===ymdOffset(-1) ? "Yesterday's Matches"
+    : new Date(day+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'short'});
   if(!afState.scores || !afState.scores.list.length){
-    $('scoresMeta').textContent = afState.scores ? 'No major matches today.' : $('scoresMeta').textContent;
+    $('scoresMeta').textContent = afState.scores ? 'No matches on this date.' : $('scoresMeta').textContent;
+    box.innerHTML = ''; return;
+  }
+  // only the selected day's matches (fixtures are stored in UTC, so group by LOCAL kick-off date).
+  // Also re-check the competition here so a localStorage cache written by an older build can't
+  // resurrect legacy rows before the next cloud refresh lands.
+  const fromCloud = afState.scores.source==='cloud';
+  const dayAll = afState.scores.list.filter(s=>
+    (s.ldate || localDateOf(s)) === day && (!fromCloud || s.lid >= CLOUD_LID_MIN));
+  if(!dayAll.length){
+    $('scoresMeta').textContent = isToday ? 'No matches today.' : 'No matches on this date.';
     box.innerHTML = ''; return;
   }
   const t = new Date(afState.scores.at);
   const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
-  const live = afState.scores.list.filter(s=>LIVE_CODES.includes(s.status)).length;
-  $('scoresMeta').innerHTML = `Updated ${hh}:${mm} · ${afState.scores.list.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
+  const live = dayAll.filter(s=>LIVE_CODES.includes(s.status)).length;
+  $('scoresMeta').innerHTML = `Updated ${hh}:${mm} · ${dayAll.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   const sf = afState.scoreFilter || 'all';
-  let list = afState.scores.list;
+  let list = dayAll;
   if(sf==='live') list = list.filter(s=>LIVE_CODES.includes(s.status));
   else if(sf==='ns') list = list.filter(s=>s.status==='NS'||s.status==='TBD');
   else if(sf==='ft') list = list.filter(s=>['FT','AET','PEN'].includes(s.status));
@@ -2552,7 +2618,8 @@ function renderFixtures(){
     const label = d===todayStr ? 'Today' : DOW[new Date(d+'T00:00:00').getDay()];
     return `<div class="dpill${d===afState.selectedDate?' active':''}" data-date="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
   }).join('');
-  document.querySelectorAll('.dpill').forEach(p=>p.addEventListener('click',()=>{
+  // scope to Predict's own bar — the Scores tab has its own .dpill strip now (build 37)
+  $('dateBar').querySelectorAll('.dpill').forEach(p=>p.addEventListener('click',()=>{
     afState.selectedDate = p.dataset.date; renderFixtures();
   }));
 
@@ -2849,7 +2916,10 @@ try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips
 setTimeout(()=>{
   const k = ($('afKey').value||'').trim();
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
-  if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || (afState.scores && afState.scores.source!=='cloud'))) afScores();
+  // also force one refresh when the cache predates build 37 (single-day list, no `ldate`), so the
+  // date strip has its full window instead of only today
+  const _thinCache = afState.scores && afState.scores.list && afState.scores.list.length && !afState.scores.list[0].ldate;
+  if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
   if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (Football-Data.org)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
@@ -2861,10 +2931,11 @@ setInterval(()=>{
   if(lastTab==='scores' && document.visibilityState!=='hidden') afScores(true);
 }, 120000);
 document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibilityState==='visible'){ loadCloudResults(); if(lastTab==='scores') afScores(true); } });
+/* end of app */
+
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
-/* end of app */
 </script>
 </body>
 </html>
