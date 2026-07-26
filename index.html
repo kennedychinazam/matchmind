@@ -616,7 +616,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 42;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 43;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -885,6 +885,20 @@ const footballEngine = {
     if(!h || !a) return null;
     const lambdaH = Math.max(.05, h.attackHome * a.defenceAway * avgH);
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
+    return this.marketsFor(lambdaH, lambdaA);
+  },
+
+  /* The same fixture with both sides at exactly league-average strength — i.e. what every market
+     looks like when you know NOTHING about who is playing (build 43). Smart Bet compares against
+     this: a 95% "+1.5 handicap" that is also 90% for an average match is the engine saying almost
+     nothing, while a 65% home win against a 45% baseline is a real opinion. */
+  neutral(upTo){
+    const {avgH, avgA} = this.strengths(upTo);
+    return this.marketsFor(avgH, avgA);
+  },
+
+  // every market's probability for a given pair of expected-goal rates
+  marketsFor(lambdaH, lambdaA){
     const MAX=13;
     let pW=0,pD=0,pL=0, scores=[], over={1.5:0,2.5:0,3.5:0}, btts=0, total=0;
     let hHcap=0,aHcap=0,hT15=0,aT15=0;   // handicap -1.5 (win by 2+) and team over 1.5
@@ -1693,12 +1707,40 @@ function collectUpcoming(){
   }
   return out;
 }
-function tipPickFor(market,P,f){
+/* The league's "average match" probabilities, cached per competition (build 43).
+   Recomputed only when the league's history changes size, since it is identical for every fixture. */
+function fxNeutral(L){
+  if(!L || !L.matches || L.matches.length < 15) return null;
+  if(L._neutral && L._neutralN === L.matches.length) return L._neutral;
+  const tmp = Object.create(footballEngine); tmp.matches = L.matches;
+  L._neutral = tmp.neutral(); L._neutralN = L.matches.length;
+  return L._neutral;
+}
+function neutralSelections(L, f){
+  const NP = fxNeutral(L); if(!NP) return null;
+  const m = {}; for(const s of allSelections(NP, f)) m[s.sel] = s.prob;
+  return m;
+}
+
+function tipPickFor(market,P,f,L){
   if(market==='winner'){ const a=[['1',f.home+' win',P.pW],['X','Draw',P.pD],['2',f.away+' win',P.pL]].sort((x,y)=>y[2]-x[2])[0]; return {sel:a[1],prob:a[2],code:a[0]}; }
   if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5]}:{sel:'Under 2.5',prob:1-P.over[2.5]};
   if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts}:{sel:'BTTS No',prob:1-P.btts};
-  const sels=allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet'].includes(s.m)).sort((a,b)=>b.prob-a.prob);
-  return {sel:sels[0].sel, prob:sels[0].prob, m:sels[0].m};
+
+  /* SMART BET — the engine's strongest OPINION, which is not the same as its biggest number.
+     Ranking by raw probability made every pick a "+1.5 handicap", because "doesn't lose by 2+" sits
+     near 90% for practically any fixture. That is the market's base rate talking, not the engine.
+     It also prices at ~1.05, so there is nothing to win. Now each selection is scored by how far it
+     departs from the same market in an average match, so what surfaces is what the engine actually
+     knows about THESE teams. Sub-50% picks are excluded — a strong opinion you can't back is noise. */
+  const base = neutralSelections(L, f);
+  const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score'].includes(s.m));
+  const actionable = pool.filter(s=>s.prob >= 0.5);
+  const ranked = (actionable.length ? actionable : pool)
+    .map(s=>{ const b = base && base[s.sel]!=null ? base[s.sel] : 0.5; return {...s, edge: s.prob - b}; })
+    .sort((a,b)=> b.edge - a.edge);
+  const top = ranked[0];
+  return {sel:top.sel, prob:top.prob, m:top.m, edge:top.edge};
 }
 function renderTipList(market){
   const box=$('tipList'); if(!box) return;
@@ -1706,18 +1748,23 @@ function renderTipList(market){
   for(const {L,f} of collectUpcoming()){
     const P=fxPredict(L,f);
     if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:(f.pick==='1'?f.home+' win':f.pick==='X'?'Draw':f.away+' win'),prob:f.prob,tag:''}); continue; }
-    const tp=tipPickFor(market,P,f);
-    rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||''});
+    const tp=tipPickFor(market,P,f,L);
+    rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||'',edge:tp.edge});
   }
-  rows.sort((a,b)=>b.prob-a.prob);
+  // Smart Bet ranks by strength of opinion; the single-market tabs still rank by probability
+  if(market==='smart') rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
+  else rows.sort((a,b)=>b.prob-a.prob);
   if(!rows.length){ box.innerHTML='<div class="subnote">No priceable fixtures yet — open fixtures or load competitions so the engine can price them.</div>'; return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
     const val = tipState.fair ? `<span class="predchip sm">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>`;
+    // "+18 vs avg" = how far this sits from the same bet in an average match — the actual insight
+    const edgeTag = (market==='smart' && r.edge!=null)
+      ? ` <span class="muted" style="font-size:.66rem">${r.edge>=0?'+':''}${(100*r.edge).toFixed(0)} vs avg</span>` : '';
     const on=isFavMatch(r.f.fxid);
     return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${localHM(r.f.date, r.f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(r.f.home)}${r.f.home}</span><span class="tline">${crest(r.f.away)}${r.f.away}</span>
-      <span class="lname">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b></span></span>
+      <span class="lname">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b>${edgeTag}</span></span>
       <span class="favright">${val}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`; }).join('');
   box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const r=refs[+row.dataset.i]; openFixture(r.L.id,r.f); }));
   box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const r=refs[+st.dataset.star]; toggleFavMatch(r.f,{lid:r.L.id,lname:r.L.name}); renderTipList(market); }));
@@ -2323,7 +2370,7 @@ function renderSlipUI(){
   $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
   // risk slider (target risk = 100 − win probability)
   const sl=$('riskSlider'); sl.value=slipState.riskPct;
-  const upd=()=>{ $('riskLabel').textContent=`Risk ${slipState.riskPct}% ≈ legs win ~${100-slipState.riskPct}%`; };
+  const upd=()=>{ $('riskLabel').textContent=`Risk ${slipState.riskPct}% PER MATCH ≈ each leg wins ~${100-slipState.riskPct}%`; };
   sl.oninput=()=>{ slipState.riskPct=+sl.value; upd(); };
   upd();
   // scope
@@ -2408,7 +2455,8 @@ function genSlip(){
       </div>
       <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
       <div class="ssbadge">${badge}</div>
-      <div class="muted" style="font-size:.68rem;margin-top:6px">Fair odds from engine probabilities · target risk ${slipState.riskPct}%. Bookmaker odds will differ.</div>
+      <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% risk setting applies to each match on its own, not to the slip.</div>
+      <div class="muted" style="font-size:.68rem;margin-top:4px">Fair odds from engine probabilities. Bookmaker odds will differ.</div>
     </div>` +
     legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${localHM(l.f.date, l.f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
