@@ -1961,12 +1961,20 @@ function wireFavRows(feed,refs,rerender,isMatches){
 }
 function renderFavMatches(){
   const feed=$('favFeed'), smap=scoreMap();
-  const list=afState.favM.filter(m=>daysPast(m.date)<=2).sort((a,b)=>(a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
-  if(!list.length){ feed.innerHTML='<div class="subnote">No starred matches yet. Tap the ☆ on any fixture (Scores, Predict, or a competition feed) to follow it here — it keeps its final score after kickoff.</div>'; return; }
+  const list=afState.favM.filter(m=>daysPast(m.date)<=7);   // keep starred matches for 7 days
+  // upcoming/live first (soonest), then finished (most recent first) — older sink to the bottom
+  const fin=new Map(); for(const m of list){ const L=m.lid!=null?afState.leagues[m.lid]:null; fin.set(m, !!fixtureResult(L,m,smap)); }
+  list.sort((a,b)=>{ if(fin.get(a)!==fin.get(b)) return fin.get(a)?1:-1;
+    const ka=a.date+(a.time||''), kb=b.date+(b.time||''); return fin.get(a) ? (ka<kb?1:-1) : (ka<kb?-1:1); });
+  if(!list.length){ feed.innerHTML='<div class="subnote">No starred matches yet. Tap the ☆ on any fixture to follow it here — played matches stay for 7 days.</div>'; return; }
   const refs=[]; let html='', cur=null;
   for(const m of list){ if(m.date!==cur){ cur=m.date; html+=`<div class="lghead">${favDateHeader(m.date)}</div>`; }
     const i=refs.length; refs.push(m); html+=favRow(m.lid!=null?afState.leagues[m.lid]:null, m, i, smap); }
+  if([...fin.values()].some(Boolean)) html += `<button class="btn" id="clearFinFav" style="margin-top:12px">🧹 Clear finished</button>`;
   feed.innerHTML=html; wireFavRows(feed, refs, renderFavMatches, true);
+  const cb=$('clearFinFav'); if(cb) cb.addEventListener('click', ()=>{ const sm=scoreMap();
+    afState.favM = afState.favM.filter(m=>{ const L=m.lid!=null?afState.leagues[m.lid]:null; return !fixtureResult(L,m,sm); });
+    saveState(); renderFavMatches(); toast('Cleared finished matches'); });
 }
 function renderFavLeagues(){
   const man=$('favManage');
@@ -2200,28 +2208,37 @@ async function loadCloudLeagues(force){
       supa.from('fixtures').select('*').eq('lid', id).order('date')
     ));
     const leagues = {}, order = [], cf = {};
+    const winStart = new Date(Date.now()-3*86400000).toISOString().slice(0,10);   // keep the last 3 days in the feed
     for(const {data, error} of results){
       if(error || !data || !data.length) continue;
       const f0 = data[0];
       const L = { id:f0.lid, name:f0.lname, country:f0.lcountry||'', flag:'', logo:f0.llogo||'', sport:'football', season:f0.season, matches:[], upcoming:[], teamIds:{}, scorerText:'' };
+      const display = [];
       for(const r of data){
         if(r.home_logo) afState.logos[r.home]=r.home_logo;
         if(r.away_logo) afState.logos[r.away]=r.away_logo;
-        if(FINISHED.includes(r.status) && r.gh!=null && r.ga!=null){
-          L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga});
-          cf[r.fxid] = {gh:r.gh, ga:r.ga};
-        } else if(r.status==='NS' && r.date >= today){
-          L.upcoming.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away});
+        const fin = FINISHED.includes(r.status) && r.gh!=null && r.ga!=null;
+        if(fin){ L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
+        // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
+        if((r.status==='NS' && r.date>=today) || (fin && r.date>=winStart)){
+          display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away, _fin:fin});
         }
       }
       L.matches.sort((a,b)=> a.date<b.date?-1:1);
       // predictions from the engine (needs enough history)
       if(L.matches.length>=15){
         const tmp=Object.create(footballEngine); tmp.matches=L.matches;
-        for(const f of L.upcoming){ const p=tmp.predict(f.home,f.away);
-          if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]); f.pick=arr[0][1]; f.prob=+arr[0][0].toFixed(3); recordPick(L.name,f); } }
+        for(const f of display){
+          // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
+          const p = f._fin
+            ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
+            : tmp.predict(f.home, f.away);
+          if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]); f.pick=arr[0][1]; f.prob=+arr[0][0].toFixed(3); if(!f._fin) recordPick(L.name,f); }
+        }
       }
-      L.upcoming.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
+      for(const f of display) delete f._fin;
+      display.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
+      L.upcoming = display;
       if(L.upcoming.length || L.matches.length){ leagues[L.id]=L; order.push(L.id); }
     }
     if(order.length){
@@ -2459,7 +2476,7 @@ function renderStrongPicks(){
   for(const id of afState.leagueOrder){
     const L = afState.leagues[id];
     if(!L || (L.sport||'football')!=='football') continue;
-    for(const f of L.upcoming) if(f.pick && f.prob>=0.55) picks.push({L, f});
+    for(const f of L.upcoming) if(f.pick && f.prob>=0.55 && f.date>=todayStrLocal()) picks.push({L, f});
   }
   picks.sort((a,b)=>b.f.prob-a.f.prob);
   if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
@@ -2527,7 +2544,7 @@ function renderFixtures(){
   wrap.classList.remove('hidden');
   const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].filter(d=>daysPast(d)<=2).sort().slice(0,14);
   if(!dates.length){ wrap.classList.add('hidden'); return; }
-  if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates[0];
+  if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   $('dateBar').innerHTML = dates.map(d=>{
