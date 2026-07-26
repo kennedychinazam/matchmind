@@ -606,6 +606,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
+const APP_BUILD = 36;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2834,6 +2835,7 @@ if(window.matchMedia){
 setupBackHandler();
 loadAISettings(); renderAISettings();   // AI writer provider selection (#20)
 initSupabase();                          // accounts + sync (guest mode until configured)
+try{ if($('verLabel')) $('verLabel').textContent = 'v0.9 · build '+APP_BUILD; }catch(e){}   // visible version
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
