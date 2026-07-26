@@ -565,9 +565,10 @@
     <div class="card">
       <h2>🧪 Backtest</h2>
       <div class="notice">
-        Replays the loaded <b>football</b> data match by match: before each match the engine predicts using only earlier results, then we score it against what actually happened.
-        Run this after loading a real season (API-Football or CSV) for a true accuracy read — the built-in sample data is synthetic.
+        Replays a competition's history match by match: before each match the engine predicts using only earlier results, then we score it against what actually happened.
+        Pick the competition to test — the more completed matches it has, the more the numbers mean.
       </div>
+      <div class="field"><label>Competition</label><select id="btLeague"></select></div>
       <button class="btn gold" id="backtestBtn">Run backtest</button>
       <div id="btResults" style="margin-top:12px;"></div>
     </div>
@@ -615,7 +616,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 41;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 42;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1916,10 +1917,37 @@ function calTable(title, rows, note){
          (note?`<div class="subnote">${note}</div>`:'');
 }
 
+/* Which competitions can be backtested, richest history first (build 42).
+   Before this, the backtest silently used whatever league happened to be "active" — which was set
+   as a side effect of opening a match. You could easily be reading a report on the wrong data, or
+   on the synthetic sample, without knowing. Now you choose, and the report says what it tested. */
+function backtestableLeagues(){
+  return Object.values(afState.leagues)
+    .filter(L => L && (L.sport||'football')==='football' && L.matches && L.matches.length>=60)
+    .sort((a,b)=> b.matches.length - a.matches.length);
+}
+function renderBacktestLeagues(){
+  const sel = $('btLeague'); if(!sel) return;
+  const Ls = backtestableLeagues();
+  const prev = sel.value;
+  sel.innerHTML = Ls.length
+    ? Ls.map(L=>`<option value="${L.id}">${L.name}${L.country?' · '+L.country:''} — ${L.matches.length} matches</option>`).join('')
+    : `<option value="">No competition has enough history yet</option>`;
+  if(prev && Ls.some(L=>String(L.id)===prev)) sel.value = prev;
+}
+
 function runBacktest(){
-  const ms = footballEngine.matches;
   const out = $('btResults');
-  if(ms.length < 60){ out.innerHTML = '<div class="subnote">Need at least 60 football matches loaded — load a real season first.</div>'; return; }
+  const sel = $('btLeague');
+  const L = sel && sel.value ? afState.leagues[sel.value] : null;
+  // the chosen competition drives the engine for this run; sample/CSV data is the fallback
+  const ms = L && L.matches && L.matches.length ? L.matches : footballEngine.matches;
+  const label = L ? `${L.name}${L.country?' · '+L.country:''}` : 'loaded data';
+  if(!ms || ms.length < 60){
+    out.innerHTML = `<div class="subnote">Need at least 60 completed matches to test. Open the <b>Predict</b> tab first so the competitions load, then come back — European leagues fill up once their season starts in August.</div>`;
+    return;
+  }
+  footballEngine.matches = ms;
   out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
 
   const start = Math.max(30, Math.floor(ms.length*0.3));
@@ -1986,6 +2014,7 @@ function runBacktest(){
     verdict = `The engine is OVER-confident here: picks win about ${pct(-bias)} less often than it claims. Lowering TEMP toward ${bestT.toFixed(2)} would make the numbers honest.`; }
 
   out.innerHTML =
+    statRow('Competition tested', label, true) +
     statRow('Matches tested (walk-forward)', n) +
     statRow('Favourite pick accuracy', pct(acc), true) +
     statRow('Baseline: always pick home', pct(homeBase)) +
@@ -2496,6 +2525,7 @@ async function loadCloudLeagues(force){
         localStorage.setItem('mm_fdmig','1');
       } }catch(e){}
       _leaguesLoadedAt = Date.now();
+      renderBacktestLeagues();   // competitions just arrived — refresh the backtest picker (build 42)
       gradeFromHistory(); saveState();
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips(); else if(lastTab==='favs') renderFavs();
     }
@@ -3126,6 +3156,7 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
+renderBacktestLeagues();   // populate the backtest competition picker (build 42)
 $('aiSaveBtn').addEventListener('click', aiSave);
 
 /* ---------- boot ---------- */
