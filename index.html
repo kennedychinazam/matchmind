@@ -2226,10 +2226,13 @@ async function loadCloudLeagues(force){
     }
     if(order.length){
       afState.leagues = leagues; afState.leagueOrder = order; afState.cloudFix = cf;
-      // one-time cleanup: drop favourites orphaned by the data-source switch (old provider IDs no longer exist)
-      const validFx = new Set(); for(const id of order){ for(const f of leagues[id].upcoming) validFx.add(f.fxid); } for(const fx in cf) validFx.add(+fx);
-      afState.favM = (afState.favM||[]).filter(m => validFx.has(m.fxid));
-      afState.favL = (afState.favL||[]).filter(id => leagues[id]);
+      // ONE-TIME cleanup: drop favourites orphaned by the data-source switch, then never touch favourites again
+      try{ if(!localStorage.getItem('mm_fdmig')){
+        const validFx = new Set(); for(const id of order){ for(const f of leagues[id].upcoming) validFx.add(f.fxid); } for(const fx in cf) validFx.add(+fx);
+        afState.favM = (afState.favM||[]).filter(m => validFx.has(m.fxid));
+        afState.favL = (afState.favL||[]).filter(id => leagues[id]);
+        localStorage.setItem('mm_fdmig','1');
+      } }catch(e){}
       _leaguesLoadedAt = Date.now();
       gradeFromHistory(); saveState();
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips(); else if(lastTab==='favs') renderFavs();
@@ -2294,7 +2297,7 @@ async function afScoresFromCloud(){
     const dm1 = new Date(Date.now()-86400000).toISOString().slice(0,10);
     const dp1 = new Date(Date.now()+86400000).toISOString().slice(0,10);
     const { data, error } = await supa.from('fixtures').select('*').gte('date', dm1).lte('date', dp1);
-    if(error) return false;
+    if(error){ afState.scores={at:Date.now(), source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(error.message||error.code||'error'); return true; }
     const localDate = (r)=>{ const d=new Date((r.date||'')+'T'+(r.time||'00:00')+':00Z'); if(isNaN(d)) return r.date;
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
     const todays = (data||[]).filter(r=> localDate(r)===today);
@@ -2307,13 +2310,13 @@ async function afScoresFromCloud(){
     gradeRecord(afState.scores.list);
     saveState(); renderScores();
     return true;
-  }catch(e){ return false; }
+  }catch(e){ try{ afState.scores={at:Date.now(), source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(e.message||e); }catch(_){}; return true; }
 }
 async function afScores(silent){
   if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading today’s matches…';
-  // 1) prefer the shared cloud collector — always-current, costs no per-device API request
-  if(await afScoresFromCloud()) return;
-  // 2) fall back to a direct API-Football call (needs the user's own key)
+  // when the backend is connected, the cloud is authoritative — never fall back to stale device data
+  if(supa){ await afScoresFromCloud(); return; }
+  // legacy path: direct API-Football call (only when no backend is configured)
   afState.key = afState.key || $('afKey').value.trim();
   if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab, then refresh.'; return; }
   try{
