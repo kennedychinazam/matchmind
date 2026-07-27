@@ -616,7 +616,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 44;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 45;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -813,7 +813,13 @@ Fullkrug,West Ham,4,20`;
    SHRINK_K pulls team strengths toward the league average (fixes small-sample swings);
    TEMP < 1 flattens overconfident probabilities (fixes calibration);
    HALF_LIFE 10000 = effectively no recency decay — full-season data beat recent-form weighting in testing */
-const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7 };
+/* DAMPEN (build 45) pulls the goals and BTTS markets toward what actually happens in an average
+   match of that competition. Measured problem it fixes, from Ken's Brasileirão backtest: the BTTS
+   60–70% band claimed 62.7% and delivered 40.7%; Over/Under claimed 63.1% and delivered 52.5%.
+   1 = no dampening, 0 = ignore the fixture and always quote the league average.
+   This anchors on the league's real base rate, which is better than TEMP's flattening toward a flat
+   50% — a league where both teams score 48% of the time should regress toward 48, not 50. */
+const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7, DAMPEN: 0.8 };
 
 function parseCSV(text){
   const lines = text.trim().split(/\r?\n/);
@@ -879,13 +885,31 @@ const footballEngine = {
     return {teams:out, avgH, avgA};
   },
 
+  /* What actually happens in an average match of THIS competition — measured, not assumed.
+     Brasileirão and the Eredivisie have very different BTTS and Over 2.5 rates, so the anchor the
+     goals markets regress toward has to come from the league itself (build 45). */
+  rates(upTo){
+    const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
+    if(this._rates && this._ratesN === arr.length) return this._rates;
+    let btts=0, o15=0, o25=0, o35=0;
+    for(const m of arr){
+      const t = m.hg + m.ag;
+      if(m.hg>0 && m.ag>0) btts++;
+      if(t>1.5) o15++; if(t>2.5) o25++; if(t>3.5) o35++;
+    }
+    const n = arr.length;
+    this._rates = n >= 30 ? {btts:btts/n, 1.5:o15/n, 2.5:o25/n, 3.5:o35/n, n} : null;   // too thin to trust
+    this._ratesN = arr.length;
+    return this._rates;
+  },
+
   predict(home, away, upTo){
     const {teams, avgH, avgA} = this.strengths(upTo);
     const h = teams[home], a = teams[away];
     if(!h || !a) return null;
     const lambdaH = Math.max(.05, h.attackHome * a.defenceAway * avgH);
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
-    return this.marketsFor(lambdaH, lambdaA);
+    return this.marketsFor(lambdaH, lambdaA, this.rates(upTo));
   },
 
   /* The same fixture with both sides at exactly league-average strength — i.e. what every market
@@ -894,11 +918,11 @@ const footballEngine = {
      nothing, while a 65% home win against a 45% baseline is a real opinion. */
   neutral(upTo){
     const {avgH, avgA} = this.strengths(upTo);
-    return this.marketsFor(avgH, avgA);
+    return this.marketsFor(avgH, avgA, this.rates(upTo));
   },
 
   // every market's probability for a given pair of expected-goal rates
-  marketsFor(lambdaH, lambdaA){
+  marketsFor(lambdaH, lambdaA, rates){
     const MAX=13;
     let pW=0,pD=0,pL=0, scores=[], over={1.5:0,2.5:0,3.5:0}, btts=0, total=0;
     let hHcap=0,aHcap=0,hT15=0,aT15=0;   // handicap -1.5 (win by 2+) and team over 1.5
@@ -920,14 +944,17 @@ const footballEngine = {
     scores.sort((x,y)=>y.p-x.p);
     // keep the untouched probabilities: the calibration report sweeps TEMP over these, which is
     // what lets it recommend a value from your own data instead of an assumed one (build 41)
-    const raw = {pW, pD, pL, over:{...over}, btts};
+    const raw = {pW, pD, pL, over:{...over}, btts, rates:rates||null};
     // calibration: flatten probabilities so stated confidence matches real-world hit rates
     const T = TUNE.TEMP;
     { const x=Math.pow(pW,T), y=Math.pow(pD,T), z=Math.pow(pL,T), s=x+y+z;
       pW=x/s; pD=y/s; pL=z/s; }
     const flat2 = p=>{ const x=Math.pow(p,T), y=Math.pow(1-p,T); return x/(x+y); };
-    for(const k of [1.5,2.5,3.5]) over[k]=flat2(over[k]);
-    btts = flat2(btts);
+    /* Goals and BTTS regress toward the competition's own base rate rather than being flattened
+       toward 50%. Without a measured base rate (thin history) fall back to the old behaviour. */
+    const damp = (p, base) => base==null ? flat2(p) : base + TUNE.DAMPEN*(p-base);
+    for(const k of [1.5,2.5,3.5]) over[k]=damp(over[k], rates?rates[k]:null);
+    btts = damp(btts, rates?rates.btts:null);
     const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
     const team = {h15:flat2(hT15), a15:flat2(aT15)};    // team total over 1.5
     return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw, topScores:scores.slice(0,5)};
@@ -2080,6 +2107,26 @@ function runBacktest(){
   for(let T=0.50; T<=1.401; T+=0.05){ const l=lossAt(T); if(l<bestL){ bestL=l; bestT=T; } }
   const curL = lossAt(TUNE.TEMP);
 
+  /* Fit DAMPEN the same way (build 45). The Gemini spec proposed 0.80 as a guess; your own results
+     can say what it should be. Sweeps the goals + BTTS markets together, since they share it. */
+  const dampRows = rows.filter(r=>r.raw && r.raw.rates);
+  const dampLoss = A=>{
+    let s=0, k=0;
+    for(const r of dampRows){
+      const R = r.raw.rates;
+      const o = Math.min(.99, Math.max(.01, R[2.5] + A*(r.raw.over[2.5]-R[2.5])));
+      const b = Math.min(.99, Math.max(.01, R.btts + A*(r.raw.btts   -R.btts)));
+      s += -Math.log(r.over25 ? o : 1-o);  k++;
+      s += -Math.log(r.btts   ? b : 1-b);  k++;
+    }
+    return k ? s/k : null;
+  };
+  let bestA=TUNE.DAMPEN, bestAL=Infinity, curAL=null;
+  if(dampRows.length >= 40){
+    for(let A=0.20; A<=1.001; A+=0.05){ const l=dampLoss(A); if(l!=null && l<bestAL){ bestAL=l; bestA=A; } }
+    curAL = dampLoss(TUNE.DAMPEN);
+  }
+
   const statRow = (l,v,hl)=>`<div class="frow"><span class="muted">${l}</span><b${hl?' style="color:var(--green2)"':''}>${v}</b></div>`;
 
   // Worth publishing = enough matches to judge, honest to within 5 points, AND confident enough to
@@ -2115,6 +2162,14 @@ function runBacktest(){
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
     statRow('Best on this data', bestT.toFixed(2), bestT!==TUNE.TEMP) +
     statRow('Log loss now / at best', `${curL.toFixed(4)} / ${bestL.toFixed(4)}`) +
+    (curAL!=null
+      ? `<div class="sec-label" style="margin-top:16px">Goals &amp; BTTS dampening</div>` +
+        statRow('League base rates', `BTTS ${pct(dampRows[dampRows.length-1].raw.rates.btts)} · O2.5 ${pct(dampRows[dampRows.length-1].raw.rates[2.5])}`) +
+        statRow('Current DAMPEN', TUNE.DAMPEN.toFixed(2)) +
+        statRow('Best on this data', bestA.toFixed(2), Math.abs(bestA-TUNE.DAMPEN)>0.001) +
+        statRow('Log loss now / at best', `${curAL.toFixed(4)} / ${bestAL.toFixed(4)}`) +
+        `<div class="subnote">Lower DAMPEN pulls goals and BTTS harder toward the league average, which is the cure for claiming 63% and delivering 52%. 1.00 would mean no dampening at all.</div>`
+      : '') +
     `<div class="verdict" style="border-color:${col}">${verdict}</div>` +
     `<div class="subnote">Trustworthy bands on this data: ${solid.length ? solid.map(b=>b.band).join(', ') : 'none yet — needs more matches'}. Those are the picks worth surfacing; the rest are guesses wearing a number. Bookmakers hit roughly 53–55% on favourites in top leagues, for reference.</div>`;
 }
