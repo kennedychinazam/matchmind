@@ -616,7 +616,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 43;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 44;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1537,13 +1537,45 @@ function fixtureResult(L,f,smap){
   return null;
 }
 function actualCode(gh,ga){ return gh>ga?'1':gh===ga?'X':'2'; }
+
+/* ---------- the headline pick (build 44) ----------
+   Sunday 26 July, Brasileirão: the app predicted a home win in all seven matches and four of them
+   were draws. One correct from seven. The engine was not picking the wrong TEAM — its draw
+   probability is well calibrated (27.5% claimed, 27.4% actual). It was betting on the wrong MARKET.
+   A draw is almost never the single highest number even when fairly priced, so leading with the
+   top outcome silently writes off a quarter of all fixtures.
+   So: lead with a straight win only when one side is genuinely clear. Otherwise lead with Double
+   Chance, which covers the draw. On that Sunday the same seven picks would have gone 5/7.
+   The cost is honest and worth stating — 1X pays ~1.30 where a straight win pays ~2.00. */
+const HEADLINE_SOLO_MIN = 0.55;   // a single outcome must clear this to stand on its own
+const HEADLINE_DC_MIN   = 0.62;   // ...otherwise Double Chance must at least clear this to be worth showing
+
+function headlinePick(P, home, away){
+  if(!P) return null;
+  const solo = [[P.pW,'1',home+' WIN'],[P.pD,'X','DRAW'],[P.pL,'2',away+' WIN']].sort((a,b)=>b[0]-a[0]);
+  const [topP, topCode] = solo[0];
+  if(topP >= HEADLINE_SOLO_MIN || topCode==='X')
+    return {code:topCode, prob:topP, label:solo[0][2], solo:true};
+  // the draw is live — cover it, on whichever side the engine leans
+  const dc = topCode==='1'
+    ? {code:'1X', prob:P.pW+P.pD, label:home+' or DRAW'}
+    : {code:'X2', prob:P.pD+P.pL, label:'DRAW or '+away};
+  if(dc.prob < HEADLINE_DC_MIN) return {code:topCode, prob:topP, label:solo[0][2], solo:true};
+  return {...dc, solo:false};
+}
+// '1X' covers both '1' and 'X'; a plain '1' still only covers '1'
+function pickHit(pick, actual){ return !!pick && !!actual && String(pick).includes(actual); }
+function pickLabel(code, home, away){
+  return code==='1'?home+' to win' : code==='X'?'Draw' : code==='2'?away+' to win'
+       : code==='1X'?home+' or Draw' : code==='X2'?'Draw or '+away : code==='12'?'Either team' : code;
+}
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
   const res=fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">FT</span></span>`;
     let chip='';
-    if(f.pick){ const hit=f.pick===actualCode(res.gh,res.ga); chip=`<span class="predchip ${hit?'hit':'miss'}">${f.pick} ${hit?'✓':'✗'}</span>`; }
+    if(f.pick){ const hit=pickHit(f.pick, actualCode(res.gh,res.ga)); chip=`<span class="predchip ${hit?'hit':'miss'}">${f.pick} ${hit?'✓':'✗'}</span>`; }
     return {timeCell, chip, finished:true};
   }
   return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`,
@@ -1723,7 +1755,7 @@ function neutralSelections(L, f){
 }
 
 function tipPickFor(market,P,f,L){
-  if(market==='winner'){ const a=[['1',f.home+' win',P.pW],['X','Draw',P.pD],['2',f.away+' win',P.pL]].sort((x,y)=>y[2]-x[2])[0]; return {sel:a[1],prob:a[2],code:a[0]}; }
+  if(market==='winner'){ const hp=headlinePick(P,f.home,f.away); return {sel:pickLabel(hp.code,f.home,f.away), prob:hp.prob, code:hp.code}; }
   if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5]}:{sel:'Under 2.5',prob:1-P.over[2.5]};
   if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts}:{sel:'BTTS No',prob:1-P.btts};
 
@@ -1747,7 +1779,7 @@ function renderTipList(market){
   const rows=[];
   for(const {L,f} of collectUpcoming()){
     const P=fxPredict(L,f);
-    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:(f.pick==='1'?f.home+' win':f.pick==='X'?'Draw':f.away+' win'),prob:f.prob,tag:''}); continue; }
+    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:''}); continue; }
     const tp=tipPickFor(market,P,f,L);
     rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||'',edge:tp.edge});
   }
@@ -1822,10 +1854,13 @@ async function analyze(){
     } else setHeroMeta(null); }
   let scorerCtx = [];
   if(sport==='football'){
-    const arr=[[pred.pW, home+' WIN'],[pred.pD,'DRAW'],[pred.pL, away+' WIN']].sort((a,b)=>b[0]-a[0]);
-    $('heroPick').textContent = arr[0][1];
-    $('heroConf').textContent = pct(arr[0][0]) + ' confidence';
-    $('resultSide').textContent = arr[0][1].replace(' WIN','');
+    const hp = headlinePick(pred, home, away);
+    $('heroPick').textContent = hp.label;
+    $('heroConf').textContent = pct(hp.prob) + ' confidence';
+    $('heroStrong').textContent = hp.solo
+      ? "The engine's headline call for this match"
+      : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
+    $('resultSide').textContent = hp.label.replace(' WIN','');
 
     $('outcomeRows').innerHTML =
       probRow(home, pred.pW) + probRow('Draw', pred.pD) + probRow(away, pred.pL);
@@ -2363,7 +2398,9 @@ async function matchDetail(s){
 /* ================================================================
    BET SLIP GENERATOR
    ================================================================ */
-const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','OU25','BTTS']) };
+// DNB by default: same survival as Double Chance (a draw voids instead of killing the slip) but
+// materially better odds in tight leagues — the premium scales with drawProb x lossProb (build 44)
+const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['DNB','OU25','BTTS']) };
 function renderSlipUI(){
   // number of games
   $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
@@ -2425,9 +2462,9 @@ function genSlip(){
         const sels=allSelections(P,f);
         for(const mKey of slipState.markets)
           for(const sel of sels) if(slipMarketMatch(mKey,sel))
-            cands.push({key,L,f,market:sel.m,sel:sel.sel,code:sel.code,prob:sel.prob});
+            cands.push({key,L,f,market:sel.m,sel:sel.sel,code:sel.code,prob:sel.prob,pDraw:P.pD});
       } else if(f.pick && slipState.markets.has('1X2')){
-        const lbl = f.pick==='1' ? f.home+' to win' : f.pick==='X' ? 'Draw' : f.away+' to win';
+        const lbl = pickLabel(f.pick, f.home, f.away);
         cands.push({key,L,f,market:'Winner',sel:lbl,code:f.pick,prob:f.prob});
       }
     }
@@ -2447,6 +2484,27 @@ function genSlip(){
   let comb=1, odds=1;
   for(const l of legs){ comb*=l.prob; odds*=1/l.prob; }
   const badge = comb>=0.5 ? '👍 High probability slip' : comb>=0.3 ? '⚖️ Balanced slip' : '🎲 Long-shot slip';
+
+  /* Draw No Bet legs void on a draw — the stake comes back and that leg pays 1.00 — so the return
+     is a RANGE, not a number (build 44). Showing only the best case would be quietly dishonest.
+     For each DNB leg we know P(win) and P(draw) from the engine, so we can state the worst case
+     (every DNB leg drawn) and the expected return across every combination. */
+  const dnbLegs = legs.filter(l=>l.market==='Draw No Bet' && l.pDraw!=null);
+  let rangeNote = '';
+  if(dnbLegs.length){
+    let minOdds = 1;
+    for(const l of legs) if(!(l.market==='Draw No Bet' && l.pDraw!=null)) minOdds *= 1/l.prob;
+    // expected return: each DNB leg either wins (pays its odds) or voids (pays 1.00)
+    let ev = 1;
+    for(const l of legs){
+      if(l.market==='Draw No Bet' && l.pDraw!=null){
+        const pw = l.prob*(1-l.pDraw), pv = l.pDraw;      // win outright / voided
+        ev *= pw*(1/l.prob) + pv*1;
+      } else ev *= l.prob*(1/l.prob);
+    }
+    rangeNote = `<div class="muted" style="font-size:.68rem;margin-top:6px">${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
+      <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</div>`;
+  }
   $('slipOut').innerHTML = `
     <div class="slipsum">
       <div class="ssrow">
@@ -2456,6 +2514,7 @@ function genSlip(){
       <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
       <div class="ssbadge">${badge}</div>
       <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% risk setting applies to each match on its own, not to the slip.</div>
+      ${rangeNote}
       <div class="muted" style="font-size:.68rem;margin-top:4px">Fair odds from engine probabilities. Bookmaker odds will differ.</div>
     </div>` +
     legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${localHM(l.f.date, l.f.time)}</span>
@@ -2465,7 +2524,7 @@ function genSlip(){
     `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
   $('reGen').addEventListener('click', genSlip);
   $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
-  for(const l of legs) if(l.code==='1'||l.code==='X'||l.code==='2') recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
+  for(const l of legs) if(['1','X','2','1X','X2'].includes(l.code)) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
   saveState();
 }
 
@@ -2555,7 +2614,7 @@ async function loadCloudLeagues(force){
           const p = f._fin
             ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
             : tmp.predict(f.home, f.away);
-          if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]); f.pick=arr[0][1]; f.prob=+arr[0][0].toFixed(3); if(!f._fin) recordPick(L.name,f); }
+          if(p){ const hp=headlinePick(p, f.home, f.away); f.pick=hp.code; f.prob=+hp.prob.toFixed(3); if(!f._fin) recordPick(L.name,f); }
         }
       }
       for(const f of display) delete f._fin;
@@ -2583,7 +2642,7 @@ function recordStats(){
   gradeFromHistory();
   const graded = afState.record.filter(r=>r.result);
   if(!graded.length) return null;
-  const hits = graded.filter(r=>r.result===r.pick).length;
+  const hits = graded.filter(r=>pickHit(r.pick, r.result)).length;
   return {n:graded.length, hits, pct:(100*hits/graded.length).toFixed(1)};
 }
 
