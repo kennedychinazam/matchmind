@@ -616,7 +616,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 45;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 47;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -819,7 +819,14 @@ Fullkrug,West Ham,4,20`;
    1 = no dampening, 0 = ignore the fixture and always quote the league average.
    This anchors on the league's real base rate, which is better than TEMP's flattening toward a flat
    50% — a league where both teams score 48% of the time should regress toward 48, not 50. */
-const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7, DAMPEN: 0.8 };
+const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7, DAMPEN: 0.2 };
+/* DAMPEN 0.20 is FITTED on Ken's Brasileirão backtest (197 walk-forward matches), not chosen.
+   The Gemini spec guessed 0.80. His data said 0.20, improving goals+BTTS log loss 0.7110 -> 0.6965.
+   Why so aggressive: in the BTTS 60-70% band the engine claimed 63.2% and delivered 47.4% — BELOW
+   the league's own 49.5% base rate. Its confident goals calls were pointing the wrong way, so the
+   honest setting is to quote something close to the league average.
+   CAVEAT: fitted on one league, and 0.20 sat at the bottom of the swept range, so the true optimum
+   may be lower still. Re-run the backtest per competition — European leagues may well differ. */
 
 function parseCSV(text){
   const lines = text.trim().split(/\r?\n/);
@@ -2455,14 +2462,14 @@ async function matchDetail(s){
    ================================================================ */
 // DNB by default: same survival as Double Chance (a draw voids instead of killing the slip) but
 // materially better odds in tight leagues — the premium scales with drawProb x lossProb (build 44)
-const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['DNB','OU25','BTTS']) };
+const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','DNB','DC']) };
 function renderSlipUI(){
   // number of games
   $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
   $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
   // risk slider (target risk = 100 − win probability)
   const sl=$('riskSlider'); sl.value=slipState.riskPct;
-  const upd=()=>{ $('riskLabel').textContent=`Risk ${slipState.riskPct}% PER MATCH ≈ each leg wins ~${100-slipState.riskPct}%`; };
+  const upd=()=>{ $('riskLabel').textContent=`Max risk ${slipState.riskPct}% per match — every leg must win at least ${100-slipState.riskPct}%`; };
   sl.oninput=()=>{ slipState.riskPct=+sl.value; upd(); };
   upd();
   // scope
@@ -2524,16 +2531,20 @@ function genSlip(){
       }
     }
   }
-  // pick legs whose risk (=1−prob) is closest to the slider's target
-  const target=(slipState.riskPct||30)/100, byFx={};
+  /* The risk slider is a CEILING, not a target (build 47). "30%" means nothing riskier than 30%
+     goes in — every leg must win at least 70% of the time. Ken asked for this directly, and it also
+     gives his market ladder for free: within the limit we take the BEST-PAYING selection, and since
+     probability rises and odds fall along straight win → Draw No Bet → Double Chance, the first
+     rung that clears the bar is exactly what gets picked. Highest odds meeting your standard. */
+  const maxRisk=(slipState.riskPct||30)/100, minProb=1-maxRisk, byFx={};
   for(const c of cands){
     if(c.prob<=0.02 || c.prob>=0.995) continue;
-    const score = -Math.abs((1-c.prob)-target);
-    if(!byFx[c.key] || score>byFx[c.key]._s){ c._s=score; byFx[c.key]=c; }
+    if(c.prob < minProb) continue;                                   // riskier than the ceiling — never offer it
+    if(!byFx[c.key] || c.prob < byFx[c.key].prob) byFx[c.key]=c;     // among those allowed, lowest prob pays most
   }
-  let legs=Object.values(byFx).sort((a,b)=>b._s-a._s).slice(0, slipState.n);
+  let legs=Object.values(byFx).sort((a,b)=>a.prob-b.prob).slice(0, slipState.n);
   if(legs.length < slipState.n){
-    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} qualifying match(es). Select more leagues or bet types, move the risk slider, or load more competitions (Predict → Discover).</div>`;
+    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} match(es) sit inside a ${slipState.riskPct}% risk limit. Raise the risk slider to allow less certain picks, add bet types or leagues, or load more competitions (Predict → Discover).</div>`;
     return;
   }
   let comb=1, odds=1;
@@ -2568,7 +2579,7 @@ function genSlip(){
       </div>
       <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
       <div class="ssbadge">${badge}</div>
-      <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% risk setting applies to each match on its own, not to the slip.</div>
+      <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% setting caps the risk of each match on its own — combining them is what makes the slip riskier than any single leg.</div>
       ${rangeNote}
       <div class="muted" style="font-size:.68rem;margin-top:4px">Fair odds from engine probabilities. Bookmaker odds will differ.</div>
     </div>` +
