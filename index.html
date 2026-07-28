@@ -575,6 +575,7 @@
       </div>
       <div class="field"><label>Competition</label><select id="btLeague"></select></div>
       <button class="btn gold" id="backtestBtn">Run backtest</button>
+      <button class="btn" id="motStudyBtn" style="margin-top:8px">🧭 Motivation study (all competitions)</button>
       <div id="btResults" style="margin-top:12px;"></div>
     </div>
 
@@ -621,7 +622,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 51;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 53;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1666,6 +1667,71 @@ function htftText(i, j, home, away){
   return `${home} ${at[i]} at half-time → ${end[j]}`;
 }
 
+/* ================= MOTIVATION MODEL (build 52) — MEASUREMENT ONLY =================
+   Ken's observation: a side already safe in the top four with the title gone, against a side
+   fighting relegation or chasing Europe — the second one wants it more, and the engine can't see it.
+   Everyone in football believes this. Almost nobody can price it. So this build measures it and
+   changes NO probability. If the numbers show nothing, we drop the idea; if they show something,
+   we fit the size of the effect rather than inventing it.
+   What makes it testable at all: `L.matches` holds every result, so the table can be rebuilt as it
+   stood before any past match — which means every historical fixture can be tagged with what both
+   sides needed at kick-off. */
+
+// the league table exactly as it stood before match index `upTo`
+function tableAsOf(L, upTo){
+  const ms = upTo==null ? L.matches : L.matches.slice(0, upTo);
+  const t = {};
+  const row = n => t[n] || (t[n] = {team:n, pl:0, pts:0, gd:0});
+  for(const m of ms){
+    if(m.hg==null || m.ag==null) continue;
+    const h = row(m.home), a = row(m.away);
+    h.pl++; a.pl++; h.gd += m.hg-m.ag; a.gd += m.ag-m.hg;
+    if(m.hg>m.ag) h.pts += 3; else if(m.hg===m.ag){ h.pts++; a.pts++; } else a.pts += 3;
+  }
+  const rows = Object.values(t).sort((x,y)=> y.pts-x.pts || y.gd-x.gd);
+  rows.forEach((r,i)=> r.pos = i+1);
+  return { rows, byTeam: Object.fromEntries(rows.map(r=>[r.team, r])) };
+}
+
+/* How much is still at stake for one team, 0 (nothing to play for) to 1 (everything).
+   Three prize lines matter in most leagues: the title, the European places, and the drop. A team's
+   stake in any line is how REACHABLE it is with the games left — close and live scores high; already
+   settled, or hopelessly far, scores zero. The team's overall stake is the strongest single line. */
+function teamStakes(tbl, team, gamesLeft){
+  const me = tbl.byTeam[team];
+  if(!me || gamesLeft<=0) return null;
+  const N = tbl.rows.length; if(N < 6) return null;
+  const maxSwing = 3*gamesLeft;
+  const lineAt = pos => { const r = tbl.rows[Math.min(N,Math.max(1,pos))-1]; return r ? r.pts : null; };
+  const lines = [ {name:'title', pts:lineAt(1)}, {name:'europe', pts:lineAt(Math.min(4,N-1))},
+                  {name:'drop',  pts:lineAt(Math.max(1,N-2))} ];
+  let best = 0, which = 'nothing';
+  for(const ln of lines){
+    if(ln.pts==null) continue;
+    const gap = Math.abs(me.pts - ln.pts);
+    if(gap > maxSwing) continue;                 // can't reach it and can't be caught by it
+    const closeness = 1 - gap/Math.max(1,maxSwing);
+    if(closeness > best){ best = closeness; which = ln.name; }
+  }
+  return { stakes: best, line: which, pos: me.pos, pts: me.pts, played: me.pl };
+}
+
+/* The motivation edge for one fixture: positive means the HOME side has more to play for.
+   Returns null early in a season, when the table means too little to read. */
+function motivationEdge(L, m, upTo){
+  if(!L || !L.matches) return null;
+  const tbl = tableAsOf(L, upTo);
+  const me = tbl.byTeam[m.home], you = tbl.byTeam[m.away];
+  if(!me || !you || me.pl < 5 || you.pl < 5) return null;
+  // games left, approximated from a double round robin
+  const N = tbl.rows.length, total = 2*(N-1);
+  const hLeft = total - me.pl, aLeft = total - you.pl;
+  if(hLeft <= 0 && aLeft <= 0) return null;
+  const H = teamStakes(tbl, m.home, Math.max(1,hLeft)), A = teamStakes(tbl, m.away, Math.max(1,aLeft));
+  if(!H || !A) return null;
+  return { edge: H.stakes - A.stakes, home:H, away:A, seasonProgress: me.pl/total };
+}
+
 /* ---------- the headline pick (build 44) ----------
    Sunday 26 July, Brasileirão: the app predicted a home win in all seven matches and four of them
    were draws. One correct from seven. The engine was not picking the wrong TEAM — its draw
@@ -1719,8 +1785,14 @@ function fxPredict(L,f){
   return null;
 }
 // every priceable selection for a fixture, from the engine's numbers
-function allSelections(P,f){
+function allSelections(P,f,L){
   const S=[]; const add=(m,sel,prob,code)=>{ if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null}); };
+  /* HT/FT doubles enter the slip only when a league is passed in, because they need the half-time
+     models (build 52). Measured on 192 real matches these prices land within ~2.5 points of reality,
+     so they are fair to stake — but they are long shots by nature, so the slip's risk ceiling will
+     exclude most of them unless the slider is well up. That is correct, not a fault. */
+  if(L){ const H = htftFor(L, f);
+    if(H) for(const d of H.doubles) add('HT/FT', d.code+'  '+d.text, d.prob, d.code); }
   add('Winner', f.home+' to win', P.pW,'1'); add('Winner','Draw',P.pD,'X'); add('Winner', f.away+' to win', P.pL,'2');
   add('Double Chance', f.home+' or Draw', P.pW+P.pD); add('Double Chance','Home or Away', P.pW+P.pL); add('Double Chance','Draw or '+f.away, P.pD+P.pL);
   const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb); }
@@ -1894,7 +1966,7 @@ function tipPickFor(market,P,f,L){
      departs from the same market in an average match, so what surfaces is what the engine actually
      knows about THESE teams. Sub-50% picks are excluded — a strong opinion you can't back is noise. */
   const base = neutralSelections(L, f);
-  const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score'].includes(s.m));
+  const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score','HT/FT'].includes(s.m));
   const actionable = pool.filter(s=>s.prob >= 0.5);
   const ranked = (actionable.length ? actionable : pool)
     .map(s=>{ const b = base && base[s.sel]!=null ? base[s.sel] : 0.5; return {...s, edge: s.prob - b}; })
@@ -1931,7 +2003,7 @@ function renderTipList(market){
 }
 
 /* ---------- slip generator: markets + country groups (#6) ---------- */
-const SLIP_MARKETS=[['1X2','Winner'],['DC','Double Ch.'],['DNB','DNB'],['OU25','O/U 2.5'],['OU15','O/U 1.5'],['OU35','O/U 3.5'],['BTTS','BTTS'],['AH','Hcap ±1.5'],['TT','Team totals'],['CS','Correct score']];
+const SLIP_MARKETS=[['1X2','Winner'],['DC','Double Ch.'],['DNB','DNB'],['OU25','O/U 2.5'],['OU15','O/U 1.5'],['OU35','O/U 3.5'],['BTTS','BTTS'],['AH','Hcap ±1.5'],['TT','Team totals'],['HTFT','HT/FT'],['CS','Correct score']];
 function slipCountryGroups(){
   const g=[], idx={};
   for(const L of footballLeagues()){
@@ -1952,6 +2024,7 @@ function slipMarketMatch(mKey,sel){
     case 'BTTS': return sel.m==='BTTS';
     case 'AH': return sel.m==='Handicap';
     case 'TT': return sel.m==='Team total';
+    case 'HTFT': return sel.m==='HT/FT';
     case 'CS': return sel.m==='Correct score';
   }
   return false;
@@ -2123,6 +2196,84 @@ function renderHTFT(L, f){
     `<div class="subnote">Measured against 192 real matches, these double prices land within a couple of points of reality — good enough to price with. What the model canNOT do is tell you which particular match will produce a 1/1; it knows the rates, not the fixture. Treat the odds as fair, not as a tip.</div>`;
 }
 
+
+/* Does motivation predict what the engine gets WRONG? (build 52/53)
+   Matches are bucketed by which side had more to play for, and in each bucket the engine's average
+   predicted home win % is compared with what actually happened. Nothing here changes a probability —
+   this is the evidence that decides whether it should. */
+function motivationReport(motRows, poolLabel){
+  if(!motRows || motRows.length < 60) return '';
+  const pct2 = x => (100*x).toFixed(1)+'%';
+  const bands = [[-1.01,-0.25,'Away wants it much more'],[-0.25,-0.08,'Away wants it more'],
+                 [-0.08,0.08,'Even'],[0.08,0.25,'Home wants it more'],[0.25,1.01,'Home wants it much more']];
+  const bs = bands.map(([lo,hi,label])=>({lo,hi,label,n:0,pred:0,real:0}));
+  for(const r of motRows){
+    const b = bs.find(x=> r.mot.edge>=x.lo && r.mot.edge<x.hi); if(!b) continue;
+    b.n++; b.pred += r.predHome; b.real += r.actualHome;
+  }
+  const live = bs.filter(b=>b.n>0);
+  /* Subtract the engine's OVERALL bias first. It is under-confident about home wins generally, so
+     every bucket shows a positive gap whether motivation matters or not — against a simulated league
+     with ZERO motivation effect, the uncorrected version reported a 9.2% "signal". */
+  const totN = live.reduce((s,b)=>s+b.n,0);
+  const bias = live.reduce((s,b)=>s+(b.real-b.pred),0)/Math.max(1,totN);
+  const rowsHTML = live.map(b=>{
+    const pred=b.pred/b.n, real=b.real/b.n, gap=(real-pred)-bias, thin=b.n<25;
+    const col = thin ? 'var(--muted)' : Math.abs(gap)<=0.05 ? 'var(--muted)' : gap>0 ? 'var(--green2)' : 'var(--red)';
+    return `<div class="frow"><span style="flex:1;font-size:.82rem">${b.label}</span>
+      <span style="width:14%;text-align:right">${b.n}</span>
+      <span style="width:22%;text-align:right">${pct2(pred)}</span>
+      <span style="width:22%;text-align:right"><b>${pct2(real)}</b></span>
+      <span style="width:20%;text-align:right"><b style="color:${col}">${gap>=0?'+':''}${pct2(gap)}${thin?' ?':''}</b></span></div>`;
+  }).join('');
+  const lowEnd = live.filter(b=>b.hi<=-0.08 && b.n>=25), highEnd = live.filter(b=>b.lo>=0.08 && b.n>=25);
+  const avg = arr => arr.length ? arr.reduce((s,b)=>s+(b.real/b.n - b.pred/b.n - bias)*b.n,0)/arr.reduce((s,b)=>s+b.n,0) : null;
+  const lo = avg(lowEnd), hi = avg(highEnd);
+  /* A NOISE FLOOR, without which this test lies. Win rates on 40-match buckets wobble ~8 points by
+     chance, so almost any spread looks impressive. The spread must clear TWICE the combined
+     standard error before it counts as anything. */
+  const nLow = lowEnd.reduce((s,b)=>s+b.n,0), nHigh = highEnd.reduce((s,b)=>s+b.n,0);
+  const se = (nLow && nHigh) ? Math.sqrt(0.25/nLow + 0.25/nHigh) : null;
+  const spread = (lo!=null && hi!=null) ? hi - lo : null;
+  let verdict, col;
+  if(spread==null || se==null){ verdict = 'Not enough matches at the extremes yet to say either way.'; col='var(--muted)'; }
+  else if(spread > 2*se){ verdict = `Motivation IS showing up, beyond what chance explains: a ${pct2(spread)} spread against a ${pct2(2*se)} noise floor, on ${nLow+nHigh} matches at the extremes. Worth modelling — and the size should be fitted from this, not guessed.`; col='var(--green2)'; }
+  else { verdict = `No usable signal. The spread is ${pct2(Math.abs(spread))} against a noise floor of ${pct2(2*se)}, so it cannot be told apart from chance on ${nLow+nHigh} matches. Either the effect is small, or the engine's ratings already absorb it.`; col='var(--gold)'; }
+  return `<div class="sec-label" style="margin-top:16px">Motivation — does it predict the engine's misses?${poolLabel?` <span class="muted">· ${poolLabel}</span>`:''}</div>` +
+    `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+       <span style="flex:1">Who needs it more</span><span style="width:14%;text-align:right">N</span>
+       <span style="width:22%;text-align:right">Engine</span><span style="width:22%;text-align:right">Really</span>
+       <span style="width:20%;text-align:right">Gap</span></div>` + rowsHTML +
+    `<div class="verdict" style="border-color:${col}">${verdict}</div>` +
+    `<div class="subnote">"Engine" is the average home-win probability the model gave those matches; "Really" is how often the home side actually won. The Gap column has the engine's overall bias removed, so only the DIFFERENCE between rows can be motivation. Stakes are read from the league table as it stood before each match. <b>This measurement changes no prediction.</b></div>`;
+}
+
+/* Pools every loaded competition, because motivation is a football effect rather than a Brazilian
+   one and one league cannot supply the statistical power (build 53). Runs asynchronously with the
+   UI yielding between competitions, since this is several thousand walk-forward predictions. */
+async function runMotivationStudy(){
+  const out = $('btResults'); if(!out) return;
+  const Ls = backtestableLeagues();
+  if(!Ls.length){ out.innerHTML = '<div class="subnote">No competition has enough history yet.</div>'; return; }
+  const all = [];
+  let done = 0;
+  for(const L of Ls){
+    out.innerHTML = `<div class="subnote">Studying ${L.name}… (${++done} of ${Ls.length}, ${all.length} matches so far)</div>`;
+    await new Promise(r=>setTimeout(r,0));      // let the screen repaint
+    const ms = L.matches;
+    const eng = Object.create(footballEngine); eng.matches = ms;
+    const start = Math.max(30, Math.floor(ms.length*0.3));
+    for(let i=start; i<ms.length; i++){
+      const m = ms[i];
+      const mot = motivationEdge(L, m, i); if(!mot) continue;
+      const p = eng.predict(m.home, m.away, i); if(!p) continue;
+      all.push({ mot, predHome:p.pW, actualHome: m.hg>m.ag ? 1 : 0 });
+    }
+  }
+  const html = motivationReport(all, `${all.length} matches across ${Ls.length} competitions`);
+  out.innerHTML = html || `<div class="subnote">Only ${all.length} usable matches — not enough to test.</div>`;
+}
+
 /* ---------- calibration report (build 41) ----------
    The old backtest answered "how often is the favourite right?". That can't tell you which picks to
    trust. This answers the question that matters: WHEN THE APP SAYS 70%, DO THOSE MATCHES WIN 70%?
@@ -2196,7 +2347,7 @@ function runBacktest(){
   out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
 
   const start = Math.max(30, Math.floor(ms.length*0.3));
-  const rows = [], htRows = [];
+  const rows = [], htRows = [], motRows = [];
   let homeHit=0, drawActual=0, drawStated=0;
   // does this competition carry enough half-time scores to test the HT/FT model too?
   const htCapable = L && (L.matches||[]).filter(x=>x.hth!=null && x.hta!=null).length >= HT_MIN_MATCHES*2;
@@ -2210,6 +2361,10 @@ function runBacktest(){
     if(actual==='W') homeHit++;
     if(actual==='D') drawActual++;
     drawStated += p.pD;
+    // motivation edge as the table stood before this match (build 52) — measured, never applied
+    const mot = L ? motivationEdge(L, m, i) : null;
+    if(mot) motRows.push({ mot, predHome: p.pW, actualHome: actual==='W' ? 1 : 0,
+                           predPts: 3*p.pW + p.pD, actualPts: actual==='W' ? 3 : actual==='D' ? 1 : 0 });
     // HT/FT, trained only on matches before this one (build 50)
     if(htCapable && m.hth!=null && m.hta!=null){
       const H = htftFor(L, {home:m.home, away:m.away}, i);
@@ -2278,6 +2433,8 @@ function runBacktest(){
      is the half-time RESULT calibrated, and does each of the nine DOUBLES come up as often as
      claimed? Individual doubles are far too thin to band by confidence — 1/2 happens perhaps once
      in eighty matches — so those are judged on aggregate frequency instead. */
+  const motHTML = motivationReport(motRows);
+
   let htHTML = '';
   if(htRows.length >= 40){
     const favP = r=>Math.max(...r.H.htRow);
@@ -2346,7 +2503,7 @@ function runBacktest(){
       'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
     calTable('Reliability — over/under 2.5', tOver) +
     calTable('Reliability — both teams to score', tBtts) +
-    htHTML +
+    htHTML + motHTML +
 
     `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
@@ -2704,7 +2861,7 @@ function genSlip(){
       const key = f.fxid || (f.home+f.away+f.date);
       if(tmp){
         const P=tmp.predict(f.home,f.away); if(!P) continue;
-        const sels=allSelections(P,f);
+        const sels=allSelections(P,f,L);
         for(const mKey of slipState.markets)
           for(const sel of sels) if(slipMarketMatch(mKey,sel))
             cands.push({key,L,f,market:sel.m,sel:sel.sel,code:sel.code,prob:sel.prob,pDraw:P.pD});
@@ -3512,6 +3669,7 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
+$('motStudyBtn').addEventListener('click', runMotivationStudy);   // pooled across leagues (build 53)
 renderBacktestLeagues();   // populate the backtest competition picker (build 42)
 $('aiSaveBtn').addEventListener('click', aiSave);
 
