@@ -622,7 +622,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 53;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 54;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1693,43 +1693,55 @@ function tableAsOf(L, upTo){
   return { rows, byTeam: Object.fromEntries(rows.map(r=>[r.team, r])) };
 }
 
-/* How much is still at stake for one team, 0 (nothing to play for) to 1 (everything).
-   Three prize lines matter in most leagues: the title, the European places, and the drop. A team's
-   stake in any line is how REACHABLE it is with the games left — close and live scores high; already
-   settled, or hopelessly far, scores zero. The team's overall stake is the strongest single line. */
+/* How much is still at stake for one team, 0 (nothing to play for) to 1 (everything), plus WHICH
+   prize is driving it. Two corrections after Ken pointed out the first version treated everyone
+   alike (build 54):
+
+   1. MAXIMUM swing is the wrong yardstick. Judging reachability by 3 points per remaining game
+      means that with 30 games left literally every position is reachable, so a side 20 points off
+      the title scored 0.78 — nearly the same as a team two points above the drop with four games
+      left. Real teams deviate from their expected points by roughly 1.2 per game, not 3, so that
+      is what "reachable" now means.
+   2. Motivation is a LATE-SEASON phenomenon. In September nobody has nothing to play for. The
+      scenario Ken described — a side already safe in the top four against one fighting the drop —
+      only exists once the table has hardened, so the study now ignores the first 60% of a season. */
+const REALISTIC_PTS_PER_GAME = 1.2;   // how far a team can realistically move vs expectation
+const MOTIVATION_FROM_PROGRESS = 0.60; // ignore the season before this point
+
 function teamStakes(tbl, team, gamesLeft){
   const me = tbl.byTeam[team];
   if(!me || gamesLeft<=0) return null;
   const N = tbl.rows.length; if(N < 6) return null;
-  const maxSwing = 3*gamesLeft;
+  const swing = Math.max(3, REALISTIC_PTS_PER_GAME*gamesLeft);
   const lineAt = pos => { const r = tbl.rows[Math.min(N,Math.max(1,pos))-1]; return r ? r.pts : null; };
   const lines = [ {name:'title', pts:lineAt(1)}, {name:'europe', pts:lineAt(Math.min(4,N-1))},
-                  {name:'drop',  pts:lineAt(Math.max(1,N-2))} ];
+                  {name:'safety', pts:lineAt(Math.max(1,N-2))} ];
   let best = 0, which = 'nothing';
   for(const ln of lines){
     if(ln.pts==null) continue;
     const gap = Math.abs(me.pts - ln.pts);
-    if(gap > maxSwing) continue;                 // can't reach it and can't be caught by it
-    const closeness = 1 - gap/Math.max(1,maxSwing);
+    if(gap > swing) continue;                      // out of realistic reach in either direction
+    const closeness = 1 - gap/swing;
     if(closeness > best){ best = closeness; which = ln.name; }
   }
-  return { stakes: best, line: which, pos: me.pos, pts: me.pts, played: me.pl };
+  return { stakes: best, line: which, pos: me.pos, pts: me.pts, played: me.pl,
+           state: best < 0.15 ? 'nothing' : which };
 }
 
-/* The motivation edge for one fixture: positive means the HOME side has more to play for.
-   Returns null early in a season, when the table means too little to read. */
+/* The motivation edge for one fixture: positive means the HOME side has more to play for. */
 function motivationEdge(L, m, upTo){
   if(!L || !L.matches) return null;
   const tbl = tableAsOf(L, upTo);
   const me = tbl.byTeam[m.home], you = tbl.byTeam[m.away];
   if(!me || !you || me.pl < 5 || you.pl < 5) return null;
-  // games left, approximated from a double round robin
   const N = tbl.rows.length, total = 2*(N-1);
+  const progress = me.pl/total;
+  if(progress < MOTIVATION_FROM_PROGRESS) return null;   // the table hasn't hardened yet
   const hLeft = total - me.pl, aLeft = total - you.pl;
   if(hLeft <= 0 && aLeft <= 0) return null;
   const H = teamStakes(tbl, m.home, Math.max(1,hLeft)), A = teamStakes(tbl, m.away, Math.max(1,aLeft));
   if(!H || !A) return null;
-  return { edge: H.stakes - A.stakes, home:H, away:A, seasonProgress: me.pl/total };
+  return { edge: H.stakes - A.stakes, home:H, away:A, seasonProgress: progress };
 }
 
 /* ---------- the headline pick (build 44) ----------
@@ -2239,13 +2251,45 @@ function motivationReport(motRows, poolLabel){
   if(spread==null || se==null){ verdict = 'Not enough matches at the extremes yet to say either way.'; col='var(--muted)'; }
   else if(spread > 2*se){ verdict = `Motivation IS showing up, beyond what chance explains: a ${pct2(spread)} spread against a ${pct2(2*se)} noise floor, on ${nLow+nHigh} matches at the extremes. Worth modelling — and the size should be fitted from this, not guessed.`; col='var(--green2)'; }
   else { verdict = `No usable signal. The spread is ${pct2(Math.abs(spread))} against a noise floor of ${pct2(2*se)}, so it cannot be told apart from chance on ${nLow+nHigh} matches. Either the effect is small, or the engine's ratings already absorb it.`; col='var(--gold)'; }
+  /* The named scenario Ken asked about: one side with nothing left to play for against one still
+     chasing something. This is the sharp version of the question — the continuous "edge" above
+     blurs it, because a title chase and a relegation fight both score high. */
+  const scen = [
+    {key:'deadVsLive', label:'Home has nothing to play for, away still chasing', n:0, pred:0, real:0,
+     test:r=> r.mot.home.state==='nothing' && r.mot.away.stakes>=0.4},
+    {key:'liveVsDead', label:'Home still chasing, away has nothing to play for', n:0, pred:0, real:0,
+     test:r=> r.mot.away.state==='nothing' && r.mot.home.stakes>=0.4},
+    {key:'bothLive',  label:'Both sides still chasing something', n:0, pred:0, real:0,
+     test:r=> r.mot.home.stakes>=0.4 && r.mot.away.stakes>=0.4},
+    {key:'bothDead',  label:'Neither side has anything left', n:0, pred:0, real:0,
+     test:r=> r.mot.home.state==='nothing' && r.mot.away.state==='nothing'},
+    {key:'dropFight', label:'Away fighting relegation specifically', n:0, pred:0, real:0,
+     test:r=> r.mot.away.line==='safety' && r.mot.away.stakes>=0.4},
+  ];
+  for(const r of motRows) for(const sc of scen) if(sc.test(r)){ sc.n++; sc.pred+=r.predHome; sc.real+=r.actualHome; }
+  const scenHTML = scen.filter(sc=>sc.n>0).map(sc=>{
+    const pred=sc.pred/sc.n, real=sc.real/sc.n, gap=(real-pred)-bias, thin=sc.n<40;
+    const col = thin ? 'var(--muted)' : Math.abs(gap)<=0.05 ? 'var(--muted)' : gap>0 ? 'var(--green2)' : 'var(--red)';
+    return `<div class="frow"><span style="flex:1;font-size:.8rem">${sc.label}</span>
+      <span style="width:14%;text-align:right">${sc.n}</span>
+      <span style="width:22%;text-align:right">${pct2(pred)}</span>
+      <span style="width:22%;text-align:right"><b>${pct2(real)}</b></span>
+      <span style="width:20%;text-align:right"><b style="color:${col}">${gap>=0?'+':''}${pct2(gap)}${thin?' ?':''}</b></span></div>`;
+  }).join('');
+
   return `<div class="sec-label" style="margin-top:16px">Motivation — does it predict the engine's misses?${poolLabel?` <span class="muted">· ${poolLabel}</span>`:''}</div>` +
+    `<div class="subnote" style="margin-top:0">Late-season matches only (past ${Math.round(100*MOTIVATION_FROM_PROGRESS)}% of the fixtures), because before that nobody has nothing to play for.</div>` +
     `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
        <span style="flex:1">Who needs it more</span><span style="width:14%;text-align:right">N</span>
        <span style="width:22%;text-align:right">Engine</span><span style="width:22%;text-align:right">Really</span>
        <span style="width:20%;text-align:right">Gap</span></div>` + rowsHTML +
     `<div class="verdict" style="border-color:${col}">${verdict}</div>` +
-    `<div class="subnote">"Engine" is the average home-win probability the model gave those matches; "Really" is how often the home side actually won. The Gap column has the engine's overall bias removed, so only the DIFFERENCE between rows can be motivation. Stakes are read from the league table as it stood before each match. <b>This measurement changes no prediction.</b></div>`;
+    (scenHTML ? `<div class="sec-label" style="margin-top:16px">Named situations</div>` +
+      `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Situation</span><span style="width:14%;text-align:right">N</span>
+         <span style="width:22%;text-align:right">Engine</span><span style="width:22%;text-align:right">Really</span>
+         <span style="width:20%;text-align:right">Gap</span></div>` + scenHTML : '') +
+    `<div class="subnote">"Engine" is the average home-win probability the model gave those matches; "Really" is how often the home side actually won. The Gap column has the engine's overall bias removed, so only the DIFFERENCE between rows can be motivation. "Nothing to play for" means no prize line is within realistic reach — not merely mathematically impossible, since almost anything is mathematically possible with games left. <b>This measurement changes no prediction.</b></div>`;
 }
 
 /* Pools every loaded competition, because motivation is a football effect rather than a Brazilian
