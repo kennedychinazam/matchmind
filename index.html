@@ -416,6 +416,11 @@
         <div class="acc-body"><div id="goalsRows"></div></div>
       </div>
 
+      <div class="acc hidden" id="acc-htft">
+        <div class="acc-head"><span class="ic">⏱️</span><span class="t">Half-time / Full-time</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="htftBox"></div></div>
+      </div>
+
       <div class="acc" id="acc-score">
         <div class="acc-head"><span class="ic">🎯</span><span class="t">Correct Score</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="scoreRows"></div></div>
@@ -616,7 +621,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 47;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 50;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -855,10 +860,16 @@ function poissonPMF(lambda, k){
 
 const footballEngine = {
   matches: [],
+  /* Which goals this engine is modelling. Overriding these two is all it takes to turn the
+     full-time engine into a first-half or second-half one — the strength maths is identical,
+     only the numbers it reads change (build 48). */
+  hgOf(m){ return m.hg; },
+  agOf(m){ return m.ag; },
   load(rows){
     this.matches = rows
       .filter(r=>r.HomeTeam && r.AwayTeam && r.FTHG!=='' && r.FTAG!=='')
-      .map(r=>({date:normDate(r.Date), home:r.HomeTeam, away:r.AwayTeam, hg:+r.FTHG, ag:+r.FTAG}))
+      .map(r=>({date:normDate(r.Date), home:r.HomeTeam, away:r.AwayTeam, hg:+r.FTHG, ag:+r.FTAG,
+                hth:(r.HTHG===''||r.HTHG==null)?null:+r.HTHG, hta:(r.HTAG===''||r.HTAG==null)?null:+r.HTAG}))
       .sort((a,b)=> a.date < b.date ? -1 : 1);
   },
   teams(){ return [...new Set(this.matches.flatMap(m=>[m.home,m.away]))].sort(); },
@@ -871,12 +882,12 @@ const footballEngine = {
     let sumW=0, sumHG=0, sumAG=0;
     const t = {};
     arr.forEach((m,i)=>{
-      const wi = w(i);
-      sumW+=wi; sumHG+=m.hg*wi; sumAG+=m.ag*wi;
+      const wi = w(i), hg = this.hgOf(m), ag = this.agOf(m);
+      sumW+=wi; sumHG+=hg*wi; sumAG+=ag*wi;
       for(const name of [m.home,m.away])
         t[name] = t[name] || {hgF:0,hgA:0,hW:0, agF:0,agA:0,aW:0};
-      t[m.home].hgF+=m.hg*wi; t[m.home].hgA+=m.ag*wi; t[m.home].hW+=wi;
-      t[m.away].agF+=m.ag*wi; t[m.away].agA+=m.hg*wi; t[m.away].aW+=wi;
+      t[m.home].hgF+=hg*wi; t[m.home].hgA+=ag*wi; t[m.home].hW+=wi;
+      t[m.away].agF+=ag*wi; t[m.away].agA+=hg*wi; t[m.away].aW+=wi;
     });
     const avgH = sumHG/sumW, avgA = sumAG/sumW;
     const out = {};
@@ -900,8 +911,8 @@ const footballEngine = {
     if(this._rates && this._ratesN === arr.length) return this._rates;
     let btts=0, o15=0, o25=0, o35=0;
     for(const m of arr){
-      const t = m.hg + m.ag;
-      if(m.hg>0 && m.ag>0) btts++;
+      const hg = this.hgOf(m), ag = this.agOf(m), t = hg + ag;
+      if(hg>0 && ag>0) btts++;
       if(t>1.5) o15++; if(t>2.5) o25++; if(t>3.5) o35++;
     }
     const n = arr.length;
@@ -1572,6 +1583,89 @@ function fixtureResult(L,f,smap){
 }
 function actualCode(gh,ga){ return gh>ga?'1':gh===ga?'X':'2'; }
 
+/* ================= HALF-TIME / FULL-TIME MODEL (build 48) =================
+   A first half is not a short match — teams score at different rates before and after the break,
+   and the second half carries the first half's scoreline into it. So this is TWO models: one fitted
+   on first-half goals, one on second-half goals (full-time minus half-time). Same strength maths as
+   the main engine, just pointed at different numbers via hgOf/agOf.
+   Treating the two HALVES as independent is a fair assumption; treating HT and FT as independent
+   would not be, since FT contains HT. That's why the grid is built from halves and then summed. */
+const HT_GOALS = { hgOf:m=>m.hth, agOf:m=>m.hta };
+const H2_GOALS = { hgOf:m=>m.hg-m.hth, agOf:m=>m.ag-m.hta };
+const HT_MIN_MATCHES = 30;
+
+function halfEngine(L, which, upTo){
+  if(!L || !L.matches) return null;
+  const key = which==='ht' ? '_engHT' : '_engH2';
+  const full = upTo==null;
+  if(full && L[key] && L[key]._n === L.matches.length) return L[key];
+  /* Slice to the cut-off FIRST, then drop matches without a half-time score. Doing it the other way
+     round would leave `upTo` indexing a differently-sized array, which silently leaks future results
+     into a walk-forward test — the exact mistake a backtest exists to avoid. */
+  const src = full ? L.matches : L.matches.slice(0, upTo);
+  const ms = src.filter(m=> m.hth!=null && m.hta!=null && m.hg!=null && m.ag!=null
+                            && m.hg>=m.hth && m.ag>=m.hta);
+  if(ms.length < HT_MIN_MATCHES){ if(full) L[key]=null; return null; }
+  const e = Object.create(footballEngine);
+  Object.assign(e, which==='ht' ? HT_GOALS : H2_GOALS);
+  e.matches = ms;
+  if(full){ e._n = L.matches.length; L[key] = e; }
+  return e;
+}
+
+// joint 3x3 distribution: rows = half-time result, columns = full-time result (0 home, 1 draw, 2 away)
+function htftGrid(l1H, l1A, l2H, l2A){
+  const CAP = 7, g = [[0,0,0],[0,0,0],[0,0,0]];
+  const R = (h,a)=> h>a ? 0 : h===a ? 1 : 2;
+  const p1=[],q1=[],p2=[],q2=[];
+  for(let k=0;k<=CAP;k++){ p1[k]=poissonPMF(l1H,k); q1[k]=poissonPMF(l1A,k);
+                           p2[k]=poissonPMF(l2H,k); q2[k]=poissonPMF(l2A,k); }
+  let total=0;
+  for(let a=0;a<=CAP;a++) for(let b=0;b<=CAP;b++){
+    const pHalf1 = p1[a]*q1[b]; if(pHalf1 < 1e-9) continue;
+    const rHT = R(a,b);
+    for(let c=0;c<=CAP;c++) for(let d=0;d<=CAP;d++){
+      const p = pHalf1*p2[c]*q2[d]; if(p < 1e-12) continue;
+      g[rHT][R(a+c, b+d)] += p; total += p;
+    }
+  }
+  for(let i=0;i<3;i++) for(let j=0;j<3;j++) g[i][j] /= total;
+  return g;
+}
+
+/* Everything the half-time model can say about one fixture. Returns null when the competition
+   hasn't got enough half-time history yet — the app then simply doesn't show the section. */
+function htftFor(L, f, upTo){
+  const e1 = halfEngine(L,'ht',upTo), e2 = halfEngine(L,'h2',upTo);
+  if(!e1 || !e2) return null;
+  const A = e1.predict(f.home, f.away), B = e2.predict(f.home, f.away);
+  if(!A || !B) return null;
+  const grid = htftGrid(A.lambdaH, A.lambdaA, B.lambdaH, B.lambdaA);
+  const htRow = [0,1,2].map(i => grid[i].reduce((s,x)=>s+x, 0));      // half-time 1 / X / 2
+  // total goals in a half is Poisson with the two rates added, so these are exact
+  const lam1 = A.lambdaH + A.lambdaA;
+  const htOver = { 0.5: 1-Math.exp(-lam1), 1.5: 1-Math.exp(-lam1)*(1+lam1) };
+  // the nine doubles as they are actually written on a betting slip: 1/1, 1/X, 1/2, X/1 …
+  const doubles = [];
+  for(let i=0;i<3;i++) for(let j=0;j<3;j++)
+    doubles.push({ code:`${HTFT_CODE[i]}/${HTFT_CODE[j]}`, ht:i, ft:j, prob:grid[i][j],
+                   text:htftText(i, j, f.home, f.away) });
+  doubles.sort((a,b)=>b.prob-a.prob);
+  return { grid, htRow, htOver, doubles, lambdaHT:{h:A.lambdaH, a:A.lambdaA},
+           lambda2H:{h:B.lambdaH, a:B.lambdaA}, trainedOn: e1.matches.length };
+}
+const HTFT_LABELS = ['Home','Draw','Away'];
+const HTFT_CODE = ['1','X','2'];
+// plain English for each double, including naming the comeback cases for what they are
+function htftText(i, j, home, away){
+  const at = ['leading','level','behind'];
+  const end = [home+' win', 'draw', away+' win'];
+  if(i===0 && j===2) return `${home} lead at the break, ${away} turn it around`;
+  if(i===2 && j===0) return `${away} lead at the break, ${home} turn it around`;
+  if(i===j) return i===1 ? 'Level at half-time and full-time' : `${i===0?home:away} ahead at the break and at the end`;
+  return `${home} ${at[i]} at half-time → ${end[j]}`;
+}
+
 /* ---------- the headline pick (build 44) ----------
    Sunday 26 July, Brasileirão: the app predicted a home win in all seven matches and four of them
    were draws. One correct from seven. The engine was not picking the wrong TEAM — its draw
@@ -1888,7 +1982,8 @@ async function analyze(){
     } else setHeroMeta(null); }
   let scorerCtx = [];
   if(sport==='football'){
-    const hp = headlinePick(pred, home, away);
+    renderHTFT(sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null, {home, away});
+  const hp = headlinePick(pred, home, away);
     $('heroPick').textContent = hp.label;
     $('heroConf').textContent = pct(hp.prob) + ' confidence';
     $('heroStrong').textContent = hp.solo
@@ -1994,6 +2089,39 @@ async function analyze(){
   $('results').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
+/* Half-time / full-time panel (build 48). Hidden entirely when the competition lacks the
+   half-time history to train on — better to say nothing than to show numbers built on 12 matches. */
+function renderHTFT(L, f){
+  const acc = $('acc-htft'), box = $('htftBox');
+  if(!acc || !box) return;
+  const H = (L && f) ? htftFor(L, f) : null;
+  if(!H){ acc.classList.add('hidden'); box.innerHTML=''; return; }
+  acc.classList.remove('hidden');
+
+  // all nine doubles, strongest first, priced — this is the bettable list
+  const rows = H.doubles.map(d=>{
+    const strong = d.prob >= 0.15;
+    return `<div class="frow">
+      <b style="width:46px;color:var(--gold);font-size:.95rem">${d.code}</b>
+      <span style="flex:1;font-size:.84rem;color:${strong?'var(--text)':'var(--muted)'}">${d.text}</span>
+      <span style="width:52px;text-align:right;font-weight:${strong?800:600};color:${strong?'var(--green2)':'var(--muted)'}">${pct(d.prob)}</span>
+      <span style="width:46px;text-align:right;font-size:.78rem;color:var(--muted)">@ ${fairOdds(d.prob)}</span>
+    </div>`;
+  }).join('');
+
+  box.innerHTML =
+    `<div class="sec-label" style="margin-top:0">Half-time / full-time double</div>` +
+    `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+       <b style="width:46px">Bet</b><span style="flex:1">Meaning</span><span style="width:52px;text-align:right">Chance</span><span style="width:46px;text-align:right">Fair</span></div>` +
+    rows +
+    `<div class="sec-label">Half-time result on its own</div>` +
+    probRow(f.home+' (1)', H.htRow[0]) + probRow('Draw (X)', H.htRow[1]) + probRow(f.away+' (2)', H.htRow[2]) +
+    `<div class="sec-label">Goals in the first half</div>` +
+    probRow('Over 0.5', H.htOver[0.5]) + probRow('Over 1.5', H.htOver[1.5]) +
+    `<div class="subnote">Read <b>1/2</b> as "home leading at half-time, away winning at full-time". Two separate models — one fitted on first-half goals, one on second-half — trained on ${H.trainedOn} matches carrying half-time scores. Expected first-half goals ${H.lambdaHT.h.toFixed(2)} – ${H.lambdaHT.a.toFixed(2)}, second half ${H.lambda2H.h.toFixed(2)} – ${H.lambda2H.a.toFixed(2)}.</div>` +
+    `<div class="subnote">The long-odds doubles here are genuinely unlikely — that is what makes them pay. Check the Backtest in More → Data before trusting the numbers; comebacks in particular are slightly under-priced by this model.</div>`;
+}
+
 /* ---------- calibration report (build 41) ----------
    The old backtest answered "how often is the favourite right?". That can't tell you which picks to
    trust. This answers the question that matters: WHEN THE APP SAYS 70%, DO THOSE MATCHES WIN 70%?
@@ -2067,8 +2195,10 @@ function runBacktest(){
   out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
 
   const start = Math.max(30, Math.floor(ms.length*0.3));
-  const rows = [];
+  const rows = [], htRows = [];
   let homeHit=0, drawActual=0, drawStated=0;
+  // does this competition carry enough half-time scores to test the HT/FT model too?
+  const htCapable = L && (L.matches||[]).filter(x=>x.hth!=null && x.hta!=null).length >= HT_MIN_MATCHES*2;
   for(let i=start; i<ms.length; i++){
     const m = ms[i];
     const p = footballEngine.predict(m.home, m.away, i);
@@ -2079,6 +2209,13 @@ function runBacktest(){
     if(actual==='W') homeHit++;
     if(actual==='D') drawActual++;
     drawStated += p.pD;
+    // HT/FT, trained only on matches before this one (build 50)
+    if(htCapable && m.hth!=null && m.hta!=null){
+      const H = htftFor(L, {home:m.home, away:m.away}, i);
+      if(H) htRows.push({ H,
+        ht: m.hth>m.hta ? 0 : m.hth===m.hta ? 1 : 2,
+        ft: m.hg >m.ag  ? 0 : m.hg ===m.ag  ? 1 : 2 });
+    }
   }
   const n = rows.length;
   if(!n){ out.innerHTML = '<div class="subnote">Could not test any matches.</div>'; return; }
@@ -2136,6 +2273,50 @@ function runBacktest(){
 
   const statRow = (l,v,hl)=>`<div class="frow"><span class="muted">${l}</span><b${hl?' style="color:var(--green2)"':''}>${v}</b></div>`;
 
+  /* HALF-TIME / FULL-TIME reliability (build 50). Two questions, because they fail differently:
+     is the half-time RESULT calibrated, and does each of the nine DOUBLES come up as often as
+     claimed? Individual doubles are far too thin to band by confidence — 1/2 happens perhaps once
+     in eighty matches — so those are judged on aggregate frequency instead. */
+  let htHTML = '';
+  if(htRows.length >= 40){
+    const favP = r=>Math.max(...r.H.htRow);
+    const favRight = r=>r.H.htRow.indexOf(Math.max(...r.H.htRow))===r.ht;
+    const htBands = calBucket(htRows, favP, favRight);
+    let htHit=0; for(const r of htRows) if(favRight(r)) htHit++;
+
+    // nine doubles: what the model expected on average vs what actually happened
+    const dbl = [];
+    for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+      let expSum=0, seen=0;
+      for(const r of htRows){ expSum += r.H.grid[i][j]; if(r.ht===i && r.ft===j) seen++; }
+      dbl.push({ code:`${HTFT_CODE[i]}/${HTFT_CODE[j]}`, model:expSum/htRows.length, real:seen/htRows.length, seen });
+    }
+    dbl.sort((a,b)=>b.real-a.real);
+    const dblRows = dbl.map(d=>{
+      const gap = d.real - d.model, thin = d.seen < 8;
+      const col = thin ? 'var(--muted)' : Math.abs(gap)<=0.02 ? 'var(--green2)' : Math.abs(gap)<=0.04 ? 'var(--gold)' : 'var(--red)';
+      return `<div class="frow"><b style="width:46px;color:var(--gold)">${d.code}</b>
+        <span style="width:18%;text-align:right">${d.seen}</span>
+        <span style="width:24%;text-align:right">${pct(d.model)}</span>
+        <span style="width:24%;text-align:right"><b>${pct(d.real)}</b></span>
+        <span style="width:20%;text-align:right"><b style="color:${col}">${gap>=0?'+':''}${pct(gap)}${thin?' ?':''}</b></span></div>`;
+    }).join('');
+
+    htHTML =
+      `<div class="sec-label" style="margin-top:16px">Half-time result — reliability</div>` +
+      statRow('Matches with half-time scores', htRows.length) +
+      statRow('Half-time favourite accuracy', pct(htHit/htRows.length), true) +
+      calTable('', htBands, '') +
+      `<div class="sec-label" style="margin-top:16px">The nine doubles — claimed vs actual</div>` +
+      `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+         <b style="width:46px">Bet</b><span style="width:18%;text-align:right">Times</span>
+         <span style="width:24%;text-align:right">Model</span><span style="width:24%;text-align:right">Really</span>
+         <span style="width:20%;text-align:right">Gap</span></div>` + dblRows +
+      `<div class="subnote">"Times" is how often it actually happened in this test. A "?" means fewer than 8 occurrences — too rare here to judge. Watch the comeback doubles (1/2 and 2/1) in particular: the model treats the two halves as independent, so it tends to under-price a side turning the game around.</div>`;
+  } else if(htCapable){
+    htHTML = `<div class="subnote" style="margin-top:12px">Not enough half-time history to test HT/FT yet — needs 40 tested matches, has ${htRows.length}.</div>`;
+  }
+
   // Worth publishing = enough matches to judge, honest to within 5 points, AND confident enough to
   // be worth acting on. A well-calibrated 38% pick is honest but useless, so the floor matters.
   const solid = t1x2.filter(b=>b.n>=25 && Math.abs(b.gap)<=0.05 && b.lo>=0.50);
@@ -2164,6 +2345,7 @@ function runBacktest(){
       'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
     calTable('Reliability — over/under 2.5', tOver) +
     calTable('Reliability — both teams to score', tBtts) +
+    htHTML +
 
     `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
@@ -2665,7 +2847,7 @@ async function loadCloudLeagues(force){
         if(r.home_logo) afState.logos[r.home]=r.home_logo;
         if(r.away_logo) afState.logos[r.away]=r.away_logo;
         const fin = FINISHED.includes(r.status) && r.gh!=null && r.ga!=null;
-        if(fin){ L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
+        if(fin){ L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if((r.status==='NS' && r.date>=today) || (fin && r.date>=winStart)){
           display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away, _fin:fin});
