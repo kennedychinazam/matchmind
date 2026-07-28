@@ -621,7 +621,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 50;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 51;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2116,10 +2116,11 @@ function renderHTFT(L, f){
     rows +
     `<div class="sec-label">Half-time result on its own</div>` +
     probRow(f.home+' (1)', H.htRow[0]) + probRow('Draw (X)', H.htRow[1]) + probRow(f.away+' (2)', H.htRow[2]) +
+    `<div class="subnote" style="color:var(--gold)">⚠ Measured on 192 Brasileirão matches, the half-time result is the app's WEAKEST market — 36.5% accurate, worse than simply always backing the home side. A first half holds barely one goal, so quality barely registers before the break and the outcome is close to a coin flip. Shown for context; not a tip.</div>` +
     `<div class="sec-label">Goals in the first half</div>` +
     probRow('Over 0.5', H.htOver[0.5]) + probRow('Over 1.5', H.htOver[1.5]) +
     `<div class="subnote">Read <b>1/2</b> as "home leading at half-time, away winning at full-time". Two separate models — one fitted on first-half goals, one on second-half — trained on ${H.trainedOn} matches carrying half-time scores. Expected first-half goals ${H.lambdaHT.h.toFixed(2)} – ${H.lambdaHT.a.toFixed(2)}, second half ${H.lambda2H.h.toFixed(2)} – ${H.lambda2H.a.toFixed(2)}.</div>` +
-    `<div class="subnote">The long-odds doubles here are genuinely unlikely — that is what makes them pay. Check the Backtest in More → Data before trusting the numbers; comebacks in particular are slightly under-priced by this model.</div>`;
+    `<div class="subnote">Measured against 192 real matches, these double prices land within a couple of points of reality — good enough to price with. What the model canNOT do is tell you which particular match will produce a 1/1; it knows the rates, not the fixture. Treat the odds as fair, not as a tip.</div>`;
 }
 
 /* ---------- calibration report (build 41) ----------
