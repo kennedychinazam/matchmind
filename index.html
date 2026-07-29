@@ -416,6 +416,11 @@
         <div class="acc-body"><div id="goalsRows"></div></div>
       </div>
 
+      <div class="acc hidden" id="acc-context">
+        <div class="acc-head"><span class="ic">📰</span><span class="t">Team news &amp; adjusted odds</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="ctxOut"></div></div>
+      </div>
+
       <div class="acc hidden" id="acc-htft">
         <div class="acc-head"><span class="ic">⏱️</span><span class="t">Half-time / Full-time</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="htftBox"></div></div>
@@ -622,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 55;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 57;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2060,6 +2065,8 @@ async function analyze(){
   setFavRow(home, away);
   // competition + date/time (+ score if it kicked off) header (#16)
   { const meta = pendingMeta; pendingMeta = null;
+    pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
+    pendingMetaFxid = meta ? (meta.fxid||null) : null;
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
       const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
       if(res){ meta.score = `${res.gh}–${res.ga}`; }
@@ -2068,6 +2075,11 @@ async function analyze(){
   let scorerCtx = [];
   if(sport==='football'){
     renderHTFT(sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null, {home, away});
+  // team news runs automatically now, and feeds the adjusted odds below the engine's own
+  ctxFixture = { home, away, pred, comp:pendingMetaComp, date:pendingMetaDate, fxid:pendingMetaFxid,
+                 L: (sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null) };
+  { const c=$('acc-context'); if(c) c.classList.remove('hidden'); }
+  if(supa) fetchMatchContext();
   const hp = headlinePick(pred, home, away);
     $('heroPick').textContent = hp.label;
     $('heroConf').textContent = pct(hp.prob) + ' confidence';
@@ -2372,7 +2384,75 @@ function perLeagueMotivation(perLeague){
     `<div class="verdict" style="border-color:${hits?'var(--gold)':'var(--muted)'}">${verdict}</div>`;
 }
 
-/* ---------- calibration report (build 41) ----------
+/* Team news feeding the probability (build 57).
+   Runs automatically when a match is opened. The AI searches the web, returns a CAPPED multiplier on
+   each side's expected goals, and the engine recomputes with it. Both numbers stay on screen.
+   Why a multiplier and not a probability: the engine is calibrated and checkable, the model is not.
+   Letting it state odds directly would throw away the only thing that makes this app auditable.
+   Adjustments are clamped server-side to ±20% and refused entirely without a citation. */
+let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null;
+let lastAdjusted = null;
+
+function applyContextToPrediction(L, pred, homeMult, awayMult){
+  if(!L || !pred || (homeMult===1 && awayMult===1)) return null;
+  const tmp = Object.create(footballEngine); tmp.matches = L.matches || [];
+  return tmp.marketsFor(pred.lambdaH*homeMult, pred.lambdaA*awayMult, tmp.rates());
+}
+
+async function fetchMatchContext(){
+  const box = $('ctxOut'); if(!box || !ctxFixture) return;
+  const f = ctxFixture;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Checking current team news…</div>';
+  const ask = `Fixture: ${f.home} vs ${f.away}` + (f.comp?` in the ${f.comp}`:'') + (f.date?` on ${f.date}`:'') + '.';
+  try{
+    const session = await proxySession();
+    if(!session){ box.innerHTML = '<div class="subnote">Sign in to include live team news in the odds.</div>'; return; }
+    const res = await fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      body: JSON.stringify({ prompt: ask, mode:'context', fxid: f.fxid || null })
+    });
+    let j = {}; try{ j = await res.json(); }catch(_){}
+    if(!res.ok || !j.ok){ box.innerHTML = `<div class="subnote">${escapeHtml(j.error||'Team news unavailable — the odds above are the engine\'s own.')}</div>`; return; }
+    if(j.limit!=null) aiQuota = { used:j.used, limit:j.limit };
+    const C = j.context || {}, srcs = j.sources || [];
+    const hM = Number(C.homeMult)||1, aM = Number(C.awayMult)||1;
+    const notes = (C.notes||[]).map(n=>`<div class="frow"><span style="flex:1;font-size:.84rem">• ${escapeHtml(String(n))}</span></div>`).join('');
+
+    let compare = '';
+    const adj = applyContextToPrediction(f.L, f.pred, hM, aM);
+    lastAdjusted = adj;
+    if(adj){
+      const row = (label, before, after)=>{
+        const d = after-before, col = Math.abs(d)<0.005 ? 'var(--muted)' : d>0 ? 'var(--green2)' : 'var(--red)';
+        return `<div class="frow"><span style="flex:1">${escapeHtml(label)}</span>
+          <span style="width:24%;text-align:right;color:var(--muted)">${pct(before)}</span>
+          <span style="width:24%;text-align:right"><b>${pct(after)}</b></span>
+          <span style="width:20%;text-align:right"><b style="color:${col}">${d>=0?'+':''}${pct(d)}</b></span></div>`;
+      };
+      compare =
+        `<div class="sec-label">Engine → adjusted for team news</div>` +
+        `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+           <span style="flex:1">Outcome</span><span style="width:24%;text-align:right">Engine</span>
+           <span style="width:24%;text-align:right">Adjusted</span><span style="width:20%;text-align:right">Shift</span></div>` +
+        row(f.home+' win', f.pred.pW, adj.pW) + row('Draw', f.pred.pD, adj.pD) + row(f.away+' win', f.pred.pL, adj.pL) +
+        `<div class="subnote">Expected goals moved ${f.pred.lambdaH.toFixed(2)}→${(f.pred.lambdaH*hM).toFixed(2)} and ${f.pred.lambdaA.toFixed(2)}→${(f.pred.lambdaA*aM).toFixed(2)}. Adjustments are capped at ±20% and are refused entirely without a source.</div>`;
+    } else {
+      compare = `<div class="subnote">No adjustment made — the engine's odds above stand unchanged.</div>`;
+    }
+    const srcHTML = srcs.length
+      ? `<div class="subnote">Sources: ${srcs.map(x=>`<a href="${escapeHtml(x.uri)}" target="_blank" rel="noopener" style="color:var(--gold)">${escapeHtml(x.title).slice(0,48)}</a>`).join(' · ')}</div>`
+      : `<div class="subnote">No sources returned, so nothing was allowed to move the odds.</div>`;
+    box.innerHTML = (notes || '<div class="subnote">No material team news found.</div>') +
+      (C.risk ? `<div class="verdict" style="border-color:var(--gold)">${escapeHtml(C.risk)}</div>` : '') +
+      compare + srcHTML +
+      (j.cached ? '<div class="subnote">From cache — team news is refreshed every 6 hours.</div>' : '');
+  }catch(e){
+    box.innerHTML = `<div class="subnote">Team news unavailable: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+
+/* ---------- calibration report (build 41) ----------/* ---------- calibration report (build 41) ----------
    The old backtest answered "how often is the favourite right?". That can't tell you which picks to
    trust. This answers the question that matters: WHEN THE APP SAYS 70%, DO THOSE MATCHES WIN 70%?
    Predictions are grouped into confidence bands and each band's stated confidence is compared with
