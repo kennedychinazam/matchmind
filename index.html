@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 58;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 59;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2461,6 +2461,41 @@ async function fetchMatchContext(){
   }
 }
 
+/* PREDICTION ARCHIVE (build 59).
+   Ken wants to browse past predictions by date for validation. The trap: recomputing a prediction
+   later would rebuild it from data that now INCLUDES the match being predicted — hindsight dressed
+   as accuracy. Genuine validation needs the prediction stored AS IT WAS MADE, which means every day
+   without recording is a day permanently lost.
+   So: the first time any device prices a fixture, it writes that snapshot and nothing ever
+   overwrites it (`ignoreDuplicates`). Whoever looks first sets the record; later viewers, and later
+   versions of the engine, cannot rewrite history. */
+const archiveQueue = new Map();
+let archiveTimer = null;
+function archivePrediction(L, f, p, hp){
+  if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
+  if(daysPast(f.date) > 0) return;                    // only price fixtures that are still ahead
+  archiveQueue.set(f.fxid, {
+    fxid: f.fxid, lid: L.id, lname: L.name, kickoff: f.date, ktime: f.time || null,
+    home: f.home, away: f.away,
+    p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
+    xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
+    pick: hp.code, pick_prob:+hp.prob.toFixed(4),
+    build: APP_BUILD, made_at: new Date().toISOString()
+  });
+  // batch, so opening the Predict tab is one write rather than forty
+  clearTimeout(archiveTimer);
+  archiveTimer = setTimeout(flushPredictionArchive, 2500);
+}
+async function flushPredictionArchive(){
+  if(!supa || !archiveQueue.size) return;
+  const rows = [...archiveQueue.values()];
+  archiveQueue.clear();
+  try{
+    // ignoreDuplicates: the ORIGINAL prediction is the one that counts
+    await supa.from('predictions').upsert(rows, { onConflict:'fxid', ignoreDuplicates:true });
+  }catch(e){ /* archiving must never interrupt the app */ }
+}
+
 /* ---------- calibration report (build 41) ----------/* ---------- calibration report (build 41) ----------
    The old backtest answered "how often is the favourite right?". That can't tell you which picks to
    trust. This answers the question that matters: WHEN THE APP SAYS 70%, DO THOSE MATCHES WIN 70%?
@@ -3207,7 +3242,8 @@ async function loadCloudLeagues(force){
           const p = f._fin
             ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
             : tmp.predict(f.home, f.away);
-          if(p){ const hp=headlinePick(p, f.home, f.away); f.pick=hp.code; f.prob=+hp.prob.toFixed(3); if(!f._fin) recordPick(L.name,f); }
+          if(p){ const hp=headlinePick(p, f.home, f.away); f.pick=hp.code; f.prob=+hp.prob.toFixed(3);
+            if(!f._fin){ recordPick(L.name,f); archivePrediction(L, f, p, hp); } }
         }
       }
       for(const f of display) delete f._fin;
@@ -3577,7 +3613,9 @@ function renderFixtures(){
   renderCompsDrop();
   if(!Ls.length){ wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');
-  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].filter(d=>daysPast(d)<=2).sort().slice(0,14);
+  // a week of played fixtures stays in the feed with its ✓/✗, so the record is visible rather than
+  // vanishing overnight (build 59; was 2 days)
+  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].filter(d=>daysPast(d)<=7).sort().slice(0,20);
   if(!dates.length){ wrap.classList.add('hidden'); return; }
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
