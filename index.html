@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 57;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 58;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2067,6 +2067,7 @@ async function analyze(){
   { const meta = pendingMeta; pendingMeta = null;
     pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
     pendingMetaFxid = meta ? (meta.fxid||null) : null;
+    pendingMetaPlayed = !!(meta && meta.score);   // the hero only carries a score once it is played
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
       const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
       if(res){ meta.score = `${res.gh}–${res.ga}`; }
@@ -2077,6 +2078,7 @@ async function analyze(){
     renderHTFT(sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null, {home, away});
   // team news runs automatically now, and feeds the adjusted odds below the engine's own
   ctxFixture = { home, away, pred, comp:pendingMetaComp, date:pendingMetaDate, fxid:pendingMetaFxid,
+                 played: !!pendingMetaPlayed,
                  L: (sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null) };
   { const c=$('acc-context'); if(c) c.classList.remove('hidden'); }
   if(supa) fetchMatchContext();
@@ -2390,7 +2392,7 @@ function perLeagueMotivation(perLeague){
    Why a multiplier and not a probability: the engine is calibrated and checkable, the model is not.
    Letting it state odds directly would throw away the only thing that makes this app auditable.
    Adjustments are clamped server-side to ±20% and refused entirely without a citation. */
-let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null;
+let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null, pendingMetaPlayed = false;
 let lastAdjusted = null;
 
 function applyContextToPrediction(L, pred, homeMult, awayMult){
@@ -2399,9 +2401,15 @@ function applyContextToPrediction(L, pred, homeMult, awayMult){
   return tmp.marketsFor(pred.lambdaH*homeMult, pred.lambdaA*awayMult, tmp.rates());
 }
 
+const ctxSeen = new Map();   // fxid -> rendered HTML, so re-opening a match costs nothing
 async function fetchMatchContext(){
   const box = $('ctxOut'); if(!box || !ctxFixture) return;
   const f = ctxFixture;
+  /* Team news is only meaningful BEFORE kick-off, and the free tier allows 10 requests a minute.
+     Skipping played matches and remembering what we already fetched keeps browsing cheap — without
+     this, scrolling through a day's finished fixtures burned the allowance on nothing (build 58). */
+  if(f.played){ box.innerHTML = '<div class="subnote">This match has been played — team news no longer applies.</div>'; return; }
+  if(f.fxid && ctxSeen.has(f.fxid)){ box.innerHTML = ctxSeen.get(f.fxid); return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Checking current team news…</div>';
   const ask = `Fixture: ${f.home} vs ${f.away}` + (f.comp?` in the ${f.comp}`:'') + (f.date?` on ${f.date}`:'') + '.';
   try{
@@ -2447,6 +2455,7 @@ async function fetchMatchContext(){
       (C.risk ? `<div class="verdict" style="border-color:var(--gold)">${escapeHtml(C.risk)}</div>` : '') +
       compare + srcHTML +
       (j.cached ? '<div class="subnote">From cache — team news is refreshed every 6 hours.</div>' : '');
+    if(f.fxid) ctxSeen.set(f.fxid, box.innerHTML);
   }catch(e){
     box.innerHTML = `<div class="subnote">Team news unavailable: ${escapeHtml(e.message||String(e))}</div>`;
   }
