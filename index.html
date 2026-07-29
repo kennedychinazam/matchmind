@@ -622,7 +622,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 54;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 55;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2299,7 +2299,7 @@ async function runMotivationStudy(){
   const out = $('btResults'); if(!out) return;
   const Ls = backtestableLeagues();
   if(!Ls.length){ out.innerHTML = '<div class="subnote">No competition has enough history yet.</div>'; return; }
-  const all = [];
+  const all = [], perLeague = [];
   let done = 0;
   for(const L of Ls){
     out.innerHTML = `<div class="subnote">Studying ${L.name}… (${++done} of ${Ls.length}, ${all.length} matches so far)</div>`;
@@ -2307,15 +2307,69 @@ async function runMotivationStudy(){
     const ms = L.matches;
     const eng = Object.create(footballEngine); eng.matches = ms;
     const start = Math.max(30, Math.floor(ms.length*0.3));
+    const mine = [];
     for(let i=start; i<ms.length; i++){
       const m = ms[i];
       const mot = motivationEdge(L, m, i); if(!mot) continue;
       const p = eng.predict(m.home, m.away, i); if(!p) continue;
-      all.push({ mot, predHome:p.pW, actualHome: m.hg>m.ag ? 1 : 0 });
+      const row = { mot, predHome:p.pW, actualHome: m.hg>m.ag ? 1 : 0 };
+      all.push(row); mine.push(row);
     }
+    if(mine.length) perLeague.push({ L, rows:mine });
   }
-  const html = motivationReport(all, `${all.length} matches across ${Ls.length} competitions`);
-  out.innerHTML = html || `<div class="subnote">Only ${all.length} usable matches — not enough to test.</div>`;
+  const pooled = motivationReport(all, `${all.length} matches across ${Ls.length} competitions`);
+  out.innerHTML = (pooled || `<div class="subnote">Only ${all.length} usable matches — not enough to test.</div>`)
+                + perLeagueMotivation(perLeague);
+}
+
+/* Per-competition breakdown (build 55), which Ken asked for so a rule could be applied only where
+   it fits. Legitimate to look at — but it is also the classic way to fool yourself, so the bar
+   moves with the number of tests.
+   Splitting 1,374 matches seven ways leaves ~196 each, where the noise floor rises from 3.8% to
+   ~10%. And testing 7 leagues means that at an ordinary 1-in-20 threshold you expect roughly one
+   or two leagues to look significant FROM CHANCE ALONE. So "motivation works in two leagues" is the
+   single most likely outcome even if motivation does nothing anywhere.
+   The threshold below is Bonferroni-corrected: z = 2.69 rather than 1.96 for seven comparisons,
+   i.e. a bar about 37% higher than the pooled test uses. */
+function perLeagueMotivation(perLeague){
+  if(!perLeague || perLeague.length < 2) return '';
+  const pct2 = x => (100*x).toFixed(1)+'%';
+  const Z = 2.69;                                  // corrected for ~7 simultaneous comparisons
+  const rows = perLeague.map(({L, rows:rs})=>{
+    const bias = rs.reduce((s,r)=>s+(r.actualHome-r.predHome),0)/rs.length;
+    const lowSet = rs.filter(r=>r.mot.edge < -0.08), highSet = rs.filter(r=>r.mot.edge > 0.08);
+    const gapOf = set => set.length ? set.reduce((s,r)=>s+(r.actualHome-r.predHome-bias),0)/set.length : null;
+    const lo = gapOf(lowSet), hi = gapOf(highSet);
+    const n1 = lowSet.length, n2 = highSet.length;
+    const se = (n1 && n2) ? Math.sqrt(0.25/n1 + 0.25/n2) : null;
+    const spread = (lo!=null && hi!=null) ? hi-lo : null;
+    const bar = se!=null ? Z*se : null;
+    const clears = spread!=null && bar!=null && spread > bar;
+    return { name:L.name, n:rs.length, n1, n2, spread, bar, clears };
+  }).sort((a,b)=> (b.spread??-9) - (a.spread??-9));
+
+  const hits = rows.filter(r=>r.clears).length;
+  const body = rows.map(r=>{
+    const col = r.clears ? 'var(--green2)' : 'var(--muted)';
+    return `<div class="frow"><span style="flex:1;font-size:.8rem">${r.name}</span>
+      <span style="width:14%;text-align:right">${r.n}</span>
+      <span style="width:22%;text-align:right">${r.spread==null?'—':(r.spread>=0?'+':'')+pct2(r.spread)}</span>
+      <span style="width:22%;text-align:right;color:var(--muted)">${r.bar==null?'—':pct2(r.bar)}</span>
+      <span style="width:18%;text-align:right"><b style="color:${col}">${r.clears?'clears':'no'}</b></span></div>`;
+  }).join('');
+
+  const expected = (perLeague.length*0.05).toFixed(1);
+  const verdict = hits===0
+    ? `No competition clears its bar. That is the expected result if motivation does nothing here — and with ~${expected} false alarms expected by chance across ${perLeague.length} leagues, it is also the only result that would have been safe to act on in reverse.`
+    : `${hits} competition${hits>1?'s':''} clears the bar. Before acting on that: across ${perLeague.length} leagues you would expect roughly ${expected} to look significant purely by chance. ${hits<=2?'That is within what chance produces, so treat it as a lead to re-test next season, NOT as a rule to ship.':'That is more than chance comfortably explains, so it is worth pursuing.'}`;
+
+  return `<div class="sec-label" style="margin-top:20px">Per competition — where does it apply?</div>` +
+    `<div class="subnote" style="margin-top:0">Each league is judged against its OWN noise floor, raised to account for testing several leagues at once. Splitting the data seven ways takes the floor from about 4% to about 10%, so a league needs a much bigger effect to mean anything.</div>` +
+    `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+       <span style="flex:1">Competition</span><span style="width:14%;text-align:right">N</span>
+       <span style="width:22%;text-align:right">Spread</span><span style="width:22%;text-align:right">Bar</span>
+       <span style="width:18%;text-align:right">Verdict</span></div>` + body +
+    `<div class="verdict" style="border-color:${hits?'var(--gold)':'var(--muted)'}">${verdict}</div>`;
 }
 
 /* ---------- calibration report (build 41) ----------
