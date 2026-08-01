@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 59;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 61;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2067,10 +2067,15 @@ async function analyze(){
   { const meta = pendingMeta; pendingMeta = null;
     pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
     pendingMetaFxid = meta ? (meta.fxid||null) : null;
-    pendingMetaPlayed = !!(meta && meta.score);   // the hero only carries a score once it is played
+    pendingMetaPick = meta ? (meta.pick||null) : null; pendingMetaProb = meta ? (meta.prob||null) : null;
+    pendingMetaPlayed = false;
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
       const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
       if(res){ meta.score = `${res.gh}–${res.ga}`; }
+      // NB: this must come AFTER the score is attached. Reading it a line earlier made it always
+      // false, so played matches kept firing grounded lookups and burning the rate limit.
+      pendingMetaPlayed = !!(meta && meta.score);
+      pendingMetaDead = (meta && ['PST','SUSP','CANC','ABD'].includes(meta.status)) ? meta.status : null;
       setHeroMeta(meta);
     } else setHeroMeta(null); }
   let scorerCtx = [];
@@ -2078,11 +2083,20 @@ async function analyze(){
     renderHTFT(sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null, {home, away});
   // team news runs automatically now, and feeds the adjusted odds below the engine's own
   ctxFixture = { home, away, pred, comp:pendingMetaComp, date:pendingMetaDate, fxid:pendingMetaFxid,
-                 played: !!pendingMetaPlayed,
+                 played: !!pendingMetaPlayed, dead: pendingMetaDead,
                  L: (sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null) };
   { const c=$('acc-context'); if(c) c.classList.remove('hidden'); }
   if(supa) fetchMatchContext();
-  const hp = headlinePick(pred, home, away);
+  /* For a match already played, show the pick AS IT WAS MADE rather than recomputing. Recomputing
+     trains on data that now contains this very match — hindsight — and it made the detail page
+     contradict the feed (Santos v Chapecoense: feed said '1 ✗', detail said 'Santos or DRAW 71.5%').
+     The stored pick is the one the feed graded, so the two now always agree. */
+  const hp = (pendingMetaPlayed && pendingMetaPick)
+    ? { code: pendingMetaPick, prob: pendingMetaProb || 0,
+        label: pickLabel(pendingMetaPick, home, away).replace(' to win',' WIN').toUpperCase()
+                 .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or '),
+        solo: !String(pendingMetaPick).includes('X') || pendingMetaPick === 'X' }
+    : headlinePick(pred, home, away);
     $('heroPick').textContent = hp.label;
     $('heroConf').textContent = pct(hp.prob) + ' confidence';
     $('heroStrong').textContent = hp.solo
@@ -2386,6 +2400,23 @@ function perLeagueMotivation(perLeague){
     `<div class="verdict" style="border-color:${hits?'var(--gold)':'var(--muted)'}">${verdict}</div>`;
 }
 
+/* Every panel that is filled in per-match must be BLANKED before the next match opens (build 61).
+   If a fixture cannot be analysed — postponed, or teams the engine has no history for — the render
+   simply never runs, and whatever was on screen stays there. That is why Botafogo v Grêmio showed
+   Chapecoense's half-time table, and three Dutch and Portuguese fixtures all showed Mineiro v
+   Bragantino. Stale data attributed to the wrong match is worse than no data. */
+function resetMatchPanels(){
+  const htft = $('acc-htft'); if(htft){ htft.classList.add('hidden'); const b=$('htftBox'); if(b) b.innerHTML=''; }
+  const ctx  = $('acc-context'); if(ctx){ ctx.classList.add('hidden'); const o=$('ctxOut'); if(o) o.innerHTML=''; }
+  ctxFixture = null; lastAdjusted = null;
+}
+// full words in the detail header — "PST" means nothing to a user (build 61)
+function statusWord(code){
+  return ({ NS:'Not started', TBD:'Time to be confirmed', PST:'POSTPONED', SUSP:'SUSPENDED',
+            CANC:'CANCELLED', ABD:'ABANDONED', AWD:'AWARDED', FT:'Full time', AET:'After extra time',
+            PEN:'After penalties', HT:'Half time', LIVE:'Live' })[code] || code;
+}
+
 /* Team news feeding the probability (build 57).
    Runs automatically when a match is opened. The AI searches the web, returns a CAPPED multiplier on
    each side's expected goals, and the engine recomputes with it. Both numbers stay on screen.
@@ -2393,6 +2424,7 @@ function perLeagueMotivation(perLeague){
    Letting it state odds directly would throw away the only thing that makes this app auditable.
    Adjustments are clamped server-side to ±20% and refused entirely without a citation. */
 let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null, pendingMetaPlayed = false;
+let pendingMetaPick = null, pendingMetaProb = null, pendingMetaDead = null;
 let lastAdjusted = null;
 
 function applyContextToPrediction(L, pred, homeMult, awayMult){
@@ -2409,6 +2441,7 @@ async function fetchMatchContext(){
      Skipping played matches and remembering what we already fetched keeps browsing cheap — without
      this, scrolling through a day's finished fixtures burned the allowance on nothing (build 58). */
   if(f.played){ box.innerHTML = '<div class="subnote">This match has been played — team news no longer applies.</div>'; return; }
+  if(f.dead){ box.innerHTML = `<div class="subnote">This fixture is ${escapeHtml(statusWord(f.dead).toLowerCase())} — there is nothing to adjust.</div>`; return; }
   if(f.fxid && ctxSeen.has(f.fxid)){ box.innerHTML = ctxSeen.get(f.fxid); return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Checking current team news…</div>';
   const ask = `Fixture: ${f.home} vs ${f.away}` + (f.comp?` in the ${f.comp}`:'') + (f.date?` on ${f.date}`:'') + '.';
@@ -2983,6 +3016,7 @@ function renderFavLeagues(){
 let curDetail = null;
 async function matchDetail(s){
   curDetail = s;
+  resetMatchPanels();
   navTo('detail');
   $('heroHome').innerHTML = heroSide(s.home,'Home');
   $('heroAway').innerHTML = heroSide(s.away,'Away');
@@ -2991,7 +3025,8 @@ async function matchDetail(s){
   setHeroMeta({comp:s.lname, country:s.lcountry||'', date:s.date, time:s.time});
   $('heroPick').textContent = (s.gh!=null?s.gh:'–') + ' – ' + (s.ga!=null?s.ga:'–');
   const isLive = LIVE_CODES.includes(s.status);
-  $('heroConf').textContent = isLive ? '🔴 LIVE · '+(s.elapsed?s.elapsed+"'":s.status) : (s.status==='NS'?'Kick-off '+s.time:s.status);
+  $('heroConf').textContent = isLive ? '🔴 LIVE · '+(s.elapsed?s.elapsed+"'":statusWord(s.status))
+                                     : (s.status==='NS' ? 'Kick-off '+localHM(s.date, s.time) : statusWord(s.status));
   $('resultSide').textContent = '';
   $('heroStrong').classList.add('hidden');
   for(const id of ['acc-result','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
@@ -3217,7 +3252,10 @@ async function loadCloudLeagues(force){
       supa.from('fixtures').select('*').eq('lid', id).order('date')
     ));
     const leagues = {}, order = [], cf = {};
-    const winStart = new Date(Date.now()-3*86400000).toISOString().slice(0,10);   // keep the last 3 days in the feed
+    /* Must cover the 7 days the feed now displays (build 59 widened the date pills but left this at
+       3, so days 4-7 had no data AND their picks were never recomputed — which is why a fixture from
+       25 July still carried a pre-build-44 '1' code while the detail page computed a fresh '1X'). */
+    const winStart = new Date(Date.now()-8*86400000).toISOString().slice(0,10);
     for(const {data, error} of results){
       if(error || !data || !data.length) continue;
       const f0 = data[0];
@@ -3498,6 +3536,7 @@ function renderScores(){
 
 /* ---------- open a fixture for full analysis (engine first, API fallback) ---------- */
 async function openFixture(leagueId, f, btn){
+  resetMatchPanels();
   const L = afState.leagues[leagueId]; if(!L) return;
   if((L.sport||'football')!=='football') return;
   if(btn) btn.disabled = true;
@@ -3524,7 +3563,7 @@ async function openFixture(leagueId, f, btn){
   }
   activateLeague(leagueId);
   if(btn) btn.disabled = false;
-  pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away};   // for detail header (#16)
+  pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away, pick:f.pick||null, prob:f.prob||null, status:(f.status||null)};   // for detail header (#16)
   const ts = footballEngine.teams();
   if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
     await afEnsureScorers(leagueId);
