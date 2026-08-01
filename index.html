@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 62;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 63;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2623,6 +2623,82 @@ function backtestableLeagues(){
     .filter(L => L && (L.sport||'football')==='football' && L.matches && L.matches.length>=60)
     .sort((a,b)=> b.matches.length - a.matches.length);
 }
+/* ================= IS THE ENGINE ADDING ANYTHING? (build 63) =================
+   Every other number in this report asks whether the engine is HONEST. None of them ask whether it
+   is USEFUL. Those are different questions, and the difference is the whole game.
+
+   A rule that says "home or draw" on every match in Brazil scores around 70% without knowing a
+   single thing about football — home advantage does the work. An engine that publishes 1X on six
+   fixtures out of seven will match that score and look excellent, while contributing nothing. The
+   only honest test is what happens on the matches where the engine DISAGREES with that rule. If its
+   deviations lose money, its agreements were never its own.
+
+   Reported with a 2× standard-error floor, because on a few hundred matches a three-point gap is
+   noise wearing a suit. */
+function skillReport(rows){
+  const n = rows.length;
+  if(n < 80) return `<div class="sec-label" style="margin-top:16px">Is the engine adding anything?</div>
+    <div class="subnote">Needs 80 tested matches to answer this; has ${n}.</div>`;
+  const codeOf = a => a==='W' ? '1' : a==='D' ? 'X' : '2';
+  const probOf = (code, b) => code.split('').reduce((t,c)=> t + (c==='1'?b.W : c==='X'?b.D : b.L), 0);
+
+  const picks = rows.map(r=>{
+    const hp  = headlinePick(r.p, 'H', 'A');
+    const act = codeOf(r.actual);
+    return { code:hp.code, hit:pickHit(hp.code, act), act,
+             edge: hp.prob - probOf(hp.code, r.base) };   // model's claim minus the league's own rate
+  });
+
+  const rate = a => a.length ? a.filter(x=>x.hit).length / a.length : 0;
+  const se   = (p,k) => k ? Math.sqrt(Math.max(1e-9, p*(1-p)/k)) : 1;
+
+  // the rules that know nothing
+  const dumb = code => picks.filter(x=>pickHit(code, x.act)).length / n;
+  const eng  = rate(picks);
+
+  // the only test that matters: where the engine departs from "home or draw"
+  const away = picks.filter(x=>x.code !== '1X');
+  const engAway  = rate(away);
+  const dumbAway = away.length ? away.filter(x=>pickHit('1X', x.act)).length / away.length : 0;
+  const gap  = engAway - dumbAway;
+  const floor = 2 * se(dumbAway, away.length);
+  const verdictCol = away.length < 25 ? 'var(--muted)' : gap > floor ? 'var(--green2)' : gap < -floor ? 'var(--red)' : 'var(--gold)';
+  const verdict = away.length < 25
+    ? `The engine left "home or draw" only ${away.length} times here — too few to judge. On this evidence it is close to being that rule with extra steps.`
+    : gap > floor
+      ? `Where the engine breaks from "home or draw" it is <b>${pct(gap)} better</b> than that rule would have been, beyond the ${pct(floor)} noise floor. Those departures are the app's real product.`
+      : gap < -floor
+        ? `Where the engine breaks from "home or draw" it is <b>${pct(-gap)} WORSE</b> than simply staying with that rule. Its overall score is carried entirely by the matches where it agrees — it is not predicting, it is following home advantage.`
+        : `Departures from "home or draw" land within noise (±${pct(floor)}). No measurable skill either way yet — the engine's score is the league's home advantage, not its own insight.`;
+
+  // would publishing fewer, stronger picks help?
+  let sweep = '';
+  for(const margin of [0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12]){
+    const sel = picks.filter(x=>x.edge >= margin);
+    if(sel.length < 20) continue;
+    const r = rate(sel), s = se(r, sel.length);
+    sweep += `<div class="frow"><b style="width:64px;color:var(--gold)">+${(100*margin).toFixed(0)} pts</b>
+      <span style="width:26%;text-align:right">${sel.length}</span>
+      <span style="width:24%;text-align:right">${(100*sel.length/n).toFixed(0)}%</span>
+      <span style="width:30%;text-align:right"><b>${pct(r)} ±${pct(2*s)}</b></span></div>`;
+  }
+
+  const cmp = (l,v,hl)=>`<div class="frow"><span class="muted">${l}</span><b${hl?' style="color:var(--green2)"':''}>${v}</b></div>`;
+  return `<div class="sec-label" style="margin-top:16px">Is the engine adding anything?</div>` +
+    cmp('What the app publishes', pct(eng), true) +
+    cmp('Rule: always "home or draw"', pct(dumb('1X'))) +
+    cmp('Rule: always home win', pct(dumb('1'))) +
+    cmp('Rule: always "draw or away"', pct(dumb('X2'))) +
+    cmp('Times it left "home or draw"', `${away.length} of ${n} (${(100*away.length/n).toFixed(0)}%)`) +
+    cmp('…and scored', `${pct(engAway)} vs ${pct(dumbAway)} for the dumb rule`) +
+    `<div class="verdict" style="border-color:${verdictCol}">${verdict}</div>` +
+    (sweep ? `<div class="sec-label" style="margin-top:16px">Publishing only the picks with an edge</div>` +
+      `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+         <b style="width:64px">Edge</b><span style="width:26%;text-align:right">Picks</span>
+         <span style="width:24%;text-align:right">Of all</span><span style="width:30%;text-align:right">Hit rate</span></div>` + sweep +
+      `<div class="subnote">"Edge" is how far the engine's number sits above what that same bet is worth in this league anyway. A row where the hit rate climbs as the edge rises is real selectivity — that is the setting worth shipping. A flat column means confidence is decoration and cutting picks only cuts volume.</div>` : '');
+}
+
 function renderBacktestLeagues(){
   const sel = $('btLeague'); if(!sel) return;
   const Ls = backtestableLeagues();
@@ -2648,6 +2724,11 @@ function runBacktest(){
   out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
 
   const start = Math.max(30, Math.floor(ms.length*0.3));
+  /* Running outcome counts. Every tested match is compared with what the league looked like BEFORE
+     it — using the whole season's rates would leak the answer into the benchmark (build 63). */
+  const pre = [{W:0,D:0,L:0}];
+  for(let i=0;i<ms.length;i++){ const m=ms[i], b=pre[i];
+    pre.push({ W:b.W+(m.hg>m.ag?1:0), D:b.D+(m.hg===m.ag?1:0), L:b.L+(m.hg<m.ag?1:0) }); }
   const rows = [], htRows = [], motRows = [];
   let homeHit=0, drawActual=0, drawStated=0;
   // does this competition carry enough half-time scores to test the HT/FT model too?
@@ -2658,7 +2739,9 @@ function runBacktest(){
     if(!p || !p.raw) continue;
     const actual = m.hg>m.ag ? 'W' : m.hg===m.ag ? 'D' : 'L';
     const goals = m.hg + m.ag;
-    rows.push({ p, raw:p.raw, actual, over25: goals>2.5, btts: m.hg>0 && m.ag>0 });
+    const c = pre[i], tot = i || 1;
+    rows.push({ p, raw:p.raw, actual, over25: goals>2.5, btts: m.hg>0 && m.ag>0,
+                base:{ W:c.W/tot, D:c.D/tot, L:c.L/tot } });
     if(actual==='W') homeHit++;
     if(actual==='D') drawActual++;
     drawStated += p.pD;
@@ -2804,7 +2887,7 @@ function runBacktest(){
       'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
     calTable('Reliability — over/under 2.5', tOver) +
     calTable('Reliability — both teams to score', tBtts) +
-    htHTML + motHTML +
+    skillReport(rows) + htHTML + motHTML +
 
     `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
