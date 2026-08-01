@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 61;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 62;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1155,6 +1155,23 @@ function aiProviderById(id){ return AI_PROVIDERS.find(p=>p.id===id) || AI_PROVID
 let aiQuota = null;                 // {used, limit} from the last successful proxy call
 let aiServerProviders = null;       // ids the server has keys for, or null until we've asked
 
+/* One AI call at a time, spaced (build 62).
+   Opening a match fired the write-up and the team-news lookup at the same instant, and browsing a
+   few fixtures fired several more on top. Gemini's free tier allows ten requests a minute, so the
+   app was tripping its own ceiling and then telling Ken the service was rate-limited — which was
+   true, but the cause was us. Queuing costs a second or two and removes almost all of it. */
+const AI_MIN_GAP = 4000;
+let _aiChain = Promise.resolve(), _aiLast = 0;
+function aiQueued(fn){
+  const run = _aiChain.then(async ()=>{
+    const wait = AI_MIN_GAP - (Date.now() - _aiLast);
+    if(wait > 0) await new Promise(r=>setTimeout(r, wait));
+    try { return await fn(); } finally { _aiLast = Date.now(); }
+  });
+  _aiChain = run.catch(()=>{});   // one failed call must not block the queue behind it
+  return run;
+}
+
 async function proxySession(){
   if(!supa) return null;
   try{ const { data } = await supa.auth.getSession(); return data && data.session; }catch(e){ return null; }
@@ -1163,11 +1180,11 @@ async function proxySession(){
 async function callProxy(payload, providerId){
   const session = await proxySession();
   if(!session){ const e = new Error('Sign in to use AI analysis.'); e.needsLogin = true; throw e; }
-  const res = await fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+  const res = await aiQueued(()=> fetch(SUPA_URL + '/functions/v1/ai-analyze', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
     body: JSON.stringify(payload===null ? {} : { prompt: AI_PROMPT + payload, provider: providerId })
-  });
+  }));
   let j = {}; try{ j = await res.json(); }catch(_){}
   if(!res.ok || !j.ok){
     const e = new Error(j.error || ('HTTP '+res.status));
@@ -1811,7 +1828,15 @@ function allSelections(P,f,L){
   if(L){ const H = htftFor(L, f);
     if(H) for(const d of H.doubles) add('HT/FT', d.code+'  '+d.text, d.prob, d.code); }
   add('Winner', f.home+' to win', P.pW,'1'); add('Winner','Draw',P.pD,'X'); add('Winner', f.away+' to win', P.pL,'2');
-  add('Double Chance', f.home+' or Draw', P.pW+P.pD); add('Double Chance','Home or Away', P.pW+P.pL); add('Double Chance','Draw or '+f.away, P.pD+P.pL);
+  add('Double Chance', f.home+' or Draw', P.pW+P.pD); add('Double Chance','Draw or '+f.away, P.pD+P.pL);
+  /* '12' (Home or Away) was removed in build 62. Its probability is exactly 1 − pD, so backing it is
+     nothing more than betting against a draw — it inherits none of the engine's skill, only the
+     league's draw rate. And the draw is the one outcome this engine prices well. In Brasileirão,
+     where roughly a quarter of matches finish level, a 72% leg that looks safe is the leg most
+     likely to break a slip, and it breaks on exactly the fixtures the model flagged best.
+     It is also the wrong rung: the ladder straight win → DNB → 1X/X2 trades odds for a draw that
+     either wins or voids. '12' does the opposite — it removes that protection while still charging
+     short odds for it. */
   const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb); }
   add('Goals','Over 2.5',P.over[2.5]); add('Goals','Under 2.5',1-P.over[2.5]);
   add('Goals','Over 1.5',P.over[1.5]); add('Goals','Under 1.5',1-P.over[1.5]);
@@ -2068,6 +2093,7 @@ async function analyze(){
     pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
     pendingMetaFxid = meta ? (meta.fxid||null) : null;
     pendingMetaPick = meta ? (meta.pick||null) : null; pendingMetaProb = meta ? (meta.prob||null) : null;
+    pendingMetaPW = meta ? (meta.pW??null) : null; pendingMetaPD = meta ? (meta.pD??null) : null; pendingMetaPL = meta ? (meta.pL??null) : null;
     pendingMetaPlayed = false;
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
       const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
@@ -2104,8 +2130,17 @@ async function analyze(){
       : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
     $('resultSide').textContent = hp.label.replace(' WIN','');
 
+    /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
+       hindsight, and it is what made the bars contradict the headline above them (build 62). */
+    const shown = (pendingMetaPlayed && pendingMetaPW!=null)
+      ? { pW:pendingMetaPW, pD:pendingMetaPD, pL:pendingMetaPL } : pred;
     $('outcomeRows').innerHTML =
-      probRow(home, pred.pW) + probRow('Draw', pred.pD) + probRow(away, pred.pL);
+      probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) +
+      (pendingMetaPlayed
+        ? `<div class="subnote">${pendingMetaPW!=null
+             ? 'These are the probabilities the app published before kick-off, not a re-estimate.'
+             : 'No pre-match snapshot exists for this fixture, so these were recalculated today — with the result already in the data. Treat them as illustrative, not as what was predicted.'}</div>`
+        : '');
     $('xgInfo').textContent = `Expected goals — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
 
     $('acc-goals').classList.remove('hidden');
@@ -2425,6 +2460,7 @@ function statusWord(code){
    Adjustments are clamped server-side to ±20% and refused entirely without a citation. */
 let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null, pendingMetaPlayed = false;
 let pendingMetaPick = null, pendingMetaProb = null, pendingMetaDead = null;
+let pendingMetaPW = null, pendingMetaPD = null, pendingMetaPL = null;
 let lastAdjusted = null;
 
 function applyContextToPrediction(L, pred, homeMult, awayMult){
@@ -2448,11 +2484,11 @@ async function fetchMatchContext(){
   try{
     const session = await proxySession();
     if(!session){ box.innerHTML = '<div class="subnote">Sign in to include live team news in the odds.</div>'; return; }
-    const res = await fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+    const res = await aiQueued(()=> fetch(SUPA_URL + '/functions/v1/ai-analyze', {
       method:'POST',
       headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
       body: JSON.stringify({ prompt: ask, mode:'context', fxid: f.fxid || null })
-    });
+    }));
     let j = {}; try{ j = await res.json(); }catch(_){}
     if(!res.ok || !j.ok){ box.innerHTML = `<div class="subnote">${escapeHtml(j.error||'Team news unavailable — the odds above are the engine\'s own.')}</div>`; return; }
     if(j.limit!=null) aiQuota = { used:j.used, limit:j.limit };
@@ -2504,9 +2540,19 @@ async function fetchMatchContext(){
    versions of the engine, cannot rewrite history. */
 const archiveQueue = new Map();
 let archiveTimer = null;
+/* True once the whistle has gone. Kick-off times are stored UTC; a fixture with no time is treated
+   as started only when its date is behind us. */
+function kickoffPassed(f){
+  if(!f || !f.date) return false;
+  if(!f.time) return daysPast(f.date) > 0;
+  return Date.now() >= Date.parse(f.date + 'T' + f.time + ':00Z');
+}
 function archivePrediction(L, f, p, hp){
   if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
-  if(daysPast(f.date) > 0) return;                    // only price fixtures that are still ahead
+  /* Only ever written BEFORE kick-off, so overwriting is safe and is what we want: the snapshot
+     should be the last price the app showed, not the one it happened to compute a week out. After
+     kick-off this returns immediately, which is what makes the record un-rewritable (build 62). */
+  if(kickoffPassed(f)) return;
   archiveQueue.set(f.fxid, {
     fxid: f.fxid, lid: L.id, lname: L.name, kickoff: f.date, ktime: f.time || null,
     home: f.home, away: f.away,
@@ -2524,8 +2570,8 @@ async function flushPredictionArchive(){
   const rows = [...archiveQueue.values()];
   archiveQueue.clear();
   try{
-    // ignoreDuplicates: the ORIGINAL prediction is the one that counts
-    await supa.from('predictions').upsert(rows, { onConflict:'fxid', ignoreDuplicates:true });
+    // overwrite is allowed here only because nothing reaches this line after kick-off (build 62)
+    await supa.from('predictions').upsert(rows, { onConflict:'fxid' });
   }catch(e){ /* archiving must never interrupt the app */ }
 }
 
@@ -3195,7 +3241,7 @@ function genSlip(){
 function recordPick(leagueName, f){
   if(!f || !f.fxid || !f.pick) return;
   if(afState.record.some(r=>r.fxid===f.fxid)) return;
-  afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob, league:leagueName, result:null});
+  afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob, league:leagueName, result:null, build:APP_BUILD});
   if(afState.record.length > 500) afState.record = afState.record.slice(-500);
 }
 function gradeRecord(scoreList){
@@ -3243,8 +3289,24 @@ async function loadCloudResults(){
 /* ---- build the whole league model (fixtures, history, predictions) from the cloud ---- */
 const FD_COMP_IDS = [2021,2014,2002,2019,2015,2001,2003,2017,2016,2013,2000,2018];
 let _leaguesLoadedAt = 0;
+/* The archive is what makes a prediction permanent rather than a thing the app recalculates.
+   Pulled once per session, keyed by fixture, covering the window the feed can show (build 62). */
+async function loadArchive(){
+  if(!supa) return;
+  try{
+    const from = new Date(Date.now()-10*86400000).toISOString().slice(0,10);
+    const { data, error } = await supa.from('predictions')
+      .select('fxid,pick,pick_prob,p_home,p_draw,p_away').gte('kickoff', from);
+    if(error || !data) return;
+    const m = {};
+    for(const r of data) m[r.fxid] = { pick:r.pick, prob:r.pick_prob, pW:r.p_home, pD:r.p_draw, pL:r.p_away };
+    afState.archive = m;
+  }catch(e){}
+}
+
 async function loadCloudLeagues(force){
   if(!supa) return;
+  if(!afState.archive) await loadArchive();
   if(!force && Date.now()-_leaguesLoadedAt < 5*60*1000) return;   // throttle
   try{
     const today = todayStrLocal();
@@ -3280,8 +3342,22 @@ async function loadCloudLeagues(force){
           const p = f._fin
             ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
             : tmp.predict(f.home, f.away);
-          if(p){ const hp=headlinePick(p, f.home, f.away); f.pick=hp.code; f.prob=+hp.prob.toFixed(3);
-            if(!f._fin){ recordPick(L.name,f); archivePrediction(L, f, p, hp); } }
+          if(p){
+            const hp = headlinePick(p, f.home, f.away);
+            /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
+               after the match uses data that now contains the result, so the pick drifts — Flamengo
+               v São Paulo silently flipped from 1X (a hit) to 1 (a miss) with nothing about the match
+               having changed. That made the record move under Ken's feet and made the headline
+               disagree with its own probability bars.
+               Order of trust: the archived pre-match prediction, then whatever is already stored,
+               then a fresh calculation — and only ever a fresh one before kick-off. */
+            const started = f._fin || kickoffPassed(f);
+            const arch = started && afState.archive ? afState.archive[f.fxid] : null;
+            if(arch){ f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL; f.frozen = true; }
+            else if(started && f.pick){ f.frozen = true; }
+            else if(!started){ f.pick = hp.code; f.prob = +hp.prob.toFixed(3); f.frozen = false; }
+            if(!f._fin){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
+          }
         }
       }
       for(const f of display) delete f._fin;
@@ -3305,12 +3381,26 @@ async function loadCloudLeagues(force){
     }
   }catch(e){}
 }
+/* Two records, not one (build 62).
+   Every pick made before this build was re-priced each time the app loaded, using data that by then
+   contained the result. Picks silently changed after the fact — Flamengo v São Paulo went from 1X,
+   which won, to 1, which lost — so the old tally counts predictions the app never actually made.
+   That number cannot be repaired; it can only be labelled. Picks from build 62 onward are frozen at
+   kick-off and are the only ones the app is entitled to claim. */
+const FROZEN_FROM_BUILD = 62;
 function recordStats(){
   gradeFromHistory();
   const graded = afState.record.filter(r=>r.result);
   if(!graded.length) return null;
-  const hits = graded.filter(r=>pickHit(r.pick, r.result)).length;
-  return {n:graded.length, hits, pct:(100*hits/graded.length).toFixed(1)};
+  const trust = graded.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
+  const legacy = graded.length - trust.length;
+  const hits = trust.filter(r=>pickHit(r.pick, r.result)).length;
+  return { n:trust.length, hits, pct: trust.length ? (100*hits/trust.length).toFixed(1) : '—',
+           legacy, legacyHits: graded.filter(r=>(r.build||0) < FROZEN_FROM_BUILD && pickHit(r.pick, r.result)).length };
+}
+function clearLegacyRecord(){
+  afState.record = afState.record.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
+  saveState(); renderStrongPicks(); toast('Old record cleared — counting from build 62');
 }
 
 /* ---------- reconcile past-dated scores on open/refresh (#17) ----------
@@ -3563,7 +3653,7 @@ async function openFixture(leagueId, f, btn){
   }
   activateLeague(leagueId);
   if(btn) btn.disabled = false;
-  pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away, pick:f.pick||null, prob:f.prob||null, status:(f.status||null)};   // for detail header (#16)
+  pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away, pick:f.pick||null, prob:f.prob||null, status:(f.status||null), pW:f.pW??null, pD:f.pD??null, pL:f.pL??null};   // for detail header (#16)
   const ts = footballEngine.teams();
   if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
     await afEnsureScorers(leagueId);
@@ -3579,9 +3669,13 @@ async function openFixture(leagueId, f, btn){
 function renderStrongPicks(){
   const box = $('strongPicks'); if(!box) return;
   const stats = recordStats();
-  $('recordLine').innerHTML = stats
-    ? `Engine record: <b style="color:var(--green2)">${stats.hits}/${stats.n} correct (${stats.pct}%)</b> — picks are recorded and graded automatically as results arrive.`
-    : 'Every prediction is recorded and graded automatically once its match finishes — your accuracy record builds here.';
+  const legacyNote = stats && stats.legacy
+    ? `<div class="subnote" style="margin-top:4px">${stats.legacy} older result${stats.legacy===1?'':'s'} ${stats.legacy===1?'is':'are'} not counted. Until build 62 the app re-priced past matches every time it loaded, so those picks changed after the final whistle and the tally stopped describing anything real. <a href="#" id="recordReset" style="color:var(--gold)">Clear them</a>.</div>`
+    : '';
+  $('recordLine').innerHTML = (stats && stats.n
+    ? `Engine record: <b style="color:var(--green2)">${stats.hits}/${stats.n} correct (${stats.pct}%)</b> — each pick is frozen at kick-off and graded when the result arrives.`
+    : 'Every prediction is frozen at kick-off and graded once its match finishes — your accuracy record builds here.') + legacyNote;
+  { const rr=$('recordReset'); if(rr) rr.onclick = e=>{ e.preventDefault(); clearLegacyRecord(); }; }
   const picks = [];
   for(const id of afState.leagueOrder){
     const L = afState.leagues[id];
