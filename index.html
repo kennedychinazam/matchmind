@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 63;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 64;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2969,9 +2969,22 @@ Model note: ${comment}.` : '');
     recordPick(L.name, f);
     saveState(); renderFixtures();
   }catch(e){
+    /* Say the true reason (build 63). This message used to blame API-Football extras being off,
+       which is nonsense to anyone on the Football-Data backend — the real cause is almost always a
+       competition whose past results have never been collected, so the engine has nothing to learn
+       from. Eredivisie fixtures appeared with a blank prediction panel and that misleading line. */
+    const n = (L && L.matches) ? L.matches.length : 0;
+    const noHistory = n < 15;
     $('heroPick').textContent = f.home+' vs '+f.away;
-    $('heroConf').textContent = '';
-    $('analysisText').textContent = 'No prediction available for this fixture: '+e.message;
+    $('heroConf').textContent = noHistory ? 'not enough history to predict' : '';
+    if(noHistory){
+      $('outcomeRows').innerHTML =
+        `<div class="subnote">The engine has ${n===0?'no past results':'only '+n+' past matches'} for ${escapeHtml(L?L.name:'this competition')}, and needs at least 15 before it will price a match. Rather than guess, it says nothing.</div>` +
+        `<div class="subnote">This competition's history hasn't been collected yet. Once it has, predictions appear here automatically — nothing to switch on.</div>`;
+      $('analysisText').textContent = '';
+    } else {
+      $('analysisText').textContent = 'No prediction available for this fixture: '+e.message;
+    }
   }
 }
 
