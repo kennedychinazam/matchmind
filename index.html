@@ -584,6 +584,20 @@
       <div id="btResults" style="margin-top:12px;"></div>
     </div>
 
+    <div class="card">
+      <h2>📅 Past predictions</h2>
+      <div class="notice">
+        Every prediction is saved before kick-off and never rewritten afterwards. Pick any date to see exactly what the app called that day, and how it did — no re-running, no hindsight.
+      </div>
+      <div class="field"><label>Date</label><input type="date" id="archDate"></div>
+      <button class="btn gold" id="archBtn">Show that day's predictions</button>
+      <button class="btn" id="archFillBtn" style="margin-top:8px">↺ Reconstruct the last 30 days</button>
+      <div class="notice" style="margin-top:8px">
+        Reconstruction fills days before the archive existed. Each match is priced using <b>only results from before it was played</b> — the same walk-forward method as the backtest — so the score is never allowed to influence its own prediction. These are marked <b>rebuilt</b>, kept separate from live predictions, and never counted in the engine's record.
+      </div>
+      <div id="archOut" style="margin-top:12px;"></div>
+    </div>
+
     <div class="sec-label">AI writer</div>
     <div class="card">
       <h2>🤖 AI analysis writer</h2>
@@ -627,7 +641,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 68;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 71;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2072,12 +2086,18 @@ function slipMarketMatch(mKey,sel){
   return false;
 }
 
+/* Set by openFixture when a match has already kicked off and has a stored prediction. The engine is
+   then never asked to think about that fixture again — the saved expected goals are simply expanded
+   back into the same markets they produced at the time. Same arithmetic, frozen inputs, so goals,
+   BTTS and correct score stop drifting the way the headline used to (build 70). */
+let pendingFrozenPred = null;
+
 async function analyze(){
   const sport = currentSport;
   const home = $('homeTeam').value, away = $('awayTeam').value;
   if(home===away){ alert('Pick two different teams.'); return; }
   const eng = sport==='football' ? footballEngine : basketballEngine;
-  const pred = eng.predict(home, away);
+  const pred = (sport==='football' && pendingFrozenPred) ? pendingFrozenPred : eng.predict(home, away);
   if(!pred){ alert('Not enough data for these teams.'); return; }
   const formH = eng.form(home), formA = eng.form(away);
   const h2h = eng.h2h(home, away);
@@ -3099,6 +3119,144 @@ function runBacktest(){
     `<div class="subnote">Trustworthy bands on this data: ${solid.length ? solid.map(b=>b.band).join(', ') : 'none yet — needs more matches'}. Those are the picks worth surfacing; the rest are guesses wearing a number. Bookmakers hit roughly 53–55% on favourites in top leagues, for reference.</div>`;
 }
 
+/* ================= PAST PREDICTIONS (build 69) =================
+   Ken asked to browse back through what the app predicted and check it — the only honest way to
+   judge a prediction engine. It works because of the freeze rule: `predictions` holds the last price
+   before kick-off and nothing can overwrite it afterwards, so this reads history rather than
+   recomputing it. A day the app was never opened has no row, and that gap is left visible instead of
+   being filled in later, because a prediction reconstructed after the result is not a prediction. */
+/* ================= RECONSTRUCTION (build 71) =================
+   Ken needs a visible history and the archive only began at build 59, so earlier days are blank.
+   They can be filled — but only one way honestly.
+
+   A prediction reconstructed from today's data is worthless: the data now contains the result, which
+   is the exact failure builds 62–68 existed to remove. What IS legitimate is a walk-forward
+   reconstruction — price each match using only fixtures played BEFORE it, cutting the history at the
+   first match dated on or after it so nothing from the same matchday can leak either. That is what
+   the backtest has always done, and it's how every honest track record is built.
+
+   What it is NOT: a record of what this app told anyone. Nobody saw these. They also come from build
+   70's engine, not whatever was running at the time. So they are stamped `build = -1`, shown as
+   "rebuilt", and excluded from the engine's record automatically — `recordStats` only counts
+   `build >= 62`, and `recordPick` never fires for a finished match. */
+const RECONSTRUCTED = -1;
+async function backfillPredictions(){
+  const out = $('archOut'); if(!out) return;
+  if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend.</div>'; return; }
+  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Rebuilding the last 30 days, one match at a time…</div>';
+  try{
+    const from  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+    const today = todayStrLocal();
+    const { data: have } = await supa.from('predictions').select('fxid').gte('kickoff', from);
+    const known = new Set((have||[]).map(r=>r.fxid));
+    const { data: fx, error } = await supa.from('fixtures')
+      .select('fxid,lid,lname,date,time,home,away,gh,ga,status')
+      .gte('date', from).lt('date', today);
+    /* No competition-number fence here — CLOUD_LID_MIN was retired in build 39. Retired-provider
+       rows are excluded naturally, because they have no entry in afState.leagues and so no history
+       to price from. */
+    if(error) throw error;
+
+    const rows = []; let skippedThin = 0, already = 0;
+    for(const r of (fx||[])){
+      if(known.has(r.fxid)){ already++; continue; }
+      if(!FINISHED.includes(r.status) || r.gh==null || r.ga==null) continue;
+      const L = afState.leagues[r.lid];
+      if(!L || !L.matches || L.matches.length < 60){ skippedThin++; continue; }
+      // cut BEFORE this fixture's own date — same-day results must not inform it either
+      let upTo = L.matches.findIndex(m => m.date >= r.date);
+      if(upTo < 0) upTo = L.matches.length;
+      if(upTo < 60){ skippedThin++; continue; }
+      const tmp = Object.create(footballEngine); tmp.matches = L.matches;
+      const p = tmp.predict(r.home, r.away, upTo);
+      if(!p) continue;
+      const hp = headlinePick(p, r.home, r.away);
+      rows.push({ fxid:r.fxid, lid:r.lid, lname:r.lname||L.name, kickoff:r.date, ktime:r.time||null,
+        home:r.home, away:r.away,
+        p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
+        xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
+        pick:hp.code, pick_prob:+hp.prob.toFixed(4),
+        build: RECONSTRUCTED, made_at: new Date().toISOString() });
+    }
+    if(!rows.length){
+      out.innerHTML = `<div class="subnote">Nothing to rebuild — ${already} day-fixtures already have a stored prediction${skippedThin?`, and ${skippedThin} are in competitions without enough history to price honestly`:''}.</div>`;
+      return;
+    }
+    // ignoreDuplicates: a real pre-match prediction always outranks a rebuilt one
+    for(let i=0;i<rows.length;i+=200){
+      const { error: upErr } = await supa.from('predictions')
+        .upsert(rows.slice(i,i+200), { onConflict:'fxid', ignoreDuplicates:true });
+      if(upErr) throw upErr;
+    }
+    afState.archive = null; await loadArchive();
+    out.innerHTML = `<div class="frow"><span class="muted">Rebuilt</span><b style="color:var(--green2)">${rows.length} matches</b></div>` +
+      `<div class="frow"><span class="muted">Already recorded live</span><b>${already}</b></div>` +
+      (skippedThin ? `<div class="frow"><span class="muted">Skipped — too little history</span><b>${skippedThin}</b></div>` : '') +
+      `<div class="subnote">Each was priced using only matches played before it. They show as <b>rebuilt</b> and stay out of the engine's record — nobody saw these before kick-off, so they are evidence of how the model behaves, not of what the app called.</div>`;
+  }catch(e){
+    out.innerHTML = `<div class="subnote">Couldn't rebuild: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+
+async function renderArchiveDay(){
+  const out = $('archOut'), d = $('archDate') ? $('archDate').value : '';
+  if(!out) return;
+  if(!d){ out.innerHTML = '<div class="subnote">Pick a date first.</div>'; return; }
+  if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend, which isn\'t configured on this device.</div>'; return; }
+  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading what the app predicted that day…</div>';
+  try{
+    const { data: preds, error } = await supa.from('predictions')
+      .select('fxid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build')
+      .eq('kickoff', d).order('ktime');
+    if(error) throw error;
+    if(!preds || !preds.length){
+      out.innerHTML = `<div class="subnote">Nothing stored for ${d}. The archive started at build 59, and a fixture is only recorded if someone had the app open before it kicked off. Missing days stay missing on purpose — filling them in now would mean predicting a result we already know.</div>`;
+      return;
+    }
+    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
+    const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
+
+    let graded=0, hits=0, stale=0, rebuilt=0;
+    const byLeague = {};
+    for(const p of preds){
+      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && ['FT','AET','PEN'].includes(f.status);
+      const act = done ? actualCode(f.gh, f.ga) : null;
+      const hit = act ? pickHit(p.pick, act) : null;
+      if(act){ graded++; if(hit) hits++; }
+      if(p.build === RECONSTRUCTED) rebuilt++; else if((p.build||0) < FROZEN_FROM_BUILD) stale++;
+      (byLeague[p.lname||'—'] = byLeague[p.lname||'—'] || []).push({p, f, done, hit});
+    }
+    let html = graded
+      ? `<div class="frow"><span class="muted">Graded that day</span><b style="color:var(--green2)">${hits}/${graded} correct (${(100*hits/graded).toFixed(0)}%)</b></div>`
+      : `<div class="frow"><span class="muted">Predictions stored</span><b>${preds.length}</b></div>`;
+    if(graded && graded < preds.length)
+      html += `<div class="frow"><span class="muted">Still to finish</span><b>${preds.length-graded}</b></div>`;
+    if(rebuilt)
+      html += `<div class="subnote"><b>${rebuilt} of these were rebuilt afterwards</b>, not published at the time. Each was priced using only matches played before it, so the result never influenced its own prediction — but nobody saw them before kick-off, and they don't count toward the engine's record.</div>`;
+    if(stale)
+      html += `<div class="subnote">${stale} of these were made before build 62, when the app still re-priced past matches. Those picks may have drifted after the whistle — treat them as indicative only.</div>`;
+
+    for(const [lname, rows] of Object.entries(byLeague)){
+      html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(lname)}</div>`;
+      for(const {p, f, done, hit} of rows){
+        const score = done ? `${f.gh}–${f.ga}` : (f && f.status ? statusWord(f.status) : '—');
+        const mark = hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
+        const tag = p.build === RECONSTRUCTED ? ' <span style="font-size:.6rem;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 4px">rebuilt</span>' : '';
+        html += `<div class="frow" style="align-items:flex-start">
+          <span style="flex:1">
+            <b>${escapeHtml(p.home)} v ${escapeHtml(p.away)}</b>
+            <span class="muted" style="font-size:.72rem"> · ${p.ktime||''}</span>${tag}<br>
+            <span style="font-size:.76rem;color:var(--muted)">said ${escapeHtml(pickLabel(p.pick, p.home, p.away))} at ${pct(p.pick_prob)} · ${pct(p.p_home)}/${pct(p.p_draw)}/${pct(p.p_away)}</span>
+          </span>
+          <span style="text-align:right;white-space:nowrap"><b>${score}</b> ${mark}</span></div>`;
+      }
+    }
+    out.innerHTML = html;
+  }catch(e){
+    out.innerHTML = `<div class="subnote">Couldn't read the archive: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+
 /* ---------- crests & hero helpers ---------- */
 function regLogo(t){ if(t && t.name && t.logo) afState.logos[t.name] = t.logo; }
 function crest(name){
@@ -3588,12 +3746,13 @@ let _leaguesLoadedAt = 0;
 async function loadArchive(){
   if(!supa) return;
   try{
-    const from = new Date(Date.now()-10*86400000).toISOString().slice(0,10);
+    const from = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // a month back (build 70)
     const { data, error } = await supa.from('predictions')
-      .select('fxid,pick,pick_prob,p_home,p_draw,p_away').gte('kickoff', from);
+      .select('fxid,pick,pick_prob,p_home,p_draw,p_away,xg_home,xg_away,build').gte('kickoff', from);
     if(error || !data) return;
     const m = {};
-    for(const r of data) m[r.fxid] = { pick:r.pick, prob:r.pick_prob, pW:r.p_home, pD:r.p_draw, pL:r.p_away };
+    for(const r of data) m[r.fxid] = { pick:r.pick, prob:r.pick_prob, pW:r.p_home, pD:r.p_draw, pL:r.p_away,
+                                       xgH:r.xg_home, xgA:r.xg_away, recon: r.build === RECONSTRUCTED };
     afState.archive = m;
   }catch(e){}
 }
@@ -3949,6 +4108,13 @@ async function openFixture(leagueId, f, btn){
   activateLeague(leagueId);
   if(btn) btn.disabled = false;
   pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away, pick:f.pick||null, prob:f.prob||null, status:(f.status||null), pW:f.pW??null, pD:f.pD??null, pL:f.pL??null};   // for detail header (#16)
+  /* Re-expand the frozen prediction rather than making a new one (build 70). */
+  { const arch = afState.archive && afState.archive[f.fxid];
+    pendingFrozenPred = null;
+    if(arch && arch.xgH!=null && arch.xgA!=null && (f._fin || kickoffPassed(f))){
+      try{ const tmp = Object.create(footballEngine); tmp.matches = L.matches || [];
+           pendingFrozenPred = tmp.marketsFor(arch.xgH, arch.xgA, tmp.rates()); }catch(e){}
+    } }
   const ts = footballEngine.teams();
   if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
     await afEnsureScorers(leagueId);
@@ -4043,7 +4209,10 @@ function renderFixtures(){
   wrap.classList.remove('hidden');
   // a week of played fixtures stays in the feed with its ✓/✗, so the record is visible rather than
   // vanishing overnight (build 59; was 2 days)
-  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))].filter(d=>daysPast(d)<=7).sort().slice(0,20);
+  /* 14 days exactly — 7 played, today, 7 to come (build 70). Anything older lives in
+     More → Past predictions, which reads the archive rather than re-pricing anything. */
+  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))]
+    .filter(d=>{ const dp = daysPast(d); return dp <= 7 && dp >= -7; }).sort().slice(0,20);
   if(!dates.length){ wrap.classList.add('hidden'); return; }
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
@@ -4323,6 +4492,9 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
+if($('archBtn')) $('archBtn').addEventListener('click', renderArchiveDay);
+if($('archFillBtn')) $('archFillBtn').addEventListener('click', backfillPredictions);
+if($('archDate')) $('archDate').value = new Date(Date.now()-86400000).toISOString().slice(0,10);   // yesterday
 $('motStudyBtn').addEventListener('click', runMotivationStudy);   // pooled across leagues (build 53)
 renderBacktestLeagues();   // populate the backtest competition picker (build 42)
 $('aiSaveBtn').addEventListener('click', aiSave);
