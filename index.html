@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 65;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 66;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2803,7 +2803,7 @@ function runBacktest(){
     return;
   }
   footballEngine.matches = ms;
-  out.innerHTML = '<div class="subnote">Testing every match against only what was known before it…</div>';
+  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Testing every match against only what was known before it, then re-running the whole thing at six different recency settings. Takes a few seconds.</div>';
 
   const start = Math.max(30, Math.floor(ms.length*0.3));
   /* Running outcome counts. Every tested match is compared with what the league looked like BEFORE
@@ -2893,6 +2893,55 @@ function runBacktest(){
     curAL = dampLoss(TUNE.DAMPEN);
   }
 
+  /* ---------- RECENCY (build 66) ----------
+     HALF_LIFE is how fast old matches stop counting, measured in matches rather than days. It has
+     been 10000 — so large that a match from 2023 weighs exactly as much as last weekend's — and the
+     note beside it says full-season data beat recent-form weighting. That was decided on ONE season
+     of sample data, when there was no older football to down-weight and the setting could not have
+     mattered. There are three seasons now, so the question is live for the first time.
+
+     Unlike TEMP and DAMPEN, this cannot be swept over stored probabilities: changing it changes the
+     team strengths themselves, so every candidate needs its own walk-forward pass. Judged on log
+     loss, which is a proper scoring rule and uses every match — the skill gap is what we care about
+     but it only sees the fixtures where the engine departs, so it is far noisier. */
+  const HL_CANDIDATES = [40, 80, 150, 300, 600, 10000];
+  const hlRows = [];
+  const savedHL = TUNE.HALF_LIFE;
+  try{
+    for(const H of HL_CANDIDATES){
+      TUNE.HALF_LIFE = H;
+      let ll=0, k=0, dep=0, engHit=0, dumbHit=0;
+      for(let i=start;i<ms.length;i++){
+        const m = ms[i], p = footballEngine.predict(m.home, m.away, i); if(!p) continue;
+        const a = m.hg>m.ag ? 'W' : m.hg===m.ag ? 'D' : 'L';
+        ll += -Math.log(Math.max(1e-9, {W:p.pW,D:p.pD,L:p.pL}[a])); k++;
+        const act = a==='W' ? '1' : a==='D' ? 'X' : '2';
+        const hp = headlinePick(p, 'H', 'A');
+        if(hp.code !== '1X'){ dep++;
+          if(pickHit(hp.code, act)) engHit++;
+          if(pickHit('1X', act))    dumbHit++; }
+      }
+      hlRows.push({ H, ll: k ? ll/k : null, dep, gap: dep ? engHit/dep - dumbHit/dep : null });
+    }
+  } finally { TUNE.HALF_LIFE = savedHL; }   // must restore even if a pass throws
+  const hlBest = hlRows.filter(r=>r.ll!=null).sort((a,b)=>a.ll-b.ll)[0];
+  const hlNow  = hlRows.find(r=>r.H===savedHL);
+  const hlHTML =
+    `<div class="sec-label" style="margin-top:16px">How fast should old matches stop counting?</div>` +
+    `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+       <b style="width:78px">Half-life</b><span style="width:30%;text-align:right">Log loss</span>
+       <span style="width:26%;text-align:right">Skill gap</span><span style="width:22%;text-align:right"></span></div>` +
+    hlRows.map(r=>{
+      const best = hlBest && r.H===hlBest.H, cur = r.H===savedHL;
+      return `<div class="frow"><b style="width:78px;color:${best?'var(--green2)':'var(--gold)'}">${r.H>=10000?'no decay':r.H+' games'}</b>
+        <span style="width:30%;text-align:right${best?';color:var(--green2)':''}"><b>${r.ll==null?'—':r.ll.toFixed(4)}</b></span>
+        <span style="width:26%;text-align:right">${r.gap==null?'—':(r.gap>=0?'+':'')+pct(r.gap)}</span>
+        <span style="width:22%;text-align:right;font-size:.66rem;color:var(--muted)">${cur?'current':''}${best&&!cur?' best':''}</span></div>`;
+    }).join('') +
+    (hlBest && hlNow && hlBest.H!==savedHL && (hlNow.ll-hlBest.ll) > 0.002
+      ? `<div class="verdict" style="border-color:var(--gold)">Weighting the last <b>${hlBest.H>=10000?'∞':hlBest.H}</b> matches most improves log loss from ${hlNow.ll.toFixed(4)} to ${hlBest.ll.toFixed(4)} here. Worth changing only if other competitions agree — one league's optimum is not a setting.</div>`
+      : `<div class="subnote">No meaningful gain from changing recency in this competition — the current setting is within 0.002 of the best, which is noise. Full history is doing no harm here.</div>`);
+
   const statRow = (l,v,hl)=>`<div class="frow"><span class="muted">${l}</span><b${hl?' style="color:var(--green2)"':''}>${v}</b></div>`;
 
   /* HALF-TIME / FULL-TIME reliability (build 50). Two questions, because they fail differently:
@@ -2969,7 +3018,7 @@ function runBacktest(){
       'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
     calTable('Reliability — over/under 2.5', tOver) +
     calTable('Reliability — both teams to score', tBtts) +
-    skillReport(rows) + htHTML + motHTML +
+    skillReport(rows) + hlHTML + htHTML + motHTML +
 
     `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
