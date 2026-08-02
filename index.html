@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 67;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 68;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2906,27 +2906,77 @@ function runBacktest(){
      but it only sees the fixtures where the engine departs, so it is far noisier. */
   const HL_CANDIDATES = [40, 80, 150, 300, 600, 10000];
   const hlRows = [];
+  const hlPicks = {}, hlActual = [];   // every setting's pick on every tested match, in order
   const savedHL = TUNE.HALF_LIFE;
   try{
+    let firstPass = true;
     for(const H of HL_CANDIDATES){
       TUNE.HALF_LIFE = H;
       let ll=0, k=0, dep=0, engHit=0, dumbHit=0;
+      const picks = [];
       for(let i=start;i<ms.length;i++){
-        const m = ms[i], p = footballEngine.predict(m.home, m.away, i); if(!p) continue;
+        const m = ms[i], p = footballEngine.predict(m.home, m.away, i);
+        if(!p){ picks.push(null); if(firstPass) hlActual.push(null); continue; }
         const a = m.hg>m.ag ? 'W' : m.hg===m.ag ? 'D' : 'L';
         ll += -Math.log(Math.max(1e-9, {W:p.pW,D:p.pD,L:p.pL}[a])); k++;
         const act = a==='W' ? '1' : a==='D' ? 'X' : '2';
         const hp = headlinePick(p, 'H', 'A');
+        picks.push(hp.code);
+        if(firstPass) hlActual.push(act);
         if(hp.code !== '1X'){ dep++;
           if(pickHit(hp.code, act)) engHit++;
           if(pickHit('1X', act))    dumbHit++; }
       }
+      hlPicks[H] = picks; firstPass = false;
       const d = dep ? dumbHit/dep : 0;
       hlRows.push({ H, ll: k ? ll/k : null, dep,
                     gap: dep ? engHit/dep - d : null,
                     floor: dep ? 2*Math.sqrt(Math.max(1e-9, d*(1-d)/dep)) : null });
     }
   } finally { TUNE.HALF_LIFE = savedHL; }   // must restore even if a pass throws
+
+  /* HEAD-TO-HEAD (build 68) — the test that settles it.
+     The skill gap rises as memory shortens, but so does the number of matches it is measured on:
+     Eredivisie falls from 369 departures at full history to 196 at a 40-game memory. A figure
+     computed on a shrinking, self-selected subset cannot be read across rows — the engine might be
+     choosing better, or merely choosing on easier fixtures, and the column looks identical either way.
+     So hold the fixtures fixed and let the two settings argue. On every match where they pick
+     DIFFERENTLY, which one was right? Matches where both are right, or both wrong, carry no
+     information and are discarded. That is McNemar's test, it is the correct one for paired
+     decisions, and selection cannot fool it because neither side chose the sample. */
+  const h2h = [];
+  const curPicks = hlPicks[savedHL];
+  if(curPicks) for(const H of HL_CANDIDATES){
+    if(H===savedHL) continue;
+    const alt = hlPicks[H]; if(!alt) continue;
+    let win=0, lose=0, diff=0;
+    for(let j=0;j<curPicks.length;j++){
+      const a=alt[j], b=curPicks[j], act=hlActual[j];
+      if(!a || !b || !act || a===b) continue;
+      diff++;
+      const ha=pickHit(a,act), hb=pickHit(b,act);
+      if(ha && !hb) win++; else if(hb && !ha) lose++;
+    }
+    const inf = win+lose;
+    h2h.push({ H, diff, win, lose, z: inf ? (win-lose)/Math.sqrt(inf) : 0 });
+  }
+  const h2hBest = h2h.filter(r=>r.z >= 2).sort((a,b)=>b.z-a.z)[0];
+  const h2hHTML = !h2h.length ? '' :
+    `<div class="sec-label" style="margin-top:14px">Head-to-head against the current setting</div>` +
+    `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+       <b style="width:72px">Memory</b><span style="width:22%;text-align:right">Differs on</span>
+       <span style="width:26%;text-align:right">Wins / loses</span><span style="width:24%;text-align:right">Verdict</span></div>` +
+    h2h.map(r=>{
+      const col = r.z>=2 ? 'var(--green2)' : r.z<=-2 ? 'var(--red)' : 'var(--muted)';
+      return `<div class="frow"><b style="width:72px;color:var(--gold)">${r.H>=10000?'no decay':r.H+' games'}</b>
+        <span style="width:22%;text-align:right;color:var(--muted)">${r.diff}</span>
+        <span style="width:26%;text-align:right"><b>${r.win}</b> / ${r.lose}</span>
+        <span style="width:24%;text-align:right;color:${col};font-size:.72rem"><b>${r.z>=2?'better':r.z<=-2?'worse':'tie'}</b> ${r.z>0?'+':''}${r.z.toFixed(1)}σ</span></div>`;
+    }).join('') +
+    `<div class="subnote">Only matches where the two settings picked DIFFERENTLY count; where both were right, or both wrong, there is nothing to learn. This is the honest comparison — the skill-gap column above is measured on whatever subset each setting chose for itself, so it cannot be read down the rows. Needs ±2σ to mean anything.</div>` +
+    (h2hBest
+      ? `<div class="verdict" style="border-color:var(--green2)">A ${h2hBest.H>=10000?'full-history':h2hBest.H+'-game'} memory genuinely picks better here: ${h2hBest.win} wins to ${h2hBest.lose} on ${h2hBest.diff} disagreements (${h2hBest.z.toFixed(1)}σ). That survives the selection problem, so it is worth acting on if a second competition agrees.</div>`
+      : `<div class="verdict" style="border-color:var(--muted)">No memory setting beats the current one once the fixtures are held fixed. The rising skill gap above was selection, not skill — a shorter memory departs less often, onto matches that were easier anyway.</div>`);
   const hlBest = hlRows.filter(r=>r.ll!=null).sort((a,b)=>a.ll-b.ll)[0];
   const hlNow  = hlRows.find(r=>r.H===savedHL);
   /* The gap column needs its own denominator and its own error bar (build 67). Without them the
@@ -3031,7 +3081,7 @@ function runBacktest(){
       'Read across: of the matches where the app claimed that much confidence, this is how often it was right. "Gap" is reality minus claim — near zero is the goal. A "?" means too few matches to judge yet.') +
     calTable('Reliability — over/under 2.5', tOver) +
     calTable('Reliability — both teams to score', tBtts) +
-    skillReport(rows) + hlHTML + htHTML + motHTML +
+    skillReport(rows) + hlHTML + h2hHTML + htHTML + motHTML +
 
     `<div class="sec-label" style="margin-top:16px">Calibration setting</div>` +
     statRow('Current TEMP', TUNE.TEMP.toFixed(2)) +
