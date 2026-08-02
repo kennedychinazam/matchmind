@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 64;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 65;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1300,7 +1300,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{} };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{} };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 /* ---- API-Football request discipline (build 40) ----
@@ -2125,9 +2125,18 @@ async function analyze(){
     : headlinePick(pred, home, away);
     $('heroPick').textContent = hp.label;
     $('heroConf').textContent = pct(hp.prob) + ' confidence';
-    $('heroStrong').textContent = hp.solo
-      ? "The engine's headline call for this match"
-      : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
+    /* An honest label, not a disclaimer bolted on. In a competition where the engine has been
+       measured and beats the base rate, this pick is its own work. Where it hasn't, the pick is
+       mostly home advantage restated, and saying so is the difference between a tool and a tipster
+       (build 65). */
+    { const sL = (sport==='football') ? afState.leagues[afState.activeLeagueId] : null;
+      const sk = skillOf(sL);
+      const baseLine = hp.solo
+        ? "The engine's headline call for this match"
+        : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
+      $('heroStrong').textContent = (sk && sk.ready && !sk.proven && hp.code === '1X')
+        ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
+        : baseLine; }
     $('resultSide').textContent = hp.label.replace(' WIN','');
 
     /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
@@ -2618,6 +2627,79 @@ function calTable(title, rows, note){
    Before this, the backtest silently used whatever league happened to be "active" — which was set
    as a side effect of opening a match. You could easily be reading a report on the wrong data, or
    on the synthetic sample, without knowing. Now you choose, and the report says what it tested. */
+/* ================= PER-LEAGUE SKILL (build 65) =================
+   Measured across four competitions, the engine's usefulness turned out not to be a property of the
+   engine at all — it's a property of the league. Primeira Liga: departures from "home or draw" beat
+   that rule by 14.8 points on 351 matches, about 5.7 standard errors. Eredivisie: +4.3. Brazil:
+   +2.9, having been −3.1 on a third of the data, which is what nothing looks like. Championship:
+   −3.3, the most compressed league in Europe.
+
+   The ordering follows how far apart the teams are. A goals model earns its keep when there is a
+   real quality gap to find; where every side is much like every other, home advantage is the only
+   signal left and the engine is just relaying it.
+
+   So this is computed per competition rather than hard-coded, because four measurements taken in
+   August 2026 are a snapshot, not a law — squads change, leagues open up and close down, and eight
+   competitions here have never been tested at all. */
+function computeSkill(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 150) return { ready:false, reason:'thin', size: ms?ms.length:0 };
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const pre = [{W:0,D:0,L:0}];
+  for(let i=0;i<ms.length;i++){ const m=ms[i], b=pre[i];
+    pre.push({ W:b.W+(m.hg>m.ag?1:0), D:b.D+(m.hg===m.ag?1:0), L:b.L+(m.hg<m.ag?1:0) }); }
+  const start = Math.max(60, Math.floor(ms.length*0.3));
+  let n=0, dep=0, engHit=0, dumbHit=0;
+  for(let i=start;i<ms.length;i++){
+    const m = ms[i], p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+    const hp = headlinePick(p, 'H', 'A');
+    n++;
+    if(hp.code !== '1X'){ dep++;
+      if(pickHit(hp.code, act)) engHit++;
+      if(pickHit('1X', act))    dumbHit++; }
+  }
+  // too few departures means the engine barely left the dumb rule — nothing to judge either way
+  if(dep < 40) return { ready:false, reason:'few', n, dep, size:ms.length };
+  const e = engHit/dep, d = dumbHit/dep;
+  const floor = 2*Math.sqrt(Math.max(1e-9, d*(1-d)/dep));
+  return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
+           proven: (e-d) > floor, size: ms.length, at: Date.now() };
+}
+function skillOf(L){ return (L && afState.skill) ? afState.skill[L.id] : null; }
+function skillProven(L){ const s = skillOf(L); return !!(s && s.ready && s.proven); }
+
+/* Recomputing ten leagues at once locks the phone for several seconds. One league per tick, after
+   the feed has already painted, so the user never waits on a measurement they didn't ask for. */
+let _skillTimer = null;
+function refreshSkills(){
+  if(_skillTimer) return;
+  afState.skill = afState.skill || {};
+  const todo = footballLeagues().filter(L=>{
+    const s = afState.skill[L.id], size = (L.matches||[]).length;
+    return size >= 150 && (!s || Math.abs((s.size||0) - size) > 20);
+  }).map(L=>L.id);
+  if(!todo.length) return;
+  const step = ()=>{
+    const id = todo.shift();
+    if(id == null){ _skillTimer = null; saveState();
+      if(lastTab==='predict') renderFixtures(); else if(lastTab==='analysis') renderStrongPicks();
+      return; }
+    const L = afState.leagues[id];
+    if(L) { try{ afState.skill[id] = computeSkill(L); }catch(e){} }
+    _skillTimer = setTimeout(step, 120);
+  };
+  _skillTimer = setTimeout(step, 800);
+}
+function skillBadge(L){
+  const s = skillOf(L);
+  if(!s) return '';
+  if(!s.ready) return `<span style="font-size:.6rem;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 5px;margin-left:6px">UNTESTED</span>`;
+  return s.proven
+    ? `<span style="font-size:.6rem;letter-spacing:.06em;color:var(--green2);border:1px solid var(--green2);border-radius:6px;padding:1px 5px;margin-left:6px">EDGE +${(100*s.gap).toFixed(0)}</span>`
+    : `<span style="font-size:.6rem;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 5px;margin-left:6px">HOME ADVANTAGE</span>`;
+}
+
 function backtestableLeagues(){
   return Object.values(afState.leagues)
     .filter(L => L && (L.sport||'football')==='football' && L.matches && L.matches.length>=60)
@@ -3019,7 +3101,11 @@ function visibleLeagues(){
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
-  return Ls.sort((a,b)=> leaguePriority(b)-leaguePriority(a) || b.upcoming.length-a.upcoming.length);
+  /* Ken's call: publish everywhere, but let the competitions with a measured edge lead. A proven
+     league outranks an unproven one regardless of how famous it is (build 65). */
+  return Ls.sort((a,b)=> (skillProven(b)?1:0)-(skillProven(a)?1:0)
+                      || leaguePriority(b)-leaguePriority(a)
+                      || b.upcoming.length-a.upcoming.length);
 }
 
 /* ================================================================
@@ -3472,6 +3558,7 @@ async function loadCloudLeagues(force){
       } }catch(e){}
       _leaguesLoadedAt = Date.now();
       renderBacktestLeagues();   // competitions just arrived — refresh the backtest picker (build 42)
+      refreshSkills();           // measure each competition in the background (build 65)
       gradeFromHistory(); saveState();
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips(); else if(lastTab==='favs') renderFavs();
     }
@@ -3778,7 +3865,7 @@ function renderStrongPicks(){
     if(!L || (L.sport||'football')!=='football') continue;
     for(const f of L.upcoming) if(f.pick && f.prob>=0.55 && f.date>=todayStrLocal()) picks.push({L, f});
   }
-  picks.sort((a,b)=>b.f.prob-a.f.prob);
+  picks.sort((a,b)=> (skillProven(b.L)?1:0)-(skillProven(a.L)?1:0) || b.f.prob-a.f.prob);
   if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
   let html=''; const refs=[];
   for(const {L,f} of picks.slice(0,15)){
@@ -3786,7 +3873,7 @@ function renderStrongPicks(){
     const on=isFavMatch(f.fxid);
     html += `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${localHM(f.date, f.time)}</span>
       <span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>
-      <span class="favright"><span class="predchip sm">${f.pick} · ${(100*f.prob).toFixed(0)}%</span><span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
+      <span class="favright"><span class="predchip sm"${skillProven(L)?' style="border-color:var(--green2);color:var(--green2)"':''}>${f.pick} · ${(100*f.prob).toFixed(0)}%</span><span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
   }
   box.innerHTML = html;
   box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const {L,f}=refs[+row.dataset.i]; openFixture(L.id,f); }));
@@ -3884,7 +3971,7 @@ function renderFixtures(){
     const todays = L.upcoming.filter(f=>f.date===afState.selectedDate);
     if(!todays.length) continue;
     const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
-    html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span><span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
+    html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
   $('fixtureList').innerHTML = html || '<div class="subnote">No fixtures on this day.</div>';
@@ -3913,7 +4000,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
@@ -4042,6 +4129,7 @@ function restoreState(){
       afState.logos = s.af.logos || {};
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
+      afState.skill  = s.af.skill  || {};   // measured per competition, build 65
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
       afState.favM = s.af.favM || [];
