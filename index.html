@@ -586,15 +586,10 @@
 
     <div class="card">
       <h2>📅 Past predictions</h2>
-      <div class="notice">
-        Every prediction is saved before kick-off and never rewritten afterwards. Pick any date to see exactly what the app called that day, and how it did — no re-running, no hindsight.
-      </div>
+      <div class="notice">Pick any date to see what the app predicted and how it did.</div>
       <div class="field"><label>Date</label><input type="date" id="archDate"></div>
       <button class="btn gold" id="archBtn">Show that day's predictions</button>
-      <button class="btn" id="archFillBtn" style="margin-top:8px">↺ Reconstruct the last 30 days</button>
-      <div class="notice" style="margin-top:8px">
-        Reconstruction fills days before the archive existed. Each match is priced using <b>only results from before it was played</b> — the same walk-forward method as the backtest — so the score is never allowed to influence its own prediction. These are marked <b>rebuilt</b>, kept separate from live predictions, and never counted in the engine's record.
-      </div>
+      <button class="btn" id="archFillBtn" style="margin-top:8px">↺ Fill in the last 30 days</button>
       <div id="archOut" style="margin-top:12px;"></div>
     </div>
 
@@ -641,7 +636,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 71;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 72;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1314,7 +1309,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{} };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, showDays:7 };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 /* ---- API-Football request discipline (build 40) ----
@@ -3179,7 +3174,7 @@ async function backfillPredictions(){
         build: RECONSTRUCTED, made_at: new Date().toISOString() });
     }
     if(!rows.length){
-      out.innerHTML = `<div class="subnote">Nothing to rebuild — ${already} day-fixtures already have a stored prediction${skippedThin?`, and ${skippedThin} are in competitions without enough history to price honestly`:''}.</div>`;
+      out.innerHTML = `<div class="subnote">Nothing to fill — ${already} already have a stored prediction${skippedThin?`, ${skippedThin} lack the history to price`:''}.</div>`;
       return;
     }
     // ignoreDuplicates: a real pre-match prediction always outranks a rebuilt one
@@ -3192,7 +3187,7 @@ async function backfillPredictions(){
     out.innerHTML = `<div class="frow"><span class="muted">Rebuilt</span><b style="color:var(--green2)">${rows.length} matches</b></div>` +
       `<div class="frow"><span class="muted">Already recorded live</span><b>${already}</b></div>` +
       (skippedThin ? `<div class="frow"><span class="muted">Skipped — too little history</span><b>${skippedThin}</b></div>` : '') +
-      `<div class="subnote">Each was priced using only matches played before it. They show as <b>rebuilt</b> and stay out of the engine's record — nobody saw these before kick-off, so they are evidence of how the model behaves, not of what the app called.</div>`;
+      `<div class="subnote">Priced using only matches played before each fixture.</div>`;
   }catch(e){
     out.innerHTML = `<div class="subnote">Couldn't rebuild: ${escapeHtml(e.message||String(e))}</div>`;
   }
@@ -3231,10 +3226,7 @@ async function renderArchiveDay(){
       : `<div class="frow"><span class="muted">Predictions stored</span><b>${preds.length}</b></div>`;
     if(graded && graded < preds.length)
       html += `<div class="frow"><span class="muted">Still to finish</span><b>${preds.length-graded}</b></div>`;
-    if(rebuilt)
-      html += `<div class="subnote"><b>${rebuilt} of these were rebuilt afterwards</b>, not published at the time. Each was priced using only matches played before it, so the result never influenced its own prediction — but nobody saw them before kick-off, and they don't count toward the engine's record.</div>`;
-    if(stale)
-      html += `<div class="subnote">${stale} of these were made before build 62, when the app still re-priced past matches. Those picks may have drifted after the whistle — treat them as indicative only.</div>`;
+
 
     for(const [lname, rows] of Object.entries(byLeague)){
       html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(lname)}</div>`;
@@ -3770,7 +3762,7 @@ async function loadCloudLeagues(force){
     /* Must cover the 7 days the feed now displays (build 59 widened the date pills but left this at
        3, so days 4-7 had no data AND their picks were never recomputed — which is why a fixture from
        25 July still carried a pre-build-44 '1' code while the detail page computed a fresh '1X'). */
-    const winStart = new Date(Date.now()-8*86400000).toISOString().slice(0,10);
+    const winStart = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // "More" can reach back a month (build 72)
     for(const {data, error} of results){
       if(error || !data || !data.length) continue;
       const f0 = data[0];
@@ -4209,18 +4201,25 @@ function renderFixtures(){
   wrap.classList.remove('hidden');
   // a week of played fixtures stays in the feed with its ✓/✗, so the record is visible rather than
   // vanishing overnight (build 59; was 2 days)
-  /* 14 days exactly — 7 played, today, 7 to come (build 70). Anything older lives in
-     More → Past predictions, which reads the archive rather than re-pricing anything. */
+  /* Opens on 14 days — 7 played, today, 7 to come — and the "More" pill at the end of the strip
+     walks it back a week at a time to a month (build 72). Older matchdays keep the pick they were
+     given at the time; nothing is re-priced on the way in. */
+  const back = afState.showDays || 7;
   const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))]
-    .filter(d=>{ const dp = daysPast(d); return dp <= 7 && dp >= -7; }).sort().slice(0,20);
+    .filter(d=>{ const dp = daysPast(d); return dp <= back && dp >= -7; }).sort();
   if(!dates.length){ wrap.classList.add('hidden'); return; }
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MAX_BACK = 30;
   $('dateBar').innerHTML = dates.map(d=>{
     const label = d===todayStr ? 'Today' : DOW[new Date(d+'T00:00:00').getDay()];
     return `<div class="dpill${d===afState.selectedDate?' active':''}" data-date="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
-  }).join('');
+  }).join('') + (back < MAX_BACK
+    ? `<div class="dpill" id="moreDays"><span class="dw">More</span><span class="dd">+7 days</span></div>`
+    : '');
+  { const md = $('moreDays'); if(md) md.addEventListener('click', ()=>{
+      afState.showDays = Math.min(MAX_BACK, back + 7); saveState(); renderFixtures(); }); }
   // scope to Predict's own bar — the Scores tab has its own .dpill strip now (build 37)
   $('dateBar').querySelectorAll('.dpill').forEach(p=>p.addEventListener('click',()=>{
     afState.selectedDate = p.dataset.date; renderFixtures();
@@ -4281,7 +4280,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, showDays: afState.showDays, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
@@ -4411,6 +4410,7 @@ function restoreState(){
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
       afState.skill  = s.af.skill  || {};   // measured per competition, build 65
+      afState.showDays = s.af.showDays || 7;
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
       afState.favM = s.af.favM || [];
