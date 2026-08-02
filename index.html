@@ -627,7 +627,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 66;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 67;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2921,23 +2921,36 @@ function runBacktest(){
           if(pickHit(hp.code, act)) engHit++;
           if(pickHit('1X', act))    dumbHit++; }
       }
-      hlRows.push({ H, ll: k ? ll/k : null, dep, gap: dep ? engHit/dep - dumbHit/dep : null });
+      const d = dep ? dumbHit/dep : 0;
+      hlRows.push({ H, ll: k ? ll/k : null, dep,
+                    gap: dep ? engHit/dep - d : null,
+                    floor: dep ? 2*Math.sqrt(Math.max(1e-9, d*(1-d)/dep)) : null });
     }
   } finally { TUNE.HALF_LIFE = savedHL; }   // must restore even if a pass throws
   const hlBest = hlRows.filter(r=>r.ll!=null).sort((a,b)=>a.ll-b.ll)[0];
   const hlNow  = hlRows.find(r=>r.H===savedHL);
+  /* The gap column needs its own denominator and its own error bar (build 67). Without them the
+     first run of this table was unreadable in the way that matters: in Portugal the gap climbed from
+     +14.8 to +21.7 as memory shortened, and there was no way to tell whether the engine had got
+     better at choosing or had simply departed less often onto easier fixtures. A number that moves
+     is not a finding until you know how many matches it moved on. */
+  const hlSkillBest = hlRows.filter(r=>r.gap!=null && r.dep>=40).sort((a,b)=>b.gap-a.gap)[0];
   const hlHTML =
     `<div class="sec-label" style="margin-top:16px">How fast should old matches stop counting?</div>` +
     `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
-       <b style="width:78px">Half-life</b><span style="width:30%;text-align:right">Log loss</span>
-       <span style="width:26%;text-align:right">Skill gap</span><span style="width:22%;text-align:right"></span></div>` +
+       <b style="width:72px">Half-life</b><span style="width:26%;text-align:right">Log loss</span>
+       <span style="width:16%;text-align:right">Picks</span><span style="width:34%;text-align:right">Skill gap</span></div>` +
     hlRows.map(r=>{
       const best = hlBest && r.H===hlBest.H, cur = r.H===savedHL;
-      return `<div class="frow"><b style="width:78px;color:${best?'var(--green2)':'var(--gold)'}">${r.H>=10000?'no decay':r.H+' games'}</b>
-        <span style="width:30%;text-align:right${best?';color:var(--green2)':''}"><b>${r.ll==null?'—':r.ll.toFixed(4)}</b></span>
-        <span style="width:26%;text-align:right">${r.gap==null?'—':(r.gap>=0?'+':'')+pct(r.gap)}</span>
-        <span style="width:22%;text-align:right;font-size:.66rem;color:var(--muted)">${cur?'current':''}${best&&!cur?' best':''}</span></div>`;
+      const clears = r.gap!=null && r.floor!=null && r.gap > r.floor;
+      return `<div class="frow"><b style="width:72px;color:${best?'var(--green2)':'var(--gold)'}">${r.H>=10000?'no decay':r.H+' games'}</b>
+        <span style="width:26%;text-align:right${best?';color:var(--green2)':''}"><b>${r.ll==null?'—':r.ll.toFixed(4)}</b></span>
+        <span style="width:16%;text-align:right;color:var(--muted)">${r.dep||'—'}</span>
+        <span style="width:34%;text-align:right;color:${clears?'var(--green2)':'inherit'}"><b>${r.gap==null?'—':(r.gap>=0?'+':'')+pct(r.gap)}</b> <span style="font-size:.66rem;color:var(--muted)">±${r.floor==null?'—':pct(r.floor)}</span>${cur?' <span style="font-size:.6rem;color:var(--muted)">now</span>':''}</span></div>`;
     }).join('') +
+    (hlSkillBest && hlSkillBest.gap > hlSkillBest.floor && hlSkillBest.H !== savedHL
+      ? `<div class="verdict" style="border-color:var(--gold)">Log loss prefers full history, but the PICKS are sharpest at a ${hlSkillBest.H>=10000?'full-history':hlSkillBest.H+'-game'} memory (+${(100*hlSkillBest.gap).toFixed(1)} on ${hlSkillBest.dep} departures, clearing its ±${(100*hlSkillBest.floor).toFixed(1)} floor). Those two measure different things — log loss grades every probability, the gap grades only the calls the engine actually makes differently. Worth taking seriously only if more than one competition says it.</div>`
+      : '') +
     (hlBest && hlNow && hlBest.H!==savedHL && (hlNow.ll-hlBest.ll) > 0.002
       ? `<div class="verdict" style="border-color:var(--gold)">Weighting the last <b>${hlBest.H>=10000?'∞':hlBest.H}</b> matches most improves log loss from ${hlNow.ll.toFixed(4)} to ${hlBest.ll.toFixed(4)} here. Worth changing only if other competitions agree — one league's optimum is not a setting.</div>`
       : `<div class="subnote">No meaningful gain from changing recency in this competition — the current setting is within 0.002 of the best, which is noise. Full history is doing no harm here.</div>`);
