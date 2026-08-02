@@ -130,7 +130,8 @@
   /* ---------- date pills & fixture list ---------- */
   .datebar{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; scrollbar-width:none;}
   .datebar::-webkit-scrollbar{display:none;}
-  .dpill{flex:0 0 auto; min-width:74px; text-align:center; padding:9px 10px; border-radius:12px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer;}
+  .dpill.seemore{border-style:dashed;opacity:.9}
+.dpill{flex:0 0 auto; min-width:74px; text-align:center; padding:9px 10px; border-radius:12px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer;}
   .dpill .dw{font-size:.66rem; font-weight:600; display:block;}
   .dpill .dd{font-size:.9rem; font-weight:800; color:var(--text);}
   .dpill.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold);}
@@ -636,7 +637,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 72;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 75;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1309,7 +1310,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, showDays:7 };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, archiveDate:null };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 /* ---- API-Football request discipline (build 40) ----
@@ -4190,6 +4191,7 @@ function renderCompsDrop(){
 }
 
 function renderFixtures(){
+  if(afState.archiveDate){ showPredictDate(afState.archiveDate); return; }
   const wrap = $('fixturesWrap');
   const Ls = visibleLeagues();
   // Discover now lives below the feed / in the competitions dropdown — only surface the card
@@ -4204,22 +4206,22 @@ function renderFixtures(){
   /* Opens on 14 days — 7 played, today, 7 to come — and the "More" pill at the end of the strip
      walks it back a week at a time to a month (build 72). Older matchdays keep the pick they were
      given at the time; nothing is re-priced on the way in. */
-  const back = afState.showDays || 7;
+  /* 14 day tiles — the 7 played, today, and the 6 to come — plus the See more tile, so the strip is
+     15 across. Anything older than that is the calendar's job (build 75). */
   const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))]
-    .filter(d=>{ const dp = daysPast(d); return dp <= back && dp >= -7; }).sort();
+    .filter(d=>{ const dp = daysPast(d); return dp <= 7 && dp >= -6; }).sort();
   if(!dates.length){ wrap.classList.add('hidden'); return; }
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const MAX_BACK = 30;
-  $('dateBar').innerHTML = dates.map(d=>{
-    const label = d===todayStr ? 'Today' : DOW[new Date(d+'T00:00:00').getDay()];
-    return `<div class="dpill${d===afState.selectedDate?' active':''}" data-date="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
-  }).join('') + (back < MAX_BACK
-    ? `<div class="dpill" id="moreDays"><span class="dw">More</span><span class="dd">+7 days</span></div>`
-    : '');
-  { const md = $('moreDays'); if(md) md.addEventListener('click', ()=>{
-      afState.showDays = Math.min(MAX_BACK, back + 7); saveState(); renderFixtures(); }); }
+  // See more sits at the left end, before the oldest matchday
+  $('dateBar').innerHTML =
+    `<div class="dpill seemore" id="seeMore"><span class="dw">See more</span><span class="dd">📅 pick a date</span></div>` +
+    dates.map(d=>{
+      const label = d===todayStr ? 'Today' : DOW[new Date(d+'T00:00:00').getDay()];
+      return `<div class="dpill${d===afState.selectedDate?' active':''}" data-date="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
+    }).join('');
+  { const sm = $('seeMore'); if(sm) sm.addEventListener('click', openDatePicker); }
   // scope to Predict's own bar — the Scores tab has its own .dpill strip now (build 37)
   $('dateBar').querySelectorAll('.dpill').forEach(p=>p.addEventListener('click',()=>{
     afState.selectedDate = p.dataset.date; renderFixtures();
@@ -4272,6 +4274,67 @@ function renderFixtures(){
   }));
 }
 
+/* ================= PICK A DATE (build 73) =================
+   The strip runs oldest-left, so the calendar tile belongs at the far left — tapping past the oldest
+   matchday is the same gesture as reaching further back. Uses the device's own date picker rather
+   than a hand-built grid: it is the control people already know, and it costs nothing to maintain. */
+const DOW_S = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function openDatePicker(){
+  let inp = $('predDatePick');
+  if(!inp){
+    inp = document.createElement('input');
+    inp.type = 'date'; inp.id = 'predDatePick';
+    inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:1px;height:1px';
+    inp.max = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    inp.addEventListener('change', ()=>{ if(inp.value) showPredictDate(inp.value); });
+    document.body.appendChild(inp);
+  }
+  inp.value = afState.selectedDate || todayStrLocal();
+  if(inp.showPicker) { try{ inp.showPicker(); return; }catch(e){} }
+  inp.click();
+}
+
+async function showPredictDate(d){
+  const today = todayStrLocal();
+  const dp = daysPast(d);
+  // inside the normal window there is nothing to fetch — just move the strip
+  if(dp <= 7 && dp >= -6){ afState.archiveDate = null; afState.selectedDate = d; saveState(); renderFixtures(); return; }
+  afState.archiveDate = d;
+  const wrap = $('fixturesWrap'); if(wrap) wrap.classList.remove('hidden');
+  $('dateBar').innerHTML =
+    `<div class="dpill seemore" id="seeMore"><span class="dw">See more</span><span class="dd">📅 pick a date</span></div>` +
+    `<div class="dpill active"><span class="dw">${DOW_S[new Date(d+'T00:00:00').getDay()]}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>` +
+    `<div class="dpill" id="backToNow"><span class="dw">Back</span><span class="dd">to today</span></div>`;
+  { const sm=$('seeMore'); if(sm) sm.addEventListener('click', openDatePicker);
+    const bk=$('backToNow'); if(bk) bk.addEventListener('click', ()=>{ afState.archiveDate=null; afState.selectedDate=today; saveState(); renderFixtures(); }); }
+  $('fixtureList').innerHTML = '<div class="subnote"><span class="spinner"></span>Loading that day…</div>';
+  if(!supa){ $('fixtureList').innerHTML = '<div class="subnote">Needs the cloud backend.</div>'; return; }
+  try{
+    const { data: preds } = await supa.from('predictions')
+      .select('fxid,lname,home,away,ktime,pick,pick_prob,build').eq('kickoff', d).order('ktime');
+    if(!preds || !preds.length){
+      $('fixtureList').innerHTML = `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
+    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
+    const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
+    let hits=0, graded=0, html='', lastL='';
+    for(const p of preds){
+      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && FINISHED.includes(f.status);
+      const hit = done ? pickHit(p.pick, actualCode(f.gh, f.ga)) : null;
+      if(done){ graded++; if(hit) hits++; }
+      if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
+      const chip = done
+        ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
+        : `<span class="predchip">${p.pick} · ${(100*p.pick_prob).toFixed(0)}%</span>`;
+      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">FT</span>`:(p.ktime||'').slice(0,5)}</span>
+        <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
+    }
+    $('fixtureList').innerHTML =
+      (graded ? `<div class="lghead">${hits}/${graded} correct on ${d}</div>` : '') + html;
+  }catch(e){
+    $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+
 /* ---------- persistence (survives reload) ---------- */
 function saveState(){
   try{
@@ -4280,7 +4343,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, showDays: afState.showDays, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
@@ -4410,7 +4473,7 @@ function restoreState(){
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
       afState.skill  = s.af.skill  || {};   // measured per competition, build 65
-      afState.showDays = s.af.showDays || 7;
+      afState.archiveDate = null;   // always open on today, never on a date left over from last time
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
       afState.favM = s.af.favM || [];
