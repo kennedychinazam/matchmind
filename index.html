@@ -637,7 +637,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 75;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 76;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4206,11 +4206,13 @@ function renderFixtures(){
   /* Opens on 14 days — 7 played, today, 7 to come — and the "More" pill at the end of the strip
      walks it back a week at a time to a month (build 72). Older matchdays keep the pick they were
      given at the time; nothing is re-priced on the way in. */
-  /* 14 day tiles — the 7 played, today, and the 6 to come — plus the See more tile, so the strip is
-     15 across. Anything older than that is the calendar's job (build 75). */
-  const dates = [...new Set(Ls.flatMap(l=>l.upcoming.map(f=>f.date)))]
-    .filter(d=>{ const dp = daysPast(d); return dp <= 7 && dp >= -6; }).sort();
-  if(!dates.length){ wrap.classList.add('hidden'); return; }
+  /* 14 day tiles — 7 played, today, 6 ahead — plus See more, so the strip is always 15 across.
+     Built from the CALENDAR, not from the fixture list (build 76). Deriving them from fixtures meant
+     a day with no matches simply had no tile, so the strip silently shrank and jumped dates — worst
+     in August, when half the European leagues haven't kicked off yet. An empty day is information;
+     it should say so rather than disappear. */
+  const dates = [];
+  for(let n=7; n>=-6; n--) dates.push(new Date(Date.now()-n*86400000).toISOString().slice(0,10));
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -4256,7 +4258,12 @@ function renderFixtures(){
     html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
-  $('fixtureList').innerHTML = html || '<div class="subnote">No fixtures on this day.</div>';
+  if(!html){
+    const dp = daysPast(afState.selectedDate);
+    const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
+    html = `<div class="subnote">No matches ${dp>0?'were played':'are scheduled'} on ${when} in the competitions you follow — so there is no prediction for this date.${dp<=0?' Fixtures appear here as soon as they are announced.':''}</div>`;
+  }
+  $('fixtureList').innerHTML = html;
 
   document.querySelectorAll('#fixtureList .fxrow.favrow').forEach(row=>row.addEventListener('click', ()=>{
     const {leagueId, f} = dayList[+row.dataset.i];
