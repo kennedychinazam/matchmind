@@ -131,6 +131,20 @@
   .datebar{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; scrollbar-width:none;}
   .datebar::-webkit-scrollbar{display:none;}
   .dpill.seemore{border-style:dashed;opacity:.9}
+.datenav{display:flex; align-items:center; gap:8px; padding:2px 0;}
+  .dnav{flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:38px; height:38px;
+        border-radius:11px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer;}
+  .dnav:active{transform:scale(.94)}
+  .dnav svg{width:19px; height:19px; display:block}
+  /* Fixed width, not flexible. "WEDNESDAY" and "TODAY" are very different lengths, so a flexible
+     pill resized every time the date changed and the arrows shifted under the thumb (build 79). */
+  .dncur{flex:0 0 132px; width:132px; text-align:center; padding:5px 8px; border-radius:12px;
+         background:linear-gradient(135deg,var(--gold2),var(--gold)); border:1px solid var(--gold); cursor:pointer;
+         overflow:hidden;}
+  .dncur .dnday,.dncur .dndate{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .dncur .dnday{display:block; font-size:.64rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#1a1405; opacity:.75}
+  .dncur .dndate{display:block; font-size:.95rem; font-weight:800; color:#1a1405;}
+  .dnav.dntoday{width:auto; padding:0 12px; font-size:.72rem; font-weight:700; color:var(--gold);}
 .dpill{flex:0 0 auto; min-width:74px; text-align:center; padding:9px 10px; border-radius:12px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer;}
   .dpill .dw{font-size:.66rem; font-weight:600; display:block;}
   .dpill .dd{font-size:.9rem; font-weight:800; color:var(--text);}
@@ -281,7 +295,7 @@
     <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>MatchMind <span class="pro">PRO</span></div>
     <div class="topright">
       <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
-      <button class="iconbtn" id="searchOpen" aria-label="Search">🔍</button>
+      <button class="iconbtn" id="searchOpen" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;display:block"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     </div>
   </div>
 
@@ -637,7 +651,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 76;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 80;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -937,13 +951,25 @@ const footballEngine = {
     return this._rates;
   },
 
+  /* A promoted side has no matches in this division, and until build 77 that returned null — no
+     prediction at all, and the detail page fell through to a stale "API-Football extras are off"
+     message. Marítimo v Casa Pia in the Primeira Liga was the case that surfaced it; every league
+     produces three of them each August.
+     No special case is needed, because the shrinkage formula already answers the question. Feed it
+     zero matches — hgF=0, hW=0 — and every rating collapses to exactly 1.0, i.e. a league-average
+     team. That is the honest prior for a side we know nothing about, and it is the same arithmetic
+     applied to everyone else. The count is passed on so the app can say which side is unknown. */
   predict(home, away, upTo){
     const {teams, avgH, avgA} = this.strengths(upTo);
-    const h = teams[home], a = teams[away];
-    if(!h || !a) return null;
+    const NEUTRAL = {attackHome:1, defenceHome:1, attackAway:1, defenceAway:1};
+    const h = teams[home] || NEUTRAL, a = teams[away] || NEUTRAL;
+    const unknown = (teams[home]?0:1) + (teams[away]?0:1);
     const lambdaH = Math.max(.05, h.attackHome * a.defenceAway * avgH);
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
-    return this.marketsFor(lambdaH, lambdaA, this.rates(upTo));
+    const out = this.marketsFor(lambdaH, lambdaA, this.rates(upTo));
+    if(out){ out.unknownTeams = unknown;
+             out.unknownNames = [teams[home]?null:home, teams[away]?null:away].filter(Boolean); }
+    return out;
   },
 
   /* The same fixture with both sides at exactly league-average strength — i.e. what every market
@@ -2161,6 +2187,11 @@ async function analyze(){
       ? { pW:pendingMetaPW, pD:pendingMetaPD, pL:pendingMetaPL } : pred;
     $('outcomeRows').innerHTML =
       probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) +
+      (pred.unknownTeams
+        ? `<div class="subnote">${pred.unknownTeams===2
+             ? 'Neither side has played in this competition before, so these are the league\'s own averages rather than a read on these two teams.'
+             : escapeHtml(pred.unknownNames[0]) + ' has no history in this competition — newly promoted, most likely. They are priced as an average team of this division until they have played a few.'}</div>`
+        : '') +
       (pendingMetaPlayed
         ? `<div class="subnote">${pendingMetaPW!=null
              ? 'These are the probabilities the app published before kick-off, not a re-estimate.'
@@ -3212,14 +3243,14 @@ async function renderArchiveDay(){
     const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
     const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
 
-    let graded=0, hits=0, stale=0, rebuilt=0;
+    let graded=0, hits=0, stale=0;
     const byLeague = {};
     for(const p of preds){
       const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && ['FT','AET','PEN'].includes(f.status);
       const act = done ? actualCode(f.gh, f.ga) : null;
       const hit = act ? pickHit(p.pick, act) : null;
       if(act){ graded++; if(hit) hits++; }
-      if(p.build === RECONSTRUCTED) rebuilt++; else if((p.build||0) < FROZEN_FROM_BUILD) stale++;
+      if((p.build||0) < FROZEN_FROM_BUILD) stale++;
       (byLeague[p.lname||'—'] = byLeague[p.lname||'—'] || []).push({p, f, done, hit});
     }
     let html = graded
@@ -3234,11 +3265,10 @@ async function renderArchiveDay(){
       for(const {p, f, done, hit} of rows){
         const score = done ? `${f.gh}–${f.ga}` : (f && f.status ? statusWord(f.status) : '—');
         const mark = hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
-        const tag = p.build === RECONSTRUCTED ? ' <span style="font-size:.6rem;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 4px">rebuilt</span>' : '';
         html += `<div class="frow" style="align-items:flex-start">
           <span style="flex:1">
             <b>${escapeHtml(p.home)} v ${escapeHtml(p.away)}</b>
-            <span class="muted" style="font-size:.72rem"> · ${p.ktime||''}</span>${tag}<br>
+            <span class="muted" style="font-size:.72rem"> · ${p.ktime||''}</span><br>
             <span style="font-size:.76rem;color:var(--muted)">said ${escapeHtml(pickLabel(p.pick, p.home, p.away))} at ${pct(p.pick_prob)} · ${pct(p.p_home)}/${pct(p.p_draw)}/${pct(p.p_away)}</span>
           </span>
           <span style="text-align:right;white-space:nowrap"><b>${score}</b> ${mark}</span></div>`;
@@ -3802,6 +3832,7 @@ async function loadCloudLeagues(force){
             if(arch){ f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL; f.frozen = true; }
             else if(started && f.pick){ f.frozen = true; }
             else if(!started){ f.pick = hp.code; f.prob = +hp.prob.toFixed(3); f.frozen = false; }
+            f.provisional = !!p.unknownTeams;   // priced on league averages, not on these teams
             if(!f._fin){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
           }
         }
@@ -4108,8 +4139,9 @@ async function openFixture(leagueId, f, btn){
       try{ const tmp = Object.create(footballEngine); tmp.matches = L.matches || [];
            pendingFrozenPred = tmp.marketsFor(arch.xgH, arch.xgA, tmp.rates()); }catch(e){}
     } }
-  const ts = footballEngine.teams();
-  if(L.matches.length>=15 && ts.includes(f.home) && ts.includes(f.away)){
+  /* The team-list check used to gate this too, which is what sent promoted sides down the
+     API-Football path and produced a message about a provider this app no longer uses (build 77). */
+  if(L.matches.length>=15){
     await afEnsureScorers(leagueId);
     $('homeTeam').value = f.home; $('awayTeam').value = f.away;
     await analyze();
@@ -4134,7 +4166,7 @@ function renderStrongPicks(){
   for(const id of afState.leagueOrder){
     const L = afState.leagues[id];
     if(!L || (L.sport||'football')!=='football') continue;
-    for(const f of L.upcoming) if(f.pick && f.prob>=0.55 && f.date>=todayStrLocal()) picks.push({L, f});
+    for(const f of L.upcoming) if(f.pick && f.prob>=0.55 && f.date>=todayStrLocal() && !f.provisional) picks.push({L, f});
   }
   picks.sort((a,b)=> (skillProven(b.L)?1:0)-(skillProven(a.L)?1:0) || b.f.prob-a.f.prob);
   if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
@@ -4216,18 +4248,7 @@ function renderFixtures(){
   if(!dates.includes(afState.selectedDate)) afState.selectedDate = dates.includes(todayStrLocal()) ? todayStrLocal() : dates[0];
   const todayStr = new Date().toISOString().slice(0,10);
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  // See more sits at the left end, before the oldest matchday
-  $('dateBar').innerHTML =
-    `<div class="dpill seemore" id="seeMore"><span class="dw">See more</span><span class="dd">📅 pick a date</span></div>` +
-    dates.map(d=>{
-      const label = d===todayStr ? 'Today' : DOW[new Date(d+'T00:00:00').getDay()];
-      return `<div class="dpill${d===afState.selectedDate?' active':''}" data-date="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
-    }).join('');
-  { const sm = $('seeMore'); if(sm) sm.addEventListener('click', openDatePicker); }
-  // scope to Predict's own bar — the Scores tab has its own .dpill strip now (build 37)
-  $('dateBar').querySelectorAll('.dpill').forEach(p=>p.addEventListener('click',()=>{
-    afState.selectedDate = p.dataset.date; renderFixtures();
-  }));
+  renderDateNav(afState.selectedDate);
 
   let html = '';
   const dayList = [];
@@ -4281,6 +4302,50 @@ function renderFixtures(){
   }));
 }
 
+/* ================= DATE NAVIGATION (build 78) =================
+   Fifteen tiles on a phone meant most of the strip lived off-screen, and it could only ever reach
+   the fourteen days it had been built from. Two arrows and a centre label fit any screen, and they
+   step to ANY date — past the window they simply read from the archive instead, so the calendar and
+   the arrows became the same mechanism rather than two competing ones.
+   Icons are inline SVG on currentColor: the emoji ones vanished against a light background. */
+const SVG_CAL  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>';
+const SVG_PREV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+const SVG_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+const SVG_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+
+function shiftDate(d, n){ return new Date(Date.parse(d+'T00:00:00Z') + n*86400000).toISOString().slice(0,10); }
+
+function renderDateNav(d){
+  const today = todayStrLocal();
+  const isToday = d === today;
+  const dt = new Date(d+'T00:00:00');
+  const label = isToday ? 'Today'
+              : d === shiftDate(today,-1) ? 'Yesterday'
+              : d === shiftDate(today, 1) ? 'Tomorrow'
+              : dt.toLocaleDateString(undefined,{weekday:'long'});
+  $('dateBar').innerHTML =
+    `<div class="datenav">
+       <button class="dnav" id="dnCal" aria-label="Pick a date">${SVG_CAL}</button>
+       <button class="dnav" id="dnPrev" aria-label="Previous day">${SVG_PREV}</button>
+       <div class="dncur" id="dnCur"><span class="dnday">${label}</span><span class="dndate">${dt.toLocaleDateString(undefined,{day:'numeric', month:'short'})}</span></div>
+       <button class="dnav" id="dnNext" aria-label="Next day">${SVG_NEXT}</button>
+       <button class="dnav dntoday" id="dnToday"${isToday?' style="visibility:hidden"':''}>Today</button>
+     </div>`;
+  $('dnCal').addEventListener('click', openDatePicker);
+  $('dnCur').addEventListener('click', openDatePicker);
+  $('dnPrev').addEventListener('click', ()=> goToDate(shiftDate(d,-1)));
+  $('dnNext').addEventListener('click', ()=> goToDate(shiftDate(d, 1)));
+  { const t = $('dnToday'); if(t && !isToday) t.addEventListener('click', ()=> goToDate(today)); }
+}
+
+/* One entry point for every way of changing the date — arrows, calendar, Today. Inside the live
+   window it renders the feed; outside it reads the archive. The caller never has to know which. */
+function goToDate(d){
+  const dp = daysPast(d);
+  if(dp <= 7 && dp >= -6){ afState.archiveDate = null; afState.selectedDate = d; saveState(); renderFixtures(); }
+  else { showPredictDate(d); }
+}
+
 /* ================= PICK A DATE (build 73) =================
    The strip runs oldest-left, so the calendar tile belongs at the far left — tapping past the oldest
    matchday is the same gesture as reaching further back. Uses the device's own date picker rather
@@ -4292,8 +4357,7 @@ function openDatePicker(){
     inp = document.createElement('input');
     inp.type = 'date'; inp.id = 'predDatePick';
     inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:1px;height:1px';
-    inp.max = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-    inp.addEventListener('change', ()=>{ if(inp.value) showPredictDate(inp.value); });
+    inp.addEventListener('change', ()=>{ if(inp.value) goToDate(inp.value); });
     document.body.appendChild(inp);
   }
   inp.value = afState.selectedDate || todayStrLocal();
@@ -4306,19 +4370,15 @@ async function showPredictDate(d){
   const dp = daysPast(d);
   // inside the normal window there is nothing to fetch — just move the strip
   if(dp <= 7 && dp >= -6){ afState.archiveDate = null; afState.selectedDate = d; saveState(); renderFixtures(); return; }
+  afState.selectedDate = d;
   afState.archiveDate = d;
   const wrap = $('fixturesWrap'); if(wrap) wrap.classList.remove('hidden');
-  $('dateBar').innerHTML =
-    `<div class="dpill seemore" id="seeMore"><span class="dw">See more</span><span class="dd">📅 pick a date</span></div>` +
-    `<div class="dpill active"><span class="dw">${DOW_S[new Date(d+'T00:00:00').getDay()]}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>` +
-    `<div class="dpill" id="backToNow"><span class="dw">Back</span><span class="dd">to today</span></div>`;
-  { const sm=$('seeMore'); if(sm) sm.addEventListener('click', openDatePicker);
-    const bk=$('backToNow'); if(bk) bk.addEventListener('click', ()=>{ afState.archiveDate=null; afState.selectedDate=today; saveState(); renderFixtures(); }); }
+  renderDateNav(d);
   $('fixtureList').innerHTML = '<div class="subnote"><span class="spinner"></span>Loading that day…</div>';
   if(!supa){ $('fixtureList').innerHTML = '<div class="subnote">Needs the cloud backend.</div>'; return; }
   try{
     const { data: preds } = await supa.from('predictions')
-      .select('fxid,lname,home,away,ktime,pick,pick_prob,build').eq('kickoff', d).order('ktime');
+      .select('fxid,lname,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
     const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
@@ -4336,7 +4396,7 @@ async function showPredictDate(d){
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
     $('fixtureList').innerHTML =
-      (graded ? `<div class="lghead">${hits}/${graded} correct on ${d}</div>` : '') + html;
+      (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html;
   }catch(e){
     $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
   }
