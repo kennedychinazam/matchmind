@@ -651,7 +651,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 80;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 81;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1219,7 +1219,7 @@ async function callProxy(payload, providerId){
   const res = await aiQueued(()=> fetch(SUPA_URL + '/functions/v1/ai-analyze', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
-    body: JSON.stringify(payload===null ? {} : { prompt: AI_PROMPT + payload, provider: providerId })
+    body: JSON.stringify(payload===null ? {} : { prompt: AI_PROMPT + payload, provider: providerId, fxid: pendingMetaFxid || null })
   }));
   let j = {}; try{ j = await res.json(); }catch(_){}
   if(!res.ok || !j.ok){
@@ -3390,7 +3390,12 @@ function leaguePriority(L){
 
 function visibleLeagues(){
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
-  let Ls = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
+  /* A competition with no history can't be predicted, so it has no business in Predict — the World
+     Cup was sitting at the top of the list with 20 fixtures and nothing to say about any of them.
+     Filtering on history rather than on a list of IDs means it fixes itself if we ever train it
+     (build 81). Scores still shows everything; that tab only needs results. */
+  let Ls = order.map(id=>afState.leagues[id])
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15);
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
@@ -4013,19 +4018,10 @@ function ensureLeagueFromScore(s){
 
 // the Scores date strip: last 6 days → tomorrow, so yesterday's results stay reachable
 function renderScoresDateBar(){
-  const bar = $('scoresDateBar'); if(!bar) return;
-  const days = scoresDayList(), today = ymdOffset(0);
-  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  bar.innerHTML = days.map(d=>{
-    const label = d===today ? 'Today' : d===ymdOffset(-1) ? 'Yest' : d===ymdOffset(1) ? 'Tmrw'
-                : DOW[new Date(d+'T00:00:00').getDay()];
-    return `<div class="dpill${d===afState.scoresDate?' active':''}" data-sdate="${d}"><span class="dw">${label}</span><span class="dd">${d.slice(5).replace('-','/')}</span></div>`;
-  }).join('');
-  bar.querySelectorAll('.dpill[data-sdate]').forEach(p=>p.addEventListener('click',()=>{
-    afState.scoresDate = p.dataset.sdate; renderScores();
-    const a = bar.querySelector('.dpill.active'); if(a) a.scrollIntoView({block:'nearest', inline:'center', behavior:'smooth'});
-  }));
-  const a = bar.querySelector('.dpill.active'); if(a) a.scrollIntoView({block:'nearest', inline:'center'});
+  // same control as Predict, so the two tabs behave identically (build 81)
+  renderDateNav(afState.scoresDate || ymdOffset(0), 'scoresDateBar', d=>{
+    afState.scoresDate = d; saveState(); renderScores();
+  });
 }
 
 function renderScores(){
@@ -4315,7 +4311,9 @@ const SVG_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 function shiftDate(d, n){ return new Date(Date.parse(d+'T00:00:00Z') + n*86400000).toISOString().slice(0,10); }
 
-function renderDateNav(d){
+function renderDateNav(d, barId, onPick){
+  barId = barId || 'dateBar';
+  const go = onPick || goToDate;
   const today = todayStrLocal();
   const isToday = d === today;
   const dt = new Date(d+'T00:00:00');
@@ -4323,19 +4321,21 @@ function renderDateNav(d){
               : d === shiftDate(today,-1) ? 'Yesterday'
               : d === shiftDate(today, 1) ? 'Tomorrow'
               : dt.toLocaleDateString(undefined,{weekday:'long'});
-  $('dateBar').innerHTML =
+  const bar = $(barId); if(!bar) return;
+  bar.innerHTML =
     `<div class="datenav">
-       <button class="dnav" id="dnCal" aria-label="Pick a date">${SVG_CAL}</button>
-       <button class="dnav" id="dnPrev" aria-label="Previous day">${SVG_PREV}</button>
-       <div class="dncur" id="dnCur"><span class="dnday">${label}</span><span class="dndate">${dt.toLocaleDateString(undefined,{day:'numeric', month:'short'})}</span></div>
-       <button class="dnav" id="dnNext" aria-label="Next day">${SVG_NEXT}</button>
-       <button class="dnav dntoday" id="dnToday"${isToday?' style="visibility:hidden"':''}>Today</button>
+       <button class="dnav dnCal" aria-label="Pick a date">${SVG_CAL}</button>
+       <button class="dnav dnPrev" aria-label="Previous day">${SVG_PREV}</button>
+       <div class="dncur dnCur"><span class="dnday">${label}</span><span class="dndate">${dt.toLocaleDateString(undefined,{day:'numeric', month:'short'})}</span></div>
+       <button class="dnav dnNext" aria-label="Next day">${SVG_NEXT}</button>
+       <button class="dnav dntoday dnToday"${isToday?' style="visibility:hidden"':''}>Today</button>
      </div>`;
-  $('dnCal').addEventListener('click', openDatePicker);
-  $('dnCur').addEventListener('click', openDatePicker);
-  $('dnPrev').addEventListener('click', ()=> goToDate(shiftDate(d,-1)));
-  $('dnNext').addEventListener('click', ()=> goToDate(shiftDate(d, 1)));
-  { const t = $('dnToday'); if(t && !isToday) t.addEventListener('click', ()=> goToDate(today)); }
+  const pick = ()=> openDatePicker(go);
+  bar.querySelector('.dnCal').addEventListener('click', pick);
+  bar.querySelector('.dnCur').addEventListener('click', pick);
+  bar.querySelector('.dnPrev').addEventListener('click', ()=> go(shiftDate(d,-1)));
+  bar.querySelector('.dnNext').addEventListener('click', ()=> go(shiftDate(d, 1)));
+  if(!isToday) bar.querySelector('.dnToday').addEventListener('click', ()=> go(today));
 }
 
 /* One entry point for every way of changing the date — arrows, calendar, Today. Inside the live
@@ -4351,13 +4351,15 @@ function goToDate(d){
    matchday is the same gesture as reaching further back. Uses the device's own date picker rather
    than a hand-built grid: it is the control people already know, and it costs nothing to maintain. */
 const DOW_S = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-function openDatePicker(){
+let _pickTarget = null;
+function openDatePicker(onPick){
+  _pickTarget = (typeof onPick === 'function') ? onPick : goToDate;
   let inp = $('predDatePick');
   if(!inp){
     inp = document.createElement('input');
     inp.type = 'date'; inp.id = 'predDatePick';
     inp.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:1px;height:1px';
-    inp.addEventListener('change', ()=>{ if(inp.value) goToDate(inp.value); });
+    inp.addEventListener('change', ()=>{ if(inp.value) (_pickTarget||goToDate)(inp.value); });
     document.body.appendChild(inp);
   }
   inp.value = afState.selectedDate || todayStrLocal();
