@@ -114,6 +114,9 @@
   html[dir="rtl"] .fxteams, html[dir="rtl"] .sl, html[dir="rtl"] .sd, html[dir="rtl"] .subnote{text-align:right;}
   html[dir="rtl"] .analysis, html[dir="rtl"] .cmp{text-align:justify;}
   html[dir="rtl"] .favright{margin-right:auto; margin-left:0;}
+  /* Settings dropdown: narrow, right-aligned, sized to the short city labels (build 91).
+     text-align-last is what actually right-aligns the CLOSED box in Chrome and Safari. */
+  .setsel{max-width:38%; min-width:96px; text-align:right; text-align-last:right; padding-right:6px;}
   .analysis{line-height:1.75; font-size:.92rem; white-space:pre-wrap; padding-top:10px;
     text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto; overflow-wrap:break-word;}
   .ctxprose{text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto;}
@@ -545,7 +548,7 @@
       </div>
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl" data-i18n="Kick-off times">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
-        <select id="tzSel" style="max-width:52%"></select>
+        <select id="tzSel" class="setsel"></select>
       </div>
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd">Hide competitions the engine has been measured on and does not beat</div></div></div>
@@ -581,21 +584,7 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl" data-i18n="Clear cached data">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
-      <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/><path d="M15 15l4-3-4-3"/><path d="M19 12H9"/></svg></span><div><div class="sl" data-i18n="Sign out">Sign out</div><div class="sd">Ends this session on this device</div></div></div>
-        <button class="btn" id="signOutBtn">Sign out</button>
-      </div>
       <div class="subnote">To delete your account and everything stored with it, message Ken — that one is handled by hand for now, so it can be checked before anything is destroyed.</div>
-    </div>
-
-    <div class="sec-label" data-i18n="Past predictions">Past predictions</div>
-<div class="card">
-      <h2>📅 Past predictions</h2>
-      <div class="notice">Pick any date to see what the app predicted and how it did.</div>
-      <div class="field"><label>Date</label><input type="date" id="archDate"></div>
-      <button class="btn gold" id="archBtn">Show that day's predictions</button>
-      <button class="btn" id="archFillBtn" style="margin-top:8px">↺ Fill in the last 30 days</button>
-      <div id="archOut" style="margin-top:12px;"></div>
     </div>
 
         <div id="devStub" hidden aria-hidden="true">
@@ -610,19 +599,12 @@
       <button id="loadCsvBtn"></button><button id="motStudyBtn"></button>
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="predDatePick"></button>
+      <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
     </div>
 
-    <div class="sec-label" data-i18n="How it works">How it works</div>
-    <div class="card howit">
-      <p><b>Part 1 — The Math Engine.</b> It reads your historical results and, for football, builds an <b>attack strength</b> and <b>defence strength</b> for every team (goals scored/conceded versus league average, recent matches weighted more heavily). For any fixture it computes expected goals for each side, then uses the <b>Poisson distribution</b> to price every scoreline (0-0, 1-0, 2-1 …). Summing those cells gives Win / Draw / Loss, Over/Under, Both Teams To Score and correct-score probabilities. Scorer odds come from each player's share of his team's goals applied to today's expected goals. Basketball uses offensive/defensive point ratings and a normal distribution over the margin.</p>
-      <p><b>Part 2 — The AI Writer.</b> The engine's raw numbers are handed to an AI which writes the pre-match report. Without an API key a built-in template writer does this; with a Claude key the numbers go to Claude for a fluent analysis of form, head-to-head, injuries and a final verdict.</p>
-      <p><b>Live data:</b> scores, fixtures and results come from Football-Data.org, collected into MatchMind's own database every ten minutes — so nothing depends on your phone having a key or a fast connection. Coverage is about ten major competitions, and scores run a few minutes behind rather than second-by-second.</p>
-      <p><b>What isn't here:</b> no injury or team-news data — the free tier doesn't carry it, and the engine is results-based, so it wouldn't use it anyway. Likely Scorers stays empty for most matches for the same reason: the app would rather show you nothing than a number it can't stand behind.</p>
-      <p><b>Honest limits:</b> lineups, motivation and weather aren't modelled yet, and no model can predict sport reliably. Treat outputs as probabilities, not certainties.</p>
-    </div>
     </div>
 
   <!-- ================= BOTTOM NAV ================= -->
@@ -647,7 +629,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 90;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 91;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4921,15 +4903,19 @@ $('goFavs').addEventListener('click', ()=>navTo('favs'));
    and for watching another country's times. The device's own zone is always offered first and
    labelled, so choosing it back is obvious. */
 const TZ_CHOICES = [
-  ['','Follow this device'],
-  ['Africa/Lagos','Lagos · Nigeria'], ['Africa/Accra','Accra · Ghana'],
-  ['Africa/Johannesburg','Johannesburg'], ['Africa/Nairobi','Nairobi'], ['Africa/Cairo','Cairo'],
-  ['Europe/London','London'], ['Europe/Lisbon','Lisbon'], ['Europe/Madrid','Madrid'],
-  ['Europe/Paris','Paris'], ['Europe/Berlin','Berlin'], ['Europe/Rome','Rome'],
-  ['Europe/Amsterdam','Amsterdam'], ['Europe/Istanbul','Istanbul'], ['Europe/Moscow','Moscow'],
-  ['America/Sao_Paulo','São Paulo'], ['America/New_York','New York'], ['America/Chicago','Chicago'],
-  ['America/Los_Angeles','Los Angeles'], ['Asia/Dubai','Dubai'], ['Asia/Kolkata','India'],
-  ['Asia/Singapore','Singapore'], ['Australia/Sydney','Sydney']
+  ['','Follow this device','Device'],
+  ['Africa/Lagos','Lagos · Nigeria','Lagos'], ['Africa/Accra','Accra · Ghana','Accra'],
+  ['Africa/Johannesburg','Johannesburg · South Africa','Johannesburg'], ['Africa/Nairobi','Nairobi · Kenya','Nairobi'],
+  ['Africa/Cairo','Cairo · Egypt','Cairo'],
+  ['Europe/London','London · UK','London'], ['Europe/Lisbon','Lisbon · Portugal','Lisbon'],
+  ['Europe/Madrid','Madrid · Spain','Madrid'], ['Europe/Paris','Paris · France','Paris'],
+  ['Europe/Berlin','Berlin · Germany','Berlin'], ['Europe/Rome','Rome · Italy','Rome'],
+  ['Europe/Amsterdam','Amsterdam · Netherlands','Amsterdam'], ['Europe/Istanbul','Istanbul · Türkiye','Istanbul'],
+  ['Europe/Moscow','Moscow · Russia','Moscow'],
+  ['America/Sao_Paulo','São Paulo · Brazil','São Paulo'], ['America/New_York','New York · USA','New York'],
+  ['America/Chicago','Chicago · USA','Chicago'], ['America/Los_Angeles','Los Angeles · USA','Los Angeles'],
+  ['Asia/Dubai','Dubai · UAE','Dubai'], ['Asia/Kolkata','India','India'],
+  ['Asia/Singapore','Singapore','Singapore'], ['Australia/Sydney','Sydney · Australia','Sydney']
 ];
 function deviceZone(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){ return ''; } }
 
@@ -5063,42 +5049,35 @@ function applyLanguage(){
        renderScores(); renderFixtures(); renderFavs();
        if(lastTab==='tips') renderTips(); }catch(e){}
 }
-function renderTzSetting(){
+/* Ken's ask (build 91): the closed box shows just the city — "Lagos", or "Device" — while the open
+   list keeps the country so two similarly-named cities are still tellable apart. A <select> can only
+   display its selected option's own text, so the labels are swapped on focus and swapped back on
+   blur/change. `full` = the list is open. */
+function renderTzOptions(full){
   const sel = $('tzSel'); if(!sel) return;
   const dev = deviceZone();
-  sel.innerHTML = TZ_CHOICES.map(([v,l])=>
-    `<option value="${v}">${escapeHtml(l)}${v==='' && dev ? ' ('+escapeHtml(dev.split('/').pop().replace(/_/g,' '))+')' : ''}</option>`).join('');
+  const keep = sel.value;
+  sel.innerHTML = TZ_CHOICES.map(([v,long,short])=>{
+    let label = full ? long : short;
+    if(full && v==='' && dev) label += ' (' + dev.split('/').pop().replace(/_/g,' ') + ')';
+    return `<option value="${v}">${escapeHtml(label)}</option>`;
+  }).join('');
+  // a zone saved on another device may not be in the short list — keep it rather than silently reset
   if(prefs.tz && !TZ_CHOICES.some(c=>c[0]===prefs.tz))
-    sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(prefs.tz)}">${escapeHtml(prefs.tz)}</option>`);
-  sel.value = prefs.tz || '';
-  const now = new Date();
-  const p = zoneParts(now);
-  const hint = $('tzHint');
-  if(hint) hint.textContent = (prefs.tz ? 'Showing '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
-    + ' — right now that is ' + String(p.h).padStart(2,'0')+':'+String(p.mi).padStart(2,'0');
+    sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(prefs.tz)}">${escapeHtml(prefs.tz.split('/').pop().replace(/_/g,' '))}</option>`);
+  sel.value = keep || prefs.tz || '';
 }
-$('notifMainBtn').addEventListener('click', ()=>{
-  const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
-             && (notif.kickoff||notif.result||notif.digest);
-  on ? disablePush() : enablePush();
-});
-document.querySelectorAll('[data-nt]').forEach(b=>b.addEventListener('click', async ()=>{
-  const k = b.dataset.nt; notif[k] = !notif[k];
-  if(!notif.kickoff && !notif.result && !notif.digest){ await disablePush(); return; }
-  savePrefs(); renderNotif();
-  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
-       if(sub) await saveSubscription(sub); }catch(e){}
-}));
-/* The service worker asks the app to open a match when a notification is tapped while it is running. */
-if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev=>{
-  const d = ev.data || {};
-  if(d.mm === 'open-fixture' && d.fxid) try{ openFixtureById(+d.fxid); }catch(e){}
-});
-$('langSel').addEventListener('change', ()=>{
-  prefs.lang = $('langSel').value==='en' ? '' : $('langSel').value;
-  savePrefs(); applyLanguage();
-  toast(t('Language') + ': ' + (LANGS.find(l=>l[0]===(prefs.lang||'en'))||['','English'])[1]);
-});
+function renderTzSetting(){
+  const sel = $('tzSel'); if(!sel) return;
+  renderTzOptions(false);
+  sel.value = prefs.tz || '';
+  const p = zoneParts(new Date());
+  const hint = $('tzHint');
+  if(hint) hint.textContent = (prefs.tz ? 'Showing ' + prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
+    + ' — right now that is ' + String(p.h).padStart(2,'0') + ':' + String(p.mi).padStart(2,'0');
+}
+$('tzSel').addEventListener('focus', ()=>renderTzOptions(true));
+$('tzSel').addEventListener('blur',  ()=>renderTzOptions(false));
 $('tzSel').addEventListener('change', ()=>{
   prefs.tz = $('tzSel').value || '';
   savePrefs(); renderTzSetting();
@@ -5132,11 +5111,7 @@ $('clearCacheBtn').addEventListener('click', ()=>{
   toast('Cached data cleared — reloading');
   setTimeout(()=>location.reload(), 700);
 });
-$('signOutBtn').addEventListener('click', async ()=>{
-  if(!supa){ toast('Not signed in'); return; }
-  await authLogout();
-  toast('Signed out');
-});
+// Sign out lives in the Account card only (build 91) — two log-out buttons is one too many.
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
 $('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
