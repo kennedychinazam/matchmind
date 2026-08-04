@@ -105,7 +105,12 @@
   .fp-W{background:var(--green);} .fp-D{background:var(--gold); color:#1a1405;} .fp-L{background:var(--red); color:#fff;}
   .frow{display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:.9rem;}
   .frow:last-child{border-bottom:none;}
-  .analysis{line-height:1.75; font-size:.92rem; white-space:pre-wrap; padding-top:10px;}
+  /* Justified, per Ken (build 87). `hyphens:auto` matters more than it looks: justifying a
+     narrow phone column without it stretches word-spacing into visible white rivers. The
+     last line of each paragraph stays ragged, which is what normal typesetting does. */
+  .analysis{line-height:1.75; font-size:.92rem; white-space:pre-wrap; padding-top:10px;
+    text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto; overflow-wrap:break-word;}
+  .ctxprose{text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto;}
   .verdict{border-left:3px solid var(--gold); background:var(--card2); padding:12px 14px; border-radius:0 12px 12px 0; margin-top:12px; font-size:.9rem;}
   .spinner{display:inline-block; width:13px; height:13px; border:2px solid var(--border2); border-top-color:var(--gold); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:7px;}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -254,7 +259,7 @@
   .hm-comp{font-size:.8rem; font-weight:800; color:var(--gold);}
   .hm-dt{font-size:.72rem; color:var(--muted); margin-top:2px;}
   /* AI compare blocks (#20) */
-  .cmp{border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:10px; white-space:pre-wrap;}
+  .cmp{border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:10px; white-space:pre-wrap; text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto;}
   .cmp-h{font-size:.72rem; font-weight:800; letter-spacing:.08em; color:var(--gold); text-transform:uppercase; margin-bottom:6px;}
 
   /* risk slider */
@@ -673,7 +678,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 85;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 87;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1257,12 +1262,25 @@ async function callProxy(payload, providerId){
     e.notConfigured = res.status===503;
     throw e;
   }
-  if(j.limit!=null) aiQuota = { used:j.used, limit:j.limit };
+  /* Build 87. This used to copy BOTH fields whenever `limit` was present — but the provider-probe
+     response carries `limit` and NO `used`, so the very first call set used=undefined and the line
+     read "undefined of 50 free analyses used today". A cache hit carries neither, so nothing ever
+     repaired it. Merge each field only when the server actually sent it. */
+  mergeQuota(j);
   return j;
+}
+/* One place that decides what the quota counters are, so a response that omits a field can never
+   blank a number the app already knew. */
+function mergeQuota(j){
+  if(!j || (j.limit==null && j.used==null)) return;
+  const prev = aiQuota || {};
+  const used  = j.used  != null ? j.used  : (prev.used  != null ? prev.used  : 0);
+  const limit = j.limit != null ? j.limit : (prev.limit != null ? prev.limit : null);
+  aiQuota = { used, limit };
 }
 // Ask the server which providers it has keys for (used to label the Settings chips).
 async function refreshServerProviders(){
-  try{ const j = await callProxy(null, null); aiServerProviders = (j.providers||[]).map(p=>p.id); if(j.limit!=null) aiQuota = {used:aiQuota?aiQuota.used:0, limit:j.limit}; }
+  try{ const j = await callProxy(null, null); aiServerProviders = (j.providers||[]).map(p=>p.id); mergeQuota(j); }
   catch(e){ aiServerProviders = e.needsLogin ? null : []; }
   renderAISettings();
 }
@@ -1292,8 +1310,9 @@ function syncAIKeyField(){
 }
 // "· 2 of 5 today" — only meaningful for analyses that used the shared server allowance
 function quotaNote(via){
-  if(via!=='server' || !aiQuota) return '';
-  return `  (${aiQuota.used} of ${aiQuota.limit} free analyses used today.)`;
+  if(via!=='server' || !aiQuota || aiQuota.limit==null) return '';
+  const u = aiQuota.used==null ? 0 : aiQuota.used;
+  return `  (${u} of ${aiQuota.limit} free analyses used today.)`;
 }
 function renderAISettings(){
   const pc = $('aiProviderChips'); if(!pc) return;
@@ -1306,7 +1325,7 @@ function renderAISettings(){
     if(aiServerProviders===null) st.textContent = 'Sign in to use the shared AI allowance — no API key needed.';
     else if(!aiServerProviders.length) st.textContent = 'No shared AI configured on the server yet. A personal key below still works.';
     else st.innerHTML = `● = written by the app's own AI, no key needed`
-      + (aiQuota ? ` · <b>${Math.max(0, aiQuota.limit-aiQuota.used)} of ${aiQuota.limit}</b> left today` : '')
+      + ((aiQuota && aiQuota.limit!=null) ? ` · <b>${Math.max(0, aiQuota.limit-(aiQuota.used||0))} of ${aiQuota.limit}</b> left today` : '')
       + `. A personal key below skips the daily limit.`;
   }
   const cc = $('aiCompareChips');
@@ -1529,7 +1548,7 @@ function activateLeague(id){
   if(L.matches.length) (bk ? basketballEngine : footballEngine).matches = L.matches;
   afState.teamIds = L.teamIds;
   if(!bk){
-    if(L.scorerText){ $('scorerData').value = L.scorerText; loadScorers(L.scorerText); }
+    if(L.scorerText){ $('scorerData').value = L.scorerText; loadScorers(L.scorerText, false); }
     else { scorers = []; $('scorerData').value = ''; }
   }
   currentSport = bk ? 'basketball' : 'football'; syncSportChips(); refreshTeams();
@@ -1544,7 +1563,7 @@ async function afEnsureScorers(id){
     const ts = await afAuto(`/players/topscorers?league=${id}&season=${L.season||afState.season}`);
     const lines = ts.map(p=>{ const st=p.statistics[0];
       return `${p.player.name},${st.team.name},${st.goals.total||0},${st.games.appearences||0}`; });
-    if(lines.length){ L.scorerText = lines.join('\n'); $('scorerData').value = L.scorerText; loadScorers(L.scorerText); saveState(); }
+    if(lines.length){ L.scorerText = lines.join('\n'); $('scorerData').value = L.scorerText; loadScorers(L.scorerText, false); saveState(); }
   }catch(e){ /* scorers optional */ }
 }
 
@@ -1580,7 +1599,12 @@ let pendingMeta = null;       // {comp,country,date,time,fxid,lid,home,away} thr
 
 function $(id){ return document.getElementById(id); }
 
-function loadScorers(text){
+/* Where the current scorer list came from (build 86). The built-in demo list pairs REAL players
+   with INVENTED tallies, and its team keys collide exactly with Football-Data's shortNames, so the
+   app has to know whether it is holding real numbers or demo ones before it prints them. */
+let scorersAreSample = true;
+function loadScorers(text, isSample){
+  scorersAreSample = !!isSample;
   scorers = text.trim().split(/\r?\n/).map(l=>{
     const [name,team,goals,apps] = l.split(',').map(s=>s.trim());
     return {name, team, goals:+goals||0, apps:+apps||0};
@@ -1987,7 +2011,7 @@ function searchData(q){
 function renderSearch(q){
   const box=$('searchResults'); const {comps,teams,matches}=searchData(q);
   if(!q){ box.innerHTML='<div class="subnote">Type to search everything loaded on your device — instant, no data used.</div>'; return; }
-  if(!comps.length&&!teams.length&&!matches.length){ box.innerHTML='<div class="subnote">No matches for “'+q+'”. Load more via More → API-Football or Predict → Discover.</div>'; return; }
+  if(!comps.length&&!teams.length&&!matches.length){ box.innerHTML='<div class="subnote">Nothing loaded on this device matches “'+escapeHtml(q)+'”. Search only covers competitions the app already has — try the team\'s league in <b>Predict</b> first. Note the engine covers about ten major competitions, so lower divisions won\'t be here.</div>'; return; }
   let html=''; const mrefs=[], crefs=[], trefs=[];
   if(matches.length){ html+='<div class="sres-grp">Matches</div>';
     for(const m of matches){ const i=mrefs.length; mrefs.push(m);
@@ -2249,8 +2273,10 @@ async function analyze(){
   ctxFixture = { home, away, pred, comp:pendingMetaComp, date:pendingMetaDate, fxid:pendingMetaFxid,
                  played: !!pendingMetaPlayed, dead: pendingMetaDead,
                  L: (sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null) };
-  { const c=$('acc-context'); if(c) c.classList.remove('hidden'); }
-  if(supa) fetchMatchContext();
+  /* Build 87: with team news off there is nothing for this card to say on every single match,
+     so it stays hidden rather than becoming a permanent notice about a disabled feature. */
+  { const c=$('acc-context'); if(c) c.classList.toggle('hidden', !AI_CONTEXT_ON); }
+  if(supa && AI_CONTEXT_ON) fetchMatchContext();   // no doomed second AI call per match open
   /* For a match already played, show the pick AS IT WAS MADE rather than recomputing. Recomputing
      trains on data that now contains this very match — hindsight — and it made the detail page
      contradict the feed (Santos v Chapecoense: feed said '1 ✗', detail said 'Santos or DRAW 71.5%').
@@ -2306,13 +2332,28 @@ async function analyze(){
     $('acc-score').classList.remove('hidden');
     $('scoreRows').innerHTML = pred.topScores.map(s=>probRow(s.score, s.p, true)).join('');
 
-    const sc = [...footballEngine.scorerProbs(home, pred.lambdaH, scorers),
+    /* SCORERS — build 86. The built-in sample scorer list uses REAL Premier League clubs and REAL
+       current players with INVENTED goal tallies (Saka 11 in 28, Palmer 13 in 27 — none of it is
+       real). Football-Data stores `shortName`, which is "Arsenal", "Man City", "Chelsea"… — exactly
+       the strings that sample list is keyed on. So the moment the Premier League season starts, a
+       real fixture would have matched the sample and printed "Saka 47%" under the engine's genuine,
+       measured probabilities, with nothing saying it was made up. Every other number on this page is
+       either measured or labelled; this one would have been neither.
+       Rule: fabricated scorer data never appears on a real fixture. `pendingMetaFxid` is the
+       discriminator — cloud fixtures have one, the Custom-matchup tool does not. */
+    const sampleOnRealFixture = scorersAreSample && !!pendingMetaFxid;
+    const sc = sampleOnRealFixture ? [] :
+               [...footballEngine.scorerProbs(home, pred.lambdaH, scorers),
                 ...footballEngine.scorerProbs(away, pred.lambdaA, scorers)]
                 .sort((a,b)=>b.prob-a.prob);
     $('acc-scorers').classList.remove('hidden');
     $('scorerRows').innerHTML = sc.length
       ? sc.map(s=>probRow(`${s.name} <span class="muted" style="font-size:.72rem">(${s.team})</span>`, s.prob)).join('')
-      : '<div class="subnote">No scorer data for these teams — add some in the Data tab.</div>';
+        + (scorersAreSample ? '<div class="subnote">⚠ These come from the app\'s built-in <b style="color:var(--text)">demo</b> scorer list — the players are real, the goal tallies are invented. Fine for trying the tool out; not a tip. Load real numbers in More → Data.</div>' : '')
+      : sampleOnRealFixture
+        ? '<div class="subnote">No scorer data for these teams. The app ships with a demo list whose goal tallies are invented, so it is deliberately not used on real fixtures — a made-up number sitting beside the engine\'s measured ones is worse than no number. Add real figures in More → Data and this fills in.</div>'
+        : '<div class="subnote">No scorer data for these teams — add some in the Data tab.</div>';
+    // never hand fabricated players to the AI writer either — it would state them as fact
     scorerCtx = sc.map(s=>({player:s.name, team:s.team, anytimeProb:+(s.prob).toFixed(3)}));
   } else {
     const fav = pred.pHome>0.5;
@@ -2626,8 +2667,32 @@ function applyContextToPrediction(L, pred, homeMult, awayMult){
 }
 
 const ctxSeen = new Map();   // fxid -> rendered HTML, so re-opening a match costs nothing
+/* ── TEAM NEWS: OFF, and this is a factual limit, not a bug (build 87) ──────────────────────────
+   Ken reported this panel had never once shown anything but an error. It hadn't, and it couldn't.
+
+   Context mode needs Gemini's `google_search` grounding tool. Google's own pricing page lists, for
+   EVERY model including the gemini-3.6-flash this app uses:
+
+       Grounding with Google Search | Free Tier: "Not available" | Paid Tier: 5,000 free/month, then $14/1,000
+
+   So the request was refused every single time. Google returns 429 for it, the proxy maps any 429
+   to "too many requests in the last minute", and a permanent structural block therefore wore the
+   costume of a transient rate limit for weeks — which is why it kept looking like something that
+   might work after a short wait.
+
+   Enabling billing on the Google project is the only thing that unlocks it, and §5 of the handoff
+   says never to do that: it permanently destroys the free tier the whole AI writer depends on. So
+   the feature stays switched off rather than firing two doomed calls on every match open.
+
+   Nothing here is deleted. Flip this to true the day the project goes paid and it works as built. */
+const AI_CONTEXT_ON = false;
+
 async function fetchMatchContext(){
   const box = $('ctxOut'); if(!box || !ctxFixture) return;
+  if(!AI_CONTEXT_ON){
+    box.innerHTML = '<div class="subnote">Live team news is switched off. It needs Google\'s web-search grounding, which is <b>not available on the free tier</b> — every request was being refused, which is what produced the rate-limit message you used to see here. The engine\'s odds above are unaffected: they are results-based and never included team news.</div>';
+    return;
+  }
   const f = ctxFixture;
   /* Team news is only meaningful BEFORE kick-off, and the free tier allows 10 requests a minute.
      Skipping played matches and remembering what we already fetched keeps browsing cheap — without
@@ -2647,7 +2712,7 @@ async function fetchMatchContext(){
     }));
     let j = {}; try{ j = await res.json(); }catch(_){}
     if(!res.ok || !j.ok){ box.innerHTML = `<div class="subnote">${escapeHtml(j.error||'Team news unavailable — the odds above are the engine\'s own.')}</div>`; return; }
-    if(j.limit!=null) aiQuota = { used:j.used, limit:j.limit };
+    mergeQuota(j);
     const C = j.context || {}, srcs = j.sources || [];
     const hM = Number(C.homeMult)||1, aM = Number(C.awayMult)||1;
     const notes = (C.notes||[]).map(n=>`<div class="frow"><span style="flex:1;font-size:.84rem">• ${escapeHtml(String(n))}</span></div>`).join('');
@@ -4576,8 +4641,18 @@ async function authSignup(){
   if(!email || !pw){ toast('Enter email and password'); return; }
   if(!name){ toast('Enter your name'); return; }
   $('acctStatus').textContent='Creating account…';
-  const {error}=await supa.auth.signUp({email, password:pw, options:{data:{display_name:name}}});
-  $('acctStatus').textContent = error ? '✗ '+error.message : `✓ Welcome, ${name}! You’re signed in.`;
+  const {data, error}=await supa.auth.signUp({email, password:pw, options:{data:{display_name:name}}});
+  /* Build 86. This said "✓ Welcome, you're signed in" on ANY success — which was true only while
+     "Confirm email" was switched OFF for testing. With it on (as it now is, correctly, before real
+     users), signUp succeeds but returns NO SESSION: the account exists and is waiting on the
+     confirmation link. The app was telling people they were signed in when they were not, and they
+     would have found out by watching their favourites silently fail to sync.
+     `session` is the only honest test of "am I actually logged in". */
+  if(error){ $('acctStatus').textContent = '✗ '+error.message; return; }
+  $('acctStatus').innerHTML = data && data.session
+    ? `✓ Welcome, ${escapeHtml(name)}! You’re signed in.`
+    : `✉️ Almost there, ${escapeHtml(name)} — we’ve emailed <b>${escapeHtml(email)}</b> a confirmation link.`
+      + `<div class="subnote">Open it, then come back here and press <b>Log in</b>. You are <b>not</b> signed in yet, so your favourites won’t sync across devices until you do. Check spam if it hasn’t arrived in a minute.</div>`;
 }
 async function authLogin(){
   if(!supa) return;
@@ -4662,7 +4737,7 @@ function restoreState(){
     if(!s || !s.fb || !s.fb.length) return false;
     footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
-    if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText); }
+    if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
     if(s.afKey) $('afKey').value = s.afKey;
     if(s.af){
       afState.season = s.af.season || afState.season;
@@ -4744,13 +4819,13 @@ $('resetBtn').addEventListener('click', ()=>{
   try{ localStorage.removeItem('mm_state'); }catch(e){}
   footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
   basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
-  loadScorers(SAMPLE_SCORERS);
+  loadScorers(SAMPLE_SCORERS, true);
   $('scorerData').value = SAMPLE_SCORERS;
   refreshTeams();
   setDataChip('Sample data');
 });
 $('saveScorersBtn').addEventListener('click', ()=>{
-  loadScorers($('scorerData').value);
+  loadScorers($('scorerData').value, false);   // typed/pasted by the user = real data
   updateStats();
   saveState();
   alert(`Saved ${scorers.length} players.`);
@@ -4783,7 +4858,7 @@ try{ if($('verLabel')) $('verLabel').textContent = 'v0.9 · build '+APP_BUILD; }
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
-loadScorers(SAMPLE_SCORERS);
+loadScorers(SAMPLE_SCORERS, true);
 $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
 if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
