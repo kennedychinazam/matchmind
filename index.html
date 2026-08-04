@@ -534,12 +534,12 @@
         <div class="segsm" id="themeChips"></div>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3.4 2.6 3.4 15.4 0 18"/><path d="M12 3c-3.4 2.6 -3.4 15.4 0 18"/></svg></span><div><div class="sl">Language</div><div class="sd">More languages coming soon</div></div></div>
-        <div class="segsm"><button class="sfchip active">English</button></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
+        <select id="tzSel" style="max-width:52%"></select>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><div><div class="sl">Notifications</div><div class="sd">Daily picks &amp; kickoff alerts — coming soon</div></div></div>
-        <div class="segsm"><button class="sfchip" id="notifToggle">Off</button></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl">Only leagues with an edge</div><div class="sd">Hide competitions the engine has been measured on and does not beat</div></div></div>
+        <div class="segsm"><button class="sfchip" id="edgeToggle">Off</button></div>
       </div>
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="var(--gold)" stroke="none"><path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 20.9l1.1-6.5L2.6 9.3l6.5-.9z"/></svg></span><div><div class="sl">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div></div>
@@ -551,82 +551,22 @@
       </div>
     </div>
 
-    <div class="sec-label">Custom matchup</div>
+    <div class="sec-label">Your data</div>
     <div class="card">
-      <div class="notice">Analyze any two teams from the loaded data — a power tool independent of the fixtures feed.</div>
-      <div class="picker">
-        <div class="pick-side"><label>Home</label><select id="homeTeam"></select></div>
-        <div class="vs">VS</div>
-        <div class="pick-side"><label>Away</label><select id="awayTeam"></select></div>
+      <h2>🔒 Your data</h2>
+      <div class="setrow">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
+        <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
-      <button class="cta" id="analyzeBtn" style="margin-top:12px">⚡ Analyze Fixture</button>
+      <div class="setrow">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/><path d="M15 15l4-3-4-3"/><path d="M19 12H9"/></svg></span><div><div class="sl">Sign out</div><div class="sd">Ends this session on this device</div></div></div>
+        <button class="btn" id="signOutBtn">Sign out</button>
+      </div>
+      <div class="subnote">To delete your account and everything stored with it, message Ken — that one is handled by hand for now, so it can be checked before anything is destroyed.</div>
     </div>
 
-    <div class="sec-label">Live data</div>
-    <div class="card">
-      <h2>⚡ API-Football</h2>
-      <div class="notice">
-        Loads <b>five leagues at once</b> — Premier League 🏴󠁧󠁢󠁥󠁮󠁧󠁿, La Liga 🇪🇸, Serie A 🇮🇹, Bundesliga 🇩🇪, Ligue 1 🇫🇷 —
-        with results, upcoming fixtures and an instant prediction on every fixture. Injury news loads when you open a match.
-        Costs 10–15 of your 100 free daily requests. If a league fails, your plan may not cover that season — try 2023.
-      </div>
-      <div class="field"><label>API key</label><input type="password" id="afKey" placeholder="your api-football key"></div>
-      <div class="field"><label>Match extras</label>
-        <label class="frow" style="gap:8px; cursor:pointer; align-items:center;">
-          <input type="checkbox" id="afExtrasChk" style="width:auto;">
-          <span style="flex:1">Use API-Football for timeline, stats, lineups &amp; injuries</span>
-        </label>
-        <div class="muted" id="afExtrasNote" style="font-size:.72rem; margin-top:4px;"></div>
-      </div>
-      <div class="field"><label>Season (start year)</label>
-        <select id="afSeason">
-          <option>2026</option><option selected>2025</option><option>2024</option><option>2023</option><option>2022</option><option>2021</option>
-        </select>
-      </div>
-      <button class="btn gold" id="afLoadBtn">Load 5 leagues</button>
-      <div class="status" id="afStatus"></div>
-    </div>
-
-    <div class="sec-label">Manual data</div>
-    <div class="card">
-      <h2>📁 CSV Upload</h2>
-      <div class="notice">
-        Football: free CSVs at <b>football-data.co.uk</b> (Date, HomeTeam, AwayTeam, FTHG, FTAG).<br>
-        Basketball: any CSV with Date, HomeTeam, AwayTeam, HomePts, AwayPts.
-      </div>
-      <div class="field"><label>Sport for upload</label>
-        <select id="uploadSport">
-          <option value="football">Football</option>
-          <option value="basketball">Basketball</option>
-        </select>
-      </div>
-      <div class="field"><label>CSV file</label><input type="file" id="csvFile" accept=".csv"></div>
-      <button class="btn" id="loadCsvBtn">Load CSV</button>
-      <button class="btn" id="resetBtn">Reset to sample data</button>
-      <div class="status" id="dataStats"></div>
-    </div>
-
-    <div class="card">
-      <h2>👟 Player Scorer Data</h2>
-      <div class="notice">Format: <b>Player,Team,Goals,Apps</b> — one per line. API-Football's "Load season" fills this automatically.</div>
-      <textarea id="scorerData"></textarea>
-      <div style="margin-top:10px;"><button class="btn" id="saveScorersBtn">Save scorer data</button></div>
-    </div>
-
-    <div class="sec-label">Engine validation</div>
-    <div class="card">
-      <h2>🧪 Backtest</h2>
-      <div class="notice">
-        Replays a competition's history match by match: before each match the engine predicts using only earlier results, then we score it against what actually happened.
-        Pick the competition to test — the more completed matches it has, the more the numbers mean.
-      </div>
-      <div class="field"><label>Competition</label><select id="btLeague"></select></div>
-      <button class="btn gold" id="backtestBtn">Run backtest</button>
-      <button class="btn" id="motStudyBtn" style="margin-top:8px">🧭 Motivation study (all competitions)</button>
-      <div id="btResults" style="margin-top:12px;"></div>
-    </div>
-
-    <div class="card">
+    <div class="sec-label">Past predictions</div>
+<div class="card">
       <h2>📅 Past predictions</h2>
       <div class="notice">Pick any date to see what the app predicted and how it did.</div>
       <div class="field"><label>Date</label><input type="date" id="archDate"></div>
@@ -635,23 +575,29 @@
       <div id="archOut" style="margin-top:12px;"></div>
     </div>
 
-    <div class="sec-label">AI writer</div>
-    <div class="card">
-      <h2>🤖 AI analysis writer</h2>
-      <div class="notice">Choose which AI writes the pre-match analysis from your engine's numbers. Each uses your own API key, stored on this device only. The engine's probabilities never change — the model only writes them up. Claude runs directly in the browser; DeepSeek &amp; Kimi may be blocked by the browser (CORS) and need the upcoming backend.</div>
-      <div class="field"><label>Writer</label><div class="sfilters" id="aiProviderChips"></div>
-        <div class="muted" id="aiServerStatus" style="font-size:.72rem; margin-top:6px;"></div></div>
-      <div class="field"><label id="aiKeyLabel">Claude API key</label><input type="password" id="aiKeyInput" placeholder="sk-ant-…"></div>
-      <div class="field"><label>Compare with (optional — two write-ups side by side)</label><div class="sfilters" id="aiCompareChips" style="flex-wrap:wrap"></div></div>
-      <button class="btn gold" id="aiSaveBtn">Save AI settings</button>
-      <div class="status" id="keyStatus"></div>
+        <div id="devStub" hidden aria-hidden="true">
+      <select id="homeTeam"></select><select id="awayTeam"></select>
+      <textarea id="scorerData"></textarea><input id="afKey" value="">
+      <input type="checkbox" id="afExtrasChk"><select id="afSeason"></select>
+      <select id="uploadSport"></select><select id="btLeague"></select>
+      <input id="aiKeyInput" value=""><input type="date" id="archDate">
+      <input type="file" id="csvFile">
+      <button id="afLoadBtn"></button><button id="aiSaveBtn"></button>
+      <button id="analyzeBtn"></button><button id="backtestBtn"></button>
+      <button id="loadCsvBtn"></button><button id="motStudyBtn"></button>
+      <button id="resetBtn"></button><button id="saveScorersBtn"></button>
+      <button id="predDatePick"></button>
+      <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
+      <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
+      <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
     </div>
 
     <div class="sec-label">How it works</div>
     <div class="card howit">
       <p><b>Part 1 — The Math Engine.</b> It reads your historical results and, for football, builds an <b>attack strength</b> and <b>defence strength</b> for every team (goals scored/conceded versus league average, recent matches weighted more heavily). For any fixture it computes expected goals for each side, then uses the <b>Poisson distribution</b> to price every scoreline (0-0, 1-0, 2-1 …). Summing those cells gives Win / Draw / Loss, Over/Under, Both Teams To Score and correct-score probabilities. Scorer odds come from each player's share of his team's goals applied to today's expected goals. Basketball uses offensive/defensive point ratings and a normal distribution over the margin.</p>
       <p><b>Part 2 — The AI Writer.</b> The engine's raw numbers are handed to an AI which writes the pre-match report. Without an API key a built-in template writer does this; with a Claude key the numbers go to Claude for a fluent analysis of form, head-to-head, injuries and a final verdict.</p>
-      <p><b>Live data:</b> with an API-Football key the app loads real fixtures and top scorers for a league season and pulls injury news for both teams on every analysis. The injury list is shown and fed to the AI writer, though the probability engine itself is results-based and does not discount for absences.</p>
+      <p><b>Live data:</b> scores, fixtures and results come from Football-Data.org, collected into MatchMind's own database every ten minutes — so nothing depends on your phone having a key or a fast connection. Coverage is about ten major competitions, and scores run a few minutes behind rather than second-by-second.</p>
+      <p><b>What isn't here:</b> no injury or team-news data — the free tier doesn't carry it, and the engine is results-based, so it wouldn't use it anyway. Likely Scorers stays empty for most matches for the same reason: the app would rather show you nothing than a number it can't stand behind.</p>
       <p><b>Honest limits:</b> lineups, motivation and weather aren't modelled yet, and no model can predict sport reliably. Treat outputs as probabilities, not certainties.</p>
     </div>
     </div>
@@ -678,7 +624,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 87;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 88;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1647,11 +1593,33 @@ function pill(r){ return `<span class="form-pill fp-${r}">${r}</span>`; }
 function todayStrLocal(){ const d=new Date(); d.setHours(0,0,0,0);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 // stored kickoff date+time are UTC — convert to the viewer's local HH:MM for display
+/* USER PREFERENCES (build 88). Kick-offs are stored in UTC and were always converted to the
+   DEVICE clock, which is right for almost everyone — it is network-set and follows you when you
+   travel. `tz` exists for the two cases the device clock gets wrong: a phone set to the wrong zone,
+   and someone who wants to read another country's times. Empty string = follow the device, and that
+   stays the default deliberately. */
+const prefs = { tz:'', edgeOnly:false };
+
+/* One place that turns a UTC kick-off into the user's wall clock. Intl does the heavy lifting, and
+   an invalid saved zone falls back to the device rather than throwing on every row. */
+function zoneParts(d){
+  if(!prefs.tz) return {y:d.getFullYear(), mo:d.getMonth()+1, da:d.getDate(), h:d.getHours(), mi:d.getMinutes()};
+  try{
+    const f = new Intl.DateTimeFormat('en-GB', { timeZone: prefs.tz, year:'numeric', month:'2-digit',
+      day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false });
+    const o = {}; for(const part of f.formatToParts(d)) o[part.type] = part.value;
+    return {y:+o.year, mo:+o.month, da:+o.day, h:+o.hour%24, mi:+o.minute};
+  }catch(e){
+    prefs.tz = '';   // a zone this device can't resolve — stop trying it
+    return {y:d.getFullYear(), mo:d.getMonth()+1, da:d.getDate(), h:d.getHours(), mi:d.getMinutes()};
+  }
+}
 function localHM(dateStr, timeStr){
   if(!dateStr || !timeStr) return timeStr || '';
   const d = new Date(dateStr+'T'+timeStr+':00Z');
   if(isNaN(d)) return timeStr;
-  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const p = zoneParts(d);
+  return String(p.h).padStart(2,'0')+':'+String(p.mi).padStart(2,'0');
 }
 function daysPast(dateStr){
   const d=new Date((dateStr||'')+'T00:00:00'); if(isNaN(d)) return 0;
@@ -3564,6 +3532,14 @@ function visibleLeagues(){
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
+  /* Build 88 — "only leagues with a measured edge". This is build 65's finding turned into
+     something actionable rather than a badge to read past. It hides competitions where the engine
+     has been TESTED and does NOT beat "home or draw". A league whose test hasn't finished yet is
+     kept, not hidden: absence of a verdict is not a negative verdict. If the filter would empty the
+     feed entirely it is ignored for this render, because a blank screen teaches the user nothing —
+     renderFixtures() says so on screen when that happens. */
+  if(prefs.edgeOnly){ const proven = Ls.filter(l=>{ const sk = skillOf(l); return !sk || !sk.ready || sk.proven; });
+                      if(proven.length) Ls = proven; }
   /* Ken's call: publish everywhere, but let the competitions with a measured edge lead. A proven
      league outranks an unproven one regardless of how famous it is (build 65). */
   return Ls.sort((a,b)=> (skillProven(b)?1:0)-(skillProven(a)?1:0)
@@ -4104,7 +4080,9 @@ const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
 function localDateOf(r){
   const d = new Date((r.date||'')+'T'+(r.time||'00:00')+':00Z');
   if(isNaN(d)) return r.date;
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  // must use the SAME zone as localHM, or a match shows 00:30 under yesterday's heading
+  const p = zoneParts(d);
+  return `${p.y}-${String(p.mo).padStart(2,'0')}-${String(p.da).padStart(2,'0')}`;
 }
 /* How far the Scores date strip reaches. Both directions are covered by the collector's rolling
    window (10 days back → 9 ahead), so these can be raised up to that without any backend change —
@@ -4603,6 +4581,7 @@ async function showPredictDate(d){
 }
 
 /* ---------- persistence (survives reload) ---------- */
+function savePrefs(){ saveState(); }
 function saveState(){
   try{
     localStorage.setItem('mm_state', JSON.stringify({
@@ -4610,6 +4589,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
+      prefs,
       af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
@@ -4739,6 +4719,7 @@ function restoreState(){
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
     if(s.afKey) $('afKey').value = s.afKey;
+    if(s.prefs){ prefs.tz = s.prefs.tz || ''; prefs.edgeOnly = !!s.prefs.edgeOnly; }
     if(s.af){
       afState.season = s.af.season || afState.season;
       afState.leagues = s.af.leagues || {};
@@ -4772,7 +4753,76 @@ $('searchClose').addEventListener('click', closeSearch);
 $('searchInput').addEventListener('input', e=>renderSearch(e.target.value));
 $('tipFairToggle').addEventListener('click', ()=>{ tipState.fair=!tipState.fair; renderTips(); });
 $('goFavs').addEventListener('click', ()=>navTo('favs'));
-$('notifToggle').addEventListener('click', ()=>toast('Notifications are coming in a later build'));
+
+/* ── Settings added in build 88 ─────────────────────────────────────────────── */
+/* A short list, not all ~400 IANA zones. A picker you scroll for a minute is worse than no picker,
+   and the device default already covers nearly everyone — this is for the phone-clock-is-wrong case
+   and for watching another country's times. The device's own zone is always offered first and
+   labelled, so choosing it back is obvious. */
+const TZ_CHOICES = [
+  ['','Follow this device'],
+  ['Africa/Lagos','Lagos · Nigeria'], ['Africa/Accra','Accra · Ghana'],
+  ['Africa/Johannesburg','Johannesburg'], ['Africa/Nairobi','Nairobi'], ['Africa/Cairo','Cairo'],
+  ['Europe/London','London'], ['Europe/Lisbon','Lisbon'], ['Europe/Madrid','Madrid'],
+  ['Europe/Paris','Paris'], ['Europe/Berlin','Berlin'], ['Europe/Rome','Rome'],
+  ['Europe/Amsterdam','Amsterdam'], ['Europe/Istanbul','Istanbul'], ['Europe/Moscow','Moscow'],
+  ['America/Sao_Paulo','São Paulo'], ['America/New_York','New York'], ['America/Chicago','Chicago'],
+  ['America/Los_Angeles','Los Angeles'], ['Asia/Dubai','Dubai'], ['Asia/Kolkata','India'],
+  ['Asia/Singapore','Singapore'], ['Australia/Sydney','Sydney']
+];
+function deviceZone(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){ return ''; } }
+function renderTzSetting(){
+  const sel = $('tzSel'); if(!sel) return;
+  const dev = deviceZone();
+  sel.innerHTML = TZ_CHOICES.map(([v,l])=>
+    `<option value="${v}">${escapeHtml(l)}${v==='' && dev ? ' ('+escapeHtml(dev.split('/').pop().replace(/_/g,' '))+')' : ''}</option>`).join('');
+  if(prefs.tz && !TZ_CHOICES.some(c=>c[0]===prefs.tz))
+    sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(prefs.tz)}">${escapeHtml(prefs.tz)}</option>`);
+  sel.value = prefs.tz || '';
+  const now = new Date();
+  const p = zoneParts(now);
+  const hint = $('tzHint');
+  if(hint) hint.textContent = (prefs.tz ? 'Showing '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
+    + ' — right now that is ' + String(p.h).padStart(2,'0')+':'+String(p.mi).padStart(2,'0');
+}
+$('tzSel').addEventListener('change', ()=>{
+  prefs.tz = $('tzSel').value || '';
+  savePrefs(); renderTzSetting();
+  // every feed groups matches by local date, so all of them have to be redrawn, not just re-labelled
+  try{ renderScores(); renderFixtures(); renderFavs(); if(lastTab==='tips') renderTips(); }catch(e){}
+  toast(prefs.tz ? 'Times now shown for '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Times follow this device');
+});
+function renderEdgeSetting(){
+  const b = $('edgeToggle'); if(!b) return;
+  b.textContent = prefs.edgeOnly ? 'On' : 'Off';
+  b.classList.toggle('active', !!prefs.edgeOnly);
+}
+$('edgeToggle').addEventListener('click', ()=>{
+  prefs.edgeOnly = !prefs.edgeOnly; savePrefs(); renderEdgeSetting();
+  try{ renderFixtures(); if(lastTab==='tips') renderTips(); }catch(e){}
+  toast(prefs.edgeOnly
+    ? 'Showing only competitions with a measured edge'
+    : 'Showing every competition');
+});
+
+/* Clearing the cache must not sign anyone out or drop their favourites — those live in the same
+   localStorage blob, so this rebuilds the record rather than wiping the key. */
+$('clearCacheBtn').addEventListener('click', ()=>{
+  if(!confirm('Clear cached scores, fixtures and predictions on this device?\n\nYour account, favourites and prediction record are kept.')) return;
+  try{
+    afState.scores = null; afState.leagues = {}; afState.leagueOrder = []; afState.activeLeagueId = null;
+    for(const L of Object.values(afState.leagues||{})){ L._neutral = null; }
+    ctxSeen.clear();
+    saveState();
+  }catch(e){}
+  toast('Cached data cleared — reloading');
+  setTimeout(()=>location.reload(), 700);
+});
+$('signOutBtn').addEventListener('click', async ()=>{
+  if(!supa){ toast('Not signed in'); return; }
+  await authLogout();
+  toast('Signed out');
+});
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
 $('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
@@ -4863,6 +4913,9 @@ $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
 if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
+/* AFTER restoreState, not before — these two controls display saved preferences, and painting them
+   first showed the defaults while the feed already honoured the saved values. */
+try{ renderTzSetting(); renderEdgeSetting(); }catch(e){}
 // stay on the tab you were on before a refresh (#refresh keeps page)
 try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
 setTimeout(()=>{
