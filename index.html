@@ -108,6 +108,12 @@
   /* Justified, per Ken (build 87). `hyphens:auto` matters more than it looks: justifying a
      narrow phone column without it stretches word-spacing into visible white rivers. The
      last line of each paragraph stays ragged, which is what normal typesetting does. */
+  /* Arabic (build 89). Only a few rules assume left-to-right; dir="rtl" on <html> flips the rest.
+     The date strip must not reverse — a timeline reads chronologically in every language. */
+  html[dir="rtl"] .datebar, html[dir="rtl"] .htabs, html[dir="rtl"] .sfilters{direction:ltr;}
+  html[dir="rtl"] .fxteams, html[dir="rtl"] .sl, html[dir="rtl"] .sd, html[dir="rtl"] .subnote{text-align:right;}
+  html[dir="rtl"] .analysis, html[dir="rtl"] .cmp{text-align:justify;}
+  html[dir="rtl"] .favright{margin-right:auto; margin-left:0;}
   .analysis{line-height:1.75; font-size:.92rem; white-space:pre-wrap; padding-top:10px;
     text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto; overflow-wrap:break-word;}
   .ctxprose{text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto;}
@@ -520,52 +526,69 @@
   <!-- ================= DATA VIEW ================= -->
   <div class="view hidden" id="view-data">
 
-    <div class="sec-label">Account</div>
+    <div class="sec-label" data-i18n="Account">Account</div>
     <div class="card">
       <h2>👤 Account &amp; sync<span id="acctSynced"></span></h2>
       <div id="acctBox"></div>
     </div>
 
-    <div class="sec-label">Settings</div>
+    <div class="sec-label" data-i18n="Settings">Settings</div>
     <div class="card">
       <h2>⚙️ Settings</h2>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl">Theme</div><div class="sd">Appearance of the app</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="Theme">Theme</div><div class="sd" data-i18n="Appearance of the app">Appearance of the app</div></div></div>
         <div class="segsm" id="themeChips"></div>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3.4 2.6 3.4 15.4 0 18"/><path d="M12 3c-3.4 2.6 -3.4 15.4 0 18"/></svg></span><div><div class="sl" data-i18n="Language">Language</div><div class="sd" data-i18n="Choose your language">Choose your language</div></div></div>
+        <select id="langSel" style="max-width:44%"></select>
+      </div>
+      <div class="setrow">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl" data-i18n="Kick-off times">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
         <select id="tzSel" style="max-width:52%"></select>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl">Only leagues with an edge</div><div class="sd">Hide competitions the engine has been measured on and does not beat</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd">Hide competitions the engine has been measured on and does not beat</div></div></div>
         <div class="segsm"><button class="sfchip" id="edgeToggle">Off</button></div>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="var(--gold)" stroke="none"><path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 20.9l1.1-6.5L2.6 9.3l6.5-.9z"/></svg></span><div><div class="sl">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><div><div class="sl">Notifications</div><div class="sd" id="notifState">Off</div></div></div>
+        <button class="btn" id="notifMainBtn">Turn on</button>
+      </div>
+      <div id="notifTypes" class="hidden">
+        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Kick-off reminder</div><div class="sd">30 minutes before a match you starred</div></div></div>
+          <div class="segsm"><button class="sfchip" data-nt="kickoff">Off</button></div></div>
+        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Your prediction results</div><div class="sd">When a starred match finishes and gets graded</div></div></div>
+          <div class="segsm"><button class="sfchip" data-nt="result">Off</button></div></div>
+        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Daily picks</div><div class="sd">One summary each morning — off by default on purpose</div></div></div>
+          <div class="segsm"><button class="sfchip" data-nt="digest">Off</button></div></div>
+        <div class="subnote" id="notifNote"></div>
+      </div>
+      <div class="setrow">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="var(--gold)" stroke="none"><path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 20.9l1.1-6.5L2.6 9.3l6.5-.9z"/></svg></span><div><div class="sl" data-i18n="Favourites">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div></div>
         <button class="btn" id="goFavs">Open</button>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
         <span class="muted" style="font-size:.72rem">AI sports predictions</span>
       </div>
     </div>
 
-    <div class="sec-label">Your data</div>
+    <div class="sec-label" data-i18n="Your data">Your data</div>
     <div class="card">
       <h2>🔒 Your data</h2>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl" data-i18n="Clear cached data">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/><path d="M15 15l4-3-4-3"/><path d="M19 12H9"/></svg></span><div><div class="sl">Sign out</div><div class="sd">Ends this session on this device</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/><path d="M15 15l4-3-4-3"/><path d="M19 12H9"/></svg></span><div><div class="sl" data-i18n="Sign out">Sign out</div><div class="sd">Ends this session on this device</div></div></div>
         <button class="btn" id="signOutBtn">Sign out</button>
       </div>
       <div class="subnote">To delete your account and everything stored with it, message Ken — that one is handled by hand for now, so it can be checked before anything is destroyed.</div>
     </div>
 
-    <div class="sec-label">Past predictions</div>
+    <div class="sec-label" data-i18n="Past predictions">Past predictions</div>
 <div class="card">
       <h2>📅 Past predictions</h2>
       <div class="notice">Pick any date to see what the app predicted and how it did.</div>
@@ -592,7 +615,7 @@
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
     </div>
 
-    <div class="sec-label">How it works</div>
+    <div class="sec-label" data-i18n="How it works">How it works</div>
     <div class="card howit">
       <p><b>Part 1 — The Math Engine.</b> It reads your historical results and, for football, builds an <b>attack strength</b> and <b>defence strength</b> for every team (goals scored/conceded versus league average, recent matches weighted more heavily). For any fixture it computes expected goals for each side, then uses the <b>Poisson distribution</b> to price every scoreline (0-0, 1-0, 2-1 …). Summing those cells gives Win / Draw / Loss, Over/Under, Both Teams To Score and correct-score probabilities. Scorer odds come from each player's share of his team's goals applied to today's expected goals. Basketball uses offensive/defensive point ratings and a normal distribution over the margin.</p>
       <p><b>Part 2 — The AI Writer.</b> The engine's raw numbers are handed to an AI which writes the pre-match report. Without an API key a built-in template writer does this; with a Claude key the numbers go to Claude for a fluent analysis of form, head-to-head, injuries and a final verdict.</p>
@@ -604,11 +627,11 @@
 
   <!-- ================= BOTTOM NAV ================= -->
   <div class="bottomnav">
-    <button class="nav-btn active" data-view="scores"><span class="nic">⚽</span>Scores</button>
-    <button class="nav-btn" data-view="predict"><span class="nic">📊</span>Predict</button>
-    <button class="nav-btn" data-view="tips"><span class="nic">🔥</span>Tips</button>
-    <button class="nav-btn" data-view="favs"><span class="nic">⭐</span>Favs</button>
-    <button class="nav-btn" data-view="data"><span class="nic">⚙️</span>More</button>
+    <button class="nav-btn active" data-view="scores"><span class="nic">⚽</span><span data-i18n="Scores">Scores</span></button>
+    <button class="nav-btn" data-view="predict"><span class="nic">📊</span><span data-i18n="Predict">Predict</span></button>
+    <button class="nav-btn" data-view="tips"><span class="nic">🔥</span><span data-i18n="Tips">Tips</span></button>
+    <button class="nav-btn" data-view="favs"><span class="nic">⭐</span><span data-i18n="Favs">Favs</span></button>
+    <button class="nav-btn" data-view="data"><span class="nic">⚙️</span><span data-i18n="More">More</span></button>
   </div>
 
 </div>
@@ -624,7 +647,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 88;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 90;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1598,7 +1621,127 @@ function todayStrLocal(){ const d=new Date(); d.setHours(0,0,0,0);
    travel. `tz` exists for the two cases the device clock gets wrong: a phone set to the wrong zone,
    and someone who wants to read another country's times. Empty string = follow the device, and that
    stays the default deliberately. */
-const prefs = { tz:'', edgeOnly:false };
+const prefs = { tz:'', edgeOnly:false, lang:'' };
+/* ══ LANGUAGES (build 89) ═══════════════════════════════════════════════════════
+   The key IS the English string. That is deliberate for a retrofit this size: it means a string
+   that has not been translated yet renders as readable English rather than as "nav.scores", and it
+   means wrapping a string is a one-word edit with nothing to keep in sync. The cost is that two
+   different meanings sharing one English word need disambiguating later; none do yet.
+
+   Phase 1 covers the CHROME — navigation, tabs, settings, buttons, empty states: everything needed
+   to find your way around. The long explanatory passages (How it works, the statistical notes on
+   the match page) are still English on purpose. Those paragraphs are the most carefully worded
+   thing in this app, and a rushed translation of "the engine has no measured edge in this
+   competition" would do more damage than leaving it in English. They come next, translated with
+   care rather than in bulk. */
+/* OFF for now, Ken's call after seeing build 89 (build 90). The engine, the four translations and
+   the RTL rules all still work and are all still here — a half-translated app is worse than an
+   English one, and the explanatory prose that gives this app its credibility was still English.
+   Flip this to true when there is time to translate those paragraphs properly. */
+const LANGUAGES_ON = false;
+const LANGS = [['en','English'],['fr','Français'],['pt','Português'],['es','Español'],['ar','العربية']];
+const RTL = ['ar'];
+
+const I18N = {
+ fr:{
+  'Scores':'Scores','Predict':'Pronostics','Tips':'Conseils','Favs':'Favoris','More':'Plus',
+  'Winner':'Vainqueur','Smart Bet':'Pari malin','Slip Generator':'Générateur de coupon',
+  'Account':'Compte','Settings':'Paramètres','Your data':'Vos données',
+  'Past predictions':'Pronostics passés','How it works':'Comment ça marche',
+  'Theme':'Thème','Appearance of the app':"Apparence de l'application",
+  'Language':'Langue','Choose your language':'Choisissez votre langue',
+  'Kick-off times':'Heures de coup d’envoi','Following this device':'Selon cet appareil',
+  'Only leagues with an edge':'Uniquement les ligues avec un avantage',
+  'Hide competitions the engine has been measured on and does not beat':"Masquer les compétitions où le modèle a été mesuré et ne fait pas mieux",
+  'Favourites':'Favoris','Manage starred matches, teams & leagues':'Gérer les matchs, équipes et ligues suivis',
+  'About':'À propos','Open':'Ouvrir','On':'Activé','Off':'Désactivé','Clear':'Effacer',
+  'Sign out':'Se déconnecter','Clear cached data':'Effacer les données en cache',
+  'Today':"Aujourd'hui",'Yesterday':'Hier','Tomorrow':'Demain','Draw':'Nul',
+  'Home':'Domicile','Away':'Extérieur','Loading matches…':'Chargement des matchs…',
+  'No matches today.':"Aucun match aujourd'hui.",'No matches on this date.':'Aucun match à cette date.',
+  'Show fair odds':'Afficher les cotes','Show %':'Afficher les %',
+  'Sign in to use AI analysis.':"Connectez-vous pour utiliser l'analyse IA.",
+  'Search':'Rechercher','Competitions':'Compétitions','Matches':'Matchs','Teams':'Équipes'
+ },
+ pt:{
+  'Scores':'Resultados','Predict':'Previsões','Tips':'Dicas','Favs':'Favoritos','More':'Mais',
+  'Winner':'Vencedor','Smart Bet':'Aposta inteligente','Slip Generator':'Gerador de bilhete',
+  'Account':'Conta','Settings':'Definições','Your data':'Os seus dados',
+  'Past predictions':'Previsões anteriores','How it works':'Como funciona',
+  'Theme':'Tema','Appearance of the app':'Aparência da aplicação',
+  'Language':'Idioma','Choose your language':'Escolha o seu idioma',
+  'Kick-off times':'Horários dos jogos','Following this device':'A seguir este dispositivo',
+  'Only leagues with an edge':'Apenas ligas com vantagem',
+  'Hide competitions the engine has been measured on and does not beat':'Ocultar competições onde o modelo foi medido e não supera a referência',
+  'Favourites':'Favoritos','Manage starred matches, teams & leagues':'Gerir jogos, equipas e ligas seguidos',
+  'About':'Sobre','Open':'Abrir','On':'Ligado','Off':'Desligado','Clear':'Limpar',
+  'Sign out':'Terminar sessão','Clear cached data':'Limpar dados em cache',
+  'Today':'Hoje','Yesterday':'Ontem','Tomorrow':'Amanhã','Draw':'Empate',
+  'Home':'Casa','Away':'Fora','Loading matches…':'A carregar jogos…',
+  'No matches today.':'Sem jogos hoje.','No matches on this date.':'Sem jogos nesta data.',
+  'Show fair odds':'Mostrar odds','Show %':'Mostrar %',
+  'Sign in to use AI analysis.':'Inicie sessão para usar a análise de IA.',
+  'Search':'Pesquisar','Competitions':'Competições','Matches':'Jogos','Teams':'Equipas'
+ },
+ es:{
+  'Scores':'Resultados','Predict':'Pronósticos','Tips':'Consejos','Favs':'Favoritos','More':'Más',
+  'Winner':'Ganador','Smart Bet':'Apuesta inteligente','Slip Generator':'Generador de boleto',
+  'Account':'Cuenta','Settings':'Ajustes','Your data':'Tus datos',
+  'Past predictions':'Pronósticos anteriores','How it works':'Cómo funciona',
+  'Theme':'Tema','Appearance of the app':'Apariencia de la aplicación',
+  'Language':'Idioma','Choose your language':'Elige tu idioma',
+  'Kick-off times':'Horarios de los partidos','Following this device':'Según este dispositivo',
+  'Only leagues with an edge':'Solo ligas con ventaja',
+  'Hide competitions the engine has been measured on and does not beat':'Ocultar competiciones donde el modelo se ha medido y no supera la referencia',
+  'Favourites':'Favoritos','Manage starred matches, teams & leagues':'Gestionar partidos, equipos y ligas marcados',
+  'About':'Acerca de','Open':'Abrir','On':'Activado','Off':'Desactivado','Clear':'Borrar',
+  'Sign out':'Cerrar sesión','Clear cached data':'Borrar datos en caché',
+  'Today':'Hoy','Yesterday':'Ayer','Tomorrow':'Mañana','Draw':'Empate',
+  'Home':'Local','Away':'Visitante','Loading matches…':'Cargando partidos…',
+  'No matches today.':'No hay partidos hoy.','No matches on this date.':'No hay partidos en esta fecha.',
+  'Show fair odds':'Mostrar cuotas','Show %':'Mostrar %',
+  'Sign in to use AI analysis.':'Inicia sesión para usar el análisis con IA.',
+  'Search':'Buscar','Competitions':'Competiciones','Matches':'Partidos','Teams':'Equipos'
+ },
+ ar:{
+  'Scores':'النتائج','Predict':'التوقعات','Tips':'النصائح','Favs':'المفضلة','More':'المزيد',
+  'Winner':'الفائز','Smart Bet':'الرهان الذكي','Slip Generator':'منشئ القسيمة',
+  'Account':'الحساب','Settings':'الإعدادات','Your data':'بياناتك',
+  'Past predictions':'التوقعات السابقة','How it works':'كيف يعمل',
+  'Theme':'المظهر','Appearance of the app':'مظهر التطبيق',
+  'Language':'اللغة','Choose your language':'اختر لغتك',
+  'Kick-off times':'أوقات انطلاق المباريات','Following this device':'حسب هذا الجهاز',
+  'Only leagues with an edge':'الدوريات ذات الأفضلية فقط',
+  'Hide competitions the engine has been measured on and does not beat':'إخفاء البطولات التي تم قياس النموذج فيها ولم يتفوق',
+  'Favourites':'المفضلة','Manage starred matches, teams & leagues':'إدارة المباريات والفرق والدوريات المحفوظة',
+  'About':'حول','Open':'فتح','On':'مُفعّل','Off':'مُعطّل','Clear':'مسح',
+  'Sign out':'تسجيل الخروج','Clear cached data':'مسح البيانات المؤقتة',
+  'Today':'اليوم','Yesterday':'أمس','Tomorrow':'غداً','Draw':'تعادل',
+  'Home':'المضيف','Away':'الضيف','Loading matches…':'جارٍ تحميل المباريات…',
+  'No matches today.':'لا توجد مباريات اليوم.','No matches on this date.':'لا توجد مباريات في هذا التاريخ.',
+  'Show fair odds':'عرض الاحتمالات','Show %':'عرض النسبة',
+  'Sign in to use AI analysis.':'سجّل الدخول لاستخدام التحليل بالذكاء الاصطناعي.',
+  'Search':'بحث','Competitions':'البطولات','Matches':'المباريات','Teams':'الفرق'
+ }
+};
+
+function t(s){
+  const L = prefs.lang;
+  if(!L || L==='en') return s;
+  const tbl = I18N[L];
+  return (tbl && tbl[s] != null) ? tbl[s] : s;   // untranslated falls back to English, never to a key
+}
+/* Static markup carries data-i18n with its ORIGINAL English, so switching language twice can't
+   translate an already-translated string. */
+function applyStaticI18n(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const src = el.getAttribute('data-i18n'); if(src) el.textContent = t(src);
+  });
+  const rtl = RTL.includes(prefs.lang);
+  document.documentElement.setAttribute('dir', rtl ? 'rtl' : 'ltr');
+  document.documentElement.setAttribute('lang', prefs.lang || 'en');
+}
+
 
 /* One place that turns a UTC kick-off into the user's wall clock. Intl does the heavy lifting, and
    an invalid saved zone falls back to the device rather than throwing on every row. */
@@ -2013,9 +2156,9 @@ function openTeam(name){
 
 /* ---------- Tips market tabs (#9) ---------- */
 const tipState={ tab:'winner', fair:false };
-const TIP_TABS=[['winner','Winner'],['ou','O/U 2.5'],['btts','BTTS'],['smart','Smart Bet'],['slip','Slip Generator']];
+const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
 function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
-  box.innerHTML=TIP_TABS.map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
+  box.innerHTML=TIP_TABS().map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
   box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
 function renderTips(){
   renderTipTabs();
@@ -4254,6 +4397,23 @@ function renderScores(){
 }
 
 /* ---------- open a fixture for full analysis (engine first, API fallback) ---------- */
+/* Open a match knowing only its id — what a tapped notification gives us (build 90). The push
+   payload deliberately carries no team names or league id: those would be a second copy of the
+   truth, and a stale one if the fixture moved. Look it up in what the app already has. */
+function openFixtureById(fxid){
+  for(const id of Object.keys(afState.leagues||{})){
+    const L = afState.leagues[id]; if(!L) continue;
+    for(const list of [L.upcoming||[], L.played||[]]){
+      const f = list.find(x=>String(x.fxid)===String(fxid));
+      if(f){ openFixture(L.id, f); return true; }
+    }
+  }
+  // not loaded yet — land them on Scores rather than a blank screen
+  navTo('scores');
+  toast('Opening that match — give it a moment to load');
+  return false;
+}
+
 async function openFixture(leagueId, f, btn){
   resetMatchPanels();
   const L = afState.leagues[leagueId]; if(!L) return;
@@ -4589,7 +4749,7 @@ function saveState(){
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      prefs,
+      prefs, notif,
       af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
@@ -4719,7 +4879,8 @@ function restoreState(){
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
     if(s.afKey) $('afKey').value = s.afKey;
-    if(s.prefs){ prefs.tz = s.prefs.tz || ''; prefs.edgeOnly = !!s.prefs.edgeOnly; }
+    if(s.prefs){ prefs.tz = s.prefs.tz || ''; prefs.edgeOnly = !!s.prefs.edgeOnly; prefs.lang = s.prefs.lang || ''; }
+    if(s.notif){ notif.kickoff=!!s.notif.kickoff; notif.result=!!s.notif.result; notif.digest=!!s.notif.digest; }
     if(s.af){
       afState.season = s.af.season || afState.season;
       afState.leagues = s.af.leagues || {};
@@ -4771,6 +4932,137 @@ const TZ_CHOICES = [
   ['Asia/Singapore','Singapore'], ['Australia/Sydney','Sydney']
 ];
 function deviceZone(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){ return ''; } }
+
+/* ══ PUSH NOTIFICATIONS (build 90) ══════════════════════════════════════════════
+   Public half of the VAPID pair. Safe to ship — it only lets a push service verify that a message
+   came from this app. The private half lives in Supabase secrets and is what actually signs. */
+const VAPID_PUBLIC = 'BCCnmdSmx8-xVrlBetwrzK96v77FxbrNK3e66OsK_fwccw7gpyafjEtHHJF0SmcwovjeHtO8He2RmePyRIIDtqM';
+
+const notif = { kickoff:false, result:false, digest:false };
+
+function b64ToUint8(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOS(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+/* WHY THIS CHECK EXISTS. On iPhone, web push only works when the app has been added to the home
+   screen — in Safari itself, PushManager is simply absent. Without this the button would appear to
+   do nothing on every iPhone, and the tester would report a broken app rather than a missing step.
+   Say what to do instead of failing silently. */
+function pushSupport(){
+  if(!('serviceWorker' in navigator)) return {ok:false, why:'This browser cannot show notifications.'};
+  if(!('PushManager' in window)){
+    return isIOS()
+      ? {ok:false, why:'On iPhone, notifications only work once MatchMind is added to your Home Screen. Tap the share button below, choose "Add to Home Screen", then open MatchMind from your home screen and try again.'}
+      : {ok:false, why:'This browser does not support notifications.'};
+  }
+  if(isIOS() && !isStandalone())
+    return {ok:false, why:'Add MatchMind to your Home Screen first (share button → "Add to Home Screen"), then open it from there. iPhone only delivers notifications to installed apps.'};
+  return {ok:true};
+}
+
+async function saveSubscription(sub){
+  if(!supa || !authUser) return false;
+  const j = sub.toJSON();
+  const { error } = await supa.from('push_subscriptions').upsert({
+    user_id: authUser.id,
+    endpoint: j.endpoint,
+    p256dh: j.keys && j.keys.p256dh,
+    auth:   j.keys && j.keys.auth,
+    kickoff: notif.kickoff, result: notif.result, digest: notif.digest,
+    tz: prefs.tz || (function(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone; }catch(e){ return ''; } })(),
+    updated_at: new Date().toISOString()
+  }, { onConflict:'endpoint' });
+  if(error){ console.error('push save', error.message); return false; }
+  return true;
+}
+async function enablePush(){
+  const sup = pushSupport();
+  if(!sup.ok){ $('notifNote').textContent = sup.why; $('notifTypes').classList.remove('hidden'); return; }
+  if(!supa || !authUser){ toast('Sign in first — notifications are tied to your account'); return; }
+
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted'){
+    $('notifNote').textContent = perm === 'denied'
+      ? 'Notifications are blocked for MatchMind in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
+      : 'Notifications were not enabled.';
+    $('notifTypes').classList.remove('hidden');
+    renderNotif(); return;
+  }
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64ToUint8(VAPID_PUBLIC) });
+    if(!notif.kickoff && !notif.result && !notif.digest) notif.kickoff = true;   // a sensible default
+    const ok = await saveSubscription(sub);
+    savePrefs(); renderNotif();
+    toast(ok ? 'Notifications on' : 'Could not save your subscription — try again');
+  }catch(e){
+    $('notifNote').textContent = 'Could not turn on notifications: ' + e.message;
+    renderNotif();
+  }
+}
+async function disablePush(){
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      if(supa && authUser) await supa.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+  }catch(e){}
+  notif.kickoff = notif.result = notif.digest = false;
+  savePrefs(); renderNotif(); toast('Notifications off');
+}
+/* A subscription can be revoked by the push service at any time. Re-checking on boot is what keeps
+   the switch honest, instead of showing "On" for a subscription the server can no longer reach. */
+async function ensurePushFresh(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if(!supa || !authUser) return;
+  if(Notification.permission !== 'granted') return;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub && (notif.kickoff || notif.result || notif.digest)) await saveSubscription(sub);
+  }catch(e){}
+}
+function renderNotif(){
+  const on = (typeof Notification !== 'undefined') && Notification.permission === 'granted'
+             && (notif.kickoff || notif.result || notif.digest);
+  const st = $('notifState'), btn = $('notifMainBtn');
+  if(st) st.textContent = on ? 'On for this device' : 'Off';
+  if(btn) btn.textContent = on ? 'Turn off' : 'Turn on';
+  const box = $('notifTypes'); if(box) box.classList.toggle('hidden', !on);
+  document.querySelectorAll('[data-nt]').forEach(b=>{
+    const k = b.dataset.nt; b.textContent = notif[k] ? 'On' : 'Off'; b.classList.toggle('active', !!notif[k]);
+  });
+  const note = $('notifNote');
+  if(note && on && !note.textContent) note.textContent = 'Notifications are per device — turning them on here does not affect your other phones.';
+}
+
+function renderLangSetting(){
+  const sel = $('langSel'); if(!sel) return;
+  const row = sel.closest('.setrow'); if(row) row.classList.toggle('hidden', !LANGUAGES_ON);
+  if(!LANGUAGES_ON){ prefs.lang=''; return; }
+  sel.innerHTML = LANGS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  sel.value = prefs.lang || 'en';
+}
+/* Changing language repaints the static labels and every feed. No page reload: a reload on a PWA
+   loses the user's place, and the whole point of this setting is that someone who cannot read the
+   English label found it. */
+function applyLanguage(){
+  applyStaticI18n();
+  try{ renderLangSetting(); renderTzSetting(); renderEdgeSetting();
+       renderScores(); renderFixtures(); renderFavs();
+       if(lastTab==='tips') renderTips(); }catch(e){}
+}
 function renderTzSetting(){
   const sel = $('tzSel'); if(!sel) return;
   const dev = deviceZone();
@@ -4785,6 +5077,28 @@ function renderTzSetting(){
   if(hint) hint.textContent = (prefs.tz ? 'Showing '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
     + ' — right now that is ' + String(p.h).padStart(2,'0')+':'+String(p.mi).padStart(2,'0');
 }
+$('notifMainBtn').addEventListener('click', ()=>{
+  const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
+             && (notif.kickoff||notif.result||notif.digest);
+  on ? disablePush() : enablePush();
+});
+document.querySelectorAll('[data-nt]').forEach(b=>b.addEventListener('click', async ()=>{
+  const k = b.dataset.nt; notif[k] = !notif[k];
+  if(!notif.kickoff && !notif.result && !notif.digest){ await disablePush(); return; }
+  savePrefs(); renderNotif();
+  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
+       if(sub) await saveSubscription(sub); }catch(e){}
+}));
+/* The service worker asks the app to open a match when a notification is tapped while it is running. */
+if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev=>{
+  const d = ev.data || {};
+  if(d.mm === 'open-fixture' && d.fxid) try{ openFixtureById(+d.fxid); }catch(e){}
+});
+$('langSel').addEventListener('change', ()=>{
+  prefs.lang = $('langSel').value==='en' ? '' : $('langSel').value;
+  savePrefs(); applyLanguage();
+  toast(t('Language') + ': ' + (LANGS.find(l=>l[0]===(prefs.lang||'en'))||['','English'])[1]);
+});
 $('tzSel').addEventListener('change', ()=>{
   prefs.tz = $('tzSel').value || '';
   savePrefs(); renderTzSetting();
@@ -4915,7 +5229,12 @@ if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
 /* AFTER restoreState, not before — these two controls display saved preferences, and painting them
    first showed the defaults while the feed already honoured the saved values. */
-try{ renderTzSetting(); renderEdgeSetting(); }catch(e){}
+try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); renderEdgeSetting(); }catch(e){}
+try{ renderNotif(); setTimeout(ensurePushFresh, 3000); }catch(e){}
+/* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
+   cloud leagues to arrive before looking the fixture up, or it will never be found. */
+try{ const m = (location.hash||'').match(/match=(\d+)/);
+     if(m) setTimeout(()=>{ openFixtureById(+m[1]); history.replaceState(null,'',location.pathname); }, 2500); }catch(e){}
 // stay on the tab you were on before a refresh (#refresh keeps page)
 try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
 setTimeout(()=>{
