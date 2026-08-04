@@ -131,6 +131,12 @@
   .datebar{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; scrollbar-width:none;}
   .datebar::-webkit-scrollbar{display:none;}
   .dpill.seemore{border-style:dashed;opacity:.9}
+/* The competition name is the useful half of this line, so it is never the thing that gets cut —
+   the section label shrinks first (build 83). */
+.compchip{flex:0 1 auto; padding:5px 10px; border-radius:9px; border:1px solid var(--gold);
+          background:transparent; color:var(--gold); font-size:.68rem; font-weight:700; cursor:pointer;
+          text-transform:none; letter-spacing:0; text-align:right; line-height:1.25;}
+.sec-label > span:first-child{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .datenav{display:flex; align-items:center; gap:8px; padding:2px 0;}
   .dnav{flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:38px; height:38px;
         border-radius:11px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer;}
@@ -314,23 +320,26 @@
   <!-- ================= SCORES TAB ================= -->
   <div class="view" id="view-scores">
 
-    <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center;"><span id="scoresTitle">Today's Matches</span>
-      <button class="btn" id="scoresRefresh" style="padding:6px 12px; font-size:.72rem;">↻ Refresh</button>
+    <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center; gap:8px"><span id="scoresTitle">Today's Matches</span>
+      <button class="compchip" id="segCompsS">🏆 All competitions ▾</button>
     </div>
+    <div class="card hidden" id="compsDropS"></div>
     <div class="datebar" id="scoresDateBar"></div>
     <div class="card">
-      <div class="muted" id="scoresMeta">Add your API key in Data, then refresh.</div>
+      <div class="muted" id="scoresMeta">Loading matches…</div>
       <div id="scoresList"></div>
     </div>
   </div>
 
   <!-- ================= PREDICTIONS TAB ================= -->
   <div class="view hidden" id="view-predict">
-    <button class="seg-btn active" id="segComps" style="width:100%; margin:4px 0 10px;">🏆 All competitions ▾</button>
     <div class="card hidden" id="compsDrop"></div>
 
     <div id="fixturesWrap" class="hidden">
-      <div class="sec-label">Upcoming fixtures</div>
+      <div class="sec-label" style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+        <span>Upcoming fixtures</span>
+        <button class="compchip" id="segComps">🏆 All competitions ▾</button>
+      </div>
       <div class="datebar" id="dateBar"></div>
       <div class="card" id="fixtureList"></div>
     </div>
@@ -352,6 +361,9 @@
       <div class="sfilters" style="margin:2px 0 8px">
         <button class="sfchip" id="tipFairToggle">Show fair odds</button>
       </div>
+      <!-- build 85: says what the tab you're on actually ranks by, so a 93% here and a 65% on the
+           match page read as two questions rather than a contradiction -->
+      <div class="subnote hidden" id="tipTabNote" style="margin:0 0 8px"></div>
       <div class="card" id="tipList"></div>
     </div>
 
@@ -360,6 +372,9 @@
       <div class="sec-label">AI strong picks</div>
       <div class="card">
         <h2>🔥 AI Strong Picks</h2>
+        <!-- build 85: this card lives under the Smart Bet tab but does NOT rank by Smart Bet — it
+             lists headline calls at 55%+. Third set of numbers on one screen; now labelled. -->
+        <div class="subnote" style="margin:-2px 0 8px">These are <b style="color:var(--text)">headline calls</b> — the winner market only, at 55% confidence or better. They are ranked differently from the Smart Bet list above, which searches every market. A fixture can appear in one and not the other.</div>
         <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
         <div id="strongPicks"></div>
       </div>
@@ -424,6 +439,13 @@
           <div id="outcomeRows"></div>
           <div class="subnote" id="xgInfo"></div>
         </div>
+      </div>
+
+      <!-- build 85: the Smart Bet line, shown HERE so this page and the Tips tab stop disagreeing
+           silently. They answer different questions, and the card now says which is which. -->
+      <div class="acc hidden" id="acc-smart">
+        <div class="acc-head"><span class="ic">💡</span><span class="t">Smart Bet</span><span class="side" id="smartSide"></span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="smartRows"></div></div>
       </div>
 
       <div class="acc" id="acc-goals">
@@ -651,7 +673,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 81;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 85;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -960,6 +982,12 @@ const footballEngine = {
      team. That is the honest prior for a side we know nothing about, and it is the same arithmetic
      applied to everyone else. The count is passed on so the app can say which side is unknown. */
   predict(home, away, upTo){
+    /* Build 77 let an unknown team fall back to league average, which is right for a promoted side.
+       It was wrong for a fixture whose team hasn't been NAMED yet — football-data returns an empty
+       string for an undetermined side, and that sailed through the same door and got priced at 74%
+       against a blank crest. An empty name isn't a team we know nothing about; it's an absence of
+       data, and the honest answer is no prediction at all (build 84). */
+    if(!home || !away || !String(home).trim() || !String(away).trim()) return null;
     const {teams, avgH, avgA} = this.strengths(upTo);
     const NEUTRAL = {attackHome:1, defenceHome:1, attackAway:1, defenceAway:1};
     const h = teams[home] || NEUTRAL, a = teams[away] || NEUTRAL;
@@ -1976,7 +2004,7 @@ function renderSearch(q){
     else if(['NS','TBD'].includes(m.s.status)){ const {L,f}=ensureLeagueFromScore(m.s); openFixture(L.id,f); }
     else matchDetail(m.s); }));
   box.querySelectorAll('[data-c]').forEach(el=>el.addEventListener('click',()=>{ const L=crefs[+el.dataset.c]; closeSearch();
-    afState.filter=L.id; $('segComps').innerHTML='🏆 '+L.name+' ▾'; navTo('predict'); saveState(); }));
+    afState.filter=L.id; syncCompsChips(); navTo('predict'); saveState(); }));
   box.querySelectorAll('[data-t]').forEach(el=>el.addEventListener('click',()=>openTeam(trefs[+el.dataset.t])));
 }
 function openTeam(name){
@@ -2043,16 +2071,84 @@ function tipPickFor(market,P,f,L){
      It also prices at ~1.05, so there is nothing to win. Now each selection is scored by how far it
      departs from the same market in an average match, so what surfaces is what the engine actually
      knows about THESE teams. Sub-50% picks are excluded — a strong opinion you can't back is noise. */
+  const top = smartRanked(P,f,L)[0];
+  return {sel:top.sel, prob:top.prob, m:top.m, edge:top.edge};
+}
+
+/* Build 85 — ONE ranking, called by both the Tips → Smart Bet tab and the match page.
+   It used to live inline inside tipPickFor(), so the match page had no way to show the same line.
+   That is the whole cause of the complaint open since build 41: a fixture read 93% in Tips and
+   64.8% in Analysis with nothing on screen explaining that those answer different questions.
+   Sharing the function is what makes it impossible for the two numbers to drift apart.
+   `base` is now carried on each row so the card can show what an average match pays, instead of
+   asserting a gap the user has to take on trust. Ranking behaviour is unchanged: a missing base
+   still scores against a flat 0.5, exactly as before. */
+function smartRanked(P, f, L){
   const base = neutralSelections(L, f);
   const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score','HT/FT'].includes(s.m));
   const actionable = pool.filter(s=>s.prob >= 0.5);
-  const ranked = (actionable.length ? actionable : pool)
-    .map(s=>{ const b = base && base[s.sel]!=null ? base[s.sel] : 0.5; return {...s, edge: s.prob - b}; })
+  return (actionable.length ? actionable : pool)
+    .map(s=>{ const b = base && base[s.sel]!=null ? base[s.sel] : null;
+              return {...s, base:b, edge: s.prob - (b==null ? 0.5 : b)}; })
     .sort((a,b)=> b.edge - a.edge);
-  const top = ranked[0];
-  return {sel:top.sel, prob:top.prob, m:top.m, edge:top.edge};
 }
+/* The Smart Bet card on the match page (build 85).
+   The number here is NOT a more confident version of the headline above it, and the card says so
+   in as many words — that sentence IS the fix. Three things make the two legitimately differ:
+     1. different question — headline picks a winner, Smart Bet finds the biggest departure from
+        an average match across every market;
+     2. different pool — Smart Bet excludes Double Chance and DNB, which is often what the
+        headline itself is;
+     3. different ranking — by edge, not by size of the number. */
+function renderSmartBet(L, f, P, played, hp){
+  const card = $('acc-smart'), box = $('smartRows'), side = $('smartSide');
+  if(!card || !box) return;
+  const hide = ()=>{ card.classList.add('hidden'); box.innerHTML=''; if(side) side.textContent=''; };
+  /* Played fixtures are deliberately excluded. Their pick is frozen at kick-off, but the "average
+     match" it would be compared against is rebuilt from today's history and keeps moving. A gap
+     that drifts beside a pick that cannot is precisely the contradiction build 62 removed. */
+  if(!P || played) return hide();
+  const ranked = smartRanked(P, f, L);
+  if(!ranked.length) return hide();
+  const top = ranked[0];
+  card.classList.remove('hidden');
+  if(side) side.textContent = top.sel;
+
+  const rows = ranked.slice(0,3).map((s,i)=>{
+    const g = i===0;
+    return `<div class="prow"><span class="plabel">${g?'<b style="color:var(--gold)">':''}${escapeHtml(s.sel)}${g?'</b>':''} <span class="muted" style="font-size:.7rem">${escapeHtml(s.m)}</span></span>
+      <div class="ptrack"><div class="pfill${g?' gold':''}" style="width:${Math.max(3,100*s.prob).toFixed(1)}%"></div></div>
+      <span class="pval${g?' gold':''}">${pct(s.prob)}</span></div>`
+      + (s.base!=null
+          ? `<div class="subnote" style="margin:-2px 0 9px">An average match in this competition: ${pct(s.base)} — this fixture sits ${s.edge>=0?'+':''}${(100*s.edge).toFixed(0)} points ${s.edge>=0?'above':'below'} that.</div>`
+          : '');
+  }).join('');
+
+  const headline = hp ? `${escapeHtml(hp.label)} at ${pct(hp.prob)}` : 'the headline above';
+  box.innerHTML = rows +
+    `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why this doesn't match the headline.</b>
+      The headline answers <b>who wins</b> — here, ${headline}. Smart Bet answers a different question:
+      <b>across every market, where does this fixture depart most from an average match in this competition?</b>
+      So ${pct(top.prob)} here and ${hp?pct(hp.prob):'a lower number'} above are not in conflict, and neither is
+      "more confident" than the other. They are different bets. Smart Bet also leaves out Double Chance and
+      Draw No Bet, which is frequently what the headline itself is.</div>` +
+    (top.base!=null ? ''
+      : `<div class="subnote">This competition has too little history for the engine to build an "average match", so the ranking above falls back to a flat 50% baseline. Treat it as provisional.</div>`);
+}
+
+/* One line per tab saying what it ranks by (build 85). Winner/O-U/BTTS answer one fixed question
+   and sort by probability; Smart Bet roams every market and sorts by departure from an average
+   match. Without this, the Smart Bet column looks like the same number as everywhere else, only
+   bigger — which is exactly how it was being read. */
+const TIP_TAB_NOTES = {
+  winner:'Ranked by probability. This is the same call the match page leads with — a straight win where one side is clear enough, otherwise Double Chance covering the draw.',
+  ou:'Ranked by probability, over or under 2.5 goals — whichever side of the line the engine favours.',
+  btts:'Ranked by probability that both teams score.',
+  smart:'<b style="color:var(--text)">Not the same question as the Winner tab.</b> This searches every market and ranks by how far a fixture departs from an average match in its competition — "+18 vs avg" means 18 points above what that same bet pays in a typical game. So the percentages here are usually higher than the match page\'s headline, and are not more confident, just a different bet. Open a match to see the comparison in full.'
+};
 function renderTipList(market){
+  { const n=$('tipTabNote');
+    if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
   const box=$('tipList'); if(!box) return;
   const rows=[];
   for(const {L,f} of collectUpcoming()){
@@ -2199,6 +2295,9 @@ async function analyze(){
         : '');
     $('xgInfo').textContent = `Expected goals — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
 
+    // build 85 — same ranking the Tips tab uses, so the two pages can no longer disagree silently
+    renderSmartBet(afState.leagues[afState.activeLeagueId] || null, {home, away}, pred, !!pendingMetaPlayed, hp);
+
     $('acc-goals').classList.remove('hidden');
     $('goalsRows').innerHTML =
       probRow('Over 1.5', pred.over[1.5]) + probRow('Over 2.5', pred.over[2.5]) +
@@ -2222,6 +2321,7 @@ async function analyze(){
     $('resultSide').textContent = fav?home:away;
     $('outcomeRows').innerHTML = probRow(home, pred.pHome) + probRow(away, pred.pAway);
     $('xgInfo').textContent = `Projected score — ${home} ${pred.expH.toFixed(0)} : ${pred.expA.toFixed(0)} ${away} (total ${pred.total.toFixed(0)})`;
+    $('acc-smart').classList.add('hidden');   // football-only: no neutral baseline for other sports
     $('acc-goals').classList.add('hidden');
     $('acc-score').classList.add('hidden');
     $('acc-scorers').classList.add('hidden');
@@ -3304,7 +3404,7 @@ async function apiAnalyze(f, L){
   { const res = fixtureResult(L, f); const meta = {comp:L.name, country:L.country||'', date:f.date, time:f.time}; if(res) meta.score = `${res.gh}–${res.ga}`; setHeroMeta(meta); }
   $('heroPick').textContent = '…';
   $('heroConf').textContent = 'fetching prediction… (may pause briefly for API rate limits)';
-  for(const id of ['acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
+  for(const id of ['acc-smart','acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
   $('outcomeRows').innerHTML=''; $('xgInfo').textContent=''; $('resultSide').textContent='';
   $('formBox').innerHTML=''; $('h2hBox').innerHTML='';
   $('analysisText').textContent=''; $('verdictBox').textContent='';
@@ -3435,7 +3535,7 @@ function prepAnalysisView(){
   $('heroStrong').classList.remove('hidden');
 }
 function showAnalysis(){
-  if($('compsDrop')) $('compsDrop').classList.add('hidden');
+  for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
   prepAnalysisView();
   navTo('detail');
 }
@@ -3555,7 +3655,7 @@ async function matchDetail(s){
                                      : (s.status==='NS' ? 'Kick-off '+localHM(s.date, s.time) : statusWord(s.status));
   $('resultSide').textContent = '';
   $('heroStrong').classList.add('hidden');
-  for(const id of ['acc-result','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
+  for(const id of ['acc-result','acc-smart','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
   for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.remove('hidden');
   $('tlBox').innerHTML = '<div class="subnote">Loading timeline…</div>';
   $('msBox').innerHTML = '';
@@ -3810,6 +3910,7 @@ async function loadCloudLeagues(force){
         const fin = FINISHED.includes(r.status) && r.gh!=null && r.ga!=null;
         if(fin){ L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
+        if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
         if((r.status==='NS' && r.date>=today) || (fin && r.date>=winStart)){
           display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away, _fin:fin});
         }
@@ -3966,7 +4067,9 @@ async function afScoresFromCloud(){
     const rows = freshRows(data||[]);   // drop orphaned rows from any retired collector
     for(const r of rows){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
-    afState.scores = { at: Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>({
+    let newest = 0;
+    for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
+    afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
       date:r.date, time:r.time, ldate:localDateOf(r), status:r.status, elapsed:r.elapsed,
       home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
@@ -3981,7 +4084,7 @@ async function afScores(silent){
   if(supa){ await afScoresFromCloud(); return; }
   // legacy path: direct API-Football call (only when no backend is configured)
   afState.key = afState.key || $('afKey').value.trim();
-  if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab, then refresh.'; return; }
+  if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab.'; return; }
   try{
     const day = new Date().toISOString().slice(0,10);
     const fx = await afFetch(`/fixtures?date=${day}`);
@@ -4047,12 +4150,21 @@ function renderScores(){
     $('scoresMeta').textContent = isToday ? 'No matches today.' : 'No matches on this date.';
     box.innerHTML = ''; return;
   }
-  const t = new Date(afState.scores.at);
-  const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
+  /* Age, not clock time (build 83). "Updated 14:32" needs the reader to know what time it is now and
+     do the subtraction; "Updated 3 min ago" answers the real question — is this current? — and if the
+     collector ever stops, that number climbs on screen instead of a stale clock time looking fine.
+     Measured from the collector's own write, not from when this device happened to read it. */
+  const src = afState.scores.dataAt || afState.scores.at;
+  const mins = Math.max(0, Math.round((Date.now() - src)/60000));
+  const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
+            : mins < 60 ? mins + ' min ago'
+            : mins < 120 ? 'over an hour ago' : Math.floor(mins/60) + ' hours ago';
   const live = dayAll.filter(s=>LIVE_CODES.includes(s.status)).length;
-  $('scoresMeta').innerHTML = `Updated ${hh}:${mm} · ${dayAll.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
+  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${dayAll.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   const sf = afState.scoreFilter || 'all';
   let list = dayAll;
+  { const cf = afState.filter;   // shared competition setting (build 82)
+    if(cf && cf!=='all' && cf!=='football' && cf!=='basketball') list = list.filter(s=>String(s.lid)===String(cf)); }
   if(sf==='live') list = list.filter(s=>LIVE_CODES.includes(s.status));
   else if(sf==='ns') list = list.filter(s=>s.status==='NS'||s.status==='TBD');
   else if(sf==='ft') list = list.filter(s=>['FT','AET','PEN'].includes(s.status));
@@ -4179,24 +4291,45 @@ function renderStrongPicks(){
   box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const {L,f}=refs[+st.dataset.star]; toggleFavMatch(f,{lid:L.id,lname:L.name}); renderStrongPicks(); }));
 }
 
-function renderCompsDrop(){
-  const box = $('compsDrop'); if(!box) return;
+/* One competition setting for both tabs (build 82).
+   CORRECTION to what I told Ken: Scores did NOT already have a competition filter — its chips filter
+   by STATUS (live / upcoming / finished). So Scores never had this at all, and Predict was the only
+   place to narrow the feed. Both now read afState.filter, so choosing a league in either applies to
+   both, which is what someone following one competition actually wants. */
+function compsLabel(){
+  const v = afState.filter;
+  return '🏆 ' + (v==='all' ? 'All competitions' : v==='football' ? 'All football' : v==='basketball' ? 'All basketball'
+                : (afState.leagues[v] ? afState.leagues[v].name : 'All competitions')) + ' ▾';
+}
+function syncCompsChips(){
+  for(const id of ['segComps','segCompsS']){ const b=$(id); if(b) b.innerHTML = compsLabel(); }
+}
+function renderCompsDrop(boxId){
+  for(const id of (boxId ? [boxId] : ['compsDrop','compsDropS'])) buildCompsDrop(id);
+}
+function buildCompsDrop(boxId){
+  const box = $(boxId); if(!box) return;
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
-  const all = order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
+  /* Same rule as the feed: a competition with no history can't be predicted, so it doesn't belong in
+     Predict's own competition list either. The World Cup was still listed here with 20 fixtures and
+     no prediction behind any of them (build 84). */
+  const all = order.map(id=>afState.leagues[id])
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15);
   const fb = all.filter(l=>(l.sport||'football')==='football').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
-  const cnt = ls=>ls.reduce((s,l)=>s+l.upcoming.length,0);
+  const predicted = l => (l.upcoming||[]).filter(f=>f.pick).length;
+  const cnt = ls => ls.reduce((s,l)=>s+predicted(l),0);
   const item = (val,label,count)=>`<div class="lgitem${String(afState.filter)===String(val)?' sel':''}" data-f="${val}"><span>${label}</span><span class="muted">${count}</span></div>`;
   // show country next to the competition name so generic names ("Cup", "Super Cup"…) are identifiable (#19)
   const lgLabel = (l, ic) => `${ic} ${l.name}` + (l.country && !(l.name||'').toLowerCase().includes((l.country||'').toLowerCase()) ? ` <span class="muted" style="font-weight:500">· ${l.country}</span>` : '');
   let html = item('all','🌍 All competitions', cnt(all));
   if(fb.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">⚽ Football</div>` + item('football','All football', cnt(fb))
-          + fb.map(l=>item(l.id, lgLabel(l, l.flag||'🏆'), l.upcoming.length)).join('');
+          + fb.map(l=>item(l.id, lgLabel(l, l.flag||'🏆'), predicted(l))).join('');
   }
   if(bk.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
-          + bk.map(l=>item(l.id, lgLabel(l, '🏀'), l.upcoming.length)).join('');
+          + bk.map(l=>item(l.id, lgLabel(l, '🏀'), predicted(l))).join('');
   }
   if(!all.length) html = '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
   html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
@@ -4204,11 +4337,10 @@ function renderCompsDrop(){
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
     const v = it.dataset.f;
     afState.filter = (v==='all'||v==='football'||v==='basketball') ? v : +v;
-    box.classList.add('hidden');
-    const lbl = v==='all' ? 'Competitions' : v==='football' ? 'Football' : v==='basketball' ? 'Basketball'
-              : (afState.leagues[v] ? afState.leagues[v].name : 'Competitions');
-    $('segComps').innerHTML = '🏆 ' + lbl + ' ▾';
-    navTo('predict'); saveState();
+    for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
+    syncCompsChips(); renderCompsDrop(); saveState();
+    // stay where you are — changing competition shouldn't throw you into another tab
+    if(lastTab==='scores') renderScores(); else { navTo('predict'); renderFixtures(); }
   }));
   const dbtn = box.querySelector('[data-discover]');
   if(dbtn) dbtn.addEventListener('click', ()=>{
@@ -4260,6 +4392,7 @@ function renderFixtures(){
     const feat = [];
     for(const L of Ls) for(const f of L.upcoming){
       if(f.date!==afState.selectedDate) continue;
+      if(!f.pick) continue;   // Predict is for fixtures the engine has actually priced (build 84)
       if(FAMOUS_CLUBS.some(c=>f.home.includes(c) || f.away.includes(c))) feat.push([L,f]);
     }
     if(feat.length){
@@ -4269,7 +4402,7 @@ function renderFixtures(){
   }
 
   for(const L of Ls){
-    const todays = L.upcoming.filter(f=>f.date===afState.selectedDate);
+    const todays = L.upcoming.filter(f=>f.date===afState.selectedDate && f.pick);
     if(!todays.length) continue;
     const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
     html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
@@ -4278,7 +4411,7 @@ function renderFixtures(){
   if(!html){
     const dp = daysPast(afState.selectedDate);
     const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
-    html = `<div class="subnote">No matches ${dp>0?'were played':'are scheduled'} on ${when} in the competitions you follow — so there is no prediction for this date.${dp<=0?' Fixtures appear here as soon as they are announced.':''}</div>`;
+    html = `<div class="subnote">No predictions for ${when}. ${dp>0?'No matches were played in the competitions the engine covers.':'Fixtures appear here once they are announced and both teams are confirmed.'}</div>`;
   }
   $('fixtureList').innerHTML = html;
 
@@ -4567,6 +4700,8 @@ $('goFavs').addEventListener('click', ()=>navTo('favs'));
 $('notifToggle').addEventListener('click', ()=>toast('Notifications are coming in a later build'));
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
+$('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
+syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
 $('genSlipBtn').addEventListener('click', genSlip);
 $('lineupsHead').addEventListener('click', async ()=>{
@@ -4622,7 +4757,6 @@ $('saveScorersBtn').addEventListener('click', ()=>{
 });
 $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
-$('scoresRefresh').addEventListener('click', afScores);
 $('backtestBtn').addEventListener('click', runBacktest);
 if($('archBtn')) $('archBtn').addEventListener('click', renderArchiveDay);
 if($('archFillBtn')) $('archFillBtn').addEventListener('click', backfillPredictions);
