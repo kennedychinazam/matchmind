@@ -1,5 +1,5 @@
 // MatchMind PRO service worker — offline app shell + push notifications
-const CACHE = 'matchmind-v91';
+const CACHE = 'matchmind-v92';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e=>{

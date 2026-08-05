@@ -629,7 +629,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 91;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 92;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5076,6 +5076,33 @@ function renderTzSetting(){
   if(hint) hint.textContent = (prefs.tz ? 'Showing ' + prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
     + ' — right now that is ' + String(p.h).padStart(2,'0') + ':' + String(p.mi).padStart(2,'0');
 }
+/* RESTORED in build 92. These listeners were destroyed in build 91 by a slice that ran from
+   `function renderTzSetting(){` to the first `$('tzSel').addEventListener` — and this block sat
+   between them. The buttons still rendered and still updated their labels, so nothing looked wrong;
+   they simply did nothing when tapped. Lesson, and it is the third time in this project: when
+   slicing code by a start and an end marker, check what is BETWEEN them, not just that the markers
+   are right. build-deploy.py now fails the build if a control has no listener. */
+$('notifMainBtn').addEventListener('click', ()=>{
+  const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
+             && (notif.kickoff||notif.result||notif.digest);
+  on ? disablePush() : enablePush();
+});
+document.querySelectorAll('[data-nt]').forEach(b=>b.addEventListener('click', async ()=>{
+  const k = b.dataset.nt; notif[k] = !notif[k];
+  if(!notif.kickoff && !notif.result && !notif.digest){ await disablePush(); return; }
+  savePrefs(); renderNotif();
+  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
+       if(sub) await saveSubscription(sub); }catch(e){}
+}));
+/* The service worker asks the app to open a match when a notification is tapped while it is running. */
+if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev=>{
+  const d = ev.data || {};
+  if(d.mm === 'open-fixture' && d.fxid) try{ openFixtureById(+d.fxid); }catch(e){}
+});
+$('langSel').addEventListener('change', ()=>{
+  prefs.lang = $('langSel').value==='en' ? '' : $('langSel').value;
+  savePrefs(); applyLanguage();
+});
 $('tzSel').addEventListener('focus', ()=>renderTzOptions(true));
 $('tzSel').addEventListener('blur',  ()=>renderTzOptions(false));
 $('tzSel').addEventListener('change', ()=>{
