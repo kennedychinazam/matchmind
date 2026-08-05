@@ -559,12 +559,13 @@
         <button class="btn" id="notifMainBtn">Turn on</button>
       </div>
       <div id="notifTypes" class="hidden">
-        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Kick-off reminder</div><div class="sd">30 minutes before a match you starred</div></div></div>
+        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Kick-off reminder</div><div class="sd">30 minutes before a match you starred. Sent once, never repeated.</div></div></div>
           <div class="segsm"><button class="sfchip" data-nt="kickoff">Off</button></div></div>
-        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Your prediction results</div><div class="sd">When a starred match finishes and gets graded</div></div></div>
+        <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Full-time results</div><div class="sd">Final score of a match you starred, and whether the prediction won</div></div></div>
           <div class="segsm"><button class="sfchip" data-nt="result">Off</button></div></div>
         <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Daily picks</div><div class="sd">One summary each morning — off by default on purpose</div></div></div>
           <div class="segsm"><button class="sfchip" data-nt="digest">Off</button></div></div>
+        <div style="display:flex; justify-content:flex-end; padding:2px 0 8px"><button class="btn" id="notifTestBtn">Send a test notification</button></div>
         <div class="subnote" id="notifNote"></div>
       </div>
       <div class="setrow">
@@ -629,7 +630,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 92;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 93;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5082,6 +5083,29 @@ function renderTzSetting(){
    they simply did nothing when tapped. Lesson, and it is the third time in this project: when
    slicing code by a start and an end marker, check what is BETWEEN them, not just that the markers
    are right. build-deploy.py now fails the build if a control has no listener. */
+/* Ken could not verify a deploy on a day with no fixtures. This proves the entire chain — app →
+   Supabase → Google → this phone — in one tap, without waiting for a match. It sends only to THIS
+   device's own endpoint, so it can never reach anyone else. */
+$('notifTestBtn').addEventListener('click', async ()=>{
+  const note = $('notifNote');
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(!sub){ note.textContent = 'This device is not subscribed yet — turn notifications on first.'; return; }
+    const session = await proxySession();
+    if(!session){ note.textContent = 'Sign in first.'; return; }
+    note.textContent = 'Sending…';
+    const res = await fetch(SUPA_URL + '/functions/v1/send-push', {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      body: JSON.stringify({ job:'test', endpoint: sub.endpoint })
+    });
+    const j = await res.json().catch(()=>({}));
+    note.textContent = (j && j.ok && j.sent)
+      ? 'Sent. It should arrive within a few seconds — try closing the app to see it properly.'
+      : 'Could not send: ' + ((j && j.error) || ('HTTP '+res.status));
+  }catch(e){ note.textContent = 'Could not send: ' + e.message; }
+});
 $('notifMainBtn').addEventListener('click', ()=>{
   const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
              && (notif.kickoff||notif.result||notif.digest);
