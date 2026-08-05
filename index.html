@@ -630,7 +630,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 93;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 94;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5104,7 +5104,14 @@ $('notifTestBtn').addEventListener('click', async ()=>{
     note.textContent = (j && j.ok && j.sent)
       ? 'Sent. It should arrive within a few seconds — try closing the app to see it properly.'
       : 'Could not send: ' + ((j && j.error) || ('HTTP '+res.status));
-  }catch(e){ note.textContent = 'Could not send: ' + e.message; }
+  }catch(e){
+    /* "Failed to fetch" is what a browser reports for a refused CORS preflight, a dead function and
+       a lost connection alike — three very different problems wearing one useless message. Say what
+       to check rather than repeating it. */
+    note.textContent = /failed to fetch/i.test(e.message||'')
+      ? 'Could not reach the server. Most likely send-push has not been re-deployed yet — it needs version 94 or later, which is the one that allows the app to call it. Check Edge Functions → send-push, invoke it with {} and look for "version": 94.'
+      : 'Could not send: ' + e.message;
+  }
 });
 $('notifMainBtn').addEventListener('click', ()=>{
   const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
