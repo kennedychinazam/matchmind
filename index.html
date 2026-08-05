@@ -603,7 +603,6 @@
       <button id="analyzeBtn"></button><button id="backtestBtn"></button>
       <button id="loadCsvBtn"></button><button id="motStudyBtn"></button>
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
-      <button id="predDatePick"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
@@ -635,7 +634,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 98;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 99;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
