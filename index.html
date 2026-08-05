@@ -585,7 +585,11 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl" data-i18n="Clear cached data">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
-      <div class="subnote">To delete your account and everything stored with it, message Ken — that one is handled by hand for now, so it can be checked before anything is destroyed.</div>
+      <div class="setrow">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Erases your account, favourites and prediction record. Cannot be undone.</div></div></div>
+        <button class="btn" id="delAcctBtn" style="border-color:var(--red); color:var(--red)">Delete</button>
+      </div>
+      <div class="subnote" id="delAcctNote"></div>
     </div>
 
         <div id="devStub" hidden aria-hidden="true">
@@ -630,7 +634,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 94;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 95;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5158,6 +5162,55 @@ $('edgeToggle').addEventListener('click', ()=>{
 
 /* Clearing the cache must not sign anyone out or drop their favourites — those live in the same
    localStorage blob, so this rebuilds the record rather than wiping the key. */
+/* DELETE ACCOUNT (build 95).
+   Two deliberate frictions, because this is the one button in the app that destroys something the
+   user cannot get back:
+     1. it names what goes, in plain words, BEFORE asking;
+     2. it asks them to type DELETE, so it cannot be done by a mis-tap or a pocket press.
+   The typed word is also what the server checks — the same confirmation, not a separate one that
+   the browser could skip. */
+$('delAcctBtn').addEventListener('click', async ()=>{
+  const note = $('delAcctNote');
+  if(!supa || !authUser){ note.textContent = 'You are not signed in, so there is no account to delete.'; return; }
+
+  const warn = 'This permanently deletes:\n\n'
+    + '  • your account and sign-in\n'
+    + '  • your starred matches, teams and leagues\n'
+    + '  • your prediction record\n'
+    + '  • notifications on every device\n\n'
+    + 'It cannot be undone. To confirm, type DELETE below.';
+  const typed = prompt(warn, '');
+  if(typed === null) return;                      // they backed out
+  if(typed.trim().toUpperCase() !== 'DELETE'){
+    note.textContent = 'Not deleted — you did not type DELETE.';
+    return;
+  }
+  note.textContent = 'Deleting…';
+  try{
+    const session = await proxySession();
+    if(!session){ note.textContent = 'Your session expired. Sign in again and retry.'; return; }
+    const res = await fetch(SUPA_URL + '/functions/v1/delete-account', {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      body: JSON.stringify({ confirm:'DELETE' })
+    });
+    const j = await res.json().catch(()=>({}));
+    if(!res.ok || !j.ok){
+      note.textContent = 'Could not delete: ' + ((j && j.error) || ('HTTP '+res.status));
+      return;
+    }
+    /* Wipe this device too. Leaving the old favourites in localStorage would let a deleted account's
+       data reappear the moment someone signs up again on the same phone. */
+    try{ localStorage.clear(); }catch(e){}
+    try{ await supa.auth.signOut(); }catch(e){}
+    alert('Your account and all its data have been deleted. Thank you for trying MatchMind.');
+    location.reload();
+  }catch(e){
+    note.textContent = /failed to fetch/i.test(e.message||'')
+      ? 'Could not reach the server. The delete-account function may not be deployed yet.'
+      : 'Could not delete: ' + e.message;
+  }
+});
 $('clearCacheBtn').addEventListener('click', ()=>{
   if(!confirm('Clear cached scores, fixtures and predictions on this device?\n\nYour account, favourites and prediction record are kept.')) return;
   try{
