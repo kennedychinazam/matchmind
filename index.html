@@ -605,6 +605,7 @@
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="predDatePick"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
+      <button id="dispBtn"></button><div id="dispOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
@@ -634,7 +635,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 95;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 98;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2976,6 +2977,178 @@ function computeSkill(L){
   return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
            proven: (e-d) > floor, size: ms.length, at: Date.now() };
 }
+/* ── DISPERSION (build 96) ─────────────────────────────────────────────────────
+   Build 65 claimed the engine's edge tracks how unequal a league is, and supported it by naming
+   Portugal as top-heavy and the Championship as compressed. That is an assertion about the data
+   dressed as an explanation of it. This measures the inequality directly so the claim can be
+   checked rather than believed.
+
+   The statistic is the standard deviation of teams' POINTS PER GAME. Plain, comparable across
+   leagues of different sizes and season lengths, and it is the number a supporter would reach for
+   if asked "how far apart are these teams?".
+
+   Deliberately NOT derived from the engine's own strength ratings: those come from the same model
+   whose skill we are trying to explain, so a correlation between them would be partly circular.
+   Points are the league's own verdict, computed independently of anything MatchMind believes. */
+function leagueDispersion(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 100) return null;
+  const pts = {}, played = {};
+  const bump = (t, p) => { pts[t] = (pts[t]||0) + p; played[t] = (played[t]||0) + 1; };
+  for(const m of ms){
+    if(m.hg == null || m.ag == null) continue;
+    if(m.hg > m.ag){ bump(m.home,3); bump(m.away,0); }
+    else if(m.hg < m.ag){ bump(m.home,0); bump(m.away,3); }
+    else { bump(m.home,1); bump(m.away,1); }
+  }
+  // a side with a handful of games has a wild PPG that is noise, not inequality
+  const ppg = Object.keys(pts).filter(t=>played[t] >= 20).map(t=>pts[t]/played[t]);
+  if(ppg.length < 8) return null;
+  const mean = ppg.reduce((a,b)=>a+b,0)/ppg.length;
+  const sd = Math.sqrt(ppg.reduce((a,b)=>a+(b-mean)*(b-mean),0)/ppg.length);
+  return { sd, mean, teams: ppg.length,
+           top: Math.max(...ppg), bottom: Math.min(...ppg), matches: ms.length };
+}
+
+/* Pearson correlation, with the sample size carried alongside it. Ten leagues is a small n and the
+   number must never be quoted without it — r = 0.6 on n = 10 is not a finding, it is a hint. */
+function correlate(xs, ys){
+  const n = xs.length;
+  if(n < 3) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy=0, sxx=0, syy=0;
+  for(let i=0;i<n;i++){ const dx=xs[i]-mx, dy=ys[i]-my; sxy+=dx*dy; sxx+=dx*dx; syy+=dy*dy; }
+  if(sxx<=0 || syy<=0) return null;
+  const r = sxy/Math.sqrt(sxx*syy);
+  // t = r*sqrt((n-2)/(1-r^2)); two-sided significance needs |t| well clear of 2 at this n
+  const t = Math.abs(r) >= 1 ? Infinity : r*Math.sqrt((n-2)/(1-r*r));
+  return { r, t, n };
+}
+
+/* The pre-registered predictions, written into the handoff on 2026-08-05 BEFORE any of this was
+   run. Kept in the code so the comparison table can show predicted-vs-actual rather than letting
+   the reader decide afterwards what was expected. */
+/* SPEARMAN, not Pearson, and this was decided by validation rather than taste. Points-per-game is
+   capped at 3, so the dispersion statistic compresses as leagues get more unequal: on simulated
+   leagues with a designed spread it rose at every step (0.21 → 0.41 → 0.57 → 0.63 → 0.66 → 0.68)
+   but the curve flattens, giving Pearson r = 0.92 for a relationship that is in truth perfectly
+   monotonic. The hypothesis is an ORDERING claim — "more unequal leagues show more edge" — so rank
+   correlation tests it and a linear one would understate it. */
+function spearman(xs, ys){
+  const rank = a => {
+    const idx = a.map((v,i)=>[v,i]).sort((p,q)=>p[0]-q[0]);
+    const r = []; idx.forEach(([,i],k)=> r[i] = k+1); return r;
+  };
+  return correlate(rank(xs), rank(ys));
+}
+
+/* The two competitions build 65 derived the theory from. They cannot also test it. */
+const ANCHOR_LEAGUES = [2017, 2016];   // Primeira Liga, Championship
+
+const DISPERSION_PREDICTION = {
+  2015:'edge',   // Ligue 1
+  2002:'edge',   // Bundesliga
+  2021:'none',   // Premier League
+  2019:'none',   // Serie A
+  2017:'edge',   // Primeira Liga — anchor, already measured +14.8
+  2016:'none'    // Championship  — anchor, already measured −3.3
+};
+
+/* THE DISPERSION TEST, on screen (build 96). One table: every league the app has enough history
+   for, its inequality, its measured skill gap, and — where a prediction was pre-registered — whether
+   that prediction held. The verdict line at the bottom is the actual test. */
+function renderDispersionTest(){
+  const box = $('dispOut'); if(!box) return;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Measuring every competition…</div>';
+  setTimeout(()=>{
+    /* NOT footballLeagues(). That helper filters on `upcoming.length` — competitions with fixtures
+       SCHEDULED — which in early August excludes every European league, i.e. precisely the four this
+       test is about. They are loaded and carry three full seasons; they simply have no next match
+       yet. This test needs HISTORY, an entirely different question, so it reads afState.leagues
+       directly. I reached for the convenient existing helper without checking what it filtered on. */
+    const rows = [];
+    for(const id of Object.keys(afState.leagues || {})){
+      const L = afState.leagues[id];
+      if(!L || (L.sport||'football') !== 'football') continue;
+      const d = leagueDispersion(L);
+      if(!d) continue;
+      rows.push({ L, d, sk: computeSkill(L), pred: DISPERSION_PREDICTION[L.id] || null });
+    }
+    if(rows.length < 3){
+      const loaded = Object.keys(afState.leagues || {}).length;
+      box.innerHTML = '<div class="subnote">Only ' + rows.length + ' competition' + (rows.length===1?'':'s')
+        + ' has enough completed history to measure (' + loaded + ' loaded in total). '
+        + (loaded === 0
+            ? 'The leagues have not loaded yet — open the Predict tab, wait a few seconds, then run this again.'
+            : 'Each needs at least 100 finished matches and 8 teams with 20+ games.') + '</div>';
+      return;
+    }
+    rows.sort((a,b)=> b.d.sd - a.d.sd);
+
+    const usable = rows.filter(r=>r.sk.ready);
+    const corr = usable.length >= 4
+      ? spearman(usable.map(r=>r.d.sd), usable.map(r=>r.sk.gap)) : null;
+    /* THE CHECK THAT CHANGED THE ANSWER (build 98). Primeira Liga and the Championship are the two
+       cases build 65 built this theory FROM. Scoring the theory on them is marking its own homework:
+       they will fit, because the story was written to fit them. On the first real run the headline
+       correlation was rho 0.70 (passing) across all ten, and rho 0.52 (failing) across the eight the
+       theory had never seen. The eight are the test; the ten are a description. */
+    const indep = usable.filter(r => !ANCHOR_LEAGUES.includes(r.L.id));
+    const corrIndep = indep.length >= 5
+      ? spearman(indep.map(r=>r.d.sd), indep.map(r=>r.sk.gap)) : null;
+    const posEdges = usable.filter(r=>r.sk.gap > 0).length;
+
+    const head = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+        <span style="flex:1">Competition</span><span style="width:17%;text-align:right">Spread</span>
+        <span style="width:19%;text-align:right">Edge</span><span style="width:26%;text-align:right">Predicted</span></div>`;
+
+    const body = rows.map(r=>{
+      const gap = r.sk.ready ? (100*r.sk.gap) : null;
+      const col = !r.sk.ready ? 'var(--muted)' : r.sk.proven ? 'var(--green2)' : 'var(--muted)';
+      const gapTxt = r.sk.ready ? ((gap>=0?'+':'') + gap.toFixed(1)) : '—';
+      let verdict = '';
+      if(r.pred){
+        const actual = r.sk.ready ? (r.sk.proven ? 'edge' : 'none') : null;
+        verdict = actual === null ? '<span class="muted">' + escapeHtml(r.pred) + ' · untested</span>'
+          : actual === r.pred ? '<b style="color:var(--green2)">' + escapeHtml(r.pred) + ' ✓</b>'
+          : '<b style="color:var(--red)">said ' + escapeHtml(r.pred) + ', got ' + actual + ' ✗</b>';
+      }
+      return `<div class="frow"><span style="flex:1">${escapeHtml(r.L.name)}</span>
+        <span style="width:17%;text-align:right">${r.d.sd.toFixed(2)}</span>
+        <span style="width:19%;text-align:right;color:${col}"><b>${gapTxt}</b></span>
+        <span style="width:26%;text-align:right;font-size:.72rem">${verdict}</span></div>`;
+    }).join('');
+
+    let verdictBlock;
+    if(!corr){
+      verdictBlock = '<div class="subnote">Fewer than four competitions have enough departures to judge. The correlation needs more leagues before it means anything.</div>';
+    } else {
+      const held = corrIndep && corrIndep.r > 0 && Math.abs(corrIndep.t) > 2.31;
+      const bothLine = (label, c) => c
+        ? `<div class="frow"><span style="flex:1">${label}</span>
+             <span><b style="color:${c.r>0 ? 'var(--green2)' : 'var(--red)'}">rho ${c.r.toFixed(2)}</b>
+             <span class="muted" style="font-size:.72rem"> · n=${c.n} · ${Math.abs(c.t)>2.31 ? 'clears' : 'does not clear'}</span></span></div>`
+        : `<div class="frow"><span style="flex:1">${label}</span><span class="muted">too few</span></div>`;
+
+      verdictBlock =
+        `<div class="sec-label" style="margin-top:12px">The test</div>` +
+        bothLine('All competitions', corr) +
+        bothLine('Excluding the two it was built from', corrIndep) +
+        `<div class="subnote"><b style="color:var(--text)">Only the second line is a test.</b> Primeira Liga and the Championship are the cases build 65 derived this theory from — including them scores the story against the data it was written to explain.</div>` +
+        `<div class="subnote">` +
+        (held
+          ? `<b style="color:var(--green2)">Supported.</b> The relationship holds on competitions the theory was never fitted to. The app can reasonably predict which competitions to trust before measuring them.`
+          : corrIndep && corrIndep.r > 0
+          ? `<b>Not established.</b> The direction is right and that is worth something, but on ${corrIndep.n} independent competitions it does not clear the bar. <b style="color:var(--text)">Do not let this justify anything</b> — treat build 65's explanation as an open question, and keep judging each competition on its own measurement rather than on how unequal it looks.`
+          : `<b style="color:var(--red)">Not supported.</b> Once the founding cases are removed the relationship is absent or reversed. Build 65's explanation of WHY the engine works should be withdrawn; the per-league measurements stand on their own.`) +
+        `</div>` +
+        `<div class="subnote"><b style="color:var(--text)">The bigger thing in this table:</b> ${posEdges} of ${usable.length} competitions show a positive edge. If the engine helps almost everywhere, then "it only works in unequal leagues" is the wrong frame — what varies is the SIZE of a broadly positive effect, not whether there is one.</div>`;
+    }
+    box.innerHTML = head + body + verdictBlock +
+      `<div class="subnote">Spread = standard deviation of teams' points per game, computed from results alone and never from the engine's own ratings — using those would make the comparison partly circular. Edge = hit rate minus what "home or draw" scores, on the matches where the engine departs from it.</div>`;
+  }, 40);
+}
+
 function skillOf(L){ return (L && afState.skill) ? afState.skill[L.id] : null; }
 function skillProven(L){ const s = skillOf(L); return !!(s && s.ready && s.proven); }
 
@@ -5211,6 +5384,7 @@ $('delAcctBtn').addEventListener('click', async ()=>{
       : 'Could not delete: ' + e.message;
   }
 });
+{ const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
 $('clearCacheBtn').addEventListener('click', ()=>{
   if(!confirm('Clear cached scores, fixtures and predictions on this device?\n\nYour account, favourites and prediction record are kept.')) return;
   try{
