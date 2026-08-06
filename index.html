@@ -642,7 +642,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 112;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 114;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4676,7 +4676,7 @@ async function renderArchiveDay(){
         html += `<div class="frow" style="align-items:flex-start">
           <span style="flex:1">
             <b>${escapeHtml(p.home)} v ${escapeHtml(p.away)}</b>
-            <span class="muted" style="font-size:.72rem"> · ${p.ktime||''}</span><br>
+            <span class="muted" style="font-size:.72rem"> · ${localHM(p.kickoff, p.ktime)}</span><br>
             <span style="font-size:.76rem;color:var(--muted)">said ${escapeHtml(pickLabel(p.pick, p.home, p.away))} at ${pct(p.pick_prob)} · ${pct(p.p_home)}/${pct(p.p_draw)}/${pct(p.p_away)}</span>
           </span>
           <span style="text-align:right;white-space:nowrap"><b>${score}</b> ${mark}</span></div>`;
@@ -5034,7 +5034,20 @@ async function matchDetail(s){
   $('resultSide').textContent = '';
   $('heroStrong').classList.add('hidden');
   for(const id of ['acc-result','acc-smart','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
-  for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.remove('hidden');
+  /* BUILD 113 — do not advertise a provider this app does not use.
+     Timeline, Match Stats and Lineups are the only three panels still served by API-Football, which
+     stopped being this app's data source at build 37. With extras off — the normal state, and the
+     state build 40 deliberately put the app in to stop the free plan being drained — every one of
+     them threw AF_OFF_MSG and rendered "API-Football extras are off — switch them on in More → Data".
+     So a Scores match opened to three panels inviting the user to turn on a provider that is not
+     where any of the app's data comes from. Ken, looking at that page: "the second picture was
+     showing something about api-football."
+     When extras are off the three panels are hidden outright and the requests are never made. */
+  const afExtras_ = afExtrasOn();
+  for(const id of ['acc-timeline','acc-stats','acc-lineups']){
+    const el = $(id); if(el) el.classList.toggle('hidden', !afExtras_);
+  }
+  if(!afExtras_) return;
   $('tlBox').innerHTML = '<div class="subnote">Loading timeline…</div>';
   $('msBox').innerHTML = '';
   $('luBox').innerHTML = '<div class="subnote">Tap to load lineups (1 request).</div>';
@@ -5408,6 +5421,27 @@ async function reconcilePastScores(){
 /* ---------- scores feed (score-app home) ---------- */
 const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
 
+/* BUILD 114 — THE STATUS COLUMN IS NOT ALWAYS A STATUS.
+   Ken's Primeira Liga fixture showed "2026-08-07 19:15:00Z" both as its kick-off time in Scores and
+   as its status on the match page. Both screens were telling the truth about the data: they print
+   `status` directly whenever it is not a code they recognise, and for those rows the status column
+   contains a TIMESTAMP.
+
+   Where it comes from: `mapStatus` in refresh-scores.ts ends with `(s || "NS")` — an unrecognised
+   value is written through verbatim rather than rejected. Anything that ever put a date-like string
+   in that field, from any collector this table has had (§11), is still sitting there.
+
+   Two rules from here:
+     1. A status the app does not recognise is treated as NOT STARTED, never displayed. A fixture
+        with a broken status field is still a fixture; its teams, date and result are all fine.
+     2. It is normalised ONCE, where cloud rows enter the app, so no renderer has to remember. */
+const STATUS_CODES = ['NS','TBD','1H','2H','HT','ET','BT','P','INT','LIVE',
+                      'FT','AET','PEN','PST','SUSP','CANC','ABD','AWD','WO'];
+function normStatus(s){
+  const v = String(s == null ? '' : s).trim().toUpperCase();
+  return STATUS_CODES.includes(v) ? v : 'NS';
+}
+
 /* The Predict path already filtered to the competitions the live collector writes; the Scores path
    did not, which is why retired-provider leagues (USL League One, MLS Next Pro, Liga de Expansión
    MX…) showed up here with times that never resolved into scores. Both are fenced now — see
@@ -5451,7 +5485,7 @@ async function afScoresFromCloud(){
     for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
     afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
-      date:r.date, time:r.time, ldate:localDateOf(r), status:r.status, elapsed:r.elapsed,
+      date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
       home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
     gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
@@ -5965,7 +5999,7 @@ async function showPredictDate(d){
       const chip = done
         ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
         : `<span class="predchip">${p.pick} · ${(100*p.pick_prob).toFixed(0)}%</span>`;
-      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">FT</span>`:(p.ktime||'').slice(0,5)}</span>
+      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">FT</span>`:localHM(d, p.ktime)}</span>
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
     $('fixtureList').innerHTML =
