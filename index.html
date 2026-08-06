@@ -605,6 +605,10 @@
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
+      <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
+      <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
+      <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
+      <button id="e2Btn"></button><div id="e2Out"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
@@ -634,7 +638,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 99;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 108;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -837,7 +841,92 @@ Fullkrug,West Ham,4,20`;
    1 = no dampening, 0 = ignore the fixture and always quote the league average.
    This anchors on the league's real base rate, which is better than TEMP's flattening toward a flat
    50% — a league where both teams score 48% of the time should regress toward 48, not 50. */
-const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7, DAMPEN: 0.2 };
+const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 1.00, DAMPEN: 0.5 };
+/* DAMPEN 0.20 -> 0.50 (build 107). THIS IS NOW ONLY A PRIOR FOR LEAGUES NOBODY HAS MEASURED —
+   every backtested competition carries its own value in DAMPEN_BY_LEAGUE and never reads this.
+   0.20 came from a single competition (Brasileirão, 197 matches, build 45) and nine measured leagues
+   have since put it at the extreme low end: 0.70, 0.70, 0.60, 0.55, 0.50, 0.45, 0.45, 0.35, 0.20 —
+   median 0.50, and seven of the nine sit between 0.45 and 0.70. Carrying one league's outlier as the
+   default for every unmeasured competition was indefensible once the other eight existed. */
+/* TEMP 0.91 -> 1.00 (build 106). THE CORRECTION WAS RETIRED, NOT RE-TUNED.
+   Engine 2 was re-backtested on five competitions and the best TEMP came out at
+       Primera División 1.15 · Eredivisie 0.85 · Premier League 1.05 · Brasileirão 1.10 · Serie A 1.00
+   Mean 1.03; four of five at or above 1.00. TEMP = 1.00 is the identity transform — flat2(p) returns
+   p exactly and the W/D/L renormalisation is a no-op — so this DELETES the correction rather than
+   replacing it with another fitted number.
+   Why 1.00 and not the marginally better-fitting 1.05: the whole spread is worth 0.04%-0.41% of log
+   loss, which is noise; a value above 1.00 SHARPENS confidence, which is the direction that flatters
+   the app and re-creates the over-confidence TEMP was invented to cure; and three of the five
+   backtests printed their own verdict, "stated confidence broadly matches reality — the numbers can
+   be published as they are."
+   TEMP existed because the OLD engine was over-confident. The opponent-adjusted engine is not.
+   Fitting the ratings properly removed the need for the patch, which is the quieter half of what
+   build 105 bought. */
+/* BUILD 106 — DAMPEN IS NOW PER COMPETITION, because the re-fit refused to give one answer.
+   Best DAMPEN by league, Engine 2, walk-forward:
+       Premier League 0.70 (worth 0.61%) · Primera División 0.60 (0.64%) · Eredivisie 0.55 (0.33%)
+       Serie A 0.35 (0.04%)              · Brasileirão 0.20 (0.00%)
+   Read the gains, not just the values. In every league where the choice makes a measurable
+   difference the answer is 0.55-0.70; in the two where the leagues disagree, the difference is worth
+   nothing at all. Brasileirão — the competition 0.20 was originally fitted on — still says 0.20 and
+   improves by literally zero.
+   WHY NOT A GLOBAL 0.60: the backtest reports only CURRENT and BEST. For Brasileirão those are the
+   same point, so nothing measured says what 0.60 would cost there. Assuming its curve is flat would
+   be inventing a number, which is exactly how builds 102 and 103 produced conclusions that were
+   really assumptions (§17e). Leagues that have not been backtested keep TUNE.DAMPEN.
+   HOW IT IS PLUMBED: keyed on the league's match ARRAY, not an id passed through thirteen call
+   sites. Every engine instance in this file is built as `Object.create(footballEngine)` with
+   `.matches` set to a league's array, so that array already IS the league's identity — the same
+   fact the strengths cache relies on. A league that is missed simply falls back to TUNE.DAMPEN,
+   i.e. today's behaviour, so a miss is never a regression. */
+const DAMPEN_BY_LEAGUE = {
+  'Primeira Liga'                 : 0.80,   // gain 1.04%  (build 108) — the largest of the ten
+  'Premier League'                : 0.70,   // gain 0.61%
+  'Championship'                  : 0.70,   // gain 0.74%  (build 107)
+  'Primera Division'              : 0.60,   // gain 0.64%
+  'Eredivisie'                    : 0.55,   // gain 0.33%
+  'Bundesliga'                    : 0.50,   // gain 0.35%  (build 107)
+  'Ligue 1'                       : 0.45,   // gain 0.12%  (build 107)
+  'UEFA Champions League'         : 0.45,   // gain 0.23%  (build 107)
+  'Serie A'                       : 0.35,   // gain 0.04%
+  /* Brasileirão KEPT AT 0.20 after the uncensored re-run, deliberately. With the sweep floor removed
+     (build 107) it returns 0.10 — so the old 0.20 really was a boundary, not an optimum, and the
+     censoring was real. But the difference between them is 0.6924 vs 0.6922 log loss, i.e. 0.0002 on
+     roughly 1,400 observations, where the noise on such an average is of order 0.01. That is about
+     two per cent of one standard error: the curve is FLAT here, and the argmin inside a flat region
+     is a coin toss, not a measurement. Given no measurable cost either way, 0.20 keeps slightly more
+     fixture-specific information than 0.10 discards. Moving it would be chasing noise to four
+     decimal places, which is the habit this file exists to prevent. */
+  'Campeonato Brasileiro Série A' : 0.20
+};
+const DAMPEN_OF_MATCHES = new WeakMap();
+function registerLeagueDampen(L){
+  if(!L || !Array.isArray(L.matches)) return;
+  const v = DAMPEN_BY_LEAGUE[String(L.name || '').trim()];
+  if(typeof v === 'number') DAMPEN_OF_MATCHES.set(L.matches, v);
+}
+/* TEMP 0.70 -> 0.91 (build 103). THE ENGINE WAS UNDERSTATING ITS OWN BEST PICKS, and the proof was
+   a natural experiment already sitting in this file.
+
+   TEMP flattens probabilities toward 50% to cure over-confidence. Two markets take different routes
+   through it: the winner markets are flattened by flat2(), while goals and BTTS have used damp()
+   since build 45 and never touch TEMP at all. Measured across 85,000+ walk-forward legs:
+
+       1X   (uses flat2 / TEMP)   m = 1.0442   — wins 4.4% MORE often than it claims
+       BTTS (uses damp, no TEMP)  m = 0.9841   — calibrated
+
+   Same engine, same matches, same day. The only market reading a false edge is the one being
+   flattened. That is not skill appearing in the double-chance market; it is TEMP quoting 79% for a
+   pick that wins 83% of the time. At the 85% threshold the miscalibration alone predicts m = 1.075
+   and the measured value was 1.072 — a miss of 0.003.
+
+   0.91 is FITTED across both tails on that sample, not chosen: mean absolute calibration error falls
+   from 4.43 points to 1.10. It moves every confidence number a user sees, which is the point — they
+   were wrong, in the direction that flatters the app.
+
+   WHAT THIS COSTS: every "edge" the 102 sweeps found in the double-chance market disappears with it.
+   +45.5% at the 85% threshold becomes -45.5%. That edge was measured against the app's own
+   understated claim, never against a price anyone would offer. */
 /* DAMPEN 0.20 is FITTED on Ken's Brasileirão backtest (197 walk-forward matches), not chosen.
    The Gemini spec guessed 0.80. His data said 0.20, improving goals+BTTS log loss 0.7110 -> 0.6965.
    Why so aggressive: in the BTTS 60-70% band the engine claimed 63.2% and delivered 47.4% — BELOW
@@ -845,6 +934,77 @@ const TUNE = { SHRINK_K: 4, HALF_LIFE: 10000, TEMP: 0.7, DAMPEN: 0.2 };
    honest setting is to quote something close to the league average.
    CAVEAT: fitted on one league, and 0.20 sat at the bottom of the swept range, so the true optimum
    may be lower still. Re-run the backtest per competition — European leagues may well differ. */
+
+/* ================================================================
+   BUILD 104 — ENGINE 2. Built, and PARKED BEHIND A FLAG until measured.
+   ================================================================
+   Two changes, and they are deliberately separable so the A/B panel can score them one at a time.
+   Nothing here alters a single user-facing number while ENGINE2.ON is false.
+
+   (1) OPPONENT-ADJUSTED STRENGTHS. The build-103 engine rates a team as
+           goals scored ÷ league average,  shrunk toward average.
+       That never asks WHO the goals were scored against. A side that put 20 past the bottom three
+       is rated identically to one that put 20 past the top three. Opponent quality enters only at
+       prediction time, never at measurement time, so the ratings themselves carry the schedule.
+       ENGINE 2 fits attack and defence together, iteratively: each team's attack is measured against
+       the defences it actually faced, which changes those defences, which changes the attacks, until
+       the numbers stop moving. That is the maximum-likelihood fit of the model already in use — the
+       same model, estimated properly rather than approximated by an average.
+
+   (2) FOUR RATINGS PER TEAM COLLAPSE TO TWO. attackHome/attackAway/defenceHome/defenceAway means
+       each is estimated on roughly nineteen matches a season. Engine 2 fits ONE attack and ONE
+       defence per team and lets home advantage live where it already lives — in avgH vs avgA, the
+       league's own home and away scoring rates. Same information, half the noise.
+       The four legacy fields are still RETURNED, derived, so every caller downstream is untouched.
+
+   (3) DIXON-COLES LOW-SCORE CORRECTION (RHO). The build-103 grid multiplies two independent Poissons,
+       which assumes what the home team does tells you nothing about what the away team does. That is
+       false exactly at 0-0, 1-0, 0-1 and 1-1, and the direction of the error is known: draws come out
+       too low. RHO is the standard correction to those four cells.
+       **RHO DEFAULTS TO 0 — no correction — because a value chosen by Claude is exactly how builds
+       102 and 103 produced two conclusions that were really assumptions (§17e).** The A/B panel
+       sweeps it on Ken's own matches and reports the best value. It gets set from that, or not at all.
+
+   HOW THIS TURNS ON: never silently. Run the A/B panel in the Data tab. It scores old against new,
+   walk-forward, on log loss and RPS. If new does not win on both, ON stays false and this block is a
+   record of something tried and rejected, which is worth as much as a change that shipped.
+
+   ── TURNED ON, BUILD 105, 2026-08-06. THE PANEL SAID YES, ON KEN'S OWN DATA. ──────────────────
+   8,572 walk-forward predictions across ten competitions:
+
+       log loss   1.00283 -> 0.99180    +1.10%
+       RPS        0.20524 -> 0.20187    +1.64%
+       competitions improving: 10 of 10
+
+   Ten out of ten is what clears this. The pre-registered rule demanded both metrics AND a majority
+   of leagues, because the 8-12 odds band and the "high-scoring leagues" pattern both looked good
+   pooled and died when broken out by competition. This one does not die: every single league gains.
+
+   THE CONTROL UNDERSTATED IT, AND THAT DIRECTION IS THE SAFE ONE. On synthetic data the rebuild
+   was worth 0.15% log loss; on real matches it is worth 1.10%, seven times more. The reason is that
+   the synthetic league was generated by the old engine's own assumptions — balanced schedule, no
+   promoted sides, no venue quirks — so the old approximation was nearly optimal there. Real football
+   is where a schedule-blind rating actually costs you.
+
+   THE STRONGEST EVIDENCE IS THE CHAMPIONS LEAGUE ROW: +4.01% log loss, +6.24% RPS, roughly four
+   times any domestic league. That is exactly where opponent adjustment SHOULD matter most — the
+   most unbalanced schedule on the board, teams drawn from different leagues, few matches each. The
+   gain is largest precisely where the theory says it must be. A fluke would not know to do that.
+
+   RHO -0.08 IS FITTED, AND IT IS SMALL. Best of the swept values on 8,572 predictions, worth
+   0.00059 log loss on top of the rebuild — real, above the noise floor the control established
+   (~1,000 predictions), and inside the range the Dixon-Coles literature reports. But it is 0.06%
+   against the rebuild's 1.10%: the draw correction is a rounding error next to fitting the ratings
+   properly. Kept because it is measured, not because it matters much.
+   It also has not proved that goals are correlated. The engine quoted 24.4% draws against 25.5%
+   actual, and rho patches any draw shortfall whatever its cause. */
+const ENGINE2 = {
+  ON: true,           // build 105 — turned on by the A/B panel, 10 of 10 competitions
+  ITERS: 14,          // cold-start passes to convergence
+  ITERS_WARM: 3,      // passes when warm-starting from the previous walk-forward step
+  SHRINK_K: 4,        // pseudo-matches at league average — same meaning as TUNE.SHRINK_K
+  RHO: -0.08          // Dixon-Coles low-score correction. FITTED on Ken's data, never chosen.
+};
 
 function parseCSV(text){
   const lines = text.trim().split(/\r?\n/);
@@ -884,10 +1044,20 @@ const footballEngine = {
       .map(r=>({date:normDate(r.Date), home:r.HomeTeam, away:r.AwayTeam, hg:+r.FTHG, ag:+r.FTAG,
                 hth:(r.HTHG===''||r.HTHG==null)?null:+r.HTHG, hta:(r.HTAG===''||r.HTAG==null)?null:+r.HTAG}))
       .sort((a,b)=> a.date < b.date ? -1 : 1);
+    this._s2 = null;   // build 104: the warm-start cache describes the OLD match list
   },
   teams(){ return [...new Set(this.matches.flatMap(m=>[m.home,m.away]))].sort(); },
 
+  /* build 106 — this engine instance's DAMPEN. Looked up on the match array it was given, which is
+     the league's identity. Unknown league, half-time engine, or anything unregistered gets the
+     global value, i.e. exactly the behaviour before build 106. */
+  dampenFor(){
+    const v = DAMPEN_OF_MATCHES.get(this.matches);
+    return (typeof v === 'number') ? v : TUNE.DAMPEN;
+  },
+
   strengths(upTo){
+    if(ENGINE2.ON) return this.strengths2(upTo);   // build 104 — flag is false until measured
     const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
     const n = arr.length;
     const HALF_LIFE = TUNE.HALF_LIFE;
@@ -916,6 +1086,98 @@ const footballEngine = {
     return {teams:out, avgH, avgA};
   },
 
+  /* BUILD 104 — opponent-adjusted strengths. Same signature, same return shape, same four legacy
+     fields, so predict(), neutral() and every caller downstream work without knowing this exists.
+
+     The loop: guess every team is average, work out how many goals each SHOULD have scored against
+     the specific defences it met, compare with what it actually scored, adjust. Repeat until the
+     numbers settle. Attack and defence are solved together because each depends on the other.
+
+     WARM START. Walk-forward calls this once per match with upTo climbing by one, and one extra
+     match barely moves a rating, so it resumes from the previous answer and needs three passes
+     instead of fourteen. Without this the deep scan would take twenty minutes instead of two. */
+  strengths2(upTo){
+    const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
+    const n = arr.length;
+    if(!n) return {teams:{}, avgH:1.35, avgA:1.15};
+
+    const HL = TUNE.HALF_LIFE;                       // unchanged — recency is a separate question
+    const w = i => Math.pow(0.5, (n-1-i)/HL);
+
+    // ── index teams once, accumulate weighted goals for/against and the fixture list ──
+    const id = new Map(), gf = [], ga = [], wsum = [], fx = [];
+    const tid = name => { let k = id.get(name);
+      if(k === undefined){ k = id.size; id.set(name, k); gf.push(0); ga.push(0); wsum.push(0); fx.push([]); }
+      return k; };
+    let sumW = 0, sumHG = 0, sumAG = 0;
+    for(let i = 0; i < n; i++){
+      const m = arr[i], wi = w(i), hg = this.hgOf(m) || 0, ag = this.agOf(m) || 0;
+      sumW += wi; sumHG += hg * wi; sumAG += ag * wi;
+      const H = tid(m.home), A = tid(m.away);
+      gf[H] += hg * wi; ga[H] += ag * wi; wsum[H] += wi;
+      gf[A] += ag * wi; ga[A] += hg * wi; wsum[A] += wi;
+      fx[H].push(A, 1, wi);            // [opponent, isHome, weight] triples, flat for speed
+      fx[A].push(H, 0, wi);
+    }
+    const avgH = sumHG / sumW, avgA = sumAG / sumW;   // home advantage lives here, as it always did
+    const T = id.size;
+
+    // ── warm start from the previous walk-forward step where the team list still matches ──
+    let atk = new Float64Array(T).fill(1), def = new Float64Array(T).fill(1);
+    let iters = ENGINE2.ITERS;
+    /* THE CACHE KEY IS THE MATCH ARRAY ITSELF, not its length. Thirteen places in this file do
+       `tmp = Object.create(footballEngine); tmp.matches = L.matches` — a different competition with
+       the same number of matches would otherwise collide and serve one league's ratings for
+       another's. Reference identity cannot collide, and `_s2` reached through the prototype chain
+       from a derived engine fails this check rather than leaking. */
+    const c = this._s2;
+    if(c && c.src === this.matches && c.n <= n && c.atk.length <= T && c.tag === this._s2tag()){
+      atk.set(c.atk); def.set(c.def);
+      for(let t = c.atk.length; t < T; t++){ atk[t] = 1; def[t] = 1; }   // teams seen since
+      iters = ENGINE2.ITERS_WARM;
+    }
+
+    const K = ENGINE2.SHRINK_K;
+    for(let it = 0; it < iters; it++){
+      const na = new Float64Array(T), nd = new Float64Array(T);
+      for(let t = 0; t < T; t++){
+        const a = fx[t];
+        let expF = 0, expA = 0;
+        for(let p = 0; p < a.length; p += 3){
+          const o = a[p], home = a[p+1], wi = a[p+2];
+          expF += def[o] * (home ? avgH : avgA) * wi;   // what an average attack would score here
+          expA += atk[o] * (home ? avgA : avgH) * wi;   // what an average defence would concede here
+        }
+        /* Shrinkage, same meaning as before: K pseudo-matches in which the team performed exactly
+           as an average team would. With no matches at all this returns exactly 1.0 — the honest
+           rating for a promoted side nobody has seen, which is what build 77 relies on. */
+        const Wt = wsum[t] || 0;
+        const eF = Wt > 0 ? expF / Wt : 0, eA = Wt > 0 ? expA / Wt : 0;
+        na[t] = (expF + K * eF) > 0 ? (gf[t] + K * eF) / (expF + K * eF) : 1;
+        nd[t] = (expA + K * eA) > 0 ? (ga[t] + K * eA) / (expA + K * eA) : 1;
+      }
+      /* Fix the scale. attack×c with defence÷c leaves every prediction identical, so without this
+         the two can drift apart forever while nothing improves. Anchor mean attack at 1. */
+      let mA = 0, mW = 0;
+      for(let t = 0; t < T; t++){ mA += na[t] * (wsum[t] || 0); mW += (wsum[t] || 0); }
+      mA = mW > 0 ? mA / mW : 1;
+      if(!(mA > 0.0001)) mA = 1;
+      for(let t = 0; t < T; t++){ na[t] /= mA; nd[t] *= mA; }
+      atk = na; def = nd;
+    }
+
+    this._s2 = { src: this.matches, n, atk, def, tag: this._s2tag() };
+
+    const out = {};
+    for(const [name, t] of id)
+      out[name] = { attackHome: atk[t], attackAway: atk[t],      // one attack, both venues
+                    defenceHome: def[t], defenceAway: def[t] };  // one defence, both venues
+    return { teams: out, avgH, avgA };
+  },
+  /* The half-time and second-half engines share this code via hgOf/agOf (build 48). They must not
+     share each other's cache — this tag is what keeps the three apart. */
+  _s2tag(){ return this.hgOf === footballEngine.hgOf ? 'ft' : (this._tag || 'alt'); },
+
   /* What actually happens in an average match of THIS competition — measured, not assumed.
      Brasileirão and the Eredivisie have very different BTTS and Over 2.5 rates, so the anchor the
      goals markets regress toward has to come from the league itself (build 45). */
@@ -942,7 +1204,7 @@ const footballEngine = {
      zero matches — hgF=0, hW=0 — and every rating collapses to exactly 1.0, i.e. a league-average
      team. That is the honest prior for a side we know nothing about, and it is the same arithmetic
      applied to everyone else. The count is passed on so the app can say which side is unknown. */
-  predict(home, away, upTo){
+  predict(home, away, upTo, rhoOverride){   // rhoOverride: build 104 A/B panel only
     /* Build 77 let an unknown team fall back to league average, which is right for a promoted side.
        It was wrong for a fixture whose team hasn't been NAMED yet — football-data returns an empty
        string for an undetermined side, and that sailed through the same door and got priced at 74%
@@ -955,7 +1217,7 @@ const footballEngine = {
     const unknown = (teams[home]?0:1) + (teams[away]?0:1);
     const lambdaH = Math.max(.05, h.attackHome * a.defenceAway * avgH);
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
-    const out = this.marketsFor(lambdaH, lambdaA, this.rates(upTo));
+    const out = this.marketsFor(lambdaH, lambdaA, this.rates(upTo), rhoOverride);
     if(out){ out.unknownTeams = unknown;
              out.unknownNames = [teams[home]?null:home, teams[away]?null:away].filter(Boolean); }
     return out;
@@ -971,12 +1233,29 @@ const footballEngine = {
   },
 
   // every market's probability for a given pair of expected-goal rates
-  marketsFor(lambdaH, lambdaA, rates){
+  /* rhoOverride (build 104) lets the A/B panel sweep the Dixon-Coles correction without touching
+     the live constant. Undefined means "use whatever ENGINE2 says", which is 0 until it is fitted. */
+  marketsFor(lambdaH, lambdaA, rates, rhoOverride){
     const MAX=13;
     let pW=0,pD=0,pL=0, scores=[], over={1.5:0,2.5:0,3.5:0}, btts=0, total=0;
     let hHcap=0,aHcap=0,hT15=0,aT15=0;   // handicap -1.5 (win by 2+) and team over 1.5
+    /* BUILD 104 — Dixon-Coles low-score correction. Multiplying two Poissons assumes the two teams'
+       goals are unrelated, which breaks down in exactly four scorelines: 0-0, 1-0, 0-1 and 1-1.
+       A negative rho lifts 0-0 and 1-1 and lowers 1-0 and 0-1 — i.e. it puts back the draws that
+       independence loses. RHO is 0 unless the A/B panel has fitted one, so this is a no-op by
+       default and every existing number is bit-for-bit unchanged. */
+    const RHO = (rhoOverride !== undefined) ? rhoOverride : (ENGINE2.ON ? ENGINE2.RHO : 0);
+    const tau = (i,j) => {
+      if(!RHO) return 1;
+      let t = 1;
+      if(i===0 && j===0) t = 1 - lambdaH*lambdaA*RHO;
+      else if(i===0 && j===1) t = 1 + lambdaH*RHO;
+      else if(i===1 && j===0) t = 1 + lambdaA*RHO;
+      else if(i===1 && j===1) t = 1 - RHO;
+      return t > 0.0001 ? t : 0.0001;   // a big lambda with a big rho can drive this negative
+    };
     for(let i=0;i<MAX;i++)for(let j=0;j<MAX;j++){
-      const p = poissonPMF(lambdaH,i)*poissonPMF(lambdaA,j);
+      const p = poissonPMF(lambdaH,i)*poissonPMF(lambdaA,j)*tau(i,j);
       total+=p;
       if(i>j)pW+=p; else if(i===j)pD+=p; else pL+=p;
       const tot=i+j;
@@ -996,12 +1275,21 @@ const footballEngine = {
     const raw = {pW, pD, pL, over:{...over}, btts, rates:rates||null};
     // calibration: flatten probabilities so stated confidence matches real-world hit rates
     const T = TUNE.TEMP;
-    { const x=Math.pow(pW,T), y=Math.pow(pD,T), z=Math.pow(pL,T), s=x+y+z;
-      pW=x/s; pD=y/s; pL=z/s; }
-    const flat2 = p=>{ const x=Math.pow(p,T), y=Math.pow(1-p,T); return x/(x+y); };
+    /* build 106 — TEMP is 1.00, which is to say RETIRED. The transform is skipped outright rather
+       than applied as an identity, and the difference is not pedantry: raising to the power 1 is
+       exact, but re-normalising by a sum that only equals 1.0 to within floating-point error is not,
+       so "TEMP = 1" was still nudging every probability in the fifteenth decimal place. Skipping it
+       makes the retirement literal, and makes any future claim that TEMP is off verifiable. */
+    if(T !== 1){ const x=Math.pow(pW,T), y=Math.pow(pD,T), z=Math.pow(pL,T), s=x+y+z;
+                 pW=x/s; pD=y/s; pL=z/s; }
+    const flat2 = (T === 1) ? (p=>p)
+                            : (p=>{ const x=Math.pow(p,T), y=Math.pow(1-p,T); return x/(x+y); });
     /* Goals and BTTS regress toward the competition's own base rate rather than being flattened
        toward 50%. Without a measured base rate (thin history) fall back to the old behaviour. */
-    const damp = (p, base) => base==null ? flat2(p) : base + TUNE.DAMPEN*(p-base);
+    /* build 106 — per-competition blend weight, falling back to the global value for any league
+       that has never been backtested. See DAMPEN_BY_LEAGUE. */
+    const DK = (typeof this.dampenFor === 'function') ? this.dampenFor() : TUNE.DAMPEN;
+    const damp = (p, base) => base==null ? flat2(p) : base + DK*(p-base);
     for(const k of [1.5,2.5,3.5]) over[k]=damp(over[k], rates?rates[k]:null);
     btts = damp(btts, rates?rates.btts:null);
     const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
@@ -1425,6 +1713,7 @@ async function afLoadAll(){
         }
       }
       afState.leagues[L.id] = {id:L.id, name:L.name, country:L.country, flag:L.flag, logo:'', matches, teamIds, upcoming, scorerText:'', season:afState.season};
+      registerLeagueDampen(afState.leagues[L.id]);   // build 106
       if(!afState.leagueOrder.includes(L.id)) afState.leagueOrder.push(L.id);
       loaded++;
     }catch(e){ lastErr = L.name+': '+e.message; }
@@ -1486,6 +1775,7 @@ async function afDiscover(){
       afState.leagues[g.meta.id] = {id:g.meta.id, name:g.meta.name, country:g.meta.country||'International',
         flag:'', logo:g.meta.logo||'', matches:[], teamIds, upcoming, scorerText:'', season:g.meta.season, histTried:false,
         sport: currentSport==='basketball' ? 'basketball' : 'football'};
+      registerLeagueDampen(afState.leagues[g.meta.id]);   // build 106 — array is filled by push later, so the mapping survives
       if(!afState.leagueOrder.includes(g.meta.id)) afState.leagueOrder.push(g.meta.id);
       added++;
     }
@@ -3148,6 +3438,645 @@ function renderDispersionTest(){
   }, 40);
 }
 
+/* ══ LONG-SHOT CALIBRATION + STAKE-PLAN BACKTEST (build 100) ═══════════════════════
+   Ken's question: "I want a betting system that will lead to winnings" — a 1,2,3,4,5 progression
+   at 5.00 odds minimum, five attempts, any win resets.
+
+   The maths says a staking plan cannot create profit. Four different plans (flat, his, Martingale,
+   and a wild one) were simulated: every one is negative at a 19% win rate, EXACTLY ZERO at 20%, and
+   positive at 21%. Break-even is 1/odds and nothing else. What staking changes is how hard the
+   swings are — his plan is a ~2.6x lever on flat betting, in both directions.
+
+   So the only question that matters is whether the engine's 5.00-odds selections win MORE than 20%
+   of the time. That is measurable on history already loaded, and this is the measurement.
+
+   Two things are reported:
+     1. CALIBRATION by odds band — claimed vs actual, walk-forward.
+     2. HIS ACTUAL SYSTEM run on those picks — the ledger he would have had.
+
+   Everything is walk-forward: each match is priced using only matches dated before it. Without that
+   the engine is being tested on results it has already seen, and the answer would be flattering and
+   worthless. */
+
+// Explicit resolvers rather than reusing allSelections(), whose labels carry team names and whose
+// win conditions would have to be re-derived from strings. Written out so each can be checked by eye.
+function longShotSelections(P, hg, ag){
+  const out = [];
+  const add = (label, prob, won) => { if(prob > 0 && prob < 1) out.push({label, prob, won:!!won}); };
+  add('Home win',      P.pW, hg > ag);
+  add('Draw',          P.pD, hg === ag);
+  add('Away win',      P.pL, hg < ag);
+  add('Over 2.5',      P.over[2.5],     hg + ag > 2.5);
+  add('Over 3.5',      P.over[3.5],     hg + ag > 3.5);
+  add('Under 1.5',   1 - P.over[1.5],   hg + ag < 1.5);
+  add('BTTS yes',      P.btts,          hg > 0 && ag > 0);
+  add('BTTS no',   1 - P.btts,        !(hg > 0 && ag > 0));
+  if(P.hcap){
+    add('Home -1.5', P.hcap.h, hg - ag >= 2);
+    add('Away -1.5', P.hcap.a, ag - hg >= 2);
+  }
+  if(P.team){
+    add('Home under 1.5', 1 - P.team.h15, hg < 2);
+    add('Away under 1.5', 1 - P.team.a15, ag < 2);
+  }
+  if(P.topScores) for(const sc of P.topScores){
+    const parts = String(sc.score).split('-').map(Number);
+    if(parts.length === 2 && !parts.some(isNaN))
+      add('Score ' + sc.score, sc.p, hg === parts[0] && ag === parts[1]);
+  }
+  return out;
+}
+
+const ODDS_BANDS = [[2,3],[3,4],[4,5],[5,6],[6,8],[8,12],[12,25]];
+
+/* Walk-forward across a competition. Returns per-odds-band claimed vs actual, and the day-by-day
+   picks the staking simulation then runs on. */
+function longShotScan(L, minOdds){
+  const ms = (L && L.matches) || [];
+  if(ms.length < 200) return null;
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const bands = ODDS_BANDS.map(([lo,hi])=>({lo, hi, n:0, claimed:0, hits:0}));
+  const byDate = new Map();
+  const start = Math.max(120, Math.floor(ms.length * 0.35));
+
+  for(let i = start; i < ms.length; i++){
+    const m = ms[i];
+    if(m.hg == null || m.ag == null) continue;
+    const P = tmp.predict(m.home, m.away, i);      // ← only matches BEFORE i
+    if(!P) continue;
+    const sels = longShotSelections(P, m.hg, m.ag);
+    for(const s of sels){
+      const odds = 1 / s.prob;
+      for(const b of bands){
+        if(odds >= b.lo && odds < b.hi){ b.n++; b.claimed += s.prob; if(s.won) b.hits++; break; }
+      }
+    }
+    // the day's best qualifying pick, for the staking run: most confident selection that still
+    // clears the odds bar — which is how Ken described choosing one
+    const q = sels.filter(s => 1/s.prob >= minOdds).sort((a,b)=> b.prob - a.prob)[0];
+    if(q){
+      const d = m.date || String(i);
+      if(!byDate.has(d)) byDate.set(d, { date:d, label:`${m.home} v ${m.away} — ${q.label}`,
+                                         prob:q.prob, odds:1/q.prob, won:q.won });
+    }
+  }
+  return { bands: bands.filter(b=>b.n > 0), days:[...byDate.values()].sort((a,b)=> a.date<b.date?-1:1),
+           matches: ms.length, tested: ms.length - start };
+}
+
+/* Ken's system, run on those real picks. Stakes 1,2,3,4,5; any win closes the streak and resets.
+   `payAt` lets the same picks be settled at fair odds and at a bookmaker's shorter price, because
+   the difference between those two is the entire question. */
+function runStakePlan(days, payAt){
+  const stakes = [1,2,3,4,5];
+  let step = 0, staked = 0, net = 0, wonSeq = 0, lostSeq = 0, low = 0, run = 0, peak = 0;
+  for(const d of days){
+    const st = stakes[step];
+    staked += st;
+    const price = payAt ? payAt(d.odds) : d.odds;
+    if(d.won){
+      net += st * price - st; run = net; wonSeq++; step = 0;
+    } else {
+      net -= st; run = net; step++;
+      if(step >= stakes.length){ lostSeq++; step = 0; }
+    }
+    peak = Math.max(peak, run); low = Math.min(low, run - peak);
+  }
+  return { net, staked, wonSeq, lostSeq, worstDrawdown: low, bets: days.length };
+}
+
+function renderLongShot(){
+  const box = $('lsOut'); if(!box) return;
+  const lid = $('lsLeague') ? $('lsLeague').value : '';
+  const minOdds = Math.max(1.5, parseFloat($('lsOdds') ? $('lsOdds').value : '5') || 5);
+  const L = afState.leagues[lid];
+  if(!L){ box.innerHTML = '<div class="subnote">Pick a competition first.</div>'; return; }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Walking through ' + escapeHtml(L.name) + ' match by match…</div>';
+  setTimeout(()=>{
+    const r = longShotScan(L, minOdds);
+    if(!r){ box.innerHTML = '<div class="subnote">Needs at least 200 completed matches. This competition has ' + ((L.matches||[]).length) + '.</div>'; return; }
+
+    const rows = r.bands.map(b=>{
+      const claimed = 100 * b.claimed / b.n, actual = 100 * b.hits / b.n;
+      const gap = actual - claimed;
+      // is the gap bigger than chance? 2 standard errors on the actual rate
+      const se = 100 * Math.sqrt(Math.max(1e-9, (b.hits/b.n) * (1 - b.hits/b.n) / b.n));
+      const solid = Math.abs(gap) > 2 * se;
+      const col = !solid ? 'var(--muted)' : gap > 0 ? 'var(--green2)' : 'var(--red)';
+      return `<div class="frow"><span style="flex:1">${b.lo.toFixed(1)}–${b.hi.toFixed(1)}</span>
+        <span style="width:16%;text-align:right">${b.n}</span>
+        <span style="width:20%;text-align:right">${claimed.toFixed(1)}%</span>
+        <span style="width:20%;text-align:right">${actual.toFixed(1)}%</span>
+        <span style="width:20%;text-align:right;color:${col}"><b>${gap>=0?'+':''}${gap.toFixed(1)}</b></span></div>`;
+    }).join('');
+
+    const fair = runStakePlan(r.days);
+    const book = runStakePlan(r.days, o => Math.max(1.05, o * 0.92));   // ~8% margin, typical
+    const won = r.days.filter(d=>d.won).length;
+    const n = r.days.length;
+    const hitRate = n ? won / n : 0;
+    const breakEven = 1 / minOdds;
+    const avgOdds = n ? r.days.reduce((a,d)=>a+d.odds,0) / n : minOdds;
+
+    /* THE NUMBER TO TRUST, and the reason the ledger below is demoted.
+       Control test, build 100: a league where the picks genuinely lost (11% against a 20%
+       break-even) was run 30 times. Mean result −120 units — but THREE of the thirty runs finished
+       in PROFIT. The ladder stakes 1 to 5, so a couple of late-step wins swing a whole season.
+       Ken sees exactly one run. If the ledger were the headline it would mislead one time in ten.
+       The hit rate against break-even is the stable measurement; the ledger is one roll of it. */
+    const se = Math.sqrt(Math.max(1e-9, hitRate * (1 - hitRate) / Math.max(1, n)));
+    const edge = hitRate - breakEven;
+    const solid = Math.abs(edge) > 2 * se;
+    const evFair = hitRate * avgOdds - 1;          // return per 1 unit staked, fair odds
+    const evBook = hitRate * avgOdds * 0.92 - 1;   // ...at a real price
+
+    const plan = (title, p, note) =>
+      `<div class="sec-label" style="margin-top:10px">${title}</div>
+       <div class="frow"><span style="flex:1">Streaks won / lost</span><span><b>${p.wonSeq} / ${p.lostSeq}</b></span></div>
+       <div class="frow"><span style="flex:1">Net after ${p.bets} bets</span>
+         <span><b style="color:${p.net>=0?'var(--green2)':'var(--red)'}">${p.net>=0?'+':''}${p.net.toFixed(0)} units</b></span></div>
+       <div class="frow"><span style="flex:1">Worst run of bad luck</span><span><b style="color:var(--red)">${p.worstDrawdown.toFixed(0)} units</b></span></div>
+       <div class="subnote">${note}</div>`;
+
+    box.innerHTML =
+      `<div class="sec-label">Does the engine beat the price?</div>` +
+      `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Odds</span><span style="width:16%;text-align:right">Bets</span>
+         <span style="width:20%;text-align:right">Claimed</span><span style="width:20%;text-align:right">Actual</span>
+         <span style="width:20%;text-align:right">Gap</span></div>` + rows +
+      `<div class="subnote">Every match priced using only matches played BEFORE it. A green gap means the engine wins more often than it claims at those odds — the only thing that can make any staking plan profitable. Grey means the difference is within chance.</div>` +
+
+      `<div class="sec-label" style="margin-top:14px">The answer, on ${n} real matchdays</div>` +
+      `<div class="frow"><span style="flex:1">Your picks won</span>
+         <span><b style="color:${edge>0?'var(--green2)':'var(--red)'}">${(100*hitRate).toFixed(1)}%</b>
+         <span class="muted" style="font-size:.72rem"> ± ${(200*se).toFixed(1)}</span></span></div>` +
+      `<div class="frow"><span style="flex:1">They needed</span><span><b>${(100*breakEven).toFixed(1)}%</b>
+         <span class="muted" style="font-size:.72rem"> to break even at ${minOdds.toFixed(2)}</span></span></div>` +
+      `<div class="frow"><span style="flex:1">Return per 1 unit staked</span>
+         <span><b style="color:${evFair>0?'var(--green2)':'var(--red)'}">${evFair>=0?'+':''}${evFair.toFixed(3)}</b>
+         <span class="muted" style="font-size:.72rem"> fair · </span>
+         <b style="color:${evBook>0?'var(--green2)':'var(--red)'}">${evBook>=0?'+':''}${evBook.toFixed(3)}</b>
+         <span class="muted" style="font-size:.72rem"> real price</span></span></div>` +
+      `<div class="subnote">` +
+      (!solid
+        ? `<b>Not enough evidence either way.</b> The gap between ${(100*hitRate).toFixed(1)}% and ${(100*breakEven).toFixed(1)}% is inside what ${n} bets can tell you apart. Neither a green result nor a red one here means much yet.`
+        : edge > 0
+        ? `<b style="color:var(--green2)">The picks beat their price.</b> That is the real finding, and it is what a staking plan needs. Check the real-price number too — the bookmaker's margin eats most small edges.`
+        : `<b style="color:var(--red)">The picks do not beat their price.</b> This is not a flaw in the 1-2-3-4-5 ladder. No staking pattern can profit from selections that lose money per bet — the ladder only changes how fast.`) +
+      `</div>` +
+
+      plan('One run of your ladder — fair odds', fair,
+        'Fair odds = 1 ÷ the engine\'s own probability. No bookmaker offers this; it is the ceiling.') +
+      plan('One run of your ladder — real price (8% margin)', book,
+        'The same picks at what you could actually get.') +
+
+      `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">⚠ Do not read the two ledgers above as the answer.</b> They are ONE run. Tested against a system known to lose — 11% picks against a 20% break-even — thirty runs of this ladder averaged −120 units but <b>three of the thirty finished in profit</b>. Staking 1 to 5 means a couple of late wins can carry a whole season. <b style="color:var(--text)">The win rate against break-even is the number that holds still. The ledgers are one roll of the dice.</b></div>`;
+  }, 40);
+}
+
+function fillLongShotLeagues(){
+  const sel = $('lsLeague'); if(!sel) return;
+  const opts = Object.keys(afState.leagues || {})
+    .map(id=>afState.leagues[id])
+    .filter(L=>L && (L.sport||'football')==='football' && (L.matches||[]).length >= 200)
+    .sort((a,b)=> (b.matches||[]).length - (a.matches||[]).length);
+  sel.innerHTML = opts.length
+    ? opts.map(L=>`<option value="${L.id}">${escapeHtml(L.name)} · ${(L.matches||[]).length} matches</option>`).join('')
+    : '<option value="">No competition has 200+ matches loaded yet</option>';
+}
+
+/* ══ ACCUMULATOR TEST (build 101) — Ken's question, and it is a good one ═══════════
+   "Two matches producing 5.00 might be better than six matches producing 5.00."
+
+   THE MATHS FIRST, because it decides how to read the result. Per leg, let m = (true win rate) x
+   (odds). m = 1 is break-even. An n-leg accumulator returns m^n. So the edge COMPOUNDS: at m = 0.95
+   a nine-leg 1X accumulator returns 63p in the pound; at m = 1.05 the same nine legs return 155p.
+   An accumulator is a magnifier, not a source of profit — which makes the SIGN of m everything.
+
+   WHY THIS NEEDED A NEW TEST. Build 100 measured 80,352 bets, but every band started at 2.00.
+   Ken's legs sit BELOW that: 1X at 1.20 is 83%, BTTS at 1.80 is 56%. We had no evidence at all in
+   1.0–2.0 — the exact range his idea lives in. Different question, different measurement.
+
+   The bands below therefore run down to 1.00, and the strategies use his own thresholds. */
+const ACCA_BANDS = [[1.0,1.1],[1.1,1.2],[1.2,1.35],[1.35,1.5],[1.5,1.75],[1.75,2.0],[2.0,2.5],[2.5,3.5]];
+
+const ACCA_STRATEGIES = {
+  dc:   { label:'Double chance (1X / X2)', min:0.75,
+          legs:(P,f)=>{ const a=P.pW+P.pD, b=P.pD+P.pL;
+                        return a>=b ? [{sel:'1X', prob:a, won:(hg,ag)=>hg>=ag}]
+                                    : [{sel:'X2', prob:b, won:(hg,ag)=>hg<=ag}]; } },
+  btts: { label:'Both teams to score', min:0.60,
+          legs:(P,f)=>[{sel:'BTTS yes', prob:P.btts, won:(hg,ag)=>hg>0&&ag>0}] },
+  htft: { label:'HT/FT double', min:0.50, needsHalf:true,
+          legs:(P,f,H)=>{ if(!H||!H.doubles) return [];
+            const d=[...H.doubles].sort((x,y)=>y.prob-x.prob)[0]; if(!d) return [];
+            return [{sel:'HT/FT '+d.code, prob:d.prob, code:d.code,
+                     won:(hg,ag,hth,hta)=>{ if(hth==null||hta==null) return null;
+                       const h = hth>hta?'1':hth===hta?'X':'2', ft = hg>ag?'1':hg===ag?'X':'2';
+                       return d.code.replace('/','') === h+ft; } }]; } }
+};
+
+/* Walk-forward, ACROSS EVERY LOADED COMPETITION AT ONCE — and that matters.
+   The first version scanned one league and built only 5 accumulators from 3,040 matches, because a
+   single league's matchday rarely has enough qualifying legs to reach 5.00. In practice Ken would
+   combine Saturday's Bundesliga, Premier League and Brasileirão picks into one slip. Pooling by
+   DATE across leagues is both what he would really do and what gives the test enough to judge.
+   Legs still come from different matches, which is what keeps them roughly independent. */
+function accaScan(leagues, key, targetOdds){
+  const S = ACCA_STRATEGIES[key]; if(!S) return null;
+  const bands = ACCA_BANDS.map(([lo,hi])=>({lo,hi,n:0,claimed:0,hits:0}));
+  const byDate = new Map();
+  const allLegs = [];
+  let scanned = 0;
+
+  for(const L of leagues){
+    const ms = (L && L.matches) || [];
+    if(ms.length < 200) continue;
+    const tmp = Object.create(footballEngine); tmp.matches = ms;
+    const start = Math.max(120, Math.floor(ms.length*0.35));
+    for(let i=start;i<ms.length;i++){
+      const m = ms[i];
+      if(m.hg==null || m.ag==null) continue;
+      const P = tmp.predict(m.home, m.away, i); if(!P) continue;
+      scanned++;
+      let H = null;
+      if(S.needsHalf){ try{ H = htftFor(L, {home:m.home, away:m.away}, i); }catch(e){ H=null; } }
+      for(const leg of S.legs(P, m, H)){
+        const won = leg.won(m.hg, m.ag, m.hth, m.hta);
+        if(won === null) continue;               // no half-time score — skip rather than guess
+        const odds = 1/leg.prob;
+        for(const b of bands){ if(odds>=b.lo && odds<b.hi){ b.n++; b.claimed+=leg.prob; if(won) b.hits++; break; } }
+        allLegs.push({ prob:leg.prob, won });     // every leg, so thresholds can be swept without re-scanning
+        if(leg.prob >= S.min){
+          const d = m.date || String(i);
+          if(!byDate.has(d)) byDate.set(d, []);
+          byDate.get(d).push({ prob:leg.prob, odds, won, label:`${m.home} v ${m.away} ${leg.sel}` });
+        }
+      }
+    }
+  }
+
+  /* One accumulator per day: most confident legs first, until the combined price clears the target.
+     A day that cannot reach it is SKIPPED — not staked short, which would quietly change the test. */
+  const accas = [];
+  for(const [date, legs] of byDate){
+    legs.sort((a,b)=>b.prob-a.prob);
+    let odds=1; const used=[];
+    for(const l of legs){ used.push(l); odds *= l.odds; if(odds >= targetOdds) break; }
+    if(odds < targetOdds || !used.length) continue;
+    accas.push({ date, legs:used.length, odds, won: used.every(l=>l.won) });
+  }
+  /* THE NUMBER THAT MATTERS, and why the ledger above is only decoration.
+     A 5.00 accumulator wins 20% of the time and pays +4, so one bet has a standard deviation of
+     2.0 units. At 86 accumulators — which is what a full dataset yields — the 95% noise band on the
+     per-bet return is ±43%. Control runs on leagues that are FAIR BY CONSTRUCTION produced −38% and
+     +78%. Detecting a real 5% edge would need ~6,400 accumulators: eighteen years at one a day.
+
+     So the ledger is unreadable, forever. But the legs are not: they number in the thousands, and
+     an n-leg accumulator's expected return is EXACTLY m^n where m = (actual wins)/(claimed wins) on
+     those legs. Measure m from a big sample, raise it to the power n, and the answer is arithmetic
+     rather than a gamble. */
+  let qn=0, qClaimed=0, qHits=0;
+  for(const legs of byDate.values()) for(const l of legs){ qn++; qClaimed += l.prob; qHits += l.won?1:0; }
+  const m = qClaimed > 0 ? qHits/qClaimed : null;      // 1.00 = calibrated, <1 = over-confident
+  const se = qn ? Math.sqrt(Math.max(1e-12,(qHits/qn)*(1-qHits/qn)/qn))*qn/qClaimed : null;
+
+  return { bands: bands.filter(b=>b.n>0), accas, days: byDate.size, scanned,
+           avgLegs: accas.length ? accas.reduce((a,x)=>a+x.legs,0)/accas.length : 0,
+           qn, m, se, allLegs };
+}
+
+/* THE THRESHOLD SWEEP (build 102) — Ken's question: is a lower confidence, at bigger odds and
+   therefore fewer legs, better than a high one?
+
+   There is a real trade-off and it pulls both ways:
+     · HIGHER confidence  → shorter odds → the engine is better calibrated there (m closer to 1 or
+       above), but you need MORE legs to reach the target, and you pay the bookmaker's margin on
+       every single one.
+     · LOWER confidence   → longer odds → fewer legs and less margin paid, but the engine is more
+       over-confident out there, so m is worse and it compounds.
+
+   Only arithmetic settles which wins. For each threshold: measure m on the legs that clear it,
+   work out how many such legs reach the target, then compute m^n exactly. */
+function sweepThresholds(allLegs, target, marginPerLeg){
+  const out = [];
+  for(let th = 0.45; th <= 0.92; th += 0.05){
+    const legs = allLegs.filter(l => l.prob >= th);
+    if(legs.length < 150) continue;
+    let claimed = 0, hits = 0, oddsSum = 0;
+    for(const l of legs){ claimed += l.prob; hits += l.won ? 1 : 0; oddsSum += 1/l.prob; }
+    const m = claimed > 0 ? hits/claimed : null;
+    if(m == null) continue;
+    const se = Math.sqrt(Math.max(1e-12,(hits/legs.length)*(1-hits/legs.length)/legs.length))*legs.length/claimed;
+    const avgOdds = oddsSum/legs.length;
+    // legs needed at the AVERAGE price of the legs that qualify
+    const n = Math.max(1, Math.ceil(Math.log(target)/Math.log(avgOdds)));
+    /* build 103: margin now varies with price. The flat figure passed in is still honoured as a
+       FLOOR so this table can never look cheaper than the 102 run it replaces, but the real charge
+       is marginAt(avgOdds) — see the note above MARGIN_CURVE for why flat was wrong. */
+    const mg = Math.max(marginPerLeg||0, marginAt(avgOdds));
+    out.push({ th, count:legs.length, m, se, avgOdds, n, mg,
+               evFair: Math.pow(m, n) - 1,
+               evReal: Math.pow(m*(1-mg), n) - 1,
+               winRate: hits/legs.length });
+  }
+  return out;
+}
+
+/* ══ BUILD 103 — THE DEEP MARKET SCAN ═════════════════════════════════════════════════════════
+   Ken's question: search every fixture in every competition, find which market and which odds
+   actually work, and which can reach 5.00 inside a slip he could really place.
+
+   FIRST, A CORRECTION TO BUILD 102. The threshold sweep charged a FLAT 4% margin on every leg at
+   every price, then concluded that fewer legs beats more legs. That conclusion was manufactured by
+   the constant. If each leg costs the same fixed 4%, then n legs cost 4% n times over and the
+   arithmetic cannot say anything except "use fewer legs". I read a property of my own assumption
+   as a finding about football. It is the same mistake as TEMP, one layer up: a number I chose,
+   driving a conclusion I then reported as measured.
+
+   REAL MARGIN IS NOT FLAT. It is thinnest on short-priced favourites and widest on long shots —
+   the favourite-longshot bias, among the most replicated results in the betting literature. A 1.20
+   favourite typically carries 1.5-2.5% overround; a 10.00 shot carries 10-15%. Once margin varies
+   with price the trade-off genuinely reverses in places: five legs at 1.38 can cost LESS in total
+   than one bet at 5.00, because you are buying the cheap end of the book five times instead of the
+   expensive end once.
+
+   THESE NUMBERS ARE LITERATURE-TYPICAL, NOT MEASURED FROM KEN'S DATA — say so plainly rather than
+   let a second assumed constant quietly drive a second conclusion. They replace a wrong assumption
+   with a defensible one; they are not a measurement. The scan below therefore reports every market
+   at three margins (zero, this curve, flat 4%) so it is visible when the answer depends on the
+   guess. Real per-price margins need a historical odds feed. Nothing here substitutes for that. */
+const MARGIN_CURVE = [[1.30,0.020],[2.00,0.035],[3.50,0.050],[6.00,0.070],[12.0,0.100]];
+function marginAt(odds){
+  for(const [hi,mg] of MARGIN_CURVE) if(odds < hi) return mg;
+  return 0.150;
+}
+/* Double chance, draw-no-bet and HT/FT are DERIVATIVE markets: the book builds them from the main
+   1X2 prices and adds its own margin on top. Charging them the same as a straight market would
+   flatter exactly the strategies Ken is most interested in, so they pay a surcharge. */
+const DERIV_SURCHARGE = 0.015;
+
+/* Every market the engine can price and resolve. Written out explicitly, one line each, so every
+   win condition can be checked by eye — a silently wrong resolver would look like an edge. */
+const DEEP_MARKETS = [
+  { key:'1X',    label:'Home or draw',       deriv:1, p:P=>P.pW+P.pD,               won:(h,a)=>h>=a },
+  { key:'X2',    label:'Draw or away',       deriv:1, p:P=>P.pD+P.pL,               won:(h,a)=>h<=a },
+  { key:'12',    label:'Either team wins',   deriv:1, p:P=>P.pW+P.pL,               won:(h,a)=>h!==a },
+  { key:'1',     label:'Home win',                    p:P=>P.pW,                    won:(h,a)=>h>a },
+  { key:'2',     label:'Away win',                    p:P=>P.pL,                    won:(h,a)=>h<a },
+  // draw-no-bet: a draw refunds the stake. Returning null skips it, which is the correct treatment —
+  // it was never a resolved bet, and counting it as a loss would understate every DNB market.
+  { key:'DNB1',  label:'Home draw-no-bet',   deriv:1, p:P=>P.pW/((P.pW+P.pL)||1),   won:(h,a)=>h===a?null:h>a },
+  { key:'DNB2',  label:'Away draw-no-bet',   deriv:1, p:P=>P.pL/((P.pW+P.pL)||1),   won:(h,a)=>h===a?null:h<a },
+  { key:'O15',   label:'Over 1.5 goals',              p:P=>P.over[1.5],             won:(h,a)=>h+a>1.5 },
+  { key:'O25',   label:'Over 2.5 goals',              p:P=>P.over[2.5],             won:(h,a)=>h+a>2.5 },
+  { key:'U25',   label:'Under 2.5 goals',             p:P=>1-P.over[2.5],           won:(h,a)=>h+a<2.5 },
+  { key:'U35',   label:'Under 3.5 goals',             p:P=>1-P.over[3.5],           won:(h,a)=>h+a<3.5 },
+  { key:'BTTS',  label:'Both teams score',            p:P=>P.btts,                  won:(h,a)=>h>0&&a>0 },
+  { key:'BTTSN', label:'Not both score',              p:P=>1-P.btts,                won:(h,a)=>!(h>0&&a>0) },
+  { key:'HO15',  label:'Home over 1.5',               p:P=>P.team?P.team.h15:null,  won:(h,a)=>h>1.5 },
+  { key:'AO15',  label:'Away over 1.5',               p:P=>P.team?P.team.a15:null,  won:(h,a)=>a>1.5 },
+  { key:'HU15',  label:'Home under 1.5',              p:P=>P.team?1-P.team.h15:null,won:(h,a)=>h<1.5 },
+  { key:'AU15',  label:'Away under 1.5',              p:P=>P.team?1-P.team.a15:null,won:(h,a)=>a<1.5 },
+  { key:'HC15',  label:'Home -1.5 handicap',          p:P=>P.hcap?P.hcap.h:null,    won:(h,a)=>h-a>=2 },
+  { key:'AC15',  label:'Away -1.5 handicap',          p:P=>P.hcap?P.hcap.a:null,    won:(h,a)=>a-h>=2 },
+];
+
+/* Walk every loaded competition once, price every market on every match, keep every resolved leg.
+   One pass, nineteen markets — re-scanning per market would take nineteen times as long for the
+   same numbers, and predict() is the expensive part. */
+function deepScan(leagues){
+  const store = new Map();
+  for(const M of DEEP_MARKETS) store.set(M.key, []);
+  let scanned = 0, dates = new Set();
+
+  for(const L of leagues){
+    const ms = (L && L.matches) || [];
+    if(ms.length < 200) continue;
+    const tmp = Object.create(footballEngine); tmp.matches = ms;
+    const start = Math.max(120, Math.floor(ms.length*0.35));   // never price off fewer than 120 matches
+    for(let i=start;i<ms.length;i++){
+      const m = ms[i];
+      if(m.hg==null || m.ag==null) continue;
+      const P = tmp.predict(m.home, m.away, i); if(!P) continue;
+      scanned++;
+      const d = m.date || (L.id+'#'+i);
+      dates.add(d);
+      for(const M of DEEP_MARKETS){
+        let p = null; try{ p = M.p(P); }catch(e){ p = null; }
+        if(p==null || !isFinite(p) || p<=0.02 || p>=0.995) continue;   // unpriceable extremes
+        const w = M.won(m.hg, m.ag);
+        if(w === null) continue;                                        // push — stake returned
+        store.get(M.key).push({ prob:p, won:w?1:0, date:d, lg:L.id });
+      }
+    }
+  }
+  return { store, scanned, days:dates.size };
+}
+
+/* For one market: find the confidence threshold that gives the best realistic return at the target
+   price, subject to the slip being BUILDABLE — a market that yields two qualifying legs on an
+   average matchday cannot fill a five-leg slip, no matter how good those two legs are. That
+   feasibility test is the part of Ken's question the 102 sweep never asked. */
+function bestThreshold(legs, target, deriv, minLegs){
+  let best = null; const all = [];
+  for(let th=0.40; th<=0.94; th+=0.02){
+    const q = legs.filter(l=>l.prob>=th);
+    if(q.length < 300) continue;
+    let claimed=0, hits=0, oddsSum=0; const ds = new Set();
+    for(const l of q){ claimed+=l.prob; hits+=l.won; oddsSum+=1/l.prob; ds.add(l.date); }
+    if(claimed<=0) continue;
+    const m  = hits/claimed;
+    const wr = hits/q.length;
+    const se = Math.sqrt(Math.max(1e-12, wr*(1-wr)/q.length))*q.length/claimed;
+    const avgOdds = oddsSum/q.length;
+    if(avgOdds <= 1.001) continue;
+    const n = Math.max(1, Math.ceil(Math.log(target)/Math.log(avgOdds)));
+    const mg = marginAt(avgOdds) + (deriv?DERIV_SURCHARGE:0);
+    const supply = q.length/Math.max(1, ds.size);       // qualifying legs on an average matchday
+    const row = { th, count:q.length, m, se, avgOdds, n, mg, supply,
+                  buildable: supply >= n && n <= minLegs,
+                  evFair: Math.pow(m,n)-1,
+                  evReal: Math.pow(m*(1-mg),n)-1,
+                  evFlat: Math.pow(m*0.96,n)-1 };
+    all.push(row);
+    if(row.buildable && (!best || row.evReal > best.evReal)) best = row;
+  }
+  // if nothing is buildable inside the leg cap, still report the best row so the reason is visible
+  if(!best && all.length) best = all.reduce((a,b)=> b.evReal>a.evReal ? b : a);
+  return best;
+}
+
+function renderDeep(){
+  const box = $('dmOut'); if(!box) return;
+  const target  = Math.max(1.5, parseFloat($('dmTarget') ? $('dmTarget').value : '5') || 5);
+  const maxLegs = Math.max(1, parseInt($('dmLegs') ? $('dmLegs').value : '5', 10) || 5);
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Pricing nineteen markets on every match of every competition — this takes a while.</div>';
+  setTimeout(()=>{
+    const leagues = Object.keys(afState.leagues||{}).map(id=>afState.leagues[id])
+      .filter(L=>L && (L.sport||'football')==='football' && (L.matches||[]).length >= 200);
+    if(leagues.length < 2){ box.innerHTML = '<div class="subnote">Needs at least two competitions with 200+ matches. Open Predict, let them load, then run again.</div>'; return; }
+
+    const r = deepScan(leagues);
+    const rows = [];
+    for(const M of DEEP_MARKETS){
+      const legs = r.store.get(M.key) || [];
+      if(legs.length < 500) continue;
+      const b = bestThreshold(legs, target, M.deriv, maxLegs);
+      if(b) rows.push({ M, b, total:legs.length });
+    }
+    if(!rows.length){ box.innerHTML = '<div class="subnote">No market produced enough resolved legs to judge.</div>'; return; }
+    rows.sort((a,b)=> b.b.evReal - a.b.evReal);
+
+    const pct = x => (x>=0?'+':'') + (100*x).toFixed(1) + '%';
+    const col = x => x>0 ? 'var(--green2)' : 'var(--red)';
+
+    const body = rows.map(({M,b})=>{
+      // an edge is only an edge if it clears its own noise band AND points upward
+      const solid = (b.m - 1) > 2*b.se;
+      const flag  = !b.buildable ? ' <span style="color:var(--red)">✕</span>' : solid ? ' <span style="color:var(--gold)">★</span>' : '';
+      return `<div class="frow">
+        <span style="flex:1">${escapeHtml(M.label)}${flag}</span>
+        <span style="width:11%;text-align:right">${(100*b.th).toFixed(0)}%</span>
+        <span style="width:13%;text-align:right">${b.avgOdds.toFixed(2)}</span>
+        <span style="width:9%;text-align:right">${b.n}</span>
+        <span style="width:13%;text-align:right">${b.supply.toFixed(1)}</span>
+        <span style="width:15%;text-align:right">${b.m.toFixed(3)}</span>
+        <span style="width:17%;text-align:right;color:${col(b.evReal)}"><b>${pct(b.evReal)}</b></span></div>`;
+    }).join('');
+
+    const top = rows[0];
+    const anyPositive = rows.filter(x=>x.b.evReal>0 && x.b.buildable && (x.b.m-1)>2*x.b.se);
+
+    // per-league breakdown of the best market — one league carrying the whole result is the most
+    // common way a pooled number lies, and it killed two patterns already this project
+    const tl = r.store.get(top.M.key) || [];
+    const byLg = new Map();
+    for(const l of tl){ if(l.prob < top.b.th) continue;
+      if(!byLg.has(l.lg)) byLg.set(l.lg, {c:0,h:0,n:0});
+      const s=byLg.get(l.lg); s.c+=l.prob; s.h+=l.won; s.n++; }
+    const lgRows = [...byLg.entries()].filter(([,s])=>s.n>=100)
+      .map(([id,s])=>({ id, n:s.n, m:s.h/s.c }))
+      .sort((a,b)=>b.m-a.m)
+      .map(x=>{ const nm=(afState.leagues[x.id]&&afState.leagues[x.id].name)||('League '+x.id);
+        return `<div class="frow"><span style="flex:1">${escapeHtml(nm)}</span>
+          <span style="width:20%;text-align:right">${x.n}</span>
+          <span style="width:22%;text-align:right;color:${x.m>1?'var(--green2)':'var(--red)'}"><b>${x.m.toFixed(3)}</b></span></div>`; }).join('');
+    const ms = [...byLg.values()].filter(s=>s.n>=100).map(s=>s.h/s.c);
+    const agree = ms.length ? ms.filter(x=>x>1).length : 0;
+
+    box.innerHTML =
+      `<div class="sec-label">Every market, at its own best confidence</div>` +
+      `<div class="frow" style="font-size:.58rem;letter-spacing:.06em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Market</span><span style="width:11%;text-align:right">Conf</span>
+         <span style="width:13%;text-align:right">Odds</span><span style="width:9%;text-align:right">Legs</span>
+         <span style="width:13%;text-align:right">/day</span><span style="width:15%;text-align:right">m</span>
+         <span style="width:17%;text-align:right">Return</span></div>` + body +
+      `<div class="subnote"><b style="color:var(--text)">How to read this.</b> <b>Conf</b> is the threshold that did best for that market. <b>Odds</b> is the average fair price of the legs that clear it. <b>Legs</b> is how many reach ${target.toFixed(2)}. <b>/day</b> is how many qualifying legs an average matchday actually offers across all ${leagues.length} competitions — if that is below Legs, the slip cannot be filled and the row is marked ✕. <b>m</b> is wins per unit claimed: 1.000 is honest, below is over-confident. <b>Return</b> is per unit staked after a price-dependent margin. ★ marks a market whose m beats 1 by more than twice its own noise.</div>` +
+
+      `<div class="sec-label" style="margin-top:16px">Verdict</div>` +
+      (anyPositive.length
+        ? `<div class="verdict"><b>${anyPositive.length} market${anyPositive.length>1?'s':''} clear${anyPositive.length>1?'':'s'} the bar</b> — buildable inside ${maxLegs} legs, m above 1 by more than twice its noise, and positive after margin. Best: <b>${escapeHtml(anyPositive[0].M.label)}</b> at ${(100*anyPositive[0].b.th).toFixed(0)}%+, ${anyPositive[0].b.n} legs, ${pct(anyPositive[0].b.evReal)}. This is measured against an <b>assumed</b> margin curve, not a real bookmaker's price — check the sensitivity row below before believing it.</div>`
+        : `<div class="verdict"><b>No market clears the bar.</b> Nothing is both buildable inside ${maxLegs} legs and profitable after margin with an m that beats its own noise. The best available is ${escapeHtml(top.M.label)} at ${pct(top.b.evReal)}.</div>`) +
+
+      `<div class="sec-label" style="margin-top:14px">Does the answer depend on my margin guess?</div>` +
+      `<div class="frow"><span style="flex:1">${escapeHtml(top.M.label)} at zero margin</span><span style="color:${col(top.b.evFair)}"><b>${pct(top.b.evFair)}</b></span></div>` +
+      `<div class="frow"><span style="flex:1">…at the price-dependent curve (${(100*top.b.mg).toFixed(1)}% here)</span><span style="color:${col(top.b.evReal)}"><b>${pct(top.b.evReal)}</b></span></div>` +
+      `<div class="frow"><span style="flex:1">…at build 102's flat 4%</span><span style="color:${col(top.b.evFlat)}"><b>${pct(top.b.evFlat)}</b></span></div>` +
+      `<div class="subnote">If these three disagree about the SIGN, the answer is coming from my assumption rather than from your data, and only real historical prices can settle it.</div>` +
+
+      `<div class="sec-label" style="margin-top:14px">Is the best market carried by one competition?</div>` +
+      `<div class="frow" style="font-size:.58rem;letter-spacing:.06em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">${escapeHtml(top.M.label)} by league</span><span style="width:20%;text-align:right">Legs</span><span style="width:22%;text-align:right">m</span></div>` + lgRows +
+      `<div class="subnote">${agree} of ${ms.length} competitions agree with the pooled direction. A result carried by one or two leagues is a story, not an edge — that is exactly how the 8–12 odds band and the "high-scoring leagues" pattern both died earlier in this project.</div>` +
+
+      `<div class="subnote" style="margin-top:12px">${r.scanned.toLocaleString()} matches priced walk-forward across ${leagues.length} competitions and ${r.days.toLocaleString()} matchdays, ${[...r.store.values()].reduce((a,x)=>a+x.length,0).toLocaleString()} resolved legs in total. Every match priced using only matches played before it. Engine at TEMP ${TUNE.TEMP}.</div>`;
+  }, 40);
+}
+
+function renderAcca(){
+  const box = $('acOut'); if(!box) return;
+  const key = $('acStrat') ? $('acStrat').value : 'dc';
+  const target = Math.max(2, parseFloat($('acTarget') ? $('acTarget').value : '5') || 5);
+  const S = ACCA_STRATEGIES[key];
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Walking every competition, match by match…</div>';
+  setTimeout(()=>{
+    const leagues = Object.keys(afState.leagues||{}).map(id=>afState.leagues[id])
+      .filter(L=>L && (L.sport||'football')==='football' && (L.matches||[]).length >= 200);
+    if(leagues.length < 2){ box.innerHTML = '<div class="subnote">Needs at least two competitions with 200+ matches. Open Predict, wait for them to load, then run again.</div>'; return; }
+    const r = accaScan(leagues, key, target);
+    if(!r || !r.qn){ box.innerHTML = '<div class="subnote">No selections cleared '+Math.round(100*S.min)+'% confidence.</div>'; return; }
+
+    const rows = r.bands.filter(b=>b.n>=100).map(b=>{
+      const c=100*b.claimed/b.n, a=100*b.hits/b.n, gap=a-c;
+      const sd=100*Math.sqrt((a/100)*(1-a/100)/b.n);
+      const col = Math.abs(gap)<2*sd ? 'var(--muted)' : gap>0 ? 'var(--green2)' : 'var(--red)';
+      return `<div class="frow"><span style="flex:1">${b.lo.toFixed(2)}–${b.hi.toFixed(2)}</span>
+        <span style="width:16%;text-align:right">${b.n}</span>
+        <span style="width:20%;text-align:right">${c.toFixed(1)}%</span>
+        <span style="width:20%;text-align:right">${a.toFixed(1)}%</span>
+        <span style="width:18%;text-align:right;color:${col}"><b>${gap>=0?'+':''}${gap.toFixed(1)}</b></span></div>`;
+    }).join('');
+
+    const n = Math.max(1, Math.ceil(Math.log(target)/Math.log(1/S.min)));
+    const legsNeeded = r.avgLegs || n;
+    const mk = (mult, label, note) => {
+      const rows = [2,3,5,8].map(k=>{
+        const ev = Math.pow(mult,k) - 1;
+        return `<div class="frow"><span style="flex:1">${k} legs</span>
+          <span><b style="color:${ev>0?'var(--green2)':'var(--red)'}">${ev>=0?'+':''}${(100*ev).toFixed(1)}%</b></span></div>`;
+      }).join('');
+      return `<div class="sec-label" style="margin-top:10px">${label}</div>${rows}<div class="subnote">${note}</div>`;
+    };
+
+    const solid = r.se && Math.abs(r.m-1) > 2*r.se;
+    box.innerHTML =
+      `<div class="sec-label">Are the legs themselves honest?</div>` +
+      `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+        <span style="flex:1">Odds</span><span style="width:16%;text-align:right">Bets</span>
+        <span style="width:20%;text-align:right">Claimed</span><span style="width:20%;text-align:right">Actual</span>
+        <span style="width:18%;text-align:right">Gap</span></div>` + rows +
+      `<div class="subnote">Every match priced using only matches played BEFORE it, across ${leagues.length} competitions and ${r.scanned.toLocaleString()} matches. Bands under 100 bets hidden.</div>` +
+
+      `<div class="sec-label" style="margin-top:14px">Your ${escapeHtml(S.label)} legs, at ${Math.round(100*S.min)}%+</div>` +
+      `<div class="frow"><span style="flex:1">Qualifying legs</span><span><b>${r.qn.toLocaleString()}</b></span></div>` +
+      `<div class="frow"><span style="flex:1">They win, per unit claimed</span>
+        <span><b style="color:${r.m>1?'var(--green2)':'var(--red)'}">${r.m.toFixed(4)}</b>
+        <span class="muted" style="font-size:.72rem"> ± ${(2*r.se).toFixed(4)}</span></span></div>` +
+      `<div class="subnote">1.0000 means the engine is exactly right about these. Below means over-confident, above means it is winning more than it claims.${solid?'':' <b style="color:var(--text)">This one is inside chance — treat the projections below as indicative only.</b>'}</div>` +
+
+      mk(r.m, 'What that means for an accumulator, at FAIR odds',
+         'Return per unit staked. An n-leg accumulator returns exactly m<sup>n</sup> — so the per-leg number above compounds. This is arithmetic, not a simulation.') +
+      mk(r.m*0.96, 'At a real bookmaker price (4% margin per leg)',
+         'Bookmakers shade every leg. On an accumulator you pay that margin n times over, which is why long accumulators are the worst value on the board.') +
+
+      (function(){
+        const sw = sweepThresholds(r.allLegs||[], target, 0.04);
+        if(!sw.length) return '';
+        const best = sw.reduce((a,b)=> b.evReal > a.evReal ? b : a);
+        const rows = sw.map(x=>{
+          const isBest = x === best;
+          const col = x.evReal > 0 ? 'var(--green2)' : 'var(--red)';
+          return `<div class="frow"${isBest?' style="background:rgba(255,255,255,.04)"':''}>
+            <span style="flex:1">${(100*x.th).toFixed(0)}%+${isBest?' <b style="color:var(--gold)">◄ best</b>':''}</span>
+            <span style="width:15%;text-align:right">${x.count}</span>
+            <span style="width:15%;text-align:right">${x.avgOdds.toFixed(2)}</span>
+            <span style="width:11%;text-align:right">${x.n}</span>
+            <span style="width:17%;text-align:right">${x.m.toFixed(3)}</span>
+            <span style="width:19%;text-align:right;color:${col}"><b>${x.evReal>=0?'+':''}${(100*x.evReal).toFixed(1)}%</b></span></div>`;
+        }).join('');
+        return `<div class="sec-label" style="margin-top:16px">Which confidence level actually wins?</div>` +
+          `<div class="frow" style="font-size:.6rem;letter-spacing:.07em;color:var(--muted);text-transform:uppercase">
+             <span style="flex:1">Min conf</span><span style="width:15%;text-align:right">Legs</span>
+             <span style="width:15%;text-align:right">Avg odds</span><span style="width:11%;text-align:right">Need</span>
+             <span style="width:17%;text-align:right">m</span><span style="width:19%;text-align:right">Return</span></div>` +
+          rows +
+          `<div class="subnote"><b style="color:var(--text)">Read the last column.</b> "Need" is how many legs at that average price reach ${target.toFixed(2)}. "m" is how honest those legs are. Return is m<sup>n</sup> after a 4% margin per leg — the number you would actually keep. Higher confidence gives better legs but needs more of them, and you pay the margin every time; lower confidence needs fewer legs but the engine is less reliable out there. This table is that trade-off resolved.</div>`;
+      })() +
+      `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why there is no ledger here.</b> ${r.accas.length} accumulators were built from this data. A 5.00 accumulator has a standard deviation of 2.0 units per bet, so at that count the noise band is roughly ±${(200*2/Math.sqrt(Math.max(1,r.accas.length))).toFixed(0)}% — control runs on leagues that were fair by construction returned −38% and +78%. Detecting a real 5% edge would need about 6,400 accumulators, or eighteen years at one a day. <b style="color:var(--text)">The per-leg number above is the only readable measurement, and it answers the same question exactly.</b></div>`;
+  }, 40);
+}
+
 function skillOf(L){ return (L && afState.skill) ? afState.skill[L.id] : null; }
 function skillProven(L){ const s = skillOf(L); return !!(s && s.ready && s.proven); }
 
@@ -3369,10 +4298,18 @@ function runBacktest(){
     }
     return k ? s/k : null;
   };
-  let bestA=TUNE.DAMPEN, bestAL=Infinity, curAL=null;
+  /* build 107 — this league's ACTUAL setting, which since build 106 is usually not TUNE.DAMPEN.
+     Reporting the global value as "current" would compare the best fit against a configuration the
+     app no longer runs for this competition, which is a measurement that lies. */
+  const effDampen = (()=>{ const v = L ? DAMPEN_BY_LEAGUE[String(L.name||'').trim()] : undefined;
+                           return (typeof v === 'number') ? v : TUNE.DAMPEN; })();
+  let bestA=effDampen, bestAL=Infinity, curAL=null;
   if(dampRows.length >= 40){
-    for(let A=0.20; A<=1.001; A+=0.05){ const l=dampLoss(A); if(l!=null && l<bestAL){ bestAL=l; bestA=A; } }
-    curAL = dampLoss(TUNE.DAMPEN);
+    /* build 107 — the sweep used to start at 0.20, which was also the value being tested, so
+       Brasileirão's "best 0.20" was a floor, not an optimum: the honest reading was "0.20 or less"
+       and the range could not say which. Starting at 0 removes the censoring. */
+    for(let A=0.00; A<=1.001; A+=0.05){ const l=dampLoss(A); if(l!=null && l<bestAL){ bestAL=l; bestA=A; } }
+    curAL = dampLoss(effDampen);
   }
 
   /* ---------- RECENCY (build 66) ----------
@@ -3572,8 +4509,8 @@ function runBacktest(){
     (curAL!=null
       ? `<div class="sec-label" style="margin-top:16px">Goals &amp; BTTS dampening</div>` +
         statRow('League base rates', `BTTS ${pct(dampRows[dampRows.length-1].raw.rates.btts)} · O2.5 ${pct(dampRows[dampRows.length-1].raw.rates[2.5])}`) +
-        statRow('Current DAMPEN', TUNE.DAMPEN.toFixed(2)) +
-        statRow('Best on this data', bestA.toFixed(2), Math.abs(bestA-TUNE.DAMPEN)>0.001) +
+        statRow('Current DAMPEN', effDampen.toFixed(2) + (effDampen!==TUNE.DAMPEN ? ' (this league)' : ' (default)')) +
+        statRow("Best on this data", bestA.toFixed(2), Math.abs(bestA-effDampen)>0.001) +
         statRow('Log loss now / at best', `${curAL.toFixed(4)} / ${bestAL.toFixed(4)}`) +
         `<div class="subnote">Lower DAMPEN pulls goals and BTTS harder toward the league average, which is the cure for claiming 63% and delivering 52%. 1.00 would mean no dampening at all.</div>`
       : '') +
@@ -4589,6 +5526,7 @@ async function openFixture(leagueId, f, btn){
           regLogo(x.teams.home); regLogo(x.teams.away);
           return {date:x.fixture.date.slice(0,10), home:x.teams.home.name, away:x.teams.away.name, hg:+x.goals.home, ag:+x.goals.away};
         }).sort((a,b)=> a.date<b.date?-1:1);
+        registerLeagueDampen(L);   // build 106 — this is a NEW array, so the old mapping is stale
         const tmp = Object.create(footballEngine); tmp.matches = L.matches;
         for(const fx of L.upcoming){
           const p = tmp.predict(fx.home, fx.away);
@@ -5383,7 +6321,167 @@ $('delAcctBtn').addEventListener('click', async ()=>{
       : 'Could not delete: ' + e.message;
   }
 });
+/* ================================================================
+   BUILD 104 — ENGINE 2 A/B TEST. Dev-only.
+   ================================================================
+   THE RULE, WRITTEN BEFORE THIS WAS FIRST RUN: Engine 2 ships only if it improves BOTH pooled log
+   loss AND pooled RPS, and wins in most competitions rather than being carried by one. Anything
+   less and ENGINE2.ON stays false. This is the same standard the dispersion test was held to, and
+   it exists because two earlier "findings" in this project were assumptions in disguise (§17e).
+
+   WHY TWO METRICS. Log loss punishes confident mistakes. RPS is the football standard for 1X2
+   because it knows the outcomes are ordered — calling a home win when it finished a draw is a
+   smaller error than calling it when the away side won, and log loss cannot see that difference.
+   A change that helps one and hurts the other has not earned anything.
+
+   Only 1X2 is scored here. That is the market the two changes actually touch, and goals/BTTS go
+   through DAMPEN, which would drown the signal in the league base rate. */
+const E2_RHOS = [0, -0.04, -0.08, -0.12, -0.16, -0.20];
+const E2_WARMUP = 60;      // matches used to learn from before scoring begins
+
+function e2Score(p, m){
+  const pH = Math.max(1e-9, p.pW), pD = Math.max(1e-9, p.pD), pA = Math.max(1e-9, p.pL);
+  const s = pH + pD + pA;
+  const h = pH/s, d = pD/s, a = pA/s;
+  const oH = m.hg > m.ag ? 1 : 0, oD = m.hg === m.ag ? 1 : 0;
+  const c1 = h - oH, c2 = (h + d) - (oH + oD);
+  return { ll: -Math.log(oH ? h : (oD ? d : a)),
+           rps: (c1*c1 + c2*c2) / 2 };
+}
+
+function renderEngineAB(){
+  const box = $('e2Out'); if(!box) return;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Scoring both engines walk-forward — a minute or two…</div>';
+  setTimeout(()=>{ try{ e2Run(box); }
+                   catch(e){ box.innerHTML = '<div class="subnote">Comparison failed: '
+                     + escapeHtml(String((e && e.message) || e)) + '</div>'; } }, 40);
+}
+
+function e2Run(box){
+  const saved = ENGINE2.ON;
+  /* Same trap the dispersion test fell into: footballLeagues() filters on having a NEXT fixture,
+     which in early August hides every European league. This needs history, so read the map. */
+  const pool = Object.keys(afState.leagues || {})
+    .map(id => afState.leagues[id])
+    .filter(L => L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150);
+
+  if(!pool.length){
+    box.innerHTML = '<div class="subnote">No competition has 150+ finished matches loaded yet. '
+      + 'Open the Predict tab, let the competitions finish loading, then run this again.</div>';
+    return;
+  }
+
+  const rows = [];
+  let oLL=0, nLL=0, oRPS=0, nRPS=0, N=0, dPredO=0, dPredN=0, dAct=0;
+  const rhoLL = E2_RHOS.map(()=>0);
+
+  try{
+    for(const L of pool){
+      const ms = (L.matches||[])
+        .filter(m => m && m.home && m.away && m.hg!=null && m.ag!=null)
+        .slice().sort((a,b)=> a.date < b.date ? -1 : 1);
+      if(ms.length < 150) continue;
+
+      const eng = Object.create(footballEngine); eng.matches = ms;
+      let lo=0, ro=0, ln=0, rn=0, k=0;
+      const lam = [];
+
+      ENGINE2.ON = false; eng._s2 = null;
+      for(let i=E2_WARMUP; i<ms.length; i++){
+        const m = ms[i], p = eng.predict(m.home, m.away, i);
+        if(!p) continue;
+        const s = e2Score(p, m); lo += s.ll; ro += s.rps; dPredO += p.pD; k++;
+      }
+
+      ENGINE2.ON = true; eng._s2 = null;
+      for(let i=E2_WARMUP; i<ms.length; i++){
+        const m = ms[i], p = eng.predict(m.home, m.away, i);
+        if(!p) continue;
+        const s = e2Score(p, m); ln += s.ll; rn += s.rps; dPredN += p.pD;
+        if(m.hg === m.ag) dAct++;
+        lam.push(p.lambdaH, p.lambdaA, m.hg, m.ag);
+      }
+      if(!k) continue;
+
+      /* The rho sweep reuses the expected-goal pairs the new engine already produced, so the
+         correction is measured on identical inputs. Anything else would confound the two changes. */
+      for(let r=0; r<E2_RHOS.length; r++){
+        let acc = 0;
+        for(let q=0; q<lam.length; q+=4){
+          const p = eng.marketsFor(lam[q], lam[q+1], null, E2_RHOS[r]);
+          acc += e2Score(p, {hg:lam[q+2], ag:lam[q+3]}).ll;
+        }
+        rhoLL[r] += acc;
+      }
+
+      rows.push({ name: L.name || L.id, k, lo: lo/k, ln: ln/k, ro: ro/k, rn: rn/k });
+      oLL+=lo; nLL+=ln; oRPS+=ro; nRPS+=rn; N+=k;
+    }
+  } finally { ENGINE2.ON = saved; }
+
+  if(!N){ box.innerHTML = '<div class="subnote">Nothing scorable — every loaded competition was too thin.</div>'; return; }
+
+  const LLo=oLL/N, LLn=nLL/N, RPo=oRPS/N, RPn=nRPS/N;
+  const wins = rows.filter(r => r.ln < r.lo).length;
+  const majority = wins > rows.length/2;
+  const betterBoth = (LLn < LLo) && (RPn < RPo);
+  const verdict = betterBoth && majority;
+
+  let bi=0; for(let r=1;r<E2_RHOS.length;r++) if(rhoLL[r] < rhoLL[bi]) bi = r;
+  const rhoGain = (rhoLL[0]-rhoLL[bi])/N;
+
+  const pct = (a,b) => (100*(a-b)/a);
+  const sgn = v => (v>=0?'+':'') + v.toFixed(2) + '%';
+  const col = v => v>0 ? 'var(--green2)' : 'var(--red)';
+
+  const head = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+      <span style="flex:1">Competition</span><span style="width:16%;text-align:right">Bets</span>
+      <span style="width:21%;text-align:right">Log loss</span><span style="width:21%;text-align:right">RPS</span></div>`;
+
+  const body = rows.sort((a,b)=> pct(a.lo,a.ln) - pct(b.lo,b.ln)).map(r =>
+    `<div class="frow"><span style="flex:1">${escapeHtml(r.name)}</span>
+       <span style="width:16%;text-align:right" class="muted">${r.k}</span>
+       <span style="width:21%;text-align:right;color:${col(pct(r.lo,r.ln))}">${sgn(pct(r.lo,r.ln))}</span>
+       <span style="width:21%;text-align:right;color:${col(pct(r.ro,r.rn))}">${sgn(pct(r.ro,r.rn))}</span></div>`).join('');
+
+  const rhoRows = E2_RHOS.map((r,i)=>
+    `<div class="frow"><span style="flex:1">${r===0?'off (0)':r.toFixed(2)}${i===bi&&bi>0?' ★':''}</span>
+       <span style="width:40%;text-align:right;color:${i===bi?'var(--green2)':'inherit'}">${(rhoLL[i]/N).toFixed(5)}</span></div>`).join('');
+
+  box.innerHTML =
+    `<div class="subnote">${N.toLocaleString()} walk-forward predictions across ${rows.length} competition${rows.length===1?'':'s'}. Lower is better; the percentages are how much the new engine improves on the old.</div>`
+  + `<div style="margin:10px 0;padding:10px;border-radius:10px;background:rgba(255,255,255,.03)">
+       <div class="frow"><span style="flex:1"><b>Log loss</b></span>
+         <span style="width:24%;text-align:right" class="muted">${LLo.toFixed(5)}</span>
+         <span style="width:24%;text-align:right">${LLn.toFixed(5)}</span>
+         <span style="width:20%;text-align:right;color:${col(pct(LLo,LLn))}"><b>${sgn(pct(LLo,LLn))}</b></span></div>
+       <div class="frow"><span style="flex:1"><b>RPS</b></span>
+         <span style="width:24%;text-align:right" class="muted">${RPo.toFixed(5)}</span>
+         <span style="width:24%;text-align:right">${RPn.toFixed(5)}</span>
+         <span style="width:20%;text-align:right;color:${col(pct(RPo,RPn))}"><b>${sgn(pct(RPo,RPn))}</b></span></div>
+       <div class="subnote" style="margin-top:6px">Left column is the old engine, middle is Engine 2.</div>
+     </div>`
+  + `<div class="sec-label">Per competition — is one carrying it?</div>` + head + body
+  + `<div class="subnote">${wins} of ${rows.length} competitions improve. A gain carried by one or two leagues is a story, not a result — that is how the 8–12 odds band and the "high-scoring leagues" pattern both died.</div>`
+  + `<div class="sec-label" style="margin-top:12px">Draw correction (rho) — fitted, not chosen</div>` + rhoRows
+  + `<div class="subnote">Average log loss at each value. Row one is the correction switched off, so it must equal the Engine 2 number above. <b>Two warnings from the control run:</b> on 540 synthetic predictions this sweep picked −0.08 out of data with no correlation in it at all, and only at 2,440 did it correctly return zero — so below about a thousand predictions a winner here is noise. And rho patches ANY draw shortfall, whatever its cause; a non-zero best does not prove goals are correlated, only that the engine is quoting too few draws.`
+  + (bi>0 ? ` Best is <b>${E2_RHOS[bi].toFixed(2)}</b>, worth ${rhoGain.toFixed(5)} log loss on top of the rebuild.`
+          : ` <b>No value beats zero — leave it off.</b>`) + `</div>`
+  + `<div class="subnote" style="margin-top:8px">Draws: engine 2 predicts ${(100*dPredN/N).toFixed(1)}%, old engine ${(100*dPredO/N).toFixed(1)}%, actually happened ${(100*dAct/N).toFixed(1)}%.</div>`
+  + `<div style="margin-top:12px;padding:10px;border-left:3px solid ${verdict?'var(--green2)':'var(--red)'};background:rgba(255,255,255,.03)">
+       <b>${verdict ? 'Engine 2 earns its place.' : 'Engine 2 has NOT earned its place.'}</b> `
+    + (verdict
+        ? `It improves both metrics and wins in ${wins} of ${rows.length} competitions. Set <code>ENGINE2.ON = true</code>${bi>0?` and <code>RHO = ${E2_RHOS[bi].toFixed(2)}</code>`:''}, then re-run the regression test and the deep market scan — the scan's numbers were measured on the old engine and do not carry over.`
+        : `${!betterBoth ? 'It does not improve both log loss and RPS.' : 'It improves overall but only wins in ' + wins + ' of ' + rows.length + ' competitions, which is the pattern that has produced false findings here before.'} Leave <code>ENGINE2.ON = false</code>. A rejected rebuild is a real result — it says the old approximation was already close to the proper fit.`)
+    + `</div>`;
+}
+
+{ const b=$('e2Btn'); if(b) b.addEventListener('click', renderEngineAB); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
+{ const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
+{ const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
+{ const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
+try{ fillLongShotLeagues(); }catch(e){}
 $('clearCacheBtn').addEventListener('click', ()=>{
   if(!confirm('Clear cached scores, fixtures and predictions on this device?\n\nYour account, favourites and prediction record are kept.')) return;
   try{
@@ -5490,6 +6588,7 @@ else refreshTeams();
    first showed the defaults while the feed already honoured the saved values. */
 try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); renderEdgeSetting(); }catch(e){}
 try{ renderNotif(); setTimeout(ensurePushFresh, 3000); }catch(e){}
+try{ setTimeout(fillLongShotLeagues, 4000); }catch(e){}
 /* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
    cloud leagues to arrive before looking the fixture up, or it will never be found. */
 try{ const m = (location.hash||'').match(/match=(\d+)/);
