@@ -565,7 +565,11 @@
           <div class="segsm"><button class="sfchip" data-nt="result">Off</button></div></div>
         <div class="setrow"><div class="setleft" style="padding-left:34px"><div><div class="sl">Daily picks</div><div class="sd">One summary each morning — off by default on purpose</div></div></div>
           <div class="segsm"><button class="sfchip" data-nt="digest">Off</button></div></div>
-        <div style="display:flex; justify-content:flex-end; padding:2px 0 8px"><button class="btn" id="notifTestBtn">Send a test notification</button></div>
+        <!-- build 110: "Send a test notification" removed. It existed to prove the chain
+             Supabase → Google → phone worked while it was being built; push has been confirmed
+             working end to end on two devices since 2026-08-05, so it is now a debug control
+             sitting in a user-facing tab. The listener was deleted in the same edit — removing
+             one without the other is precisely how build 91 broke the notification buttons. -->
         <div class="subnote" id="notifNote"></div>
       </div>
       <div class="setrow">
@@ -638,7 +642,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 108;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 112;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2034,10 +2038,37 @@ function zoneParts(d){
     return {y:d.getFullYear(), mo:d.getMonth()+1, da:d.getDate(), h:d.getHours(), mi:d.getMinutes()};
   }
 }
+/* BUILD 112 — the `time` column does not always hold "HH:MM".
+   Ken's screenshot: the Primeira Liga row in Predict read "2026-08-07 19:15:00Z" where the Eredivisie
+   row above it read "19:00". Some collector rows carry a FULL TIMESTAMP in the time column. The old
+   code pasted it into `date + 'T' + time + ':00Z'`, producing
+   "2026-08-07T2026-08-07 19:15:00Z:00Z", which parses to NaN — and the NaN branch returned the raw
+   string, so the malformed value was printed rather than caught.
+
+   THE SECOND CONSEQUENCE IS THE SERIOUS ONE, AND IT IS NOT COSMETIC. kickoffPassed() built the same
+   broken string, and `Date.now() >= NaN` is FALSE — so those fixtures were never considered to have
+   kicked off. The freeze rule (§13, build 62, "the most important thing in this app") therefore
+   never engaged for them: their predictions stayed re-computable after the whistle, which is exactly
+   the fault build 62 exists to prevent. A formatting bug in one column was quietly switching off the
+   guarantee the record depends on.
+
+   One parser now serves both, and it accepts what the data actually contains. */
+function kickoffUTC(dateStr, timeStr){
+  const raw = String(timeStr == null ? '' : timeStr).trim();
+  if(!raw) return null;
+  let m = raw.match(/(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);      // full timestamp in the column
+  if(m){
+    const d = new Date(`${m[1]}T${m[2].padStart(2,'0')}:${m[3]}:00Z`);
+    return isNaN(d) ? null : d;
+  }
+  m = raw.match(/^(\d{1,2}):(\d{2})/);                                // the expected HH:MM
+  if(!m || !dateStr) return null;
+  const d = new Date(`${dateStr}T${m[1].padStart(2,'0')}:${m[2]}:00Z`);
+  return isNaN(d) ? null : d;
+}
 function localHM(dateStr, timeStr){
-  if(!dateStr || !timeStr) return timeStr || '';
-  const d = new Date(dateStr+'T'+timeStr+':00Z');
-  if(isNaN(d)) return timeStr;
+  const d = kickoffUTC(dateStr, timeStr);
+  if(!d) return timeStr ? String(timeStr).trim() : '';
   const p = zoneParts(d);
   return String(p.h).padStart(2,'0')+':'+String(p.mi).padStart(2,'0');
 }
@@ -2628,7 +2659,7 @@ async function analyze(){
   if(home===away){ alert('Pick two different teams.'); return; }
   const eng = sport==='football' ? footballEngine : basketballEngine;
   const pred = (sport==='football' && pendingFrozenPred) ? pendingFrozenPred : eng.predict(home, away);
-  if(!pred){ alert('Not enough data for these teams.'); return; }
+  if(!pred){ showNoAnalysis(home, away); return; }   // build 110 — was a dead-end alert
   const formH = eng.form(home), formA = eng.form(away);
   const h2h = eng.h2h(home, away);
 
@@ -2847,13 +2878,17 @@ function renderHTFT(L, f){
     `<div class="frow" style="font-size:.66rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
        <b style="width:46px">Bet</b><span style="flex:1">Meaning</span><span style="width:52px;text-align:right">Chance</span><span style="width:46px;text-align:right">Fair</span></div>` +
     rows +
+    /* BUILD 109 — the warning owed since §22c. These nine were being shown with fair odds beside
+       them and a closing note calling them "good enough to price with", a claim from 192 matches in
+       one league that three later and much larger measurements contradict. */
+    `<div class="subnote" style="color:var(--gold)">⚠ <b>These nine are the app's least reliable prices.</b> Across roughly 85,000 measured legs the HT/FT doubles won about 7% LESS often than they claimed (m = 0.93), and were over-confident at every confidence level tested. A separate 700-match check put <b>2/2 at 17.5% claimed against 13.9% real</b> and <b>X/X at 16.1% against 13.6%</b>. They are deliberately excluded from Smart Bet and from the bet slip. Treat them as a rough map of what is possible, not as prices to bet into.</div>` +
     `<div class="sec-label">Half-time result on its own</div>` +
     probRow(f.home+' (1)', H.htRow[0]) + probRow('Draw (X)', H.htRow[1]) + probRow(f.away+' (2)', H.htRow[2]) +
     `<div class="subnote" style="color:var(--gold)">⚠ Measured on 192 Brasileirão matches, the half-time result is the app's WEAKEST market — 36.5% accurate, worse than simply always backing the home side. A first half holds barely one goal, so quality barely registers before the break and the outcome is close to a coin flip. Shown for context; not a tip.</div>` +
     `<div class="sec-label">Goals in the first half</div>` +
     probRow('Over 0.5', H.htOver[0.5]) + probRow('Over 1.5', H.htOver[1.5]) +
     `<div class="subnote">Read <b>1/2</b> as "home leading at half-time, away winning at full-time". Two separate models — one fitted on first-half goals, one on second-half — trained on ${H.trainedOn} matches carrying half-time scores. Expected first-half goals ${H.lambdaHT.h.toFixed(2)} – ${H.lambdaHT.a.toFixed(2)}, second half ${H.lambda2H.h.toFixed(2)} – ${H.lambda2H.a.toFixed(2)}.</div>` +
-    `<div class="subnote">Measured against 192 real matches, these double prices land within a couple of points of reality — good enough to price with. What the model canNOT do is tell you which particular match will produce a 1/1; it knows the rates, not the fixture. Treat the odds as fair, not as a tip.</div>`;
+    `<div class="subnote"><b>Correction (build 109).</b> This note used to say these prices "land within a couple of points of reality — good enough to price with", on the strength of 192 matches in one competition. Three larger measurements have since disagreed, so the claim has been withdrawn rather than left standing: see the warning above. What the model still cannot do is tell you which particular match will produce a 1/1 — it knows the rates, not the fixture.</div>`;
 }
 
 
@@ -3153,8 +3188,9 @@ let archiveTimer = null;
    as started only when its date is behind us. */
 function kickoffPassed(f){
   if(!f || !f.date) return false;
-  if(!f.time) return daysPast(f.date) > 0;
-  return Date.now() >= Date.parse(f.date + 'T' + f.time + ':00Z');
+  const d = kickoffUTC(f.date, f.time);          // build 112 — tolerates a full timestamp
+  if(!d) return daysPast(f.date) > 0;            // no usable time: started once the date is behind us
+  return Date.now() >= d.getTime();
 }
 function archivePrediction(L, f, p, hp){
   if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
@@ -4820,6 +4856,68 @@ function showAnalysis(){
   navTo('detail');
 }
 
+/* BUILD 110 — what happens when there is no prediction to show.
+   This used to be a bare browser alert about missing data, and then nothing: the tap died on the
+   fixture list with no explanation and no way forward. Ken's instruction was to open the page anyway
+   and say what happened and why. (The old wording is deliberately not repeated here — the
+   regression test pins its absence, and a comment quoting it would defeat the pin.)
+
+   THE ONE THING THIS MUST NOT DO IS INVENT A PREDICTION. The engine returns nothing here because one
+   side of the fixture has no name yet — a qualifier or cup tie whose winner is not known. There is
+   no team to rate, so there is no honest number to print, and printing a league-average guess
+   against a blank crest is exactly the fault build 84 was written to stop.
+
+   EVERY OTHER PANEL IS HIDDEN FIRST. The detail view keeps whatever the last match put in it, so
+   showing this page without clearing them would leave the previous fixture's form, scorers and
+   Smart Bet sitting under a heading saying there is no analysis. */
+function showNoAnalysis(home, away, info){
+  for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
+  for(const id of ['acc-timeline','acc-stats','acc-lineups','acc-result','acc-form','acc-smart',
+                   'acc-htft','acc-scorers','acc-goals','acc-score','acc-context','acc-injuries']){
+    const el = $(id); if(el) el.classList.add('hidden');
+  }
+  const strong = $('heroStrong'); if(strong) strong.classList.add('hidden');
+  const acc = $('acc-analysis'); if(acc) acc.classList.remove('hidden');
+  /* BUILD 111 — these two are OUTSIDE the accordions, so hiding acc-* left them on screen. Ken's
+     screenshot showed the previous fixture's favourite chips (PSV · Sittard) and its verdict line
+     ("PSV win 87.1% — a strong lean") sitting under a heading announcing there was no analysis.
+     Build 110 claimed in the handoff that every other panel was cleared. It was not true, and the
+     claim was written without checking. */
+  /* This list was read off the detail view's markup, not guessed. The first attempt at it named
+     four ids that do not exist in this file — the same habit of asserting instead of checking that
+     produced the bug above. */
+  for(const id of ['verdictBox','favRow','outcomeRows','goalsRows','scoreRows','scorerRows',
+                   'smartRows','smartSide','formBox','h2hBox','msBox','htftBox','ctxOut','injuryBox',
+                   'tlBox','luBox','xgInfo','resultSide','aiStatus']){
+    const el = $(id); if(el) el.innerHTML = '';
+  }
+
+  const named = s => (s && String(s).trim()) ? escapeHtml(String(s).trim()) : null;
+  const H = named(home), A = named(away);
+  const missing = !H || !A;
+
+  const hh = $('heroHome'), ha = $('heroAway');
+  if(hh) hh.innerHTML = (H || 'Not decided yet') + '<div class="venue">Home</div>';
+  if(ha) ha.innerHTML = (A || 'Not decided yet') + '<div class="venue">Away</div>';
+  for(const id of ['heroPick','heroConf','heroMeta']){ const el=$(id); if(el) el.textContent = ''; }
+
+  const box = $('analysisText');
+  if(box) box.innerHTML =
+      `<p><b>There is no prediction for this fixture, and that is deliberate.</b></p>`
+    + (info && info.thin
+        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> has only <b>${info.n}</b> completed match${info.n===1?'':'es'} loaded so far — the engine needs at least 15 before it will price a fixture. In early August that simply means the season has just started and the results have not arrived yet.</p>
+           <p><b>Why the engine waits.</b> It rates a team from the goals it has scored and conceded against the specific opponents it has faced. With a handful of matches, the competition's own scoring average is not yet known either, so every number would be built on top of a guess about the league itself. It will start predicting these fixtures on its own once the results are in — nothing needs to be switched on.</p>
+           <p class="subnote">Until then the fixture, kick-off time and result all still work normally. Only the prediction is withheld.</p>`
+      : missing
+        ? `<p>One of the two sides has not been decided yet — ${H ? escapeHtml(String(A||'the away side')) : 'the home side'} is still to be determined. This is normal for cup rounds and qualifiers, where the fixture is scheduled before the teams that will play it are known.</p>
+           <p><b>Why nothing is shown instead of a rough guess.</b> The engine rates a team from the goals it has scored and conceded against the specific opponents it has faced. An undecided side has no record to read, so any number here would be the competition's average dressed up as an opinion about a team nobody has named. The app used to do exactly that — it once priced a fixture at 74% against a blank crest — and it was changed to say nothing instead.</p>`
+        : `<p>The engine could not produce a prediction for <b>${H}</b> against <b>${A}</b>. That normally means this competition has not loaded enough completed matches yet for the model to read.</p>
+           <p><b>How the app handles thin data when it can.</b> A team with few or no matches is not refused outright: it is pulled toward the competition's own average, and a side with no history at all comes out at exactly average — the honest starting point for a team nobody has seen. That is why newly promoted clubs still get a prediction in August. What it will not do is invent a rating where there is nothing to read at all.</p>`)
+    + `<p class="subnote">Come back once the fixture is decided, or once the competition has more completed matches loaded. Everything else in the app is unaffected.</p>`;
+
+  navTo('detail');
+}
+
 /* ================================================================
    FAVOURITES
    ================================================================ */
@@ -5393,6 +5491,7 @@ function ensureLeagueFromScore(s){
   if(!afState.leagues[s.lid]){
     afState.leagues[s.lid] = {id:s.lid, name:s.lname, country:s.lcountry, flag:'', logo:s.llogo,
       matches:[], teamIds:{}, upcoming:[], scorerText:'', season:s.season, histTried:false, sport:'football'};
+    registerLeagueDampen(afState.leagues[s.lid]);   // build 110 — the fourth league-creation site
     if(!afState.leagueOrder.includes(s.lid)) afState.leagueOrder.push(s.lid);
   }
   const L = afState.leagues[s.lid];
@@ -5510,6 +5609,37 @@ function openFixtureById(fxid){
   return false;
 }
 
+/* BUILD 111 — THE BUG THAT WAS EATING TEAM NAMES.
+   openFixture used to assign each fixture's team name straight onto the team <select>'s value.
+   (The old line is not quoted here: the regression test pins its absence, and this is the second
+   build running in which a comment repeating a removed string tripped its own check.)
+   Those are <select> elements, and assigning a value that is not one of the options does NOT throw
+   and does NOT keep the string — the select silently reports ''. The options come from teams with
+   completed matches in the loaded history, so
+   ANY side without one — a promoted club, a team whose results have not arrived yet — had its name
+   thrown away one line before the engine was asked about it.
+
+   The engine could always have handled it. Build 77 made an unknown team shrink to exactly
+   league-average and set `unknownTeams`, and the match page already prints "…has no history in this
+   competition — newly promoted, most likely. They are priced as an average team of this division."
+   None of that could ever fire, because predict() was receiving an empty string, returning null, and
+   the app said there was not enough data for a team it knew the name of perfectly well.
+
+   Ken found it in one screenshot: AZ at home against a side the app rendered as "Not decided yet",
+   in the Eredivisie — a league fixture, not a cup tie. His words: "we know both teams, we just don't
+   know the second team well enough."
+
+   The fix is to add the option when it is missing, so the name survives the round trip. */
+function setTeamSelect(id, name){
+  const sel = $(id); if(!sel) return;
+  const v = String(name == null ? '' : name).trim();
+  if(!v){ sel.value = ''; return; }
+  if(!Array.from(sel.options).some(o => o.value === v)){
+    const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o);
+  }
+  sel.value = v;
+}
+
 async function openFixture(leagueId, f, btn){
   resetMatchPanels();
   const L = afState.leagues[leagueId]; if(!L) return;
@@ -5551,9 +5681,17 @@ async function openFixture(leagueId, f, btn){
      API-Football path and produced a message about a provider this app no longer uses (build 77). */
   if(L.matches.length>=15){
     await afEnsureScorers(leagueId);
-    $('homeTeam').value = f.home; $('awayTeam').value = f.away;
+    setTeamSelect('homeTeam', f.home); setTeamSelect('awayTeam', f.away);   // build 111 — see below
     await analyze();
     renderFixtures();
+  } else if(afCloudOwnsFixtures()){
+    /* BUILD 112 — was `await apiAnalyze(f, L)`, and that is how Estoril Praia v Famalicão came out
+       as a page with "Timeline unavailable", "Stats unavailable" and no prediction at all. This app
+       stopped using API-Football as its source at build 37; when the cloud owns fixtures that call
+       cannot succeed, so the branch could only ever produce a dead page. Build 77 removed the same
+       trap from the team-list check and this one was left behind.
+       Say what is actually happening instead. */
+    showNoAnalysis(f.home, f.away, {thin:true, comp:L.name, n:(L.matches||[]).length});
   } else {
     await apiAnalyze(f, L);
   }
@@ -6200,33 +6338,7 @@ function renderTzSetting(){
 /* Ken could not verify a deploy on a day with no fixtures. This proves the entire chain — app →
    Supabase → Google → this phone — in one tap, without waiting for a match. It sends only to THIS
    device's own endpoint, so it can never reach anyone else. */
-$('notifTestBtn').addEventListener('click', async ()=>{
-  const note = $('notifNote');
-  try{
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if(!sub){ note.textContent = 'This device is not subscribed yet — turn notifications on first.'; return; }
-    const session = await proxySession();
-    if(!session){ note.textContent = 'Sign in first.'; return; }
-    note.textContent = 'Sending…';
-    const res = await fetch(SUPA_URL + '/functions/v1/send-push', {
-      method:'POST',
-      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
-      body: JSON.stringify({ job:'test', endpoint: sub.endpoint })
-    });
-    const j = await res.json().catch(()=>({}));
-    note.textContent = (j && j.ok && j.sent)
-      ? 'Sent. It should arrive within a few seconds — try closing the app to see it properly.'
-      : 'Could not send: ' + ((j && j.error) || ('HTTP '+res.status));
-  }catch(e){
-    /* "Failed to fetch" is what a browser reports for a refused CORS preflight, a dead function and
-       a lost connection alike — three very different problems wearing one useless message. Say what
-       to check rather than repeating it. */
-    note.textContent = /failed to fetch/i.test(e.message||'')
-      ? 'Could not reach the server. Most likely send-push has not been re-deployed yet — it needs version 94 or later, which is the one that allows the app to call it. Check Edge Functions → send-push, invoke it with {} and look for "version": 94.'
-      : 'Could not send: ' + e.message;
-  }
-});
+/* build 110 — the test-notification handler was removed with its button. */
 $('notifMainBtn').addEventListener('click', ()=>{
   const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
              && (notif.kickoff||notif.result||notif.digest);
