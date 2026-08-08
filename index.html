@@ -259,6 +259,9 @@
   .favright{display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:6px; margin-left:8px; flex-shrink:0; min-width:40px;}
   .favright .mstar{font-size:1.25rem; width:auto;}
   .predchip.sm{font-size:.6rem; padding:3px 7px;}
+  /* build 118 — a withheld pick. Deliberately grey and quiet: it must not read as a third kind of
+     tip sitting alongside the green ones, it must read as the absence of one. */
+  .predchip.muted-chip{background:transparent; border:1px dashed var(--line); color:var(--muted); font-weight:600;}
   /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
@@ -467,6 +470,11 @@
         <div class="acc-body"><div id="goalsRows"></div></div>
       </div>
 
+      <div class="acc hidden" id="acc-combo">
+        <div class="acc-head"><span class="ic">🧩</span><span class="t">Combos</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="comboRows"></div></div>
+      </div>
+
       <div class="acc hidden" id="acc-context">
         <div class="acc-head"><span class="ic">📰</span><span class="t">Team news &amp; adjusted odds</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="ctxOut"></div></div>
@@ -551,7 +559,7 @@
         <select id="tzSel" class="setsel"></select>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd">Hide competitions the engine has been measured on and does not beat</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd" id="edgeCount">Hide competitions the engine has been measured on and does not beat</div></div></div>
         <div class="segsm"><button class="sfchip" id="edgeToggle">Off</button></div>
       </div>
       <div class="setrow">
@@ -613,6 +621,7 @@
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
       <button id="e2Btn"></button><div id="e2Out"></div>
+      <button id="edgeBktBtn"></button><div id="edgeBktOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
@@ -642,7 +651,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 117;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 120;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1243,6 +1252,8 @@ const footballEngine = {
     const MAX=13;
     let pW=0,pD=0,pL=0, scores=[], over={1.5:0,2.5:0,3.5:0}, btts=0, total=0;
     let hHcap=0,aHcap=0,hT15=0,aT15=0;   // handicap -1.5 (win by 2+) and team over 1.5
+    // build 120 — joint markets, accumulated off the same grid so they cost nothing extra
+    const cmb = {hO25:0, aO25:0, hBTS:0, aBTS:0, hdO15:0, adO15:0, btO25:0, hU25:0, aU25:0};
     /* BUILD 104 — Dixon-Coles low-score correction. Multiplying two Poissons assumes the two teams'
        goals are unrelated, which breaks down in exactly four scorelines: 0-0, 1-0, 0-1 and 1-1.
        A negative rho lifts 0-0 and 1-1 and lowers 1-0 and 0-1 — i.e. it puts back the draws that
@@ -1268,6 +1279,25 @@ const footballEngine = {
       if(i-j>=2)hHcap+=p; if(j-i>=2)aHcap+=p;
       if(i>=2)hT15+=p; if(j>=2)aT15+=p;
       scores.push({score:`${i}-${j}`, p});
+      /* BUILD 120 — COMBOS, priced EXACTLY. Ken: "should there be a section for combo in the bet,
+         like 1 and over 2.5, 1 and BTTS, 1X and over 1.5?"
+         The usual way to price these is P(A) × P(B), and it is wrong here: both legs are driven by
+         the same two expected-goal rates, so they are correlated. A home win makes goals MORE likely
+         (the favourite scores) while a home win makes BTTS LESS likely (the favourite keeps a clean
+         sheet more often than average). Multiplying gets the first too low and the second too high.
+         We do not have to guess, because the grid is right here: sum the cells where BOTH legs are
+         true and the answer is exact, correlation included, with no independence assumption at all.
+         That is the one place this engine can beat a bookmaker's bet-builder on its own terms. */
+      const tot2 = i+j, bt = i>0 && j>0;
+      if(i>j && tot2>2.5) cmb.hO25 += p;
+      if(j>i && tot2>2.5) cmb.aO25 += p;
+      if(i>j && bt)       cmb.hBTS += p;
+      if(j>i && bt)       cmb.aBTS += p;
+      if(i>=j && tot2>1.5) cmb.hdO15 += p;
+      if(j>=i && tot2>1.5) cmb.adO15 += p;
+      if(bt && tot2>2.5)   cmb.btO25 += p;
+      if(i>j && tot2<2.5)  cmb.hU25 += p;
+      if(j>i && tot2<2.5)  cmb.aU25 += p;
     }
     pW/=total; pD/=total; pL/=total; btts/=total;
     for(const k of [1.5,2.5,3.5]) over[k]/=total;
@@ -1326,7 +1356,14 @@ const footballEngine = {
     btts = damp(btts, rates?rates.btts:null);
     const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
     const team = {h15:flat2(hT15), a15:flat2(aT15)};    // team total over 1.5
-    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw,
+    /* Build 120 — combos are normalised by the same total as everything else and are deliberately
+       NOT damped. DAMPEN pulls the goals markets toward the competition's base rate, and there is no
+       measured base rate for a joint market, so damping one leg and not the other would produce a
+       combo that contradicts its own parts. They are presented as raw model prices and the panel
+       says so. Each is also clamped to its legs' minimum as a coherence guard — a joint probability
+       can never exceed either leg, and if it ever did, the grid would be broken. */
+    for(const k in cmb) cmb[k] /= total;
+    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw, combos:cmb,
             topScores:scores.slice(0,5), topByPick};    // topByPick replaced topByResult in build 117
   },
 
@@ -1432,7 +1469,18 @@ function localAnalysis(ctx){
       const side = (t,l)=> l.length ? `${t} are sweating on ${l.map(i=>i.name).join(', ')}` : `${t} report a clean bill of health`;
       paras.push(`Team news: ${side(home,iH)}; ${side(away,iA)}. Note the engine's numbers are based on results and do not yet discount for absences — weigh this news accordingly.`);
     }
-    paras.push(`Goals outlook: Over 2.5 is priced at ${pct(pred.over[2.5])} and both teams to score at ${pct(pred.btts)}. The single most likely scoreline is ${pred.topScores[0].score} (${pct(pred.topScores[0].p)}).`);
+    /* BUILD 117 — the write-up has to quote the same scoreline the panel leads with. It was still
+       quoting `topScores[0]`, the overall modal cell, which is exactly the number build 117 stopped
+       leading with: under a 1X tip the prose would name a scoreline that LOSES the tip, sitting
+       directly under a panel that no longer does. Ken spotted it. */
+    { /* build 119 — the ladder, with headlinePick as the fallback when nothing clears the bar, so
+         the prose names the same rung the panel and the feed do. */
+      const hp = ladderPick(pred, home, away) || headlinePick(pred, home, away);
+      const csc = hp.code==='1D' ? '1' : hp.code==='2D' ? '2' : hp.code;
+      const cs = ((pred.topByPick && pred.topByPick[csc]) || [])[0];
+      paras.push(`Goals outlook: Over 2.5 is priced at ${pct(pred.over[2.5])} and both teams to score at ${pct(pred.btts)}.`
+        + (cs ? ` If ${pickPhrase(hp.code, home, away)} lands, the likeliest finish is ${cs.score} — ${pct(cs.given)} of that outcome.` : ''));
+    }
   } else {
     const fav = pred.pHome>0.5 ? home : away;
     paras.push(`${home} take on ${away}, and the ratings model projects a final score in the region of ${pred.expH.toFixed(0)}–${pred.expA.toFixed(0)}, giving ${fav} a ${pct(Math.max(pred.pHome,pred.pAway))} chance of the win.`);
@@ -1446,7 +1494,16 @@ function localVerdict(ctx){
   if(sport==='football'){
     const arr=[[pred.pW,home+' win'],[pred.pD,'draw'],[pred.pL,away+' win']].sort((a,b)=>b[0]-a[0]);
     const conf = arr[0][0]>0.55?'strong':arr[0][0]>0.42?'moderate':'slight';
-    return `Verdict: ${arr[0][1]} (${pct(arr[0][0])}) — a ${conf} lean. Most likely score ${pred.topScores[0].score}. Remember: probabilities, not guarantees.`;
+    /* BUILD 117 — same correction as localAnalysis. The verdict's lean is the strongest SINGLE
+       result, which is not always the pick on the hero card (that can be 1X/X2), so the scoreline is
+       tied explicitly to the pick and labelled as conditional. Naming a bare "most likely score"
+       here is what let the verdict quote a scoreline the tip does not cover. */
+    const hp = ladderPick(pred, home, away) || headlinePick(pred, home, away);
+    const csc = hp.code==='1D' ? '1' : hp.code==='2D' ? '2' : hp.code;
+    const cs = ((pred.topByPick && pred.topByPick[csc]) || [])[0];
+    return `Verdict: ${arr[0][1]} (${pct(arr[0][0])}) — a ${conf} lean.`
+      + (cs ? ` If ${pickPhrase(hp.code, home, away)} lands, the likeliest finish is ${cs.score}.` : '')
+      + ` Remember: probabilities, not guarantees.`;
   }
   const fav = pred.pHome>0.5?home:away;
   return `Verdict: ${fav} to win (${pct(Math.max(pred.pHome,pred.pAway))}). Projected margin ${Math.abs(pred.expH-pred.expA).toFixed(1)} pts.`;
@@ -2311,6 +2368,138 @@ function motivationEdge(L, m, upTo){
    So: lead with a straight win only when one side is genuinely clear. Otherwise lead with Double
    Chance, which covers the draw. On that Sunday the same seven picks would have gone 5/7.
    The cost is honest and worth stating — 1X pays ~1.30 where a straight win pays ~2.00. */
+/* ── THE CONFIDENCE GATE (build 118) ───────────────────────────────────────────
+   Ken: "It must not predict all matches, only matches it is confident in."
+
+   MEASURED, not chosen. Across 6,426 walk-forward picks in 10 competitions, accuracy by claimed
+   probability came out monotonic — 45.2 / 60.6 / 67.8 / 72.8 / 79.8 / 84.8 — and calibration was
+   +0.25 of a point overall. So the number on the chip is honest, and cutting on it works.
+
+   MIN_PROB 0.70 keeps 50% of picks and lifts measured accuracy from 70.1% to 74.6%. It also sits
+   where the evidence is thickest: the 62-70 and 70-78 bands hold 4,678 of the 6,426 picks and are
+   calibrated to within about a point. 0.78 buys more (80.3%) but keeps only 12% — a feed that is
+   empty most days is a different product, not a better one.
+
+   NEED_EDGE is the OTHER half of what Ken asked for, and the probability bar does not cover it:
+   a pick can clear 70% and still sit BELOW what an average match in that league is worth. Those are
+   precisely the "it only says home because they are at home" picks he objected to. 929 picks in the
+   backtest were below their own baseline.
+
+   NOTE ON THE EVIDENCE. A calibrated model always looks more accurate under its own filter — that is
+   arithmetic, not skill. What this gate buys is SELECTION: fewer picks, each likelier to land. It
+   does not make the engine better and nothing in the app should claim it does. */
+const PICK_GATE = { MIN_PROB: 0.70, NEED_EDGE: true };
+/* Returns null when the pick is fit to publish, or a short reason when it is not. The reason is
+   shown to the user — a fixture that says nothing must say WHY it says nothing (build 110). */
+function gateReason(L, f, code, prob){
+  if(prob == null || !code) return 'unpriced';
+  if(prob < PICK_GATE.MIN_PROB) return 'low';
+  if(PICK_GATE.NEED_EDGE){
+    const NP = fxNeutral(L);
+    if(NP){
+      const nd = NP.pW + NP.pL;   // build 119 — the ladder can publish Draw No Bet, so the neutral
+                                  // baseline has to be priced on the same rung, not on the outright
+      /* build 120 — a goals pick is measured against the goals base rate of an average match in this
+         competition, which is the whole reason Over 1.5 can never sneak through: it sits near 75%
+         everywhere, so its edge over the neutral fixture is ~0 and it fails here every time. This is
+         the test doing the work, not a hard-coded exclusion. */
+      const gm = GOAL_MARKETS[code];
+      const base = gm ? gm.base(NP)
+                 : code==='1'  ? NP.pW : code==='X' ? NP.pD : code==='2' ? NP.pL
+                 : code==='1D' ? (nd>0 ? NP.pW/nd : 0)
+                 : code==='2D' ? (nd>0 ? NP.pL/nd : 0)
+                 : code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
+      if(prob - base <= 0) return 'nobase';
+    }
+  }
+  return null;
+}
+const GATE_TEXT = {
+  low:    'No strong read',
+  nobase: 'No edge here',
+  unpriced:'Not priced'
+};
+const GATE_WHY = {
+  low:    p => `The engine's best call here is ${pct(p)}, under the ${pct(PICK_GATE.MIN_PROB)} it has to clear to be published. Measured over 6,426 past predictions, calls in this range land about two times in three — not often enough to put in front of you as a tip.`,
+  nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
+  unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`
+};
+
+/* ── THE LADDER (build 119) ────────────────────────────────────────────────────
+   Build 118 chose the rung first and applied the gate second, and that was the wrong order. Swept
+   over every expected-goals pair the engine can produce: **1,208 of 3,600 fixtures — 33.6% — were
+   withheld even though a safer bet on the very same match cleared 70%.** The worst case is the one
+   that should have given it away: at λ 2.15 – 1.00 the engine makes the home side a 62.9% favourite,
+   `headlinePick` correctly returns '1' because 62.9% clears its 55% floor, and then the gate throws
+   it away for being under 70% — while Draw No Bet on the same match sits at 79.9% and Double Chance
+   at 84.2%. The app went silent on one of the strongest reads it can produce.
+
+   Ken: "setting the gate at 70% is high (but ok for a straight win). what about DNB should be at 65%
+   to 60%, 59 to 55% at double chance?"
+
+   His diagnosis is right — one flat bar cannot serve markets with different natural ranges — but the
+   bars go the other way round from his numbers, and it is worth writing down why so it is not
+   re-proposed later. Double Chance is the SAFEST rung, so its probability is structurally the
+   HIGHEST: at an even fixture a straight win is 35.0%, DNB 51.9% and 1X 67.6%. A 55% bar on Double
+   Chance would publish nearly every double chance in existence, including hopeless ones.
+
+   The ladder gets his outcome without needing separate bars. Walk up from the best-paying rung to
+   the safest and take the FIRST that clears the single bar: straight win → Draw No Bet → Double
+   Chance. Highest odds meeting the standard — which is exactly how the bet slip has picked legs
+   since build 47, so this is the app's own established rule applied to the headline.
+
+   Publishing goes from 45.9% of fixtures to 79.4%, and every published pick still clears 70%. */
+function ladderPick(P, home, away){
+  if(!P) return null;
+  const G = PICK_GATE.MIN_PROB;
+  const rungs = [];
+  // rung 1 — the outright result, best paying
+  const solo = [[P.pW,'1'],[P.pD,'X'],[P.pL,'2']].sort((a,b)=>b[0]-a[0]);
+  rungs.push({code:solo[0][1], prob:solo[0][0]});
+  // rung 2 — Draw No Bet, only meaningful on the side the engine leans
+  const dnb = P.pW + P.pL;
+  if(dnb > 0 && solo[0][1] !== 'X')
+    rungs.push(P.pW >= P.pL ? {code:'1D', prob:P.pW/dnb} : {code:'2D', prob:P.pL/dnb});
+  // rung 3 — Double Chance, safest and shortest priced
+  rungs.push(P.pW >= P.pL ? {code:'1X', prob:P.pW+P.pD} : {code:'X2', prob:P.pD+P.pL});
+  /* RUNG 4 (build 120) — stop forcing a winner. Ken: "A match that shows an indecisive winning
+     probability with low percentage to winning, lets say 33% 33% 34%, but shows <59% for BTTS or
+     Over 2.5, the later can be our pick instead of forcing a winner in the former. so predict should
+     not only show win draw lose."
+     He is right, and the 33/33/34 fixture is the proof: every 1X2 rung on it is weak BY CONSTRUCTION
+     — the three outcomes are splitting one unit of probability three ways — while the goals markets
+     are splitting theirs two ways and can be genuinely strong on the same match. Refusing to look at
+     them meant the app went quiet on fixtures it had a real opinion about.
+     This rung sits LAST deliberately. A winner call is what the app is for and what its record is
+     built on; goals are the answer when the winner is not knowable, not a shortcut to a bigger
+     number. Over 1.5 is excluded from candidacy for the same reason it never leads the slip: it sits
+     near 75% on almost any fixture, so it would win this rung constantly on the league's base rate
+     rather than on these teams. The edge test in gateReason is what actually stops that, but leaving
+     it out of the running as well makes the intent explicit rather than incidental. */
+  const goals = [];
+  if(P.over){
+    goals.push({code:'O25', prob:P.over[2.5]}, {code:'U25', prob:1-P.over[2.5]},
+               {code:'U35', prob:1-P.over[3.5]});
+  }
+  if(P.btts != null) goals.push({code:'BTS', prob:P.btts}, {code:'NBT', prob:1-P.btts});
+  goals.sort((a,b)=>b.prob-a.prob);
+  if(goals.length) rungs.push(goals[0]);
+  for(const r of rungs)
+    if(r.prob >= G) return {...r, prob:+r.prob.toFixed(3), market:pickMarket(r.code),
+                            label:pickLabel(r.code, home, away), rung:rungs.indexOf(r)};
+  return null;   // nothing on this match clears the bar — the fixture publishes no pick
+}
+/* build 120 — every goals code, in one place, so the grader, the labeller and the baseline lookup
+   cannot disagree about what a code means. `won` takes the final score, which is why gradeRecord
+   now has to keep the goals and not just the 1/X/2 result. */
+const GOAL_MARKETS = {
+  O25: {label:'Over 2.5 goals',  short:'O2.5', won:(h,a)=>h+a>2.5,  base:NP=>NP.over[2.5]},
+  U25: {label:'Under 2.5 goals', short:'U2.5', won:(h,a)=>h+a<2.5,  base:NP=>1-NP.over[2.5]},
+  U35: {label:'Under 3.5 goals', short:'U3.5', won:(h,a)=>h+a<3.5,  base:NP=>1-NP.over[3.5]},
+  BTS: {label:'Both teams to score',     short:'BTTS',  won:(h,a)=>h>0&&a>0,   base:NP=>NP.btts},
+  NBT: {label:'Not both teams to score', short:'NoBTTS',won:(h,a)=>!(h>0&&a>0),base:NP=>1-NP.btts}
+};
+
 const HEADLINE_SOLO_MIN = 0.55;   // a single outcome must clear this to stand on its own
 const HEADLINE_DC_MIN   = 0.62;   // ...otherwise Double Chance must at least clear this to be worth showing
 
@@ -2328,10 +2517,59 @@ function headlinePick(P, home, away){
   return {...dc, solo:false};
 }
 // '1X' covers both '1' and 'X'; a plain '1' still only covers '1'
+/* NOTE — pickHit is the MEASUREMENT primitive and is deliberately left alone. computeSkill, the
+   Engine-2 A/B panel, the dispersion study and the edge panel all grade `headlinePick` output, which
+   is only ever 1 / X / 2 / 1X / X2 — never a Draw No Bet code. Changing this function would silently
+   move every number those panels have ever reported. Publication grading goes through gradePick. */
 function pickHit(pick, actual){ return !!pick && !!actual && String(pick).includes(actual); }
+
+/* BUILD 119 — grading with a third outcome, because the ladder can now publish Draw No Bet and
+   A DRAW ON A DNB IS NOT A LOSS, it is a void: the stake comes back. Recording it as a miss would
+   understate the record; recording it as a hit would flatter it. Neither is true, so voids are
+   counted separately and excluded from the hit rate — the same treatment the bet slip has given DNB
+   legs since build 44. */
+/* build 120 — gh/ga added. A goals or BTTS pick cannot be graded from a 1/X/2 code at all: 2-1 and
+   1-0 are the same result and opposite answers on Over 2.5. Every caller that grades a published
+   pick now has to hand over the score, which is why gradeRecord stores it. The 1X2 path is
+   unchanged, so nothing already graded moves. */
+function gradePick(code, actual, gh, ga){
+  if(!code) return null;
+  const c = String(code);
+  const gm = GOAL_MARKETS[c];
+  if(gm) return (gh==null || ga==null) ? null : (gm.won(gh, ga) ? 'hit' : 'miss');
+  if(!actual) return null;
+  if(c === '1D') return actual==='1' ? 'hit' : actual==='X' ? 'void' : 'miss';
+  if(c === '2D') return actual==='2' ? 'hit' : actual==='X' ? 'void' : 'miss';
+  return c.includes(actual) ? 'hit' : 'miss';
+}
+/* BUILD 117 — ONE phrase for "the thing being advised", used by the correct-score panel AND by the
+   written analysis. They quoted different scorelines in build 116 and nothing stopped them, because
+   each built its own wording from its own source. Sharing the phrase is not cosmetic: it means the
+   two can only ever describe the same pick. */
+function pickPhrase(code, home, away){
+  return code==='1' ? home+' to win' : code==='X' ? 'the draw' : code==='2' ? away+' to win'
+       : code==='1X' ? home+' or the draw' : code==='X2' ? 'the draw or '+away
+       : code==='1D' ? home+' to win, stake back on a draw'
+       : code==='2D' ? away+' to win, stake back on a draw' : 'the pick';
+}
 function pickLabel(code, home, away){
   return code==='1'?home+' to win' : code==='X'?'Draw' : code==='2'?away+' to win'
-       : code==='1X'?home+' or Draw' : code==='X2'?'Draw or '+away : code==='12'?'Either team' : code;
+       : code==='1X'?home+' or Draw' : code==='X2'?'Draw or '+away
+       : code==='1D'?home+' (Draw No Bet)' : code==='2D'?away+' (Draw No Bet)'
+       : code==='12'?'Either team'
+       : GOAL_MARKETS[code] ? GOAL_MARKETS[code].label : code;
+}
+/* Which rung of the ladder a published code sits on — used for the label under the chip and by the
+   record, so a DNB pick is never silently counted as if it were a straight win. */
+/* The chip is a few characters wide, so '1D' would be a private code nobody can read. 'DNB' is the
+   term every betting site uses, so it is the one that goes on screen. */
+function chipCode(code){ return code==='1D' ? '1 DNB' : code==='2D' ? '2 DNB'
+       : (GOAL_MARKETS[code] ? GOAL_MARKETS[code].short : code); }
+function pickMarket(code){
+  return code==='1D'||code==='2D' ? 'Draw No Bet'
+       : code==='1X'||code==='X2' ? 'Double Chance'
+       : (code==='BTS'||code==='NBT') ? 'BTTS'
+       : GOAL_MARKETS[code] ? 'Goals' : 'Winner';
 }
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
@@ -2339,12 +2577,22 @@ function fxCells(L,f,smap){
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">FT</span></span>`;
     let chip='';
-    if(f.pick){ const hit=pickHit(f.pick, actualCode(res.gh,res.ga)); chip=`<span class="predchip ${hit?'hit':'miss'}">${f.pick} ${hit?'✓':'✗'}</span>`; }
+    /* build 119 — a drawn Draw No Bet is a VOID, not a loss. Grading it ✗ would understate the
+       record against a bet that actually returned the stake. */
+    if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
+                const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
+                const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
+                chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
     return {timeCell, chip, finished:true};
   }
-  return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`,
-          chip: f.pick?`<span class="predchip">${f.pick} · ${(100*f.prob).toFixed(0)}%</span>`:'',
-          finished:false};
+  /* BUILD 118 — a withheld pick still shows the fixture. Ken's call: "show the fixture, no pick".
+     The match keeps its kick-off time and its teams, and the chip says what is missing rather than
+     the fixture quietly disappearing, which would leave the user unable to tell an absent prediction
+     from an absent match. */
+  const chip = f.gated ? `<span class="predchip muted-chip">${GATE_TEXT[f.gated] || GATE_TEXT.low}</span>`
+             : f.pick  ? `<span class="predchip">${chipCode(f.pick)} · ${(100*f.prob).toFixed(0)}%</span>`
+             : '';
+  return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
 let _toastT=null;
 function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
@@ -2729,7 +2977,7 @@ async function analyze(){
      trains on data that now contains this very match — hindsight — and it made the detail page
      contradict the feed (Santos v Chapecoense: feed said '1 ✗', detail said 'Santos or DRAW 71.5%').
      The stored pick is the one the feed graded, so the two now always agree. */
-  const hp = (pendingMetaPlayed && pendingMetaPick)
+  let hp = (pendingMetaPlayed && pendingMetaPick)   // `let` — build 119 re-points it at the ladder rung
     ? { code: pendingMetaPick, prob: pendingMetaProb || 0,
         label: pickLabel(pendingMetaPick, home, away).replace(' to win',' WIN').toUpperCase()
                  .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or '),
@@ -2743,13 +2991,36 @@ async function analyze(){
        (build 65). */
     { const sL = (sport==='football') ? afState.leagues[afState.activeLeagueId] : null;
       const sk = skillOf(sL);
-      const baseLine = hp.solo
-        ? "The engine's headline call for this match"
-        : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
-      $('heroStrong').textContent = (sk && sk.ready && !sk.proven && hp.code === '1X')
-        ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
-        : baseLine; }
-    $('resultSide').textContent = hp.label.replace(' WIN','');
+      /* BUILD 118 — the gate reaches the match page too, or the feed and the detail would disagree
+         the way they did before build 62: a fixture chipped "No strong read" that then opened onto a
+         confident headline is worse than either version on its own. Only un-started fixtures are
+         gated; a played match keeps the pick it was actually judged on. */
+      /* BUILD 119 — the hero must show the rung the FEED published, or the two disagree again. The
+         ladder is re-walked here rather than passed in, because the match page is also reachable
+         from search and favourites where no feed row exists. */
+      const lp = (!pendingMetaPlayed && sport==='football') ? ladderPick(pred, home, away) : null;
+      if(lp){ hp = {...hp, code:lp.code, prob:lp.prob,
+                    label: lp.label.replace(' to win',' WIN').toUpperCase()
+                             .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or ')
+                             .replace('(DRAW NO BET)','(DNB)'),
+                    solo: lp.rung === 0 };
+              $('heroPick').textContent = hp.label;
+              $('heroConf').textContent = pct(hp.prob) + ' confidence'; }
+      const gr = (!pendingMetaPlayed && sport==='football') ? gateReason(sL, {}, hp.code, hp.prob) : null;
+      if(gr){
+        $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
+        $('heroConf').textContent = '';
+        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob);
+      } else {
+        const baseLine = hp.solo
+          ? "The engine's headline call for this match"
+          : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
+        $('heroStrong').textContent = (sk && sk.ready && !sk.proven && hp.code === '1X')
+          ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
+          : baseLine;
+      }
+      $('resultSide').textContent = gr ? '—' : hp.label.replace(' WIN','');
+    }
 
     /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
        hindsight, and it is what made the bars contradict the headline above them (build 62). */
@@ -2777,6 +3048,40 @@ async function analyze(){
       probRow('Over 1.5', pred.over[1.5]) + probRow('Over 2.5', pred.over[2.5]) +
       probRow('Over 3.5', pred.over[3.5]) + probRow('BTTS', pred.btts, true);
 
+    /* BUILD 120 — COMBOS. Ken: "Don't you think there should be a section for combo in the bet, like
+       1 and over 2.5, 1 and BTTS, 1X and over 1.5?"
+       Every one of these is summed straight off the scoreline grid, so the correlation between the
+       two legs is already in the number. That matters more than it sounds: multiplying the two
+       published probabilities together — the way these are normally priced — is wrong in BOTH
+       directions here. A home win and Over 2.5 pull together (the favourite scores), so the product
+       is too LOW. A home win and BTTS pull apart (the favourite keeps more clean sheets), so the
+       product is too HIGH. The panel shows the product beside the true price so the gap is visible
+       rather than asserted. */
+    if(pred.combos){
+      const C = pred.combos, H = escapeHtml(home), A = escapeHtml(away);
+      const list = [
+        ['1 & Over 2.5',   C.hO25,  pred.pW * pred.over[2.5],        `${H} win and 3+ goals`],
+        ['1 & BTTS',       C.hBTS,  pred.pW * pred.btts,             `${H} win and both score`],
+        ['1 & Under 2.5',  C.hU25,  pred.pW * (1-pred.over[2.5]),    `${H} win and under 3 goals`],
+        ['1X & Over 1.5',  C.hdO15, (pred.pW+pred.pD) * pred.over[1.5], `${H} or draw and 2+ goals`],
+        ['2 & Over 2.5',   C.aO25,  pred.pL * pred.over[2.5],        `${A} win and 3+ goals`],
+        ['2 & BTTS',       C.aBTS,  pred.pL * pred.btts,             `${A} win and both score`],
+        ['X2 & Over 1.5',  C.adO15, (pred.pD+pred.pL) * pred.over[1.5], `Draw or ${A} and 2+ goals`],
+        ['BTTS & Over 2.5',C.btO25, pred.btts * pred.over[2.5],      `Both score and 3+ goals`]
+      ].filter(r => r[1] != null).sort((a,b)=>b[1]-a[1]);
+
+      $('acc-combo').classList.remove('hidden');
+      $('comboRows').innerHTML =
+        list.map(([lbl, p, naive, why]) => {
+          const d = p - naive, sig = Math.abs(d) >= 0.015;
+          return probRow(lbl, p, true)
+            + `<div class="subnote" style="margin:-4px 0 9px">${why}.`
+              + (sig ? ` Multiplying the two markets would say ${pct(naive)} — ${d>0?'too low':'too high'} by ${(100*Math.abs(d)).toFixed(1)} points, because these two legs ${d>0?'happen together more often':'get in each other’s way'} than independence assumes.` : ``)
+            + `</div>`;
+        }).join('')
+        + `<div class="subnote"><b>These are exact, not estimated.</b> Each one is the sum of every final score that would win both legs, taken from the same grid behind the numbers above — so the way the two legs move together is already in the price, with no independence assumption anywhere. <b>They are raw model prices:</b> unlike Over/Under and BTTS on their own, a combo has no measured competition base rate to be calibrated against, so treat them as the engine's honest arithmetic rather than as tested claims. Combos are also never published as the headline pick — they price below the bar by nature, which is exactly why they pay more.</div>`;
+    } else $('acc-combo').classList.add('hidden');
+
     $('acc-score').classList.remove('hidden');
     /* BUILD 117 — ONE correct-score section, itemising the pick on the hero card.
        Two earlier builds are folded in here and both are superseded, so the history is kept short:
@@ -2794,16 +3099,18 @@ async function analyze(){
        probability. Order needs no rule — 1-1 outranks 1-0 precisely when the engine leans draw,
        because then the draw cells are the bigger ones. The list cannot contradict the tip, because
        it IS the tip, itemised, which is why no reconciling paragraph is needed any more. */
-    { const code = (hp && hp.code) || 'X';
+    /* BUILD 119 — a Draw No Bet pick lands on the win cells; a draw voids it rather than winning it,
+       so '1D' shares its scoreline list with '1'. Mapping here keeps the grid free of rungs that are
+       not really separate distributions. */
+    { const raw = (hp && hp.code) || 'X';
+      const code = raw==='1D' ? '1' : raw==='2D' ? '2' : raw;
       const list = (pred.topByPick && pred.topByPick[code]) || [];
       const mass = {'1':pred.pW, 'X':pred.pD, '2':pred.pL,
                     '1X':pred.pW+pred.pD, 'X2':pred.pD+pred.pL}[code];
       /* A played fixture shows its FROZEN pick and probability (see the hero card above), so the
          stored number is preferred; mass is the fallback for anything unpriced. */
       const prob = (hp && hp.prob) ? hp.prob : mass;
-      const nm = {'1': escapeHtml(home)+' to win', 'X':'the draw', '2': escapeHtml(away)+' to win',
-                  '1X': escapeHtml(home)+' or the draw',
-                  'X2':'the draw or '+escapeHtml(away)}[code] || 'this pick';
+      const nm = escapeHtml(pickPhrase(code, home, away));   // shared with the written analysis
 
       $('scoreRows').innerHTML = !list.length ? '' :
           `<div class="sec-label" style="margin-top:0">If ${nm} lands (${pct(prob)}) — how it most likely finishes</div>`
@@ -2847,6 +3154,7 @@ async function analyze(){
     $('xgInfo').textContent = `Projected score — ${home} ${pred.expH.toFixed(0)} : ${pred.expA.toFixed(0)} ${away} (total ${pred.total.toFixed(0)})`;
     $('acc-smart').classList.add('hidden');   // football-only: no neutral baseline for other sports
     $('acc-goals').classList.add('hidden');
+    $('acc-combo').classList.add('hidden');   // build 120 — combos come off the football grid only
     $('acc-score').classList.add('hidden');
     $('acc-scorers').classList.add('hidden');
   }
@@ -3366,6 +3674,103 @@ function computeSkill(L){
   return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
            proven: (e-d) > floor, size: ms.length, at: Date.now() };
 }
+/* ── PER-MATCH EDGE (build 117) ────────────────────────────────────────────────
+   Ken: "what do you think about matches with edge instead of just league with an edge? ... It must
+   not predict all matches, only matches it is confident in."
+
+   computeSkill() above answers a question about a COMPETITION, and it has a blind spot worth stating
+   plainly: it only counts fixtures where the pick is NOT 1X. Every 1X pick — which is most of what
+   the feed displays — is excluded from the test entirely. So "HOME ADVANTAGE" does not mean the
+   engine blindly backs the home side; it means that when it DEPARTS from 1X it does no better than
+   1X would have done. It says nothing at all about the picks it makes most often.
+
+   This measures each MATCH instead, and it covers every pick including 1X.
+
+   For each historical fixture: price it walk-forward, take the headline pick, and compare its
+   probability with what that SAME selection is worth in an average match in that league — the
+   neutral fixture, rebuilt from matches before this one, never from the future. The difference is
+   the per-match edge: how much the engine claims to know about these two teams beyond the league's
+   own base rate. Sort the picks into bands by that gap and report how often each band actually won.
+
+   The comparison in each band is hit rate versus the average baseline the band was measured against,
+   with a two-standard-error floor. A band only "clears" if it beat the thing it claimed to beat by
+   more than noise. That is the same bar computeSkill uses, applied to matches instead of leagues.
+
+   DELIBERATELY NOT SHIPPED AS A GATE YET. A threshold chosen because it looks good on the same data
+   that produced it is not measured, it is fitted — and this app has spent five builds removing
+   claims of exactly that kind. Read the table first. */
+/* BUILD 117, SECOND PASS — the first run answered the wrong question, and the table said so.
+   Measured on 6,426 graded picks, ACTUAL barely moves across the edge bands: 69.1, 72.8, 72.1, 71.4,
+   68.7, 69.5. The GAP grows only because BASELINE collapses from 70.6% to 44.4%. So a high-edge pick
+   is NOT more likely to win — it is equally likely to win, on a fixture the league average could
+   never have called. That is worth something, but it is not what Ken asked for.
+
+   Ken asked for "only matches it is confident in", which is a question about ACCURACY, and accuracy
+   lives on the other axis: the probability the engine actually claims. So both are measured now, in
+   one pass, and the panel reports what a gate on either would really cost in volume and buy in
+   accuracy — because "beats its baseline by two standard errors" turned out to be a test that can
+   pass while accuracy goes DOWN. */
+const EDGE_BANDS = [-1, 0, 0.03, 0.06, 0.10, 0.15, 1];
+const PROB_BANDS = [0, 0.55, 0.62, 0.70, 0.78, 0.85, 1.01];
+function edgeBuckets(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 200) return { ready:false, reason:'thin', size: ms?ms.length:0 };
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const rows  = EDGE_BANDS.slice(0,-1).map((lo,i)=>({lo, hi:EDGE_BANDS[i+1], n:0, hit:0, base:0, claim:0}));
+  const prows = PROB_BANDS.slice(0,-1).map((lo,i)=>({lo, hi:PROB_BANDS[i+1], n:0, hit:0, base:0, claim:0}));
+  const jrows = PROB_BANDS.slice(0,-1).map((lo,i)=>({lo, hi:PROB_BANDS[i+1], nPos:0, hitPos:0, nNeg:0, hitNeg:0}));
+  const start = Math.max(60, Math.floor(ms.length*0.3));
+  /* The neutral fixture is rebuilt every 25 matches rather than every match — it moves slowly (it is
+     a whole-league average) and rebuilding it each step roughly triples the run for no measurable
+     change. It is always built from matches BEFORE the one being priced. */
+  let neutral = null, neutralAt = -1e9;
+  for(let i=start;i<ms.length;i++){
+    if(i - neutralAt >= 25){ try{ neutral = tmp.neutral(i); }catch(e){ neutral = null; } neutralAt = i; }
+    if(!neutral) continue;
+    const m = ms[i];
+    if(m.hg == null || m.ag == null) continue;
+    const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    const hp = headlinePick(p, 'H', 'A'); if(!hp) continue;
+    const nb = hp.code==='1'  ? neutral.pW
+             : hp.code==='X'  ? neutral.pD
+             : hp.code==='2'  ? neutral.pL
+             : hp.code==='1X' ? neutral.pW + neutral.pD
+             :                  neutral.pD + neutral.pL;
+    const edge = hp.prob - nb;
+    const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+    const won = pickHit(hp.code, act);
+    let r = null;
+    for(const row of rows) if(edge >= row.lo && edge < row.hi){ r = row; break; }
+    if(!r) r = rows[rows.length-1];        // edge at or above the top band's floor
+    r.n++; if(won) r.hit++;
+    r.base += nb; r.claim += hp.prob;
+    // the same pick, filed a second time by the probability it CLAIMS — the accuracy axis
+    let qi = prows.length-1;
+    for(let z=0; z<prows.length; z++) if(hp.prob >= prows[z].lo && hp.prob < prows[z].hi){ qi = z; break; }
+    const q = prows[qi];
+    q.n++; if(won) q.hit++;
+    q.base += nb; q.claim += hp.prob;
+    /* THIRD PASS — the two axes crossed. A probability gate answers "is it confident", an edge test
+       answers "is it saying anything the league table doesn't". Ken wants both: he asked for only
+       confident matches AND objected to picks that follow home advantage and nothing else. A pick
+       can be 72% and still be BELOW what an average match in that league is worth — 929 of them
+       were — and those are exactly the ones he was describing. So each probability band is also
+       split by whether the pick beats its own baseline. */
+    const j = jrows[qi];
+    if(edge > 0){ j.nPos++; if(won) j.hitPos++; } else { j.nNeg++; if(won) j.hitNeg++; }
+  }
+  for(const r of rows.concat(prows)){
+    if(!r.n){ r.hitRate = r.avgBase = r.avgClaim = r.floor = r.gap = null; r.clears = false; continue; }
+    r.hitRate  = r.hit / r.n;
+    r.avgBase  = r.base / r.n;
+    r.avgClaim = r.claim / r.n;
+    r.gap      = r.hitRate - r.avgBase;
+    r.floor    = 2*Math.sqrt(Math.max(1e-9, r.avgBase*(1-r.avgBase)/r.n));
+    r.clears   = r.gap > r.floor;
+  }
+  return { ready:true, rows, prows, jrows, size:ms.length, tested:rows.reduce((s,r)=>s+r.n,0) };
+}
+
 /* ── DISPERSION (build 96) ─────────────────────────────────────────────────────
    Build 65 claimed the engine's edge tracks how unequal a league is, and supported it by naming
    Portugal as top-heavy and the Championship as compressed. That is an assertion about the data
@@ -4194,6 +4599,7 @@ function refreshSkills(){
   const step = ()=>{
     const id = todo.shift();
     if(id == null){ _skillTimer = null; saveState();
+      try{ renderEdgeSetting(); }catch(e){}   // build 120 — the count in More is only true once these finish
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='analysis') renderStrongPicks();
       return; }
     const L = afState.leagues[id];
@@ -4720,7 +5126,7 @@ async function renderArchiveDay(){
     for(const p of preds){
       const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && ['FT','AET','PEN'].includes(f.status);
       const act = done ? actualCode(f.gh, f.ga) : null;
-      const hit = act ? pickHit(p.pick, act) : null;
+      const hit = act ? gradePick(p.pick, act, f.gh, f.ga)==='hit' : null;   // build 120
       if(act){ graded++; if(hit) hits++; }
       if((p.build||0) < FROZEN_FROM_BUILD) stale++;
       (byLeague[p.lname||'—'] = byLeague[p.lname||'—'] || []).push({p, f, done, hit});
@@ -4860,6 +5266,7 @@ function leaguePriority(L){
   return 35;
 }
 
+let _edgeHidden = [];   // build 117 — competitions the edge filter removed on the last render
 function visibleLeagues(){
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
   /* A competition with no history can't be predicted, so it has no business in Predict — the World
@@ -4877,8 +5284,19 @@ function visibleLeagues(){
      kept, not hidden: absence of a verdict is not a negative verdict. If the filter would empty the
      feed entirely it is ignored for this render, because a blank screen teaches the user nothing —
      renderFixtures() says so on screen when that happens. */
+  /* BUILD 117 — the filter now says what it took away. Ken ran two phones on the same build and one
+     had no Eredivisie: same code, same data, and the only difference was that this toggle was On on
+     the Samsung. Eredivisie is badged HOME ADVANTAGE — tested, no measured edge — so it was removed
+     on sight, while Primeira Liga (EDGE +15) survived and kept the feed looking healthy, which is
+     why the escape hatch below never fired and nothing on screen ever mentioned it. He cleared the
+     cache and reinstalled chasing a data bug that was never there. A filter that hides competitions
+     silently is indistinguishable from a broken feed, so `_edgeHidden` is published for the feed to
+     report. */
+  _edgeHidden = [];
   if(prefs.edgeOnly){ const proven = Ls.filter(l=>{ const sk = skillOf(l); return !sk || !sk.ready || sk.proven; });
-                      if(proven.length) Ls = proven; }
+                      if(proven.length){ const keep = new Set(proven);
+                                         _edgeHidden = Ls.filter(l=>!keep.has(l));
+                                         Ls = proven; } }
   /* Ken's call: publish everywhere, but let the competitions with a measured edge lead. A proven
      league outranks an unproven one regardless of how famous it is (build 65). */
   return Ls.sort((a,b)=> (skillProven(b)?1:0)-(skillProven(a)?1:0)
@@ -5276,7 +5694,11 @@ function genSlip(){
 function recordPick(leagueName, f){
   if(!f || !f.fxid || !f.pick) return;
   if(afState.record.some(r=>r.fxid===f.fxid)) return;
-  afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob, league:leagueName, result:null, build:APP_BUILD});
+  /* build 120 — `market` is stamped at publication, Ken's call: one record, each entry tagged, so
+     the overall hit rate stays a single honest number AND can be broken down. Deriving the market
+     later from the code would work today and break the first time a code is reused or renamed. */
+  afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob,
+                       market:pickMarket(f.pick), league:leagueName, result:null, build:APP_BUILD});
   if(afState.record.length > 500) afState.record = afState.record.slice(-500);
 }
 function gradeRecord(scoreList){
@@ -5285,8 +5707,12 @@ function gradeRecord(scoreList){
   for(const r of afState.record){
     if(r.result) continue;
     const s = byId[r.fxid];
-    if(s && ['FT','AET','PEN'].includes(s.status) && s.gh!=null && s.ga!=null)
+    if(s && ['FT','AET','PEN'].includes(s.status) && s.gh!=null && s.ga!=null){
       r.result = s.gh>s.ga ? '1' : s.gh===s.ga ? 'X' : '2';
+      // build 120 — the score is kept as well, because a goals or BTTS pick cannot be graded without
+      // it. Older entries have no gh/ga and are all 1X2 picks, which grade from `result` as before.
+      r.gh = s.gh; r.ga = s.ga;
+    }
   }
 }
 // grade outstanding picks against finished matches sitting in league history (#4)
@@ -5295,14 +5721,15 @@ function gradeFromHistory(){
   if(!pend.length) return;
   // first, grade from the shared cloud results (fxid match)
   if(afState.cloudFix){
-    for(const r of pend){ if(r.result) continue; const c=afState.cloudFix[r.fxid]; if(c) r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; }
+    for(const r of pend){ if(r.result) continue; const c=afState.cloudFix[r.fxid];
+      if(c){ r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; r.gh=c.gh; r.ga=c.ga; } }   // build 120 — score kept
   }
   for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
     const L=afState.leagues[id]; if(!L||!L.matches||!L.matches.length) continue;
     for(const r of pend){
       if(r.result) continue;
       const m=L.matches.find(x=>x.date===r.date && x.home===r.home && x.away===r.away);
-      if(m) r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2';
+      if(m){ r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2'; r.gh=m.hg; r.ga=m.ag; }   // build 120 — score kept
     }
   }
 }
@@ -5392,9 +5819,27 @@ async function loadCloudLeagues(force){
             const arch = started && afState.archive ? afState.archive[f.fxid] : null;
             if(arch){ f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL; f.frozen = true; }
             else if(started && f.pick){ f.frozen = true; }
-            else if(!started){ f.pick = hp.code; f.prob = +hp.prob.toFixed(3); f.frozen = false; }
+            else if(!started){
+              /* BUILD 119 — walk the ladder to the bar instead of committing to a rung and then
+                 failing it. `headlinePick` is untouched and still drives every measurement panel;
+                 what changes is only what gets PUBLISHED. When no rung clears, the headline is kept
+                 so the fixture can still say what it was and why it is being withheld. */
+              const lp = ladderPick(p, f.home, f.away);
+              f.pick   = lp ? lp.code   : hp.code;
+              f.prob   = lp ? lp.prob   : +hp.prob.toFixed(3);
+              f.market = lp ? lp.market : 'Winner';
+              f.frozen = false;
+            }
             f.provisional = !!p.unknownTeams;   // priced on league averages, not on these teams
-            if(!f._fin){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
+            /* BUILD 118 — the gate is applied to fixtures that have NOT kicked off, and only to
+               those. A frozen pick was a claim made before the match; hiding it afterwards would
+               rewrite history and quietly improve the record, which is the exact drift build 62
+               removed. So: past picks stay visible and stay graded, and the gate changes what the
+               app says from here on. `gated` is stored on the fixture so every screen reads one
+               decision instead of each recomputing its own. */
+            f.gated = started ? null : gateReason(L, f, f.pick, f.prob);
+            // a withheld pick is not recorded either — the record must contain what was published
+            if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
           }
         }
       }
@@ -5433,8 +5878,17 @@ function recordStats(){
   if(!graded.length) return null;
   const trust = graded.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
   const legacy = graded.length - trust.length;
-  const hits = trust.filter(r=>pickHit(r.pick, r.result)).length;
-  return { n:trust.length, hits, pct: trust.length ? (100*hits/trust.length).toFixed(1) : '—',
+  /* build 119 — Draw No Bet can now be published, and a drawn DNB returns the stake. It is neither a
+     hit nor a miss, so it is removed from the denominator rather than being counted as either. A
+     record that called voids losses would understate the app against bets that cost nothing. */
+  /* build 120 — the score goes in too, because a goals or BTTS pick cannot be graded from the 1/X/2
+     result. Entries written before 120 have no gh/ga, and every one of them is a 1X2 pick, so they
+     grade from `result` exactly as they always did — no historical number moves. */
+  const g = trust.map(r=>gradePick(r.pick, r.result, r.gh, r.ga));
+  const hits  = g.filter(x=>x==='hit').length;
+  const voids = g.filter(x=>x==='void').length;
+  const settled = trust.length - voids;
+  return { n:settled, hits, voids, pct: settled ? (100*hits/settled).toFixed(1) : '—',
            legacy, legacyHits: graded.filter(r=>(r.build||0) < FROZEN_FROM_BUILD && pickHit(r.pick, r.result)).length };
 }
 function clearLegacyRecord(){
@@ -5804,13 +6258,16 @@ function renderStrongPicks(){
     : '';
   $('recordLine').innerHTML = (stats && stats.n
     ? `Engine record: <b style="color:var(--green2)">${stats.hits}/${stats.n} correct (${stats.pct}%)</b> — each pick is frozen at kick-off and graded when the result arrives.`
+      + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out of the count rather than called a loss.` : '')
     : 'Every prediction is frozen at kick-off and graded once its match finishes — your accuracy record builds here.') + legacyNote;
   { const rr=$('recordReset'); if(rr) rr.onclick = e=>{ e.preventDefault(); clearLegacyRecord(); }; }
   const picks = [];
   for(const id of afState.leagueOrder){
     const L = afState.leagues[id];
     if(!L || (L.sport||'football')!=='football') continue;
-    for(const f of L.upcoming) if(f.pick && f.prob>=0.55 && f.date>=todayStrLocal() && !f.provisional) picks.push({L, f});
+    // build 118 — a withheld pick never reaches Strong Picks either; the gate is stricter than the
+    // old 0.55 floor, so that floor is now redundant but harmless and left in place deliberately.
+    for(const f of L.upcoming) if(f.pick && !f.gated && f.prob>=0.55 && f.date>=todayStrLocal() && !f.provisional) picks.push({L, f});
   }
   picks.sort((a,b)=> (skillProven(b.L)?1:0)-(skillProven(a.L)?1:0) || b.f.prob-a.f.prob);
   if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
@@ -5890,6 +6347,7 @@ function renderFixtures(){
   if(afState.archiveDate){ showPredictDate(afState.archiveDate); return; }
   const wrap = $('fixturesWrap');
   const Ls = visibleLeagues();
+  const edgeHidden = _edgeHidden.slice();   // build 117 — captured now; later calls overwrite it
   // Discover now lives below the feed / in the competitions dropdown — only surface the card
   // in the empty state, or while a dropdown-triggered scan is running (#15)
   const anyLeagues = footballLeagues().length>0;
@@ -5929,6 +6387,8 @@ function renderFixtures(){
     for(const L of Ls) for(const f of L.upcoming){
       if(f.date!==afState.selectedDate) continue;
       if(!f.pick) continue;   // Predict is for fixtures the engine has actually priced (build 84)
+      if(f.gated) continue;   // build 118 — Top Matches is a shortlist of TIPS, and a withheld pick
+                              // is not a tip. The fixture still appears in its competition below.
       if(FAMOUS_CLUBS.some(c=>f.home.includes(c) || f.away.includes(c))) feat.push([L,f]);
     }
     if(feat.length){
@@ -5949,7 +6409,26 @@ function renderFixtures(){
     const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
     html = `<div class="subnote">No predictions for ${when}. ${dp>0?'No matches were played in the competitions the engine covers.':'Fixtures appear here once they are announced and both teams are confirmed.'}</div>`;
   }
+  /* BUILD 117 — say what the edge filter removed, and only when it actually cost you matches today.
+     Naming a hidden competition that has no fixtures on this date would be noise, not information. */
+  { const missed = edgeHidden.filter(L => (L.upcoming||[]).some(f=>f.date===afState.selectedDate && f.pick));
+    if(missed.length){
+      /* Ken's wording, and it is better than mine was: the count and the cause, nothing else. Naming
+         the competitions and explaining what HOME ADVANTAGE means made a three-line paragraph out of
+         a one-line fact, and the competition names are already visible the moment the filter is off. */
+      const n = missed.reduce((s,L)=>s+L.upcoming.filter(f=>f.date===afState.selectedDate&&f.pick).length, 0);
+      html += `<div class="subnote" style="margin-top:12px">${n} more ${n===1?'prediction is':'predictions are'} hidden, <b>Only competitions with a measured edge</b> is on. <span id="edgeHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Show them anyway</span></div>`;
+    }
+  }
   $('fixtureList').innerHTML = html;
+  { const eh = $('edgeHint');
+    if(eh) eh.addEventListener('click', ()=>{
+      prefs.edgeOnly = false; savePrefs();
+      try{ renderEdgeSetting(); }catch(e){}
+      renderFixtures();
+      toast('Showing every competition');
+    });
+  }
 
   document.querySelectorAll('#fixtureList .fxrow.favrow').forEach(row=>row.addEventListener('click', ()=>{
     const {leagueId, f} = dayList[+row.dataset.i];
@@ -6057,7 +6536,7 @@ async function showPredictDate(d){
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
       const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && FINISHED.includes(f.status);
-      const hit = done ? pickHit(p.pick, actualCode(f.gh, f.ga)) : null;
+      const hit = done ? gradePick(p.pick, actualCode(f.gh, f.ga), f.gh, f.ga)==='hit' : null;   // build 120
       if(done){ graded++; if(hit) hits++; }
       if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
       const chip = done
@@ -6471,6 +6950,21 @@ function renderEdgeSetting(){
   const b = $('edgeToggle'); if(!b) return;
   b.textContent = prefs.edgeOnly ? 'On' : 'Off';
   b.classList.toggle('active', !!prefs.edgeOnly);
+  /* BUILD 120 — Ken asked "how many leagues in matchmind have an edge?" and there was no way to find
+     out short of scrolling the feed counting badges. The skill verdict is computed on THIS device
+     from the history it has loaded, so the honest answer is a live count rather than a number I could
+     put in a document. Untested competitions are named separately: no verdict is not a bad verdict,
+     and lumping them in with the failures would misreport both. */
+  const el = $('edgeCount'); if(!el) return;
+  const Ls = footballLeagues();
+  let proven = 0, tested = 0, untested = 0;
+  for(const L of Ls){ const s = skillOf(L);
+    if(s && s.ready){ tested++; if(s.proven) proven++; } else untested++; }
+  el.textContent = !Ls.length
+    ? 'Hide competitions the engine has been measured on and does not beat'
+    : `${proven} of ${tested} tested competition${tested===1?'':'s'} beat home advantage`
+      + (untested ? ` · ${untested} still untested (kept either way)` : '')
+      + ' · hidden when on';
 }
 $('edgeToggle').addEventListener('click', ()=>{
   prefs.edgeOnly = !prefs.edgeOnly; savePrefs(); renderEdgeSetting();
@@ -6687,6 +7181,114 @@ function e2Run(box){
 }
 
 { const b=$('e2Btn'); if(b) b.addEventListener('click', renderEngineAB); }
+
+/* BUILD 117 — the per-match edge table. Pooled across competitions first, because per-league counts
+   are too small to judge a band on: splitting 2,000 graded matches six ways then twelve ways again
+   leaves cells of thirty, where anything can look like a signal. Per-league rows are printed
+   underneath as a sanity check, not as the verdict. */
+function renderEdgeBuckets(){
+  const box = $('edgeBktOut'); if(!box) return;
+  const Ls = backtestableLeagues().filter(L => (L.matches||[]).length >= 200);
+  if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet. Open Predict so the feed loads, then come back.</div>`; return; }
+  box.innerHTML = `<div class="subnote">Measuring ${Ls.length} competition(s)…</div>`;
+  setTimeout(()=>{
+    const mk = B => B.slice(0,-1).map((lo,i)=>({lo, hi:B[i+1], n:0, hit:0, base:0, claim:0}));
+    const per = [], pool = mk(EDGE_BANDS), ppool = mk(PROB_BANDS);
+    const jpool = PROB_BANDS.slice(0,-1).map((lo,i)=>({lo, hi:PROB_BANDS[i+1], nPos:0, hitPos:0, nNeg:0, hitNeg:0}));
+    for(const L of Ls){
+      let r; try{ r = edgeBuckets(L); }catch(e){ continue; }
+      if(!r.ready) continue;
+      per.push({name:L.name, r});
+      const acc = (dst,src)=>src.forEach((row,i)=>{ dst[i].n+=row.n; dst[i].hit+=row.hit; dst[i].base+=row.base; dst[i].claim+=row.claim; });
+      acc(pool, r.rows); acc(ppool, r.prows);
+      (r.jrows||[]).forEach((row,i)=>{ jpool[i].nPos+=row.nPos; jpool[i].hitPos+=row.hitPos; jpool[i].nNeg+=row.nNeg; jpool[i].hitNeg+=row.hitNeg; });
+    }
+    if(!per.length){ box.innerHTML = `<div class="subnote">Nothing had enough history to measure.</div>`; return; }
+    for(const r of pool.concat(ppool)){
+      if(!r.n){ r.clears=false; continue; }
+      r.hitRate=r.hit/r.n; r.avgBase=r.base/r.n; r.avgClaim=r.claim/r.n;
+      r.gap=r.hitRate-r.avgBase;
+      r.floor=2*Math.sqrt(Math.max(1e-9, r.avgBase*(1-r.avgBase)/r.n));
+      r.clears=r.gap>r.floor;
+      r.calib=r.hitRate-r.avgClaim;                       // honesty of the number on the chip
+    }
+    const band  = r => r.lo < 0 ? 'below average' : r.hi > 0.9 ? '+15 pts or more'
+                     : `+${(100*r.lo).toFixed(0)} to +${(100*r.hi).toFixed(0)} pts`;
+    const pband = r => r.hi > 1 ? '85% and up' : `${(100*r.lo).toFixed(0)}–${(100*r.hi).toFixed(0)}%`;
+    const cell  = (v,extra)=>`<td style="text-align:right;padding:4px 8px${extra||''}">${v}</td>`;
+    const row = (r,lbl,last) => `<tr><td style="padding:4px 8px 4px 0">${lbl(r)}</td>${cell(r.n)}`
+      + (r.n ? cell(pct(r.avgClaim)) + cell(pct(r.avgBase)) + cell(`<b>${pct(r.hitRate)}</b>`)
+             + `<td style="text-align:right;padding:4px 0 4px 8px;color:${r.clears?'var(--green2)':'var(--muted)'}">${last(r)}</td>`
+            : `<td colspan="4" style="text-align:right;padding:4px 0;color:var(--muted)">—</td>`) + `</tr>`;
+    const head = lastCol => `<tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em">
+           <th style="text-align:left;padding-bottom:6px">${lastCol[0]}</th><th style="text-align:right">PICKS</th>
+           <th style="text-align:right">CLAIMED</th><th style="text-align:right">BASELINE</th><th style="text-align:right">ACTUAL</th><th style="text-align:right">${lastCol[1]}</th></tr>`;
+    const tbl = h => `<table style="width:100%;border-collapse:collapse;font-size:.76rem">${h}</table>`;
+
+    /* What a gate would ACTUALLY do. The two-standard-error test answers "does the engine beat the
+       league average here", which is not the same question as "is it more likely to be right here" —
+       and on this data the first passes while the second does not move. So the panel now states the
+       trade in the only terms that matter: how many picks you lose, and what accuracy you buy. */
+    const all = pool.reduce((a,r)=>({n:a.n+r.n, hit:a.hit+r.hit}), {n:0,hit:0});
+    const overall = all.n ? all.hit/all.n : 0;
+    const keepFrom = (rowsArr, i) => { let n=0, hit=0; for(let j=i;j<rowsArr.length;j++){ n+=rowsArr[j].n; hit+=rowsArr[j].hit; }
+                                       return {n, hit, rate: n?hit/n:0, kept: all.n?n/all.n:0}; };
+    const tradeRows = (rowsArr, lbl) => rowsArr.map((r,i)=>{ if(i===0) return '';
+        const k = keepFrom(rowsArr, i); if(!k.n) return '';
+        const d = k.rate - overall;
+        return `<tr><td style="padding:3px 8px 3px 0">${lbl(r)} and up</td>${cell(k.n)}${cell((100*k.kept).toFixed(0)+'%')}${cell(pct(k.rate))}<td style="text-align:right;padding:3px 0 3px 8px;color:${d>0.005?'var(--green2)':d<-0.005?'var(--red,#e56)':'var(--muted)'}">${d>=0?'+':''}${(100*d).toFixed(1)}</td></tr>`;
+      }).join('');
+    const tradeTbl = (rowsArr, lbl) => `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em"><th style="text-align:left;padding-bottom:6px">GATE AT</th>
+        <th style="text-align:right">PICKS KEPT</th><th style="text-align:right">OF ALL</th><th style="text-align:right">ACCURACY</th><th style="text-align:right">VS NOW</th></tr>
+        ${tradeRows(rowsArr, lbl)}</table>`;
+
+    const spread = (() => { const live = ppool.filter(r=>r.n>=100);
+      return live.length>1 ? live[live.length-1].hitRate - live[0].hitRate : 0; })();
+
+    box.innerHTML =
+        `<div class="sec-label" style="margin-top:0">1 · By edge over an average match</div>`
+      + tbl(head(['EDGE','GAP']) + pool.map(r=>row(r, band, x=>`${x.gap>=0?'+':''}${(100*x.gap).toFixed(1)}${x.clears?' ✓':''}`)).join(''))
+      + `<div class="subnote" style="margin-top:8px"><b>Watch ACTUAL, not GAP.</b> GAP grows when the BASELINE falls, which only means the league average could not have called the match. If ACTUAL is flat down this column, a high-edge pick is not a more accurate pick — it is an equally accurate pick on a fixture you could not have guessed. Worth having, but it is not a confidence measure.</div>`
+
+      + `<div class="sec-label">2 · By the probability the engine claims</div>`
+      + tbl(head(['CLAIMED CONFIDENCE','vs CLAIMED']) + ppool.map(r=>row(r, pband, x=>`${x.calib>=0?'+':''}${(100*x.calib).toFixed(1)}`)).join(''))
+      + `<div class="subnote" style="margin-top:8px"><b>This is the accuracy axis</b> — the one "only matches it is confident in" is really about. The last column is ACTUAL minus CLAIMED: near zero means the number on the chip is honest. If ACTUAL climbs down this table, a probability cut-off buys real accuracy.</div>`
+
+      + `<div class="sec-label">3 · What a gate would actually cost</div>`
+      + `<div class="subnote" style="margin-bottom:6px">Everything now: <b>${all.n} picks at ${pct(overall)}</b>.</div>`
+      + `<div class="subnote" style="margin:8px 0 4px"><b>By edge</b></div>` + tradeTbl(pool, band)
+      + `<div class="subnote" style="margin:10px 0 4px"><b>By claimed probability</b></div>` + tradeTbl(ppool, pband)
+      + `<div class="subnote" style="margin-top:8px"><b>Read the probability rows with one caveat.</b> Because the engine is calibrated, keeping only the picks it already called likely RAISES accuracy by arithmetic, not by getting cleverer — a calibrated 78% pick wins 78% of the time whether or not you filter on it. That is not a reason to reject the gate: fewer, likelier picks is exactly the product being asked for. It is a reason not to read VS NOW as the engine improving. What you are buying is <b>selection</b>, and what you pay for it is in the OF ALL column.</div>`
+
+      /* FOURTH TABLE — the two conditions together, which is the one Ken actually described. He asked
+         for confident picks AND objected to picks that follow home advantage and nothing else. Those
+         are different filters: a pick can be 72% and still sit BELOW what an average match in that
+         league is worth. Requiring edge > 0 removes exactly that kind. */
+      + `<div class="sec-label">4 · Confident AND saying something — claimed probability with edge above zero</div>`
+      + (() => { const tot = jpool.reduce((a,r)=>({n:a.n+r.nPos+r.nNeg, hit:a.hit+r.hitPos+r.hitNeg}), {n:0,hit:0});
+          const ov = tot.n ? tot.hit/tot.n : 0;
+          const rowsHtml = jpool.map((r,i)=>{ if(i===0) return '';
+            let n=0, hit=0, dropped=0;
+            for(let z=i; z<jpool.length; z++){ n+=jpool[z].nPos; hit+=jpool[z].hitPos; dropped+=jpool[z].nNeg; }
+            if(!n) return '';
+            const rate=hit/n, d=rate-ov;
+            return `<tr><td style="padding:3px 8px 3px 0">${pband(r)} and up, edge &gt; 0</td>${cell(n)}${cell((100*n/(tot.n||1)).toFixed(0)+'%')}${cell(pct(rate))}<td style="text-align:right;padding:3px 8px;color:var(--muted)">${dropped}</td><td style="text-align:right;padding:3px 0 3px 8px;color:${d>0.005?'var(--green2)':d<-0.005?'var(--red,#e56)':'var(--muted)'}">${d>=0?'+':''}${(100*d).toFixed(1)}</td></tr>`;
+          }).join('');
+          return `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+            <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em"><th style="text-align:left;padding-bottom:6px">GATE AT</th>
+            <th style="text-align:right">KEPT</th><th style="text-align:right">OF ALL</th><th style="text-align:right">ACCURACY</th><th style="text-align:right">CUT BY EDGE</th><th style="text-align:right">VS NOW</th></tr>
+            ${rowsHtml}</table>
+            <div class="subnote" style="margin-top:8px">CUT BY EDGE is how many picks cleared the probability bar but were dropped for sitting at or below their league's average — the "it only says home because they are at home" picks. Compare each row with the same row in table 3: if accuracy barely moves, the edge condition is costing volume for nothing and the probability gate alone is enough.</div>`;
+        })()
+
+      + `<div class="subnote" style="margin-top:8px">A gate is only worth shipping if VS NOW is meaningfully positive. If it is flat or negative, the filter is cutting matches for nothing — and confirm any threshold on a competition held out of this run, because these tables chose it from the same data they are scored on.</div>`
+
+      + `<div class="subnote" style="margin-top:12px">Per competition, as a sanity check — small counts, do not read a verdict into a single row:</div>`
+      + per.map(p=>`<div class="subnote" style="margin:2px 0">${escapeHtml(p.name)} · ${p.r.tested} picks · ${p.r.rows.filter(r=>r.n>=60&&r.clears).map(band).join(', ') || 'no band clears'}</div>`).join('');
+  }, 30);
+}
+{ const b=$('edgeBktBtn'); if(b) b.addEventListener('click', renderEdgeBuckets); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
