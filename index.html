@@ -642,7 +642,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 114;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 117;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1274,6 +1274,34 @@ const footballEngine = {
     hHcap/=total; aHcap/=total; hT15/=total; aT15/=total;
     scores.forEach(s=>s.p/=total);
     scores.sort((x,y)=>y.p-x.p);
+    /* BUILD 116 — the same grid, grouped by which result each scoreline produces.
+       Measured across every expected-goals pair the engine can generate, the single likeliest
+       scoreline points at a DIFFERENT result from the one the engine favours in 33.3% of fixtures —
+       one match in three. Ken's case is real and reproducible: at 2.15 – 1.00 the engine makes the
+       home side 62.9% and Over 2.5 61.0%, and the likeliest single score is 1-1 at 10.0%.
+       Nothing is inconsistent — 1-1 is one cell, "home wins" is the sum of about ninety of them, and
+       a big cell can sit inside a minority class. But a panel that leads with a draw under a 63%
+       home tip reads as a contradiction, and a user is right not to trust it.
+       So the cells are also grouped by result here, each carrying its probability GIVEN that result,
+       which lets the page lead with "if the home win lands, it most likely lands 2-1". */
+    /* BUILD 117 — grouped by the PICK CODE, not by single result.
+       Build 116 grouped by result, and that carried a real bug: the headline pick is often 1X or
+       X2, and a list built from home-win cells alone silently drops every draw — half of what the
+       user was told to back. A 1X pick has to be able to say 2-1, 1-1, 1-0, 0-0.
+       Ranked by straight probability, with no ordering rule bolted on: whether 1-1 sits above or
+       below 1-0 falls out of the fixture itself, because if the engine leans draw the draw cells
+       are simply the bigger ones.
+       `given` is normalised against the cells in the group rather than against pW/pD/pL, so the
+       list always sums to 100% of the pick even if TEMP is ever taken off 1.00 again. */
+    const grp = s => { const g = s.score.split('-');
+                       return +g[0] > +g[1] ? '1' : (+g[0] === +g[1] ? 'X' : '2'); };
+    const topByPick = {};
+    for(const code of ['1','X','2','1X','X2']){
+      const cells = scores.filter(s => code.includes(grp(s)));   // '1X' contains both '1' and 'X'
+      const sum = cells.reduce((t,s)=>t+s.p, 0);
+      topByPick[code] = cells.slice(0,5).map(s=>({ score:s.score, p:s.p,
+                          given: sum > 0 ? s.p/sum : 0 }));      // conditional on the pick landing
+    }
     // keep the untouched probabilities: the calibration report sweeps TEMP over these, which is
     // what lets it recommend a value from your own data instead of an assumed one (build 41)
     const raw = {pW, pD, pL, over:{...over}, btts, rates:rates||null};
@@ -1298,7 +1326,8 @@ const footballEngine = {
     btts = damp(btts, rates?rates.btts:null);
     const hcap = {h:flat2(hHcap), a:flat2(aHcap)};      // team -1.5 handicap
     const team = {h15:flat2(hT15), a15:flat2(aT15)};    // team total over 1.5
-    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw, topScores:scores.slice(0,5)};
+    return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw,
+            topScores:scores.slice(0,5), topByPick};    // topByPick replaced topByResult in build 117
   },
 
   form(team, k=5){
@@ -2749,7 +2778,42 @@ async function analyze(){
       probRow('Over 3.5', pred.over[3.5]) + probRow('BTTS', pred.btts, true);
 
     $('acc-score').classList.remove('hidden');
-    $('scoreRows').innerHTML = pred.topScores.map(s=>probRow(s.score, s.p, true)).join('');
+    /* BUILD 117 — ONE correct-score section, itemising the pick on the hero card.
+       Two earlier builds are folded in here and both are superseded, so the history is kept short:
+       115 explained why "Over 2.5 60%" and "likeliest score 1-1" are not a contradiction (the most
+       likely SINGLE score is not the most likely TOTAL — three-or-more goals arrives through many
+       different scorelines, each rarer than 1-1 while together carrying the majority). 116 acted on
+       it by leading with the favourite result's scorelines, but printed a SECOND list underneath —
+       the overall modal score — with a paragraph reconciling the two.
+       Ken removed the second list: "all these can live in one section instead of two correct score
+       section. i don't want that second section." He was right on a further point that 116 had
+       wrong: the hero pick is frequently 1X or X2, and 116 keyed off the single favourite result,
+       so a "Home or Draw" tip was illustrated with home wins only and every draw disappeared —
+       "1X can be 2-1, 1-1, 1-0, 0-0, because there is a probability for draw".
+       So: one list, exactly the scorelines that WIN the pick shown above, ranked by their own
+       probability. Order needs no rule — 1-1 outranks 1-0 precisely when the engine leans draw,
+       because then the draw cells are the bigger ones. The list cannot contradict the tip, because
+       it IS the tip, itemised, which is why no reconciling paragraph is needed any more. */
+    { const code = (hp && hp.code) || 'X';
+      const list = (pred.topByPick && pred.topByPick[code]) || [];
+      const mass = {'1':pred.pW, 'X':pred.pD, '2':pred.pL,
+                    '1X':pred.pW+pred.pD, 'X2':pred.pD+pred.pL}[code];
+      /* A played fixture shows its FROZEN pick and probability (see the hero card above), so the
+         stored number is preferred; mass is the fallback for anything unpriced. */
+      const prob = (hp && hp.prob) ? hp.prob : mass;
+      const nm = {'1': escapeHtml(home)+' to win', 'X':'the draw', '2': escapeHtml(away)+' to win',
+                  '1X': escapeHtml(home)+' or the draw',
+                  'X2':'the draw or '+escapeHtml(away)}[code] || 'this pick';
+
+      $('scoreRows').innerHTML = !list.length ? '' :
+          `<div class="sec-label" style="margin-top:0">If ${nm} lands (${pct(prob)}) — how it most likely finishes</div>`
+        + list.map(s=>probRow(s.score, s.given, true)).join('')
+        + `<div class="subnote">Read these as: <b>given</b> ${nm} comes in, this is how it most likely ends. They share out that one outcome, so they add up within it, not across the whole match.`
+        + (code.length > 1
+            ? ` Both halves of the bet are listed together — a draw score sits above a win score whenever the engine leans that way, and below it when it doesn't.`
+            : ``)
+        + ` <b>The correct score is still the least reliable line on this page and the least worth backing</b> — the likeliest single scoreline in a match clears 12% only about a third of the time. The market percentages above are what the engine is actually measured on.</div>`;
+    }
 
     /* SCORERS — build 86. The built-in sample scorer list uses REAL Premier League clubs and REAL
        current players with INVENTED goal tallies (Saka 11 in 28, Palmer 13 in 27 — none of it is
