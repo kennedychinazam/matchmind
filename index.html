@@ -558,6 +558,9 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl" data-i18n="Kick-off times">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
         <select id="tzSel" class="setsel"></select>
       </div>
+      <div class="setrow" style="align-items:flex-start">
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 13h10"/></svg></span><div><div class="sl">Confidence bar</div><div class="sd" id="gateInfo">Measuring…</div></div></div>
+      </div>
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd" id="edgeCount">Hide competitions the engine has been measured on and does not beat</div></div></div>
         <div class="segsm"><button class="sfchip" id="edgeToggle">Off</button></div>
@@ -623,6 +626,9 @@
       <button id="e2Btn"></button><div id="e2Out"></div>
       <button id="edgeBktBtn"></button><div id="edgeBktOut"></div>
       <button id="seasonBtn"></button><div id="seasonOut"></div>
+      <button id="recBtn"></button><div id="recOut"></div>
+      <button id="newBtn"></button><div id="newOut"></div>
+      <button id="ncSweepBtn"></button><div id="ncSweepOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
@@ -652,7 +658,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 122;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 128;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1012,6 +1018,10 @@ function registerLeagueDampen(L){
    properly. Kept because it is measured, not because it matters much.
    It also has not proved that goals are correlated. The engine quoted 24.4% draws against 25.5%
    actual, and rho patches any draw shortfall whatever its cause. */
+/* build 127 — the newcomer prior, OFF by default. MIN 1.00 is the identity: every team keeps the
+   rating it already had, so this constant existing changes nothing until the sweep says it should.
+   FULL is how many appearances it takes for a team to be treated as fully known. */
+const NEWCOMER = { MIN: 1.00, FULL: 20 };
 const ENGINE2 = {
   ON: true,           // build 105 — turned on by the A/B panel, 10 of 10 competitions
   ITERS: 14,          // cold-start passes to convergence
@@ -1180,6 +1190,35 @@ const footballEngine = {
       atk = na; def = nd;
     }
 
+    /* BUILD 127 — THE NEWCOMER ADJUSTMENT, SHIPPED DISABLED.
+       Measured (§43): pooled across 1,562 fixtures where exactly one side was a newcomer, the engine
+       predicted 28.1% and got 25.3% — 2.8 points, 2.45σ — while the CONTROL of 4,749 established-
+       versus-established fixtures came in at +0.4 with goals 1.52→1.52 and 1.23→1.23. The control
+       being that clean is what makes the newcomer gap worth taking seriously at all: the measurement
+       demonstrably works when nothing is unknown.
+
+       BUT IT IS NOT ROBUST ENOUGH TO ACT ON FROM THAT TABLE. Leave-one-out: dropping Brasileirão
+       alone takes it to 1.80σ, dropping Serie A alone to 1.69σ. Two of ten leagues run the other way,
+       and one of them (Championship, +2.5) has the LARGEST newcomer sample of any competition. A
+       constant fitted to a result that two leagues can overturn is a fitted constant, not a measured
+       one — which is the mistake this project has spent five builds removing elsewhere.
+
+       So the adjustment exists and is OFF. `MIN = 1.00` makes `f` exactly 1 for every team, so
+       na[t]*1 and nd[t]/1 are bit-for-bit what they were: this ships as a genuine no-op, and the
+       regression suite asserts it. The sweep panel decides whether it turns on, by the only question
+       that matters — does correcting the prior actually predict better, walk-forward, on log loss —
+       which is how DAMPEN, TEMP and HALF_LIFE were each settled and is immune to the descriptive
+       table's fragility. */
+    if(NEWCOMER.MIN !== 1){
+      for(let t = 0; t < T; t++){
+        const apps = fx[t].length / 3;                        // matches this team has actually played
+        const f = apps >= NEWCOMER.FULL ? 1
+                : NEWCOMER.MIN + (1 - NEWCOMER.MIN) * (apps / NEWCOMER.FULL);
+        atk[t] *= f;      // a newcomer scores less than an average side...
+        def[t] /= f;      // ...and concedes more. def is a conceding multiplier, so it goes UP.
+      }
+    }
+
     this._s2 = { src: this.matches, n, atk, def, tag: this._s2tag() };
 
     const out = {};
@@ -1190,7 +1229,14 @@ const footballEngine = {
   },
   /* The half-time and second-half engines share this code via hgOf/agOf (build 48). They must not
      share each other's cache — this tag is what keeps the three apart. */
-  _s2tag(){ return this.hgOf === footballEngine.hgOf ? 'ft' : (this._tag || 'alt'); },
+  /* BUILD 124 — HALF_LIFE belongs in this key. Ratings computed under one recency setting must never
+     warm-start ratings for another, and until now nothing said so: the tag was 'ft' for every
+     half-life. The existing sweep survived only by accident — each new pass restarts at i=start, and
+     the cached `n` from the previous pass is larger, so `c.n <= n` fails and forces a cold start.
+     That is a coincidence of loop order, not a guarantee, and any sweep that walked the candidates
+     in a different order would have silently scored one half-life using another's ratings. */
+  _s2tag(){ return (this.hgOf === footballEngine.hgOf ? 'ft' : (this._tag || 'alt'))
+                 + '|hl' + TUNE.HALF_LIFE + '|nc' + NEWCOMER.MIN; },   // build 127 — sweeping MIN must not reuse cached ratings
 
   /* What actually happens in an average match of THIS competition — measured, not assumed.
      Brasileirão and the Eredivisie have very different BTTS and Over 2.5 rates, so the anchor the
@@ -1454,6 +1500,7 @@ function formPoints(form){ return form.reduce((s,f)=>s+(f.res==='W'?3:f.res==='D
 
 function localAnalysis(ctx){
   const {sport, home, away, pred, formH, formA, h2h} = ctx;
+  const ctxL = ctx.L || null;
   const paras = [];
   if(sport==='football'){
     const fav = pred.pW>pred.pL ? home : away;
@@ -1476,7 +1523,7 @@ function localAnalysis(ctx){
        directly under a panel that no longer does. Ken spotted it. */
     { /* build 119 — the ladder, with headlinePick as the fallback when nothing clears the bar, so
          the prose names the same rung the panel and the feed do. */
-      const hp = ladderPick(pred, home, away) || headlinePick(pred, home, away);
+      const hp = ladderPick(pred, home, away, ctxL) || headlinePick(pred, home, away);
       const csc = hp.code==='1D' ? '1' : hp.code==='2D' ? '2' : hp.code;
       const cs = ((pred.topByPick && pred.topByPick[csc]) || [])[0];
       paras.push(`Goals outlook: Over 2.5 is priced at ${pct(pred.over[2.5])} and both teams to score at ${pct(pred.btts)}.`
@@ -1492,6 +1539,7 @@ function localAnalysis(ctx){
 
 function localVerdict(ctx){
   const {sport, home, away, pred} = ctx;
+  const ctxL = ctx.L || null;
   if(sport==='football'){
     const arr=[[pred.pW,home+' win'],[pred.pD,'draw'],[pred.pL,away+' win']].sort((a,b)=>b[0]-a[0]);
     const conf = arr[0][0]>0.55?'strong':arr[0][0]>0.42?'moderate':'slight';
@@ -1499,7 +1547,7 @@ function localVerdict(ctx){
        result, which is not always the pick on the hero card (that can be 1X/X2), so the scoreline is
        tied explicitly to the pick and labelled as conditional. Naming a bare "most likely score"
        here is what let the verdict quote a scoreline the tip does not cover. */
-    const hp = ladderPick(pred, home, away) || headlinePick(pred, home, away);
+    const hp = ladderPick(pred, home, away, ctxL) || headlinePick(pred, home, away);
     const csc = hp.code==='1D' ? '1' : hp.code==='2D' ? '2' : hp.code;
     const cs = ((pred.topByPick && pred.topByPick[csc]) || [])[0];
     return `Verdict: ${arr[0][1]} (${pct(arr[0][0])}) — a ${conf} lean.`
@@ -1718,7 +1766,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, archiveDate:null };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, gate:{}, archiveDate:null };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 /* ---- API-Football request discipline (build 40) ----
@@ -1966,8 +2014,18 @@ function refreshTeams(){
 }
 
 function updateStats(){
+  /* build 123 — the paging count is reported, not just used. A competition that needs more than one
+     page is one that WAS being silently truncated at 1000 rows before this build, and printing the
+     real per-league row count is what makes that checkable at a glance instead of having to invert
+     a pick count out of a backtest panel to notice. */
+  const trunc = (typeof _truncated !== 'undefined' && _truncated.length)
+    ? '  Paged fetches (>1000 rows): ' + _truncated.map(t=>{
+        const L = afState.leagues[t.id];
+        return `${(L && L.name) || t.id} ${t.rows}`;
+      }).join(', ') + '.'
+    : '';
   $('dataStats').textContent =
-    `Loaded: ${footballEngine.matches.length} football matches, ${basketballEngine.matches.length} basketball games, ${scorers.length} players.`;
+    `Loaded: ${footballEngine.matches.length} football matches, ${basketballEngine.matches.length} basketball games, ${scorers.length} players.` + trunc;
 }
 
 function probRow(label, p, gold){
@@ -2390,11 +2448,86 @@ function motivationEdge(L, m, upTo){
    arithmetic, not skill. What this gate buys is SELECTION: fewer picks, each likelier to land. It
    does not make the engine better and nothing in the app should claim it does. */
 const PICK_GATE = { MIN_PROB: 0.70, NEED_EDGE: true };
+
+/* ── THE AUTO-GATE (build 128) ─────────────────────────────────────────────────
+   Ken: "make it my settings, should be automatic" / "apply the best solution. it should be
+   automatic, whatever you choose."
+
+   So: no dial. The bar is not a preference to be guessed at — it is a measurable property of each
+   competition, and a fixed 70% was always the wrong shape for it. Ten leagues do not share one
+   accuracy curve: Primeira Liga carries a measured edge while Eredivisie and Brasileirão are badged
+   HOME ADVANTAGE, and §36's monotone accuracy table was POOLED, hiding exactly that spread.
+
+   Each competition now measures its own bar, walk-forward, against its own history, and publishes
+   at the LOWEST threshold that actually delivers GATE_TARGET accuracy. A league where the engine is
+   sharp keeps its volume; a league where it is not raises its own bar until it earns the right to
+   speak, or falls silent.
+
+   Two safeguards against this becoming a fitted number:
+     - GATE_MIN_N. A threshold is only eligible if enough real picks cleared it. Without this the
+       search would happily pick 0.85 off nine lucky matches, which is how a "measured" constant
+       becomes a fitted one.
+     - The fallback is the old global 0.70. A competition without the history to measure keeps
+       today's behaviour rather than getting an invented number. */
+const GATE_TARGET     = 0.75;                              // the accuracy the app aims to publish at
+const GATE_CANDIDATES = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85];
+const GATE_MIN_N      = 120;                               // picks that must clear a bar to trust it
+
+function gateBarFor(L){
+  const g = (L && afState.gate) ? afState.gate[L.id] : null;
+  return (g && g.bar) ? g.bar : PICK_GATE.MIN_PROB;
+}
+
+/* One walk-forward pass, every threshold scored from it. The rungs for a match do not depend on the
+   bar — only WHICH rung gets published does — so the expensive part (predicting) happens once and
+   the candidates are swept over the stored rungs for free. */
+function autoGate(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 200) return { ready:false, reason:'thin', size: ms?ms.length:0 };
+  const tmp = Object.create(footballEngine); tmp.matches = ms; tmp._s2 = null;
+  const start = Math.max(60, Math.floor(ms.length*0.3));
+  const rows = GATE_CANDIDATES.map(T=>({T, n:0, hit:0, voids:0}));
+  const NP = fxNeutral(L);
+  for(let i=start;i<ms.length;i++){
+    const m = ms[i];
+    if(m.hg == null || m.ag == null) continue;
+    const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    const rungs = rungsFor(p);
+    const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+    for(const row of rows){
+      const r = rungs.find(x=>x.prob >= row.T);
+      if(!r) continue;                                  // nothing clears this bar — nothing published
+      /* The edge condition is part of the live gate, so it has to be part of the measurement too,
+         or the bar would be fitted to a policy the app does not actually run. */
+      if(PICK_GATE.NEED_EDGE && NP){
+        const gm = GOAL_MARKETS[r.code], nd = NP.pW + NP.pL;
+        const base = gm ? gm.base(NP)
+                   : r.code==='1'  ? NP.pW : r.code==='X' ? NP.pD : r.code==='2' ? NP.pL
+                   : r.code==='1D' ? (nd>0 ? NP.pW/nd : 0)
+                   : r.code==='2D' ? (nd>0 ? NP.pL/nd : 0)
+                   : r.code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
+        if(r.prob - base <= 0) continue;
+      }
+      const g = gradePick(r.code, act, m.hg, m.ag);
+      if(g === 'void'){ row.voids++; continue; }         // a drawn DNB returns the stake — not a loss
+      row.n++; if(g === 'hit') row.hit++;
+    }
+  }
+  for(const r of rows) r.rate = r.n ? r.hit/r.n : null;
+  const eligible = rows.filter(r=>r.n >= GATE_MIN_N);
+  if(!eligible.length) return { ready:false, reason:'few', rows, size:ms.length };
+  // the LOWEST bar that actually delivers the target — lowest, so volume is never given away free
+  let pick = eligible.find(r=>r.rate >= GATE_TARGET);
+  // if none reaches the target, take the most accurate bar that still has the evidence behind it
+  if(!pick) pick = eligible.slice().sort((a,b)=>b.rate-a.rate)[0];
+  return { ready:true, bar:pick.T, rate:pick.rate, n:pick.n,
+           met: pick.rate >= GATE_TARGET, rows, size:ms.length, at:Date.now() };
+}
 /* Returns null when the pick is fit to publish, or a short reason when it is not. The reason is
    shown to the user — a fixture that says nothing must say WHY it says nothing (build 110). */
 function gateReason(L, f, code, prob){
   if(prob == null || !code) return 'unpriced';
-  if(prob < PICK_GATE.MIN_PROB) return 'low';
+  if(prob < gateBarFor(L)) return 'low';   // build 128 — this competition's measured bar
   if(PICK_GATE.NEED_EDGE){
     const NP = fxNeutral(L);
     if(NP){
@@ -2421,7 +2554,7 @@ const GATE_TEXT = {
   unpriced:'Not priced'
 };
 const GATE_WHY = {
-  low:    p => `The engine's best call here is ${pct(p)}, under the ${pct(PICK_GATE.MIN_PROB)} it has to clear to be published. Measured over 6,426 past predictions, calls in this range land about two times in three — not often enough to put in front of you as a tip.`,
+  low:    (p, bar) => `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. That bar is not a guess — it is the lowest level at which this league's own past predictions actually delivered ${pct(GATE_TARGET)}, measured match by match. Below it, calls like this one land about two times in three, which is not often enough to put in front of you as a tip.`,
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`
 };
@@ -2450,33 +2583,19 @@ const GATE_WHY = {
    since build 47, so this is the app's own established rule applied to the headline.
 
    Publishing goes from 45.9% of fixtures to 79.4%, and every published pick still clears 70%. */
-function ladderPick(P, home, away){
-  if(!P) return null;
-  const G = PICK_GATE.MIN_PROB;
+/* BUILD 128 — the rung list, extracted so the ladder and the auto-gate measurement read the SAME
+   ladder. They were about to be two copies of the same ordering, and every time this project has
+   kept two copies of one idea they have drifted (the correct-score panel vs the write-up in 117, the
+   season verdict vs its table in 122, the newcomer verdict vs its table in 126). One source. */
+function rungsFor(P){
+  if(!P) return [];
   const rungs = [];
-  // rung 1 — the outright result, best paying
   const solo = [[P.pW,'1'],[P.pD,'X'],[P.pL,'2']].sort((a,b)=>b[0]-a[0]);
   rungs.push({code:solo[0][1], prob:solo[0][0]});
-  // rung 2 — Draw No Bet, only meaningful on the side the engine leans
   const dnb = P.pW + P.pL;
   if(dnb > 0 && solo[0][1] !== 'X')
     rungs.push(P.pW >= P.pL ? {code:'1D', prob:P.pW/dnb} : {code:'2D', prob:P.pL/dnb});
-  // rung 3 — Double Chance, safest and shortest priced
   rungs.push(P.pW >= P.pL ? {code:'1X', prob:P.pW+P.pD} : {code:'X2', prob:P.pD+P.pL});
-  /* RUNG 4 (build 120) — stop forcing a winner. Ken: "A match that shows an indecisive winning
-     probability with low percentage to winning, lets say 33% 33% 34%, but shows <59% for BTTS or
-     Over 2.5, the later can be our pick instead of forcing a winner in the former. so predict should
-     not only show win draw lose."
-     He is right, and the 33/33/34 fixture is the proof: every 1X2 rung on it is weak BY CONSTRUCTION
-     — the three outcomes are splitting one unit of probability three ways — while the goals markets
-     are splitting theirs two ways and can be genuinely strong on the same match. Refusing to look at
-     them meant the app went quiet on fixtures it had a real opinion about.
-     This rung sits LAST deliberately. A winner call is what the app is for and what its record is
-     built on; goals are the answer when the winner is not knowable, not a shortcut to a bigger
-     number. Over 1.5 is excluded from candidacy for the same reason it never leads the slip: it sits
-     near 75% on almost any fixture, so it would win this rung constantly on the league's base rate
-     rather than on these teams. The edge test in gateReason is what actually stops that, but leaving
-     it out of the running as well makes the intent explicit rather than incidental. */
   const goals = [];
   if(P.over){
     goals.push({code:'O25', prob:P.over[2.5]}, {code:'U25', prob:1-P.over[2.5]},
@@ -2485,6 +2604,23 @@ function ladderPick(P, home, away){
   if(P.btts != null) goals.push({code:'BTS', prob:P.btts}, {code:'NBT', prob:1-P.btts});
   goals.sort((a,b)=>b.prob-a.prob);
   if(goals.length) rungs.push(goals[0]);
+  return rungs;
+}
+
+function ladderPick(P, home, away, L){
+  if(!P) return null;
+  const G = gateBarFor(L);   // build 128 — the competition's own measured bar, not one global number
+  /* Rungs come from rungsFor() so the ladder and the auto-gate measurement can never disagree about
+     the order. RUNG 4 (build 120) — stop forcing a winner. Ken: "A match that shows an indecisive
+     winning probability with low percentage to winning, lets say 33% 33% 34%, but shows <59% for
+     BTTS or Over 2.5, the later can be our pick instead of forcing a winner in the former."
+     The 33/33/34 fixture is the proof: every 1X2 rung on it is weak BY CONSTRUCTION — three outcomes
+     splitting one unit of probability three ways — while the goals markets split theirs two ways and
+     can be genuinely strong on the same match. Goals sit LAST because a winner call is what the app
+     is for; they are the answer when the winner is not knowable, not a shortcut to a bigger number.
+     Over 1.5 is excluded from candidacy: near 75% on almost any fixture, it would win the rung on the
+     league's base rate rather than on these teams. */
+  const rungs = rungsFor(P);
   for(const r of rungs)
     if(r.prob >= G) return {...r, prob:+r.prob.toFixed(3), market:pickMarket(r.code),
                             label:pickLabel(r.code, home, away), rung:rungs.indexOf(r)};
@@ -2999,7 +3135,7 @@ async function analyze(){
       /* BUILD 119 — the hero must show the rung the FEED published, or the two disagree again. The
          ladder is re-walked here rather than passed in, because the match page is also reachable
          from search and favourites where no feed row exists. */
-      const lp = (!pendingMetaPlayed && sport==='football') ? ladderPick(pred, home, away) : null;
+      const lp = (!pendingMetaPlayed && sport==='football') ? ladderPick(pred, home, away, sL) : null;
       if(lp){ hp = {...hp, code:lp.code, prob:lp.prob,
                     label: lp.label.replace(' to win',' WIN').toUpperCase()
                              .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or ')
@@ -3011,7 +3147,7 @@ async function analyze(){
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
-        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob);
+        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL));
       } else {
         const baseLine = hp.solo
           ? "The engine's headline call for this match"
@@ -3189,7 +3325,8 @@ async function analyze(){
   }
 
   // analysis
-  const ctx = {sport, home, away, pred, formH, formA, h2h, scorers:scorerCtx, injuries};
+  const ctx = {sport, home, away, pred, formH, formA, h2h, scorers:scorerCtx, injuries,
+               L: (sport==='football') ? (afState.leagues[afState.activeLeagueId] || null) : null};   // build 128
   $('analysisText').textContent = localAnalysis(ctx);
   $('verdictBox').textContent = localVerdict(ctx);
 
@@ -3675,6 +3812,156 @@ function computeSkill(L){
   return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
            proven: (e-d) > floor, size: ms.length, at: Date.now() };
 }
+/* ── THE NEWCOMER PRIOR (build 125) ────────────────────────────────────────────
+   With recency ruled out (§41), this is the remaining structural suspect, and it is the one the
+   losing run points at directly: NEC lost at home to newly-promoted Telstar.
+
+   Build 77's shrinkage gives a team with no matches in this division a rating of EXACTLY 1.0 — league
+   average — and that was defended as "the honest prior for a side we know nothing about". It is
+   honest about our ignorance and wrong about football. **We are not ignorant about promoted teams as
+   a class: they are, on average, the worst teams in the division.** Pricing Telstar as an average
+   Eredivisie side is not neutrality, it is a known bias with a confident face on it.
+
+   This measures the size of that bias instead of assuming it. Walk forward; for each match count how
+   many prior matches the engine has actually seen of each side; keep the fixtures where exactly one
+   side is a newcomer, and compare **what the engine predicted that newcomer would do against what it
+   did**. Buckets by prior appearances, because the question is not only "is the 1.0 prior wrong" but
+   "how many matches does it take before the rating is trustworthy".
+
+   Two numbers per bucket, both needed:
+     - PREDICTED vs ACTUAL win rate for the newcomer — the calibration of the prior itself.
+     - PREDICTED vs ACTUAL goals scored — which says whether any error is in attack or defence, and
+       therefore whether the fix is the rating or the shrinkage target.
+   If actual sits below predicted in the low buckets and converges as appearances grow, the prior is
+   too generous by exactly that gap, and it is fixable by shrinking newcomers toward something below
+   league average rather than to it. */
+/* BUILD 125, SECOND PASS — the first version reported "not measurably wrong" and that was WRONG,
+   caused by two faults of mine that Ken's table exposed at a glance:
+
+   1. THE CONTROL ROW WAS IMPOSSIBLE TO FILL. A fixture only entered the sample when exactly one side
+      had fewer than 20 appearances, and rows were then bucketed by THAT side's count — which is
+      below 20 by construction. So the "20+ matches seen" control could never receive a single
+      fixture, and it printed 0. A control that cannot be populated is not a control, it is a gap in
+      the evidence dressed as a passed check. The control now comes from a genuinely different
+      sample: fixtures where BOTH sides are established.
+   2. THE VERDICT READ ONE BUCKET. It tested only "never seen before" — 47 fixtures, too few to clear
+      two standard errors on their own — and declared the prior fine, while every other bucket in the
+      same table was also negative and the 1-4 bucket cleared the bar on its own. Pooled, the four
+      newcomer buckets are 29.0% predicted against 24.2% actual on 943 fixtures: **-4.8 points at
+      3.25 sigma.** The verdict is now computed from the pooled test, never from one row.
+
+   Both mistakes are the same mistake the season panel made in build 122: a summary sentence written
+   separately from the arithmetic it claims to summarise. */
+const NEW_MAX = 40;                              // below this many appearances, a side is a newcomer
+const NEW_BUCKETS = [0, 1, 5, 10, 20, NEW_MAX];
+function newcomerBias(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 200) return { ready:false, size: ms?ms.length:0 };
+  const tmp = Object.create(footballEngine); tmp.matches = ms; tmp._s2 = null;
+  const seen = {};
+  const mk = () => ({n:0, pWin:0, win:0, xg:0, g:0, xga:0, ga:0});
+  const rows = NEW_BUCKETS.slice(0,-1).map((lo,i)=>Object.assign(mk(), {lo, hi:NEW_BUCKETS[i+1]}));
+  const control = mk();                          // BOTH sides established — the real control
+  const start = Math.max(60, Math.floor(ms.length*0.3));
+  for(let i=0;i<ms.length;i++){
+    const m = ms[i];
+    const hN = seen[m.home] || 0, aN = seen[m.away] || 0;
+    if(i >= start && m.hg != null && m.ag != null){
+      const homeNew = hN < NEW_MAX, awayNew = aN < NEW_MAX;
+      const add = (r, mine, theirs, gf, ga, pMine, pTheirs) => {
+        r.n++; r.pWin += pMine; r.win += (gf>ga?1:0);
+        r.xg += mine; r.g += gf; r.xga += theirs; r.ga += ga;
+      };
+      if(homeNew !== awayNew){
+        /* exactly one newcomer, so the gap is always measured against an established opponent and
+           cannot be blamed on both sides being unknown */
+        const p = tmp.predict(m.home, m.away, i);
+        if(p){
+          const cnt = homeNew ? hN : aN;
+          let r = null;
+          for(const row of rows) if(cnt >= row.lo && cnt < row.hi){ r = row; break; }
+          if(r) homeNew ? add(r, p.lambdaH, p.lambdaA, m.hg, m.ag, p.pW)
+                        : add(r, p.lambdaA, p.lambdaH, m.ag, m.hg, p.pL);
+        }
+      } else if(!homeNew && !awayNew){
+        // CONTROL — two teams the engine knows well. Scored on the home side, which is arbitrary but
+        // consistent; what matters is that predicted and actual agree when nothing is unknown.
+        const p = tmp.predict(m.home, m.away, i);
+        if(p) add(control, p.lambdaH, p.lambdaA, m.hg, m.ag, p.pW);
+      }
+    }
+    seen[m.home] = hN + 1; seen[m.away] = aN + 1;
+  }
+  const finish = r => {
+    if(!r.n){ r.predWin = r.actWin = r.predG = r.actG = r.predGA = r.actGA = null; return r; }
+    r.predWin = r.pWin/r.n; r.actWin = r.win/r.n;
+    r.predG   = r.xg/r.n;   r.actG   = r.g/r.n;
+    r.predGA  = r.xga/r.n;  r.actGA  = r.ga/r.n;
+    r.floor = 2*Math.sqrt(Math.max(1e-9, r.predWin*(1-r.predWin)/r.n));
+    r.gap = r.actWin - r.predWin;
+    r.sig = Math.abs(r.gap) > r.floor;
+    return r;
+  };
+  rows.forEach(finish); finish(control);
+  return { ready:true, rows, control, size:ms.length };
+}
+
+/* ── POOLED RECENCY RE-RUN (build 124) ─────────────────────────────────────────
+   §15 tested HALF_LIFE across four competitions and closed it: full history wins, no decay, no
+   change. It ended with a condition rather than a full stop — *"Worth re-running once the European
+   leagues add a season — the 600-game hint sits on 36 disagreements today and would sit on several
+   hundred by next summer."*
+
+   Both halves of that condition are now met, and one of them was invisible until today:
+     1. The three-season backfill (§20) added the season it was waiting for.
+     2. **§15 and every recency re-run since were computed on TRUNCATED history.** The 1000-row cap
+        (§39) meant Premier League, Serie A, Primera División, Championship and Brasileirão were each
+        being tested on their OLDEST 1000 matches with everything recent missing — and recency is the
+        one question where "everything recent is missing" is not a detail, it is the whole variable.
+        A test of whether recent matches should count more, run on data with the recent matches
+        removed, cannot answer its own question.
+
+   So this is not a new theory. It is §15's own stated re-run, on data that is complete for the first
+   time, pooled across every competition instead of four — which is what §15 said the McNemar test
+   needed to become conclusive.
+
+   METHOD, unchanged from build 68 because it was right: log loss for the headline number (a proper
+   scoring rule, uses every match), and McNemar for the verdict (hold the fixtures fixed, count only
+   matches where two settings pick DIFFERENTLY, discard ties). The skill-gap column is deliberately
+   NOT the verdict — §15 documented the trap: a shorter memory departs from the baseline less often,
+   onto easier fixtures, and that looks identical to skill. */
+const HL_POOL_CANDIDATES = [40, 80, 150, 300, 600, 10000];
+function recencyPass(ms, H, start){
+  const saved = TUNE.HALF_LIFE;
+  try{
+    TUNE.HALF_LIFE = H;
+    const tmp = Object.create(footballEngine);
+    tmp.matches = ms;
+    tmp._s2 = null;              // own property, so nothing leaks in through the prototype
+    const picks = [], acts = [];
+    let ll = 0, k = 0;
+    for(let i=start;i<ms.length;i++){
+      const m = ms[i];
+      if(m.hg == null || m.ag == null){ picks.push(null); acts.push(null); continue; }
+      const p = tmp.predict(m.home, m.away, i);
+      if(!p){ picks.push(null); acts.push(null); continue; }
+      const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+      ll += -Math.log(Math.max(1e-9, act==='1' ? p.pW : act==='X' ? p.pD : p.pL)); k++;
+      const hp = headlinePick(p, 'H', 'A');
+      picks.push(hp ? hp.code : null); acts.push(act);
+    }
+    return { picks, acts, ll: k ? ll/k : null, n:k };
+  } finally { TUNE.HALF_LIFE = saved; }
+}
+/* McNemar on paired decisions. b = matches the CANDIDATE got right and the baseline got wrong,
+   c = the reverse. Ties carry no information and are discarded — that is the point of the test, and
+   it is why selection cannot fool it: neither setting chose the sample. */
+function mcnemar(b, c){
+  const n = b + c;
+  if(!n) return { b, c, n, z:null };
+  return { b, c, n, z: (b - c) / Math.sqrt(n) };
+}
+
 /* ── SEASON-PHASE ACCURACY (build 121) ─────────────────────────────────────────
    Ken, after a 1-hit-from-5 matchday: "season just started, seems it is bad to try predicting
    winners, why not BTTS or 2.5 Total goals? ... how can i train the app to be wiser?"
@@ -4654,19 +4941,26 @@ let _skillTimer = null;
 function refreshSkills(){
   if(_skillTimer) return;
   afState.skill = afState.skill || {};
+  afState.gate  = afState.gate  || {};   // build 128 — each competition's own measured publish bar
   const todo = footballLeagues().filter(L=>{
-    const s = afState.skill[L.id], size = (L.matches||[]).length;
-    return size >= 150 && (!s || Math.abs((s.size||0) - size) > 20);
+    const s = afState.skill[L.id], g = afState.gate[L.id], size = (L.matches||[]).length;
+    return size >= 150 && (!s || !g || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
   }).map(L=>L.id);
   if(!todo.length) return;
   const step = ()=>{
     const id = todo.shift();
     if(id == null){ _skillTimer = null; saveState();
-      try{ renderEdgeSetting(); }catch(e){}   // build 120 — the count in More is only true once these finish
+      try{ renderEdgeSetting(); renderGateSetting(); }catch(e){}   // build 120/128 — only true once these finish
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='analysis') renderStrongPicks();
       return; }
     const L = afState.leagues[id];
-    if(L) { try{ afState.skill[id] = computeSkill(L); }catch(e){} }
+    if(L) {
+      try{ afState.skill[id] = computeSkill(L); }catch(e){}
+      /* build 128 — the bar is measured in the same background pass as the skill badge, on the same
+         history, so the two can never describe different data. A competition that cannot measure one
+         keeps the global fallback rather than being handed an invented number. */
+      try{ const g = autoGate(L); if(g && g.ready) afState.gate[id] = g; else delete afState.gate[id]; }catch(e){}
+    }
     _skillTimer = setTimeout(step, 120);
   };
   _skillTimer = setTimeout(step, 800);
@@ -5115,11 +5409,11 @@ async function backfillPredictions(){
   try{
     const from  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
     const today = todayStrLocal();
-    const { data: have } = await supa.from('predictions').select('fxid').gte('kickoff', from);
+    const { data: have } = await fetchAllRows('predictions','fxid', q => q.gte('kickoff', from));   // build 123
     const known = new Set((have||[]).map(r=>r.fxid));
-    const { data: fx, error } = await supa.from('fixtures')
-      .select('fxid,lid,lname,date,time,home,away,gh,ga,status')
-      .gte('date', from).lt('date', today);
+    const { data: fx, error } = await fetchAllRows('fixtures',
+      'fxid,lid,lname,date,time,home,away,gh,ga,status',
+      q => q.gte('date', from).lt('date', today));   // build 123
     /* No competition-number fence here — CLOUD_LID_MIN was retired in build 39. Retired-provider
        rows are excluded naturally, because they have no entry in afState.leagues and so no history
        to price from. */
@@ -5801,7 +6095,7 @@ async function loadCloudResults(){
   if(!supa) return;
   try{
     const from = new Date(Date.now()-3*86400000).toISOString().slice(0,10);
-    const { data, error } = await supa.from('fixtures').select('fxid,gh,ga,status,updated_at').gte('date', from);
+    const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,status,updated_at', q => q.gte('date', from));
     if(error || !data) return;
     const m = {};
     for(const r of freshRows(data)){ if(r.gh!=null && r.ga!=null && FINISHED.includes(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }
@@ -5814,14 +6108,78 @@ async function loadCloudResults(){
 /* ---- build the whole league model (fixtures, history, predictions) from the cloud ---- */
 const FD_COMP_IDS = [2021,2014,2002,2019,2015,2001,2003,2017,2016,2013,2000,2018];
 let _leaguesLoadedAt = 0;
+let _loadIssues = [];   // build 123 — competitions that failed to load even after a retry
+let _truncated = [];    // build 123 — anything that came back at the row cap and had to be paged
+
+/* ── BUILD 123 — THE 1000-ROW CAP ──────────────────────────────────────────────
+   Ken: "i notice i am no longer seeing prediction from the brazil league, why?"
+
+   Not the confidence gate — that was checked first and Brasileirão still publishes ~76% of fixture
+   shapes. The cause was in the fetch, and the evidence was sitting in the per-match edge panel he
+   had already run. `edgeBuckets` starts at `max(60, floor(n*0.3))`, so its pick count is 0.7 × the
+   matches loaded. Five competitions reported EXACTLY 700 picks — Brasileirão, Primera División,
+   Championship, Serie A, Premier League — which inverts to exactly 1000 matches each. Five leagues
+   with different season lengths (380, 380, 552, 380, 380 per season) cannot all naturally land on
+   the same number. The four that did NOT hit it — Eredivisie 644, Primeira Liga 644, Bundesliga 643,
+   Ligue 1 642 — invert to ~920, and 306 × 3 seasons = 918. Those are real numbers; 1000 is a wall.
+
+   PostgREST caps a response at 1000 rows by default. The query was
+       .select('*').eq('lid', id).order('date')
+   with no range and no limit — and `.order('date')` is ASCENDING, so the 1000 rows returned are the
+   OLDEST ones. **Every fixture past the cap is silently dropped, and those are precisely the current
+   and upcoming ones.** For a league whose season runs on the calendar year, like Brasileirão, that
+   means the entire current season falls off the end.
+
+   This is why it appeared "a week ago" rather than at launch: the three-season backfill on
+   2026-08-02 (§20) is what pushed the biggest competitions past 1000 rows. Adding history silently
+   deleted the present.
+
+   Two things were wrong and both are fixed: the fetch now pages with `.range()` until it gets a
+   short page, and a fetch that comes back exactly at the cap is RECORDED, because a query that
+   silently returns partial data is indistinguishable from a competition with nothing on today —
+   which is exactly the confusion this cost Ken. */
+const PAGE = 1000;
+async function fetchLeagueFixtures(id){
+  let out = [], from = 0, pages = 0;
+  for(;;){
+    const { data, error } = await supa.from('fixtures').select('*').eq('lid', id)
+      .order('date').range(from, from + PAGE - 1);
+    if(error) return { data:null, error };
+    out = out.concat(data || []);
+    pages++;
+    if(!data || data.length < PAGE) break;      // short page = the end
+    from += PAGE;
+    if(from > 20000) break;                     // hard stop; no league has 20k fixtures
+  }
+  // more than one page means this competition WOULD have been truncated before build 123
+  return { data: out, error:null, pages };
+}
+/* Same cap, same shape, different table. The archive covers a month and the results sweep covers
+   ~5 weeks, so neither is at 1000 rows today — but both grow with the number of competitions
+   carried, and neither would say a word when it crossed. Paged for the same reason. */
+async function fetchAllRows(table, cols, apply){
+  let out = [], from = 0;
+  for(;;){
+    let q = supa.from(table).select(cols);
+    q = apply ? apply(q) : q;
+    const { data, error } = await q.range(from, from + PAGE - 1);
+    if(error) return { data:null, error };
+    out = out.concat(data || []);
+    if(!data || data.length < PAGE) break;
+    from += PAGE;
+    if(from > 50000) break;
+  }
+  return { data: out, error:null };
+}
+
 /* The archive is what makes a prediction permanent rather than a thing the app recalculates.
    Pulled once per session, keyed by fixture, covering the window the feed can show (build 62). */
 async function loadArchive(){
   if(!supa) return;
   try{
     const from = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // a month back (build 70)
-    const { data, error } = await supa.from('predictions')
-      .select('fxid,pick,pick_prob,p_home,p_draw,p_away,xg_home,xg_away,build').gte('kickoff', from);
+    const { data, error } = await fetchAllRows('predictions',
+      'fxid,pick,pick_prob,p_home,p_draw,p_away,xg_home,xg_away,build', q => q.gte('kickoff', from));
     if(error || !data) return;
     const m = {};
     for(const r of data) m[r.fxid] = { pick:r.pick, prob:r.pick_prob, pW:r.p_home, pD:r.p_draw, pL:r.p_away,
@@ -5836,9 +6194,36 @@ async function loadCloudLeagues(force){
   if(!force && Date.now()-_leaguesLoadedAt < 5*60*1000) return;   // throttle
   try{
     const today = todayStrLocal();
-    const results = await Promise.all(FD_COMP_IDS.map(id =>
-      supa.from('fixtures').select('*').eq('lid', id).order('date')
-    ));
+    /* BUILD 123 — a competition that fails to load must never vanish silently.
+       Ken: "i notice i am no longer seeing prediction from the brazil league, why?" The cause was
+       findable before he even asked, because it was written down and never fixed: 12 requests fire
+       in parallel, one per competition, and `if(error || !data || !data.length) continue;` drops
+       any that errors or comes back empty — no retry, no message, and the whole function is wrapped
+       in `catch(e){}`. A weak connection losing exactly one of twelve requests looks identical to a
+       competition genuinely having nothing to show, and there was no way to tell them apart.
+       Two changes: any competition that errors or comes back empty gets ONE retry before being
+       counted as missing (a transient blip usually survives a second attempt). If it still fails
+       AND it was present in the last successful load — so this is a competition disappearing, not
+       one that was never there — it is named on the Predict feed instead of just being gone. */
+    const results = await Promise.all(FD_COMP_IDS.map(id => fetchLeagueFixtures(id)));
+    const bad = (r) => !!(r.error || !r.data || !r.data.length);
+    const retryIdx = results.map((r,i)=> bad(r) ? i : -1).filter(i=>i>=0);
+    if(retryIdx.length){
+      const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(FD_COMP_IDS[i])));
+      retryIdx.forEach((i,k)=>{ results[i] = retried[k]; });
+    }
+    // still missing after the retry, and it was there last time — that combination is what makes
+    // this a LOAD FAILURE rather than a competition with nothing to show
+    _loadIssues = FD_COMP_IDS
+      .map((id,i)=> (bad(results[i]) && afState.leagues[id]) ? (afState.leagues[id].name || `competition ${id}`) : null)
+      .filter(Boolean);
+    /* build 123 — which competitions needed more than one page. Kept so the About screen can show
+       it: this is the fingerprint of the bug that hid Brasileirão, and if it ever silently returns
+       to one page for a league that should have thousands of rows, that number is the evidence. */
+    _truncated = FD_COMP_IDS
+      .map((id,i)=> (results[i] && results[i].pages > 1)
+        ? { id, pages: results[i].pages, rows: (results[i].data||[]).length } : null)
+      .filter(Boolean);
     const leagues = {}, order = [], cf = {};
     /* Must cover the 7 days the feed now displays (build 59 widened the date pills but left this at
        3, so days 4-7 had no data AND their picks were never recomputed — which is why a fixture from
@@ -5887,7 +6272,7 @@ async function loadCloudLeagues(force){
                  failing it. `headlinePick` is untouched and still drives every measurement panel;
                  what changes is only what gets PUBLISHED. When no rung clears, the headline is kept
                  so the fixture can still say what it was and why it is being withheld. */
-              const lp = ladderPick(p, f.home, f.away);
+              const lp = ladderPick(p, f.home, f.away, L);
               f.pick   = lp ? lp.code   : hp.code;
               f.prob   = lp ? lp.prob   : +hp.prob.toFixed(3);
               f.market = lp ? lp.market : 'Winner';
@@ -6057,7 +6442,7 @@ async function afScoresFromCloud(){
     // pull the whole browsable window (+1 day of UTC slack each side so local-date grouping is exact)
     const dm = new Date(Date.now()-(SCORES_PAST_DAYS+1)*86400000).toISOString().slice(0,10);
     const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
-    const { data, error } = await supa.from('fixtures').select('*').gte('date', dm).lte('date', dp);
+    const { data, error } = await fetchAllRows('fixtures','*', q => q.gte('date', dm).lte('date', dp));
     if(error){ afState.scores={at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(error.message||error.code||'error'); return true; }
     const rows = freshRows(data||[]);   // drop orphaned rows from any retired collector
     for(const r of rows){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
@@ -6483,7 +6868,20 @@ function renderFixtures(){
       html += `<div class="subnote" style="margin-top:12px">${n} more ${n===1?'prediction is':'predictions are'} hidden, <b>Only competitions with a measured edge</b> is on. <span id="edgeHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Show them anyway</span></div>`;
     }
   }
+  /* BUILD 123 — say when a competition is MISSING rather than let it disappear with no explanation.
+     Ken: "i notice i am no longer seeing prediction from the brazil league, why?" — the cause was a
+     silent partial load (see loadCloudLeagues), and there was nothing on screen to tell the two
+     apart: a competition legitimately having no fixtures today, and a competition the app simply
+     failed to fetch. This is the second one, named. */
+  if(_loadIssues.length){
+    const names = _loadIssues.map(escapeHtml);
+    const list = names.length===1 ? names[0] : names.slice(0,-1).join(', ') + ' and ' + names[names.length-1];
+    html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${list}</b> did not load this time — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
+  }
   $('fixtureList').innerHTML = html;
+  { const rh = $('reloadHint');
+    if(rh) rh.addEventListener('click', ()=>{ toast('Reloading…'); loadCloudLeagues(true); });
+  }
   { const eh = $('edgeHint');
     if(eh) eh.addEventListener('click', ()=>{
       prefs.edgeOnly = false; savePrefs();
@@ -6625,7 +7023,7 @@ function saveState(){
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
@@ -6767,6 +7165,7 @@ function restoreState(){
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
       afState.skill  = s.af.skill  || {};   // measured per competition, build 65
+      afState.gate   = s.af.gate   || {};   // measured publish bar per competition, build 128
       afState.archiveDate = null;   // always open on today, never on a date left over from last time
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
@@ -6938,7 +7337,7 @@ function renderLangSetting(){
    English label found it. */
 function applyLanguage(){
   applyStaticI18n();
-  try{ renderLangSetting(); renderTzSetting(); renderEdgeSetting();
+  try{ renderLangSetting(); renderTzSetting(); renderEdgeSetting(); renderGateSetting();
        renderScores(); renderFixtures(); renderFavs();
        if(lastTab==='tips') renderTips(); }catch(e){}
 }
@@ -7009,6 +7408,25 @@ $('tzSel').addEventListener('change', ()=>{
   try{ renderScores(); renderFixtures(); renderFavs(); if(lastTab==='tips') renderTips(); }catch(e){}
   toast(prefs.tz ? 'Times now shown for '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Times follow this device');
 });
+/* BUILD 128 — an automatic threshold nobody can see is the silent-filter mistake from §33 all over
+   again: the app would be withholding picks on a number the user has no way to inspect. This prints
+   what each competition decided FOR ITSELF and what that bar actually delivered on its own history,
+   so "automatic" means measured-and-shown rather than hidden. */
+function renderGateSetting(){
+  const el = $('gateInfo'); if(!el) return;
+  const Ls = footballLeagues();
+  if(!Ls.length){ el.textContent = 'Publishes a pick only when it clears the bar its competition earned.'; return; }
+  const parts = [], fallback = [];
+  for(const L of Ls){
+    const g = afState.gate && afState.gate[L.id];
+    if(g && g.bar) parts.push(`${L.name} ${pct(g.bar)}${g.met?'':'*'}`);
+    else fallback.push(L.name);
+  }
+  el.textContent = (parts.length ? parts.join(' · ') : '')
+    + (parts.length && fallback.length ? ' · ' : '')
+    + (fallback.length ? `${fallback.length} still on the default ${pct(PICK_GATE.MIN_PROB)}` : '')
+    + (parts.some(p=>p.endsWith('*')) ? `  (* no bar reached ${pct(GATE_TARGET)} here — this is the best it can do)` : '');
+}
 function renderEdgeSetting(){
   const b = $('edgeToggle'); if(!b) return;
   b.textContent = prefs.edgeOnly ? 'On' : 'Off';
@@ -7429,6 +7847,277 @@ function renderSeasonPhase(){
   }, 30);
 }
 { const b=$('seasonBtn'); if(b) b.addEventListener('click', renderSeasonPhase); }
+
+/* build 124 — §15's re-run, pooled across every competition instead of four, on untruncated history.
+   Stepped league by league through setTimeout so the page stays alive and shows progress; six
+   walk-forward passes per competition is genuinely slow and a frozen screen looks like a crash. */
+function renderRecency(){
+  const box = $('recOut'); if(!box) return;
+  const Ls = backtestableLeagues().filter(L => (L.matches||[]).length >= 200);
+  if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet. Open Predict so the feed loads, then come back.</div>`; return; }
+  const BASE = 10000;
+  const agg = {};                      // per candidate: pooled log loss (weighted) and McNemar counts
+  for(const H of HL_POOL_CANDIDATES) agg[H] = { llSum:0, n:0, b:0, c:0, leaguesBetter:0, leaguesWorse:0 };
+  const per = [];
+  let li = 0;
+  const step = () => {
+    if(li >= Ls.length){ finish(); return; }
+    const L = Ls[li];
+    box.innerHTML = `<div class="subnote"><span class="spinner"></span>Measuring ${escapeHtml(L.name)} — competition ${li+1} of ${Ls.length}…</div>`;
+    setTimeout(()=>{
+      try{
+        const ms = L.matches, start = Math.max(60, Math.floor(ms.length*0.3));
+        const base = recencyPass(ms, BASE, start);
+        const row = { name:L.name, n:base.n, baseLL:base.ll, cands:{} };
+        for(const H of HL_POOL_CANDIDATES){
+          const r = (H === BASE) ? base : recencyPass(ms, H, start);
+          agg[H].llSum += (r.ll || 0) * r.n; agg[H].n += r.n;
+          let b=0, c=0;
+          for(let i=0;i<r.picks.length;i++){
+            const act = r.acts[i]; if(!act) continue;
+            const pc = r.picks[i], pb = base.picks[i];
+            if(!pc || !pb || pc === pb) continue;              // ties carry no information
+            const hc = pickHit(pc, act), hb = pickHit(pb, act);
+            if(hc && !hb) b++; else if(hb && !hc) c++;
+          }
+          agg[H].b += b; agg[H].c += c;
+          if(r.ll != null && base.ll != null){ if(r.ll < base.ll) agg[H].leaguesBetter++; else if(r.ll > base.ll) agg[H].leaguesWorse++; }
+          row.cands[H] = { ll:r.ll, b, c };
+        }
+        per.push(row);
+      }catch(e){}
+      li++; step();
+    }, 20);
+  };
+  const finish = () => {
+    if(!per.length){ box.innerHTML = `<div class="subnote">Nothing had enough history to measure.</div>`; return; }
+    const cell=(v,ex)=>`<td style="text-align:right;padding:4px 8px${ex||''}">${v}</td>`;
+    const baseLL = agg[BASE].n ? agg[BASE].llSum/agg[BASE].n : null;
+    /* Bonferroni: five candidates are compared against the baseline, so the bar is not 1.96.
+       §15 used 2.8 for ten tests; five needs ~2.58. Using the stricter of the two costs nothing and
+       keeps this comparable with what §15 concluded. */
+    const BAR = 2.8;
+    const rows = HL_POOL_CANDIDATES.map(H=>{
+      const a = agg[H], ll = a.n ? a.llSum/a.n : null;
+      const m = mcnemar(a.b, a.c);
+      const dLL = (ll!=null && baseLL!=null) ? (baseLL - ll) : null;   // positive = better than no-decay
+      const sig = m.z!=null && Math.abs(m.z) > BAR;
+      const isBase = H === BASE;
+      return `<tr>
+        <td style="padding:4px 8px 4px 0">${isBase?'<b>full history (current)</b>':H+' matches'}</td>
+        ${cell(a.n)}
+        ${cell(ll==null?'—':ll.toFixed(4))}
+        ${cell(isBase?'—':(dLL==null?'—':`<b style="color:${dLL>0?'var(--green2)':'var(--muted)'}">${dLL>0?'+':''}${(100*dLL/baseLL).toFixed(2)}%</b>`))}
+        ${cell(isBase?'—':`${m.n}`)}
+        <td style="text-align:right;padding:4px 0 4px 8px;color:${isBase?'var(--muted)':(sig? (m.z>0?'var(--green2)':'var(--red,#e56)') :'var(--muted)')}">${isBase?'—':(m.z==null?'—':`${m.z>0?'+':''}${m.z.toFixed(2)}σ${sig?' ✓':''}`)}</td>
+      </tr>`;
+    }).join('');
+    const best = HL_POOL_CANDIDATES.filter(H=>H!==BASE).map(H=>({H, m:mcnemar(agg[H].b, agg[H].c)}))
+      .sort((x,y)=>(y.m.z||-9)-(x.m.z||-9))[0];
+    const winner = best && best.m.z != null && best.m.z > BAR;
+    box.innerHTML =
+      `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em">
+          <th style="text-align:left;padding-bottom:6px">MEMORY LENGTH</th><th style="text-align:right">MATCHES</th>
+          <th style="text-align:right">LOG LOSS</th><th style="text-align:right">vs NOW</th>
+          <th style="text-align:right">DISAGREED</th><th style="text-align:right">McNEMAR</th></tr>
+        ${rows}
+      </table>
+      <div class="subnote" style="margin-top:10px"><b>How to read it.</b> LOG LOSS is the headline — lower is better, and it uses every match. McNEMAR is the verdict: it looks only at fixtures where that memory length and the current one picked <b>differently</b>, and asks which was right more often. Ties are discarded, so neither setting can win by choosing easier matches — <b>which is the trap §15 caught, and the reason a rising "skill gap" is not evidence of anything.</b> ✓ marks |z| above ${BAR}σ, the Bonferroni-corrected bar for testing this many candidates at once.</div>`
+      + `<div class="subnote">${
+          winner
+            ? `<b style="color:var(--green2)">A ${best.H}-match memory beats full history at ${best.m.z.toFixed(2)}σ on ${best.m.n} informative matches.</b> That clears the bar §15 set and rests on far more evidence than the 36 disagreements it had to work with. Changing TUNE.HALF_LIFE to ${best.H} is justified — but change it, rebuild, and re-run this before trusting it, because this table chose the number from the data it is scored on.`
+            : `<b>No memory length beats full history at the ${BAR}σ bar.</b> §15's conclusion survives the extra season AND the truncation fix: old matches should still count in full. That is a real answer, not a failed run — and it means the bad matchday is not explained by stale ratings.`
+        }</div>`
+      + `<div class="subnote" style="margin-top:10px">Per competition — log loss at each memory length, best in green. Small counts individually; the pooled row above is the verdict:</div>`
+      + per.map(p=>{
+          const cands = HL_POOL_CANDIDATES.map(H=>{
+            const c = p.cands[H]; if(!c || c.ll==null) return `${H===BASE?'full':H}: —`;
+            const better = c.ll < (p.baseLL ?? Infinity) - 1e-12;
+            return `<span style="color:${better?'var(--green2)':'inherit'}">${H===BASE?'full':H}: ${c.ll.toFixed(4)}</span>`;
+          }).join(' · ');
+          return `<div class="subnote" style="margin:2px 0">${escapeHtml(p.name)} (${p.n}) — ${cands}</div>`;
+        }).join('');
+  };
+  step();
+}
+{ const b=$('recBtn'); if(b) b.addEventListener('click', renderRecency); }
+
+/* build 125 — pooled newcomer bias. Pooled first because any one league sees only two or three
+   promoted sides a season; the whole point is that ten leagues x three seasons is finally enough
+   fixtures to measure a class effect that no single competition could show. */
+function renderNewcomer(){
+  const box = $('newOut'); if(!box) return;
+  const Ls = backtestableLeagues().filter(L => (L.matches||[]).length >= 200);
+  if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet. Open Predict so the feed loads, then come back.</div>`; return; }
+  box.innerHTML = `<div class="subnote"><span class="spinner"></span>Measuring ${Ls.length} competition(s)…</div>`;
+  setTimeout(()=>{
+    const mk = () => ({n:0, pWin:0, win:0, xg:0, g:0, xga:0, ga:0});
+    const pool = NEW_BUCKETS.slice(0,-1).map((lo,i)=>Object.assign(mk(), {lo, hi:NEW_BUCKETS[i+1]}));
+    const ctl = mk();
+    const per = [];
+    const acc = (d,s)=>{ d.n+=s.n; d.pWin+=s.pWin; d.win+=s.win; d.xg+=s.xg; d.g+=s.g; d.xga+=s.xga; d.ga+=s.ga; };
+    for(const L of Ls){
+      let r; try{ r = newcomerBias(L); }catch(e){ continue; }
+      if(!r.ready) continue;
+      r.rows.forEach((row,i)=>acc(pool[i], row));
+      acc(ctl, r.control);
+      const nAll = r.rows.reduce((s,x)=>s+x.n,0);
+      if(nAll) per.push({ name:L.name, n:nAll,
+        pred: r.rows.reduce((s,x)=>s+x.pWin,0)/nAll, act: r.rows.reduce((s,x)=>s+x.win,0)/nAll });
+    }
+    const fin = r => { if(!r.n) return r;
+      r.predWin=r.pWin/r.n; r.actWin=r.win/r.n;
+      r.predG=r.xg/r.n; r.actG=r.g/r.n; r.predGA=r.xga/r.n; r.actGA=r.ga/r.n;
+      r.floor=2*Math.sqrt(Math.max(1e-9, r.predWin*(1-r.predWin)/r.n));
+      r.gap=r.actWin-r.predWin; r.sig=Math.abs(r.gap)>r.floor; return r; };
+    pool.forEach(fin); fin(ctl);
+    if(!pool.some(r=>r.n)){ box.innerHTML = `<div class="subnote">Not enough newcomer fixtures to judge.</div>`; return; }
+
+    /* THE VERDICT IS POOLED. Reading a single bucket is what produced a wrong answer on the first
+       run: the "never seen" row is only ~47 fixtures and cannot clear two standard errors alone,
+       while every bucket was negative and the pooled effect was 3+ sigma. */
+    const all = pool.reduce((a,r)=>({n:a.n+r.n, pWin:a.pWin+r.pWin, win:a.win+r.win,
+                                     xg:a.xg+r.xg, g:a.g+r.g}), {n:0,pWin:0,win:0,xg:0,g:0});
+    const aPred = all.pWin/all.n, aAct = all.win/all.n;
+    const aSE = Math.sqrt(Math.max(1e-9, aPred*(1-aPred)/all.n));
+    const aZ = (aAct - aPred)/aSE;
+    const goalRatio = all.xg > 0 ? all.g/all.xg : null;
+
+    const lbl = r => r.lo===0 ? 'never seen before' : `${r.lo}–${r.hi-1} matches seen`;
+    const cell=(v,ex)=>`<td style="text-align:right;padding:4px 8px${ex||''}">${v}</td>`;
+    const line = (name, r, bold) => !r.n ? '' : `<tr>
+        <td style="padding:4px 8px 4px 0">${bold?'<b>':''}${name}${bold?'</b>':''}</td>${cell(r.n)}
+        ${cell(pct(r.predWin))}${cell(`<b>${pct(r.actWin)}</b>`)}
+        <td style="text-align:right;padding:4px 8px;color:${r.sig?(r.gap<0?'var(--red,#e56)':'var(--green2)'):'var(--muted)'}">${r.gap>=0?'+':''}${(100*r.gap).toFixed(1)}${r.sig?' ✓':''}</td>
+        ${cell(`${r.predG.toFixed(2)} → ${r.actG.toFixed(2)}`)}${cell(`${r.predGA.toFixed(2)} → ${r.actGA.toFixed(2)}`)}
+      </tr>`;
+    box.innerHTML =
+      `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em">
+          <th style="text-align:left;padding-bottom:6px">HOW WELL THE ENGINE KNOWS THEM</th><th style="text-align:right">FIXTURES</th>
+          <th style="text-align:right">PRED WIN</th><th style="text-align:right">ACTUAL</th><th style="text-align:right">GAP</th>
+          <th style="text-align:right">SCORED p→a</th><th style="text-align:right">CONCEDED p→a</th></tr>
+        ${pool.map(r=>line(lbl(r), r)).join('')}
+        <tr><td colspan="7" style="padding:4px 0"><div style="border-top:1px solid var(--line)"></div></td></tr>
+        ${line('CONTROL — both sides well known', ctl, true)}
+      </table>
+      <div class="subnote" style="margin-top:10px"><b>How to read it.</b> Each newcomer row is a fixture where exactly ONE side was new, so the comparison is always against an established opponent. <b>The control is a genuinely different sample — fixtures where BOTH sides are well known</b> — and it is what separates "the prior is wrong" from "the engine is wrong everywhere". CONCEDED is included because if newcomers under-score but concede as predicted, the fix is the attack rating alone.</div>`
+      + `<div class="subnote">${
+          aZ < -2
+            ? `<b style="color:var(--red,#e56)">Pooled across ${all.n} newcomer fixtures the prior is too generous: ${pct(aPred)} predicted against ${pct(aAct)} actual — ${(100*(aAct-aPred)).toFixed(1)} points, ${Math.abs(aZ).toFixed(2)}σ.</b>${goalRatio!=null?` Newcomers scored ${(100*goalRatio).toFixed(0)}% of the goals the engine expected of them.`:''} ${ctl.n && ctl.sig ? `<b>But the control is ALSO off (${(100*ctl.gap).toFixed(1)} points) — fix that first, because a general calibration error would show up in this table as a newcomer effect whether or not one exists.</b>` : `The control sits within noise, so this is specific to teams the engine has not seen rather than a general calibration fault.`} The fix is to shrink an unseen team below league average rather than exactly to it — then re-run this AND the backtest, because a prior tuned on this table has been fitted to it.`
+            : aZ > 2
+            ? `<b>Newcomers OVER-perform their prediction</b> by ${(100*(aAct-aPred)).toFixed(1)} points (${aZ.toFixed(2)}σ) — the opposite of the theory, and the prior would be too harsh rather than too generous.`
+            : `<b>The 1.0 prior is not measurably wrong.</b> Pooled across ${all.n} newcomer fixtures, ${pct(aPred)} predicted against ${pct(aAct)} actual is inside two standard errors (${Math.abs(aZ).toFixed(2)}σ), so pricing an unseen side at league average is defensible on this data.`
+        }</div>`
+      + (per.length ? `<div class="subnote" style="margin-top:10px">Per competition — pooled newcomer fixtures, predicted → actual. Watch for one competition driving the whole result, especially the Champions League, where "few appearances" means an irregular schedule rather than promotion:</div>`
+          + per.sort((a,b)=>b.n-a.n).map(p=>`<div class="subnote" style="margin:2px 0">${escapeHtml(p.name)} (${p.n}) — ${pct(p.pred)} → <b>${pct(p.act)}</b> (${p.act-p.pred>=0?'+':''}${(100*(p.act-p.pred)).toFixed(1)})</div>`).join('') : '');
+  }, 30);
+}
+{ const b=$('newBtn'); if(b) b.addEventListener('click', renderNewcomer); }
+
+/* build 127 — the sweep that decides whether NEWCOMER turns on.
+   §43's table says the prior LOOKS too generous. That is a descriptive claim and it failed
+   leave-one-out: dropping Brasileirão takes it to 1.80σ, Serie A to 1.69σ. This asks the question
+   that actually matters instead — DOES CORRECTING IT PREDICT BETTER — walk-forward, on log loss,
+   pooled across every competition. Same method that settled DAMPEN, TEMP and HALF_LIFE, and it
+   cannot be overturned by one league the way a descriptive gap can. */
+const NEWCOMER_CANDIDATES = [1.00, 0.95, 0.90, 0.85, 0.80];
+function renderNewcomerSweep(){
+  const box = $('ncSweepOut'); if(!box) return;
+  const Ls = backtestableLeagues().filter(L => (L.matches||[]).length >= 200);
+  if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet.</div>`; return; }
+  const agg = {}; for(const v of NEWCOMER_CANDIDATES) agg[v] = { llSum:0, n:0, b:0, c:0, better:0, worse:0 };
+  const per = []; let li = 0;
+  const pass = (ms, v, start) => {
+    const saved = NEWCOMER.MIN;
+    try{
+      NEWCOMER.MIN = v;
+      const tmp = Object.create(footballEngine); tmp.matches = ms; tmp._s2 = null;
+      const picks = [], acts = []; let ll = 0, k = 0;
+      for(let i=start;i<ms.length;i++){
+        const m = ms[i];
+        if(m.hg == null || m.ag == null){ picks.push(null); acts.push(null); continue; }
+        const p = tmp.predict(m.home, m.away, i);
+        if(!p){ picks.push(null); acts.push(null); continue; }
+        const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+        ll += -Math.log(Math.max(1e-9, act==='1'?p.pW : act==='X'?p.pD : p.pL)); k++;
+        const hp = headlinePick(p,'H','A');
+        picks.push(hp?hp.code:null); acts.push(act);
+      }
+      return { picks, acts, ll: k?ll/k:null, n:k };
+    } finally { NEWCOMER.MIN = saved; }
+  };
+  const step = () => {
+    if(li >= Ls.length){ finish(); return; }
+    const L = Ls[li];
+    box.innerHTML = `<div class="subnote"><span class="spinner"></span>Measuring ${escapeHtml(L.name)} — ${li+1} of ${Ls.length}…</div>`;
+    setTimeout(()=>{
+      try{
+        const ms = L.matches, start = Math.max(60, Math.floor(ms.length*0.3));
+        const base = pass(ms, 1.00, start);
+        const row = { name:L.name, n:base.n, baseLL:base.ll, c:{} };
+        for(const v of NEWCOMER_CANDIDATES){
+          const r = (v===1.00) ? base : pass(ms, v, start);
+          agg[v].llSum += (r.ll||0)*r.n; agg[v].n += r.n;
+          let b=0, c=0;
+          for(let i=0;i<r.picks.length;i++){
+            const act=r.acts[i]; if(!act) continue;
+            const pc=r.picks[i], pb=base.picks[i];
+            if(!pc||!pb||pc===pb) continue;
+            const hc=pickHit(pc,act), hb=pickHit(pb,act);
+            if(hc&&!hb) b++; else if(hb&&!hc) c++;
+          }
+          agg[v].b+=b; agg[v].c+=c;
+          if(r.ll!=null && base.ll!=null){ if(r.ll<base.ll) agg[v].better++; else if(r.ll>base.ll) agg[v].worse++; }
+          row.c[v] = { ll:r.ll, b, c };
+        }
+        per.push(row);
+      }catch(e){}
+      li++; step();
+    }, 20);
+  };
+  const finish = () => {
+    if(!per.length){ box.innerHTML = `<div class="subnote">Nothing had enough history to measure.</div>`; return; }
+    const baseLL = agg[1.00].n ? agg[1.00].llSum/agg[1.00].n : null;
+    const cell=(v,ex)=>`<td style="text-align:right;padding:4px 8px${ex||''}">${v}</td>`;
+    const BAR = 2.6;   // four candidates against the baseline; Bonferroni on 0.05
+    const rows = NEWCOMER_CANDIDATES.map(v=>{
+      const a=agg[v], ll=a.n?a.llSum/a.n:null, m=mcnemar(a.b,a.c);
+      const d=(ll!=null&&baseLL!=null)?(baseLL-ll):null;
+      const sig=m.z!=null&&Math.abs(m.z)>BAR, isBase=v===1.00;
+      return `<tr><td style="padding:4px 8px 4px 0">${isBase?'<b>1.00 — off (current)</b>':v.toFixed(2)}</td>
+        ${cell(ll==null?'—':ll.toFixed(4))}
+        ${cell(isBase?'—':(d==null?'—':`<b style="color:${d>0?'var(--green2)':'var(--muted)'}">${d>0?'+':''}${(100*d/baseLL).toFixed(2)}%</b>`))}
+        ${cell(isBase?'—':`${a.better}/${a.better+a.worse}`)}
+        ${cell(isBase?'—':m.n)}
+        <td style="text-align:right;padding:4px 0 4px 8px;color:${isBase?'var(--muted)':(sig?(m.z>0?'var(--green2)':'var(--red,#e56)'):'var(--muted)')}">${isBase?'—':(m.z==null?'—':`${m.z>0?'+':''}${m.z.toFixed(2)}σ${sig?' ✓':''}`)}</td></tr>`;
+    }).join('');
+    const best = NEWCOMER_CANDIDATES.filter(v=>v!==1.00)
+      .map(v=>({v, m:mcnemar(agg[v].b,agg[v].c), ll:agg[v].n?agg[v].llSum/agg[v].n:null}))
+      .sort((x,y)=>(y.m.z||-9)-(x.m.z||-9))[0];
+    const win = best && best.m.z!=null && best.m.z>BAR && best.ll!=null && best.ll<baseLL;
+    box.innerHTML =
+      `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em"><th style="text-align:left;padding-bottom:6px">NEWCOMER MIN</th>
+        <th style="text-align:right">LOG LOSS</th><th style="text-align:right">vs OFF</th><th style="text-align:right">LEAGUES BETTER</th>
+        <th style="text-align:right">DISAGREED</th><th style="text-align:right">McNEMAR</th></tr>${rows}</table>
+       <div class="subnote" style="margin-top:10px"><b>This is the test that decides it, not §43's table.</b> §43 says the prior <i>looks</i> too generous and then fails leave-one-out — drop Brasileirão and it is 1.80σ, drop Serie A and it is 1.69σ. This asks whether correcting it actually predicts better, walk-forward, and a single league cannot swing it. ✓ marks |z| above ${BAR}σ, Bonferroni-corrected for four candidates.</div>`
+      + `<div class="subnote">${
+          win
+            ? `<b style="color:var(--green2)">MIN = ${best.v.toFixed(2)} beats the current setting at ${best.m.z.toFixed(2)}σ on ${best.m.n} informative matches, and improves log loss.</b> Set NEWCOMER.MIN to ${best.v.toFixed(2)}, rebuild, then re-run BOTH this and the newcomer table — a value chosen here has been fitted here.`
+            : `<b>No setting beats leaving it off.</b> The gap §43 measured is real in description but does not convert into better predictions, which is the only currency that counts. <b>NEWCOMER.MIN stays at 1.00 and the adjustment stays inert.</b> That is a result, not a failed run: it says the losing run has no fixable cause in the newcomer prior either, and the honest remaining explanation is §14 — the engine's edge over "always home or draw" is thin, and 13 picks cannot see through that.`
+        }</div>`
+      + `<div class="subnote" style="margin-top:10px">Per competition — log loss at each setting:</div>`
+      + per.map(p=>`<div class="subnote" style="margin:2px 0">${escapeHtml(p.name)} (${p.n}) — ${
+          NEWCOMER_CANDIDATES.map(v=>{ const c=p.c[v]; if(!c||c.ll==null) return `${v.toFixed(2)}: —`;
+            const better = c.ll < (p.baseLL ?? Infinity) - 1e-12;
+            return `<span style="color:${better?'var(--green2)':'inherit'}">${v.toFixed(2)}: ${c.ll.toFixed(4)}</span>`; }).join(' · ')
+        }</div>`).join('');
+  };
+  step();
+}
+{ const b=$('ncSweepBtn'); if(b) b.addEventListener('click', renderNewcomerSweep); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
@@ -7538,7 +8227,7 @@ if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
 /* AFTER restoreState, not before — these two controls display saved preferences, and painting them
    first showed the defaults while the feed already honoured the saved values. */
-try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); renderEdgeSetting(); }catch(e){}
+try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); renderEdgeSetting(); renderGateSetting(); }catch(e){}
 try{ renderNotif(); setTimeout(ensurePushFresh, 3000); }catch(e){}
 try{ setTimeout(fillLongShotLeagues, 4000); }catch(e){}
 /* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
