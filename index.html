@@ -622,6 +622,7 @@
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
       <button id="e2Btn"></button><div id="e2Out"></div>
       <button id="edgeBktBtn"></button><div id="edgeBktOut"></div>
+      <button id="seasonBtn"></button><div id="seasonOut"></div>
       <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
@@ -651,7 +652,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 120;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 122;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3674,6 +3675,68 @@ function computeSkill(L){
   return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
            proven: (e-d) > floor, size: ms.length, at: Date.now() };
 }
+/* ── SEASON-PHASE ACCURACY (build 121) ─────────────────────────────────────────
+   Ken, after a 1-hit-from-5 matchday: "season just started, seems it is bad to try predicting
+   winners, why not BTTS or 2.5 Total goals? ... how can i train the app to be wiser?"
+
+   Two testable claims, and both can be checked against history already loaded — three seasons per
+   competition (§20 backfill), which means two real season-openers per league sit in the data. No
+   need to wait for more matches to fail.
+
+   CLAIM 1 — winner picks are worse right after a season restarts. Plausible: the strength ratings
+   are built from up to three seasons (TUNE.HALF_LIFE = 10000, effectively no decay across that
+   span — build 121 does not touch this, it only tests whether it matters), so at kickoff of a new
+   season the model is still leaning on squads that spent a transfer window changing. The measured
+   competition-level EDGE badge cannot see this: it is a season-long average, so a bad opening month
+   is already blended into it, diluted by nine good ones — which is also the answer to "league with
+   an edge isn't relevant as shown". A proven league can still have a rough restart; the badge was
+   never a promise about any single day, let alone the first one.
+
+   CLAIM 2 — goals markets hold up better than the winner call when squads are this uncertain. Also
+   plausible: Over/Under and BTTS depend on how open two teams' styles are against each other, which
+   changes far less between seasons than which eleven players start.
+
+   A season restart is detected from the fixture list itself — a gap of SEASON_GAP_DAYS between
+   consecutive fixture dates in the competition — because a labelled season field is not carried on
+   individual matches. Anything within EARLY_WINDOW_DAYS of a detected restart is "early"; everything
+   else, including the very start of the loaded history where no prior gap exists to measure, is
+   "rest" by default — an unlabelled match must never be counted as an upset waiting to happen. */
+const SEASON_GAP_DAYS = 40;    // shorter is a mid-season international break, not a summer
+const EARLY_WINDOW_DAYS = 21;  // roughly the first three matchdays back
+function seasonPhaseBuckets(L){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 200) return { ready:false, reason:'thin', size: ms?ms.length:0 };
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const dayNum = s => Math.floor(Date.parse(s+'T00:00:00Z')/86400000);
+  const start = Math.max(60, Math.floor(ms.length*0.3));
+  const B = () => ({early:{winN:0,winHit:0,goalsN:0,goalsHit:0}, rest:{winN:0,winHit:0,goalsN:0,goalsHit:0}});
+  const out = B();
+  let prevDay = null, since = Infinity;
+  for(let i=0;i<ms.length;i++){
+    const day = dayNum(ms[i].date);
+    if(prevDay != null){
+      const gap = day - prevDay;
+      since = gap >= SEASON_GAP_DAYS ? 0 : since + gap;
+    }
+    prevDay = day;
+    if(i < start) continue;
+    const m = ms[i];
+    if(m.hg == null || m.ag == null) continue;
+    const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    const phase = since <= EARLY_WINDOW_DAYS ? 'early' : 'rest';
+    const bucket = out[phase];
+    // the winner side — the same call the ladder would lead with
+    const hp = headlinePick(p, 'H', 'A');
+    if(hp){ bucket.winN++; if(pickHit(hp.code, actualCode(m.hg, m.ag))) bucket.winHit++; }
+    // the goals side — best of the same candidates rung 4 draws from, graded on the real score
+    const goals = [{code:'O25',prob:p.over[2.5]},{code:'U25',prob:1-p.over[2.5]},
+                   {code:'U35',prob:1-p.over[3.5]},{code:'BTS',prob:p.btts},{code:'NBT',prob:1-p.btts}]
+                  .sort((a,b)=>b.prob-a.prob)[0];
+    if(goals){ bucket.goalsN++; if(GOAL_MARKETS[goals.code].won(m.hg, m.ag)) bucket.goalsHit++; }
+  }
+  return { ready:true, out, size:ms.length };
+}
+
 /* ── PER-MATCH EDGE (build 117) ────────────────────────────────────────────────
    Ken: "what do you think about matches with edge instead of just league with an edge? ... It must
    not predict all matches, only matches it is confident in."
@@ -7289,6 +7352,83 @@ function renderEdgeBuckets(){
   }, 30);
 }
 { const b=$('edgeBktBtn'); if(b) b.addEventListener('click', renderEdgeBuckets); }
+
+/* build 121 — renders seasonPhaseBuckets across every backtestable competition, pooled first
+   (small per-league early-season counts would be noise on their own) with the per-competition rows
+   underneath so a badge can be read against its own season-start record. */
+function renderSeasonPhase(){
+  const box = $('seasonOut'); if(!box) return;
+  const Ls = backtestableLeagues().filter(L => (L.matches||[]).length >= 200);
+  if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet. Open Predict so the feed loads, then come back.</div>`; return; }
+  box.innerHTML = `<div class="subnote">Measuring ${Ls.length} competition(s)…</div>`;
+  setTimeout(()=>{
+    const per = [];
+    const pool = {early:{winN:0,winHit:0,goalsN:0,goalsHit:0}, rest:{winN:0,winHit:0,goalsN:0,goalsHit:0}};
+    for(const L of Ls){
+      let r; try{ r = seasonPhaseBuckets(L); }catch(e){ continue; }
+      if(!r.ready) continue;
+      const sk = skillOf(L);
+      per.push({name:L.name, r, badge: sk && sk.ready ? (sk.proven?'EDGE':'no edge') : 'untested'});
+      for(const ph of ['early','rest']){
+        pool[ph].winN+=r.out[ph].winN; pool[ph].winHit+=r.out[ph].winHit;
+        pool[ph].goalsN+=r.out[ph].goalsN; pool[ph].goalsHit+=r.out[ph].goalsHit;
+      }
+    }
+    if(!per.length){ box.innerHTML = `<div class="subnote">Nothing had enough history to measure.</div>`; return; }
+    const rate = (hit,n) => n ? hit/n : null;
+    const rEarlyWin  = rate(pool.early.winHit, pool.early.winN),  rRestWin  = rate(pool.rest.winHit, pool.rest.winN);
+    const rEarlyGoal = rate(pool.early.goalsHit, pool.early.goalsN), rRestGoal = rate(pool.rest.goalsHit, pool.rest.goalsN);
+    const cell = (v,extra)=>`<td style="text-align:right;padding:4px 8px${extra||''}">${v}</td>`;
+    const row = (lbl,n,r) => `<tr><td style="padding:4px 8px 4px 0">${lbl}</td>${cell(n)}${cell(r==null?'—':`<b>${pct(r)}</b>`)}</tr>`;
+    const tbl = `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
+        <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em"><th style="text-align:left;padding-bottom:6px">MARKET · PHASE</th><th style="text-align:right">PICKS</th><th style="text-align:right">HIT RATE</th></tr>
+        ${row('Winner call · early season (first ~3 matchdays after a restart)', pool.early.winN, rEarlyWin)}
+        ${row('Winner call · rest of season', pool.rest.winN, rRestWin)}
+        ${row('Goals call (best of O/U, BTTS) · early season', pool.early.goalsN, rEarlyGoal)}
+        ${row('Goals call (best of O/U, BTTS) · rest of season', pool.rest.goalsN, rRestGoal)}
+      </table>`;
+    /* SECOND PASS — the first version compared raw differences against an arbitrary 0.02 cutoff,
+       the way build 117's first correct-score panel once did, and the wording had the sign of
+       "worse/better" backwards on top of that: a POSITIVE dWin (early season scoring HIGHER than
+       the rest) was being printed in red as "LOWER". Both mistakes are the same root cause — a
+       threshold or a sentence written before the arithmetic was checked against itself. Fixed by
+       using the same two-standard-error test the rest of this app uses (computeSkill, edgeBuckets),
+       and by deriving every word of the verdict from the sign of the number rather than writing the
+       two directions by hand. */
+    const se2 = (p1,n1,p2,n2) => Math.sqrt(p1*(1-p1)/n1 + p2*(1-p2)/n2);
+    const dWin  = (rEarlyWin!=null && rRestWin!=null) ? rEarlyWin - rRestWin : null;
+    const dEdge = (rEarlyGoal!=null && rEarlyWin!=null) ? rEarlyGoal - rEarlyWin : null;
+    const seWin  = (rEarlyWin!=null && rRestWin!=null) ? se2(rEarlyWin,pool.early.winN, rRestWin,pool.rest.winN) : null;
+    const seEdge = (rEarlyGoal!=null && rEarlyWin!=null) ? se2(rEarlyGoal,pool.early.goalsN, rEarlyWin,pool.early.winN) : null;
+    const sigWin  = seWin!=null  && Math.abs(dWin)  > 2*seWin;
+    const sigEdge = seEdge!=null && Math.abs(dEdge) > 2*seEdge;
+    const say = (d, se, sig, upWord, downWord) => {
+      if(d==null) return 'not enough data';
+      const dir = d>=0 ? upWord : downWord;
+      const col = !sig ? 'var(--muted)' : (d>=0 ? 'var(--green2)' : 'var(--red,#e56)');
+      return `<b style="color:${col}">${(100*Math.abs(d)).toFixed(1)} points ${dir}</b>${sig ? '' : ` — within noise (±${(200*se).toFixed(1)} at 2 SE)`}`;
+    };
+    const verdict = (dWin==null || dEdge==null) ? `<div class="subnote">Not enough graded early-season matches yet to call this either way — the early bucket needs volume across several competitions before the split means anything.</div>` :
+      `<div class="subnote" style="margin-top:8px">
+         <b>Claim 1 — worse right after a restart:</b> winner accuracy early season is ${say(dWin, seWin, sigWin, 'HIGHER than the rest of the season — the opposite of the theory', 'LOWER than the rest of the season')}, comparing ${pool.early.winN} early picks with ${pool.rest.winN} from the rest of the season.<br>
+         <b>Claim 2 — goals holds up better than winner early season:</b> in the early window, goals accuracy is ${say(dEdge, seEdge, sigEdge, 'ABOVE the winner call', 'BELOW the winner call')}.
+       </div>
+       <div class="subnote">${
+         !sigWin && !sigEdge
+           ? `<b>Neither claim clears two standard errors on this data.</b> Both differences sit inside the noise a sample this size would produce even if there were no real effect at all. The bad matchday that prompted this is best explained the same way it already was — an ordinary bad day (a 5-pick day this poor happens roughly 1 time in 32 at a true 70% hit rate), not a seasonal pattern. No season-aware rung is justified by this measurement. Re-run later in the season if the feeling recurs; a single run like this one should not be trusted either way.`
+           : sigWin && dWin<0 && sigEdge && dEdge>0
+           ? `<b>Both claims clear the bar.</b> The honest next step is a season-aware rung: prefer the goals call over the winner call specifically inside the early window, the same way rung 4 already prefers goals over a weak 1X2 read — just gated on season timing instead of probability. Not built yet; this panel exists to justify building it or not.`
+           : `<b>The two claims disagree or only one clears the bar</b> — read the two lines above rather than a single verdict. Check the per-competition breakdown below before concluding anything: a pooled result can hide leagues pulling in opposite directions.`
+       }</div>`;
+    box.innerHTML = tbl + verdict
+      + `<div class="subnote" style="margin-top:12px">Per competition, as a sanity check — small counts, do not read a verdict into a single row. Badge is this competition's season-long EDGE verdict, for comparison against its own early-season record:</div>`
+      + per.map(p=>{ const e=p.r.out.early, r=p.r.out.rest;
+          const ew=rate(e.winHit,e.winN), eg=rate(e.goalsHit,e.goalsN);
+          return `<div class="subnote" style="margin:2px 0">${escapeHtml(p.name)} (${p.badge}) · early: winner ${ew==null?'—':pct(ew)} on ${e.winN}, goals ${eg==null?'—':pct(eg)} on ${e.goalsN}</div>`;
+        }).join('');
+  }, 30);
+}
+{ const b=$('seasonBtn'); if(b) b.addEventListener('click', renderSeasonPhase); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
