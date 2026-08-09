@@ -558,13 +558,17 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg></span><div><div class="sl" data-i18n="Kick-off times">Kick-off times</div><div class="sd" id="tzHint">Following this device</div></div></div>
         <select id="tzSel" class="setsel"></select>
       </div>
-      <div class="setrow" style="align-items:flex-start">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 13h10"/></svg></span><div><div class="sl">Confidence bar</div><div class="sd" id="gateInfo">Measuring…</div></div></div>
-      </div>
-      <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg></span><div><div class="sl" data-i18n="Only leagues with an edge">Only leagues with an edge</div><div class="sd" id="edgeCount">Hide competitions the engine has been measured on and does not beat</div></div></div>
-        <div class="segsm"><button class="sfchip" id="edgeToggle">Off</button></div>
-      </div>
+      <!-- BUILD 130 — "Confidence bar" and "Competition edge (retired)" removed on Ken's
+           instruction. Both were readouts, not controls: one printed every competition's auto-gate
+           threshold, the other reported the edge badge count beside a toggle that had already been
+           retired in build 129 and did nothing when tapped.
+           WHY REMOVING THE GATE READOUT DOES NOT RE-CREATE §33's SILENT FILTER: the bar is still
+           quoted at the point of use. GATE_WHY.low names the exact threshold, where it came from
+           and what it delivered, on every fixture whose pick is withheld. That is the moment the
+           number is worth reading; a settings summary of ten leagues at once was not.
+           The retired toggle went because build 129 kept it only so it would not be a dead button —
+           but a control whose whole behaviour is a toast saying "this does nothing" is a dead
+           button with extra steps. -->
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><div><div class="sl">Notifications</div><div class="sd" id="notifState">Off</div></div></div>
         <button class="btn" id="notifMainBtn">Turn on</button>
@@ -620,6 +624,7 @@
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
+      <button id="restBtn"></button><div id="restOut"></div>
       <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
@@ -658,7 +663,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 128;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 131;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2447,7 +2452,7 @@ function motivationEdge(L, m, upTo){
    NOTE ON THE EVIDENCE. A calibrated model always looks more accurate under its own filter — that is
    arithmetic, not skill. What this gate buys is SELECTION: fewer picks, each likelier to land. It
    does not make the engine better and nothing in the app should claim it does. */
-const PICK_GATE = { MIN_PROB: 0.70, NEED_EDGE: true };
+const PICK_GATE = { MIN_PROB: 0.70, NEED_EDGE: true, MIN_EDGE: 0 };   // MIN_EDGE 0 = the old "any positive edge"
 
 /* ── THE AUTO-GATE (build 128) ─────────────────────────────────────────────────
    Ken: "make it my settings, should be automatic" / "apply the best solution. it should be
@@ -2471,11 +2476,49 @@ const PICK_GATE = { MIN_PROB: 0.70, NEED_EDGE: true };
        today's behaviour rather than getting an invented number. */
 const GATE_TARGET     = 0.75;                              // the accuracy the app aims to publish at
 const GATE_CANDIDATES = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85];
+const GATE_EDGE_FLOORS = [0, 0.02, 0.05, 0.08];             // build 129 — measured, not assumed at 0
 const GATE_MIN_N      = 120;                               // picks that must clear a bar to trust it
 
+/* BUILD 129 — ONE baseline lookup. The gate, the auto-gate measurement, the stored fixture edge and
+   the Top Matches ranking all need "what is this selection worth in an average match in this
+   league", and by build 128 three of them had their own copy of the same chain. Every time this
+   project has kept two copies of one idea they have drifted (§34, §38, §43, and the rung list in
+   §46). One function. */
+function pickBaseline(L, code){
+  const NP = fxNeutral(L); if(!NP) return null;
+  const gm = GOAL_MARKETS[code], nd = NP.pW + NP.pL;
+  return gm ? gm.base(NP)
+       : code==='1'  ? NP.pW : code==='X' ? NP.pD : code==='2' ? NP.pL
+       : code==='1D' ? (nd>0 ? NP.pW/nd : 0)
+       : code==='2D' ? (nd>0 ? NP.pL/nd : 0)
+       : code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
+}
+function pickEdge(L, code, prob){
+  const b = pickBaseline(L, code);
+  return (b == null || prob == null) ? null : prob - b;
+}
+
+/* BUILD 129 — THE BAR MAY ONLY GO UP.
+   Ken: "that last match on the list wasn't there before. it appeared after the last update, why?"
+
+   Because build 128's auto-gate targeted ACCURACY, and accuracy is available without any skill at
+   all: a Double Chance in a draw-heavy league lands 75% of the time on the league's base rate alone.
+   So in a competition where the engine is WEAK — Eredivisie is badged HOME ADVANTAGE — the search
+   found it could still hit the target at 0.60 or 0.65, and dutifully LOWERED the bar. More fixtures
+   published, in exactly the league that had least earned the right to publish them. That is §36's
+   own finding used backwards: accuracy is not edge, and I built the gate to chase the wrong one.
+
+   The measured bar is now a floor-RAISER only. A competition may demand more of itself than the
+   global default; it may never demand less. */
 function gateBarFor(L){
   const g = (L && afState.gate) ? afState.gate[L.id] : null;
-  return (g && g.bar) ? g.bar : PICK_GATE.MIN_PROB;
+  return (g && g.bar) ? Math.max(PICK_GATE.MIN_PROB, g.bar) : PICK_GATE.MIN_PROB;
+}
+/* And the edge floor, measured alongside the bar rather than assumed at zero (build 129). Same
+   one-way rule: a league can require more edge than the default, never less. */
+function gateEdgeFor(L){
+  const g = (L && afState.gate) ? afState.gate[L.id] : null;
+  return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
 }
 
 /* One walk-forward pass, every threshold scored from it. The rungs for a match do not depend on the
@@ -2486,42 +2529,41 @@ function autoGate(L){
   if(!ms || ms.length < 200) return { ready:false, reason:'thin', size: ms?ms.length:0 };
   const tmp = Object.create(footballEngine); tmp.matches = ms; tmp._s2 = null;
   const start = Math.max(60, Math.floor(ms.length*0.3));
-  const rows = GATE_CANDIDATES.map(T=>({T, n:0, hit:0, voids:0}));
-  const NP = fxNeutral(L);
+  /* BUILD 129 — the bar and the edge floor are searched TOGETHER. Build 128 measured the bar and
+     left the edge condition pinned at "> 0", which is not a measured value, it is the absence of
+     one. Ken: "league with an edge doesn't mean all the fixtures have an edge." Both dimensions come
+     off the same walk-forward pass, so the joint search is free. */
+  const cells = [];
+  for(const T of GATE_CANDIDATES) for(const E of GATE_EDGE_FLOORS) cells.push({T, E, n:0, hit:0, voids:0});
   for(let i=start;i<ms.length;i++){
     const m = ms[i];
     if(m.hg == null || m.ag == null) continue;
     const p = tmp.predict(m.home, m.away, i); if(!p) continue;
     const rungs = rungsFor(p);
     const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
-    for(const row of rows){
-      const r = rungs.find(x=>x.prob >= row.T);
+    for(const c of cells){
+      const r = rungs.find(x=>x.prob >= c.T);
       if(!r) continue;                                  // nothing clears this bar — nothing published
-      /* The edge condition is part of the live gate, so it has to be part of the measurement too,
-         or the bar would be fitted to a policy the app does not actually run. */
-      if(PICK_GATE.NEED_EDGE && NP){
-        const gm = GOAL_MARKETS[r.code], nd = NP.pW + NP.pL;
-        const base = gm ? gm.base(NP)
-                   : r.code==='1'  ? NP.pW : r.code==='X' ? NP.pD : r.code==='2' ? NP.pL
-                   : r.code==='1D' ? (nd>0 ? NP.pW/nd : 0)
-                   : r.code==='2D' ? (nd>0 ? NP.pL/nd : 0)
-                   : r.code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
-        if(r.prob - base <= 0) continue;
-      }
+      /* The edge condition is part of the live gate, so it is part of the measurement too, or the
+         bar would be fitted to a policy the app does not actually run. */
+      const e = pickEdge(L, r.code, r.prob);
+      if(e != null && e <= c.E) continue;
       const g = gradePick(r.code, act, m.hg, m.ag);
-      if(g === 'void'){ row.voids++; continue; }         // a drawn DNB returns the stake — not a loss
-      row.n++; if(g === 'hit') row.hit++;
+      if(g === 'void'){ c.voids++; continue; }           // a drawn DNB returns the stake — not a loss
+      c.n++; if(g === 'hit') c.hit++;
     }
   }
-  for(const r of rows) r.rate = r.n ? r.hit/r.n : null;
-  const eligible = rows.filter(r=>r.n >= GATE_MIN_N);
-  if(!eligible.length) return { ready:false, reason:'few', rows, size:ms.length };
-  // the LOWEST bar that actually delivers the target — lowest, so volume is never given away free
-  let pick = eligible.find(r=>r.rate >= GATE_TARGET);
-  // if none reaches the target, take the most accurate bar that still has the evidence behind it
-  if(!pick) pick = eligible.slice().sort((a,b)=>b.rate-a.rate)[0];
-  return { ready:true, bar:pick.T, rate:pick.rate, n:pick.n,
-           met: pick.rate >= GATE_TARGET, rows, size:ms.length, at:Date.now() };
+  for(const c of cells) c.rate = c.n ? c.hit/c.n : null;
+  const eligible = cells.filter(c=>c.n >= GATE_MIN_N);
+  if(!eligible.length) return { ready:false, reason:'few', cells, size:ms.length };
+  /* Of the settings that actually deliver the target, take the one that keeps the MOST fixtures.
+     Volume is never given away for free — but accuracy is the constraint, not the thing maximised,
+     because maximising accuracy alone just walks to the strictest setting and publishes nothing. */
+  const meeting = eligible.filter(c=>c.rate >= GATE_TARGET);
+  let pick = meeting.length ? meeting.slice().sort((a,b)=>b.n-a.n)[0]
+                            : eligible.slice().sort((a,b)=>b.rate-a.rate)[0];
+  return { ready:true, bar:pick.T, edgeFloor:pick.E, rate:pick.rate, n:pick.n,
+           met: pick.rate >= GATE_TARGET, cells, size:ms.length, at:Date.now() };
 }
 /* Returns null when the pick is fit to publish, or a short reason when it is not. The reason is
    shown to the user — a fixture that says nothing must say WHY it says nothing (build 110). */
@@ -2529,22 +2571,14 @@ function gateReason(L, f, code, prob){
   if(prob == null || !code) return 'unpriced';
   if(prob < gateBarFor(L)) return 'low';   // build 128 — this competition's measured bar
   if(PICK_GATE.NEED_EDGE){
-    const NP = fxNeutral(L);
-    if(NP){
-      const nd = NP.pW + NP.pL;   // build 119 — the ladder can publish Draw No Bet, so the neutral
-                                  // baseline has to be priced on the same rung, not on the outright
-      /* build 120 — a goals pick is measured against the goals base rate of an average match in this
-         competition, which is the whole reason Over 1.5 can never sneak through: it sits near 75%
-         everywhere, so its edge over the neutral fixture is ~0 and it fails here every time. This is
-         the test doing the work, not a hard-coded exclusion. */
-      const gm = GOAL_MARKETS[code];
-      const base = gm ? gm.base(NP)
-                 : code==='1'  ? NP.pW : code==='X' ? NP.pD : code==='2' ? NP.pL
-                 : code==='1D' ? (nd>0 ? NP.pW/nd : 0)
-                 : code==='2D' ? (nd>0 ? NP.pL/nd : 0)
-                 : code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
-      if(prob - base <= 0) return 'nobase';
-    }
+    /* build 120 — a goals pick is measured against the goals base rate of an average match in this
+       competition, which is why Over 1.5 can never sneak through: it sits near 75% everywhere, so its
+       edge over the neutral fixture is ~0 and it fails here every time. The test does the work, not a
+       hard-coded exclusion.
+       build 129 — the floor is this competition's MEASURED minimum, not a bare "greater than zero".
+       Ken: "league with an edge doesn't mean all the fixtures have an edge." */
+    const e = pickEdge(L, code, prob);
+    if(e != null && e <= gateEdgeFor(L)) return 'nobase';
   }
   return null;
 }
@@ -4293,6 +4327,263 @@ function renderDispersionTest(){
   }, 40);
 }
 
+/* ══ THE REST-DAY TEST (build 130) ═══════════════════════════════════════════════════
+   PRE-REGISTERED IN HANDOFF §48 ON 2026-08-09, BEFORE THIS CODE EXISTED. Read that section
+   before reading this one; the predictions, the two gates and the losing verdict were all
+   written down first, and this file must not be the place any of them get quietly revised.
+
+   THE QUESTION. This engine is results-based. It knows the ORDER matches were played in and
+   nothing about WHEN. Two teams with identical recent results are priced identically whether one
+   last played three days ago or ten. If congestion affects results at all, that effect is
+   invisible here BY CONSTRUCTION — a blind spot, not a refinement. And unlike injuries or travel,
+   rest days are computable from the `date` column already in the fixtures table. No new source.
+
+   That is the entire case for testing it. It is not a claim that the blind spot contains anything.
+
+   WHY THE RESIDUAL, NOT THE RESULT. Correlating rest with results measures team QUALITY, because
+   the clubs with congested calendars are the clubs in Europe. Correlating rest with the engine's
+   ERROR asks the only question worth asking: is there information here the engine does not have?
+
+   PROVENANCE: this is the one item salvaged from a Gemini-authored spec Ken brought on 2026-08-09.
+   The rest of that document was rejected — see §48. Notably it proposed shipping the 1-2-3-4-5
+   ladder as a feature, which build 100 measured dead across 80,352 bets. */
+
+const REST_CAP   = 14;         // beyond this it is an international break or a season start
+const REST_GATE2 = 0.10 / 3;   // §48 gate 2: a 3-day advantage must be worth >= 0.10 home points
+
+/* Rest is pooled across EVERY loaded competition, so a midweek Champions League tie counts against
+   a club's league rest. Keyed on team name, which is safe ONLY because every competition here comes
+   from the same provider and uses the same shortName — that assumption would break the day a second
+   provider is mixed in, and the count of teams matched is reported on screen so it cannot break
+   silently. */
+function buildRestIndex(){
+  const byTeam = {};
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L || (L.sport||'football') !== 'football' || !L.matches) continue;
+    for(const m of L.matches){
+      if(!m.date) continue;
+      (byTeam[m.home] = byTeam[m.home] || []).push(m.date);
+      (byTeam[m.away] = byTeam[m.away] || []).push(m.date);
+    }
+  }
+  for(const t of Object.keys(byTeam)) byTeam[t] = Array.from(new Set(byTeam[t])).sort();
+  return byTeam;
+}
+
+const restDayNum = d => Math.floor(Date.parse(d + 'T00:00:00Z') / 86400000);
+
+/* Days since this team's previous match anywhere in the loaded data. Binary search on sorted dates. */
+function restFor(idx, team, date){
+  const a = idx[team]; if(!a || !a.length) return null;
+  let lo = 0, hi = a.length - 1, prev = null;
+  while(lo <= hi){ const mid = (lo + hi) >> 1;
+    if(a[mid] < date){ prev = a[mid]; lo = mid + 1; } else hi = mid - 1; }
+  if(prev == null) return null;
+  const r = restDayNum(date) - restDayNum(prev);
+  return r > 0 ? Math.min(REST_CAP, r) : null;
+}
+
+/* Plain OLS slope with its standard error. */
+function olsSlope(xs, ys){
+  const n = xs.length; if(n < 30) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy=0, sxx=0;
+  for(let i=0;i<n;i++){ sxy += (xs[i]-mx)*(ys[i]-my); sxx += (xs[i]-mx)*(xs[i]-mx); }
+  if(sxx <= 1e-9) return null;              // the predictor does not vary — undefined, not zero
+  const b = sxy/sxx, a0 = my - b*mx;
+  let sse = 0;
+  for(let i=0;i<n;i++){ const e = ys[i] - (a0 + b*xs[i]); sse += e*e; }
+  const se = Math.sqrt((sse/(n-2))/sxx);
+  return { b, se, t: b/se, n };
+}
+
+/* OLS with one control variable, returning the coefficient on x1 having partialled x2 out.
+   WHY THIS AND NOT A MATCHED SUBSET. §48 first proposed controlling the confound by restricting
+   to evenly-matched fixtures. In validation that discarded 77% of the rows and made a KNOWN,
+   injected effect fail its own test on lost power alone (t 5.79 -> 1.98). A control that cannot
+   tell "confound" apart from "smaller sample" is not a control. Partialling keeps every row. */
+function olsControlled(x1, x2, ys){
+  const n = ys.length; if(n < 40) return null;
+  const mean = a => a.reduce((p,q)=>p+q,0)/n;
+  const m1 = mean(x1), m2 = mean(x2), my = mean(ys);
+  let S11=0,S22=0,S12=0,S1y=0,S2y=0;
+  for(let i=0;i<n;i++){
+    const a = x1[i]-m1, b = x2[i]-m2, c = ys[i]-my;
+    S11+=a*a; S22+=b*b; S12+=a*b; S1y+=a*c; S2y+=b*c;
+  }
+  const det = S11*S22 - S12*S12;
+  if(Math.abs(det) < 1e-9) return null;
+  const b1 = (S22*S1y - S12*S2y)/det, b2 = (S11*S2y - S12*S1y)/det;
+  const a0 = my - b1*m1 - b2*m2;
+  let sse = 0;
+  for(let i=0;i<n;i++){ const e = ys[i] - (a0 + b1*x1[i] + b2*x2[i]); sse += e*e; }
+  const se1 = Math.sqrt((sse/(n-3)) * S22/det);
+  return { b: b1, se: se1, t: b1/se1, n };
+}
+
+/* Permutation null. Rest is shuffled WITHIN each competition, so the shuffled data keeps every
+   league's own schedule shape and scoring level and loses only the pairing between rest and
+   result. A null built by shuffling across leagues would be easier to beat and would mean less. */
+function restPermutationP(groups, observed, trials){
+  let ge = 0;
+  for(let t=0;t<trials;t++){
+    const xs = [], ys = [];
+    for(const g of groups){
+      const sh = g.map(r=>r.x);
+      for(let i=sh.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const q=sh[i]; sh[i]=sh[j]; sh[j]=q; }
+      for(let i=0;i<g.length;i++){ xs.push(sh[i]); ys.push(g[i].y); }
+    }
+    const s = olsSlope(xs, ys);
+    if(s && Math.abs(s.b) >= Math.abs(observed)) ge++;
+  }
+  return (ge + 1) / (trials + 1);
+}
+
+/* One competition's rows. Walk-forward: each match priced on matches BEFORE it, exactly as
+   computeSkill() does, so nothing sees its own result. */
+function restRowsFor(L, idx){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 150) return [];
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const start = Math.max(60, Math.floor(ms.length * 0.3));
+  const rows = [];
+  for(let i=start;i<ms.length;i++){
+    const m = ms[i];
+    if(m.hg == null || m.ag == null || !m.date) continue;
+    const rh = restFor(idx, m.home, m.date), ra = restFor(idx, m.away, m.date);
+    if(rh == null || ra == null) continue;
+    const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    const exp = 3*p.pW + 1*p.pD;                       // engine's expected home points
+    const act = m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0;
+    rows.push({ x: rh - ra, y: act - exp, c: exp });
+  }
+  return rows;
+}
+
+function renderRestDayTest(){
+  const box = $('restOut'); if(!box) return;
+  const idx = buildRestIndex();
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
+  });
+  if(!ids.length){
+    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Predict tab, wait a few seconds, then run this again.</div>';
+    return;
+  }
+  const groups = [], per = [];
+  let k = 0;
+  const step = () => {
+    if(k >= ids.length){ finish(); return; }
+    const L = afState.leagues[ids[k]];
+    box.innerHTML = '<div class="subnote"><span class="spinner"></span>Pricing ' +
+      escapeHtml(L.name) + ' — ' + (k+1) + ' of ' + ids.length + '…</div>';
+    const rows = restRowsFor(L, idx);
+    if(rows.length >= 100){ groups.push(rows); per.push({ L, rows, s: olsSlope(rows.map(r=>r.x), rows.map(r=>r.y)) }); }
+    k++;
+    setTimeout(step, 0);
+  };
+  setTimeout(step, 30);
+
+  function finish(){
+    const all = groups.flat();
+    if(all.length < 500){
+      box.innerHTML = '<div class="subnote">Only ' + all.length + ' fixtures could be measured. Rest days need a previous match for BOTH sides, so the first weeks of every season drop out. Not enough to say anything.</div>';
+      return;
+    }
+    const xs = all.map(r=>r.x), ys = all.map(r=>r.y), cs = all.map(r=>r.c);
+    const naive = olsSlope(xs, ys);
+    const ctrl  = olsControlled(xs, cs, ys);
+    if(!naive){ box.innerHTML = '<div class="subnote">Rest differential does not vary in this data — the statistic is undefined, which is not the same as zero.</div>'; return; }
+    const permP = restPermutationP(groups, naive.b, 300);
+
+    const g1 = Math.abs(naive.t) > 2;
+    const g2 = Math.abs(naive.b) >= REST_GATE2;
+    const survivesPerm = permP < 0.05;
+    const positive = naive.b > 0;
+
+    /* BUILD 131 — THIS ROW USED TO LIE, AND THE FIRST REAL RUN IS WHAT EXPOSED IT.
+       `survivesCtrl` was `|t|>2 AND |b|>=REST_GATE2`, i.e. the strength control AND the practical
+       size gate rolled into one line labelled "Survives the strength control". On the 2026-08-09
+       run it printed **fail** for a controlled result of β −0.0175, t −2.64 — which is STRONGER
+       than the uncontrolled −0.0166 / −2.57, the exact opposite of a confounded result. The row
+       failed only because the size gate is reported twice, and a reader would conclude the
+       confound had been caught when the control had in fact cleared it.
+
+       Two separate questions, so two separate answers now:
+         ctrlHolds  — does the effect survive controlling for team strength? (sign + significance)
+         gate 2     — is it big enough to act on? (asked ONCE, on its own row)
+
+       NO THRESHOLD MOVED. REST_GATE2 and the |t|>2 bar are byte-identical to build 130, and this
+       edit was made AFTER the result was recorded verbatim in §48b so the change is auditable
+       against the numbers it did not alter. Fixing a mislabelled display is not revising a test —
+       but doing it after seeing the data is exactly when to be able to prove that. */
+    const ctrlHolds = !!(ctrl && Math.abs(ctrl.t) > 2 && (ctrl.b > 0) === positive);
+    const survivesCtrl = ctrlHolds && Math.abs(ctrl.b) >= REST_GATE2;
+
+    const gateRow = (label, pass, detail) =>
+      `<div class="frow"><span style="flex:1">${label}</span>
+       <span style="text-align:right"><b style="color:${pass?'var(--green2)':'var(--muted)'}">${pass?'PASS':'fail'}</b>
+       <span class="muted" style="font-size:.72rem"> · ${detail}</span></span></div>`;
+
+    const perRows = per.filter(p=>p.s).sort((a,b)=>b.s.b-a.s.b).map(p=>
+      `<div class="frow"><span style="flex:1">${escapeHtml(p.L.name)}</span>
+        <span style="width:22%;text-align:right">${p.rows.length}</span>
+        <span style="width:24%;text-align:right"><b>${(p.s.b>=0?'+':'')}${p.s.b.toFixed(4)}</b></span>
+        <span style="width:18%;text-align:right;font-size:.72rem" class="muted">t ${p.s.t.toFixed(1)}</span></div>`).join('');
+
+    let verdict, colour;
+    if(positive && g1 && g2 && survivesPerm && survivesCtrl){
+      colour = 'var(--green2)'; verdict =
+        '<b>Real and usable.</b> Rest carries information the engine does not have, at a size that could move a pick. §48 says the next step is a rest term built and gated the way Engine 2 was (§24) — measured before it ships, never switched on because the test passed.';
+    } else if(positive && g1 && !g2){
+      colour = 'var(--text)'; verdict =
+        '<b>Real, and too small to use.</b> The effect clears significance and fails the size bar written into §48 before this ran. A three-day rest advantage is worth ' + (naive.b*3).toFixed(3) + ' expected home points; the bar was 0.100. <b>This is a reason to do nothing</b> — with this many fixtures, significance is cheap and the size bar is the part that decides anything.';
+    } else if(!survivesPerm || Math.abs(naive.t) <= 2){
+      colour = 'var(--muted)'; verdict =
+        '<b>Nothing here.</b> ' + (!survivesPerm ? 'The observed slope sits inside the distribution produced by shuffling rest at random within each competition. ' : '') +
+        'The blind spot is real — the engine genuinely cannot see rest — but it appears to be empty. §48: <i>"Do not re-open this without a data source carrying what rest days were standing in for — minutes played, or real travel."</i>';
+    } else if(positive && !survivesCtrl){
+      colour = 'var(--muted)'; verdict =
+        '<b>Not established — the confound explains it.</b> The raw slope clears its bars but does not survive controlling for how strong the engine thought each side was. §48 named this in advance: teams in Europe have less rest AND are better, so a rating bias impersonates fatigue. Treat this as no result, not a weak one.';
+    } else {
+      /* BUILD 131 — this branch used to assert the strength confound as the cause. It must READ
+         the control rather than guess, because the two cases mean opposite things and the app has
+         the number to tell them apart. §87: an explanation that guesses at a cause is worse than
+         one that admits ignorance. */
+      colour = 'var(--red)';
+      verdict = '<b>Negative slope.</b> Rested teams did WORSE than the engine expected, which is not a fatigue story. '
+        + (ctrlHolds
+            ? 'It is <b style="color:var(--text)">not</b> the strength confound §48 predicted: controlling for how strong the engine thought each side was leaves the effect intact (β ' + ctrl.b.toFixed(4) + ', t ' + ctrl.t.toFixed(2) + '), where a confounded result would shrink toward zero. <b style="color:var(--text)">The cause is genuinely unknown.</b> One candidate, fitted after the fact and carrying none of the weight of a pre-registered test: a 10–14 day gap in league football usually means an international break, so a high rest count may be measuring worldwide travel rather than rest.'
+            : 'The strength control does not hold it up, which is consistent with §48’s confound running the other way.')
+        + ' <b style="color:var(--text)">Either way the practical gate settles it</b> — at ' + Math.abs(naive.b*3).toFixed(3) + ' points over three days this is half the 0.100 required to move a pick. §48: distrust the measurement, do not invert it, and build nothing.';
+    }
+
+    box.innerHTML =
+      `<div class="sec-label">Per competition</div>
+       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Competition</span><span style="width:22%;text-align:right">Fixtures</span>
+         <span style="width:24%;text-align:right">Slope</span><span style="width:18%;text-align:right"></span></div>` +
+      perRows +
+      `<div class="sec-label" style="margin-top:12px">Pooled — the actual test</div>
+       <div class="frow"><span style="flex:1">Fixtures measured</span><span><b>${all.length.toLocaleString()}</b></span></div>
+       <div class="frow"><span style="flex:1">Slope (points per rest-day)</span><span><b style="color:${naive.b>0?'var(--green2)':'var(--red)'}">${(naive.b>=0?'+':'')}${naive.b.toFixed(4)}</b> <span class="muted" style="font-size:.72rem">± ${naive.se.toFixed(4)}</span></span></div>
+       <div class="frow"><span style="flex:1">A 3-day rest advantage is worth</span><span><b>${(naive.b*3).toFixed(3)}</b> <span class="muted" style="font-size:.72rem">home points</span></span></div>
+       <div class="sec-label" style="margin-top:12px">The gates, as written in §48 before this ran</div>` +
+      gateRow('1 · Statistical — |t| &gt; 2', g1, 't = ' + naive.t.toFixed(2)) +
+      gateRow('2 · Practical — worth ≥ 0.10 pts', g2, (naive.b*3).toFixed(3) + ' vs 0.100') +
+      gateRow('Permutation — beats shuffled rest', survivesPerm, 'p = ' + permP.toFixed(3)) +
+      /* build 131 — the control and the size gate are asked separately now. Rolling them together
+         printed "fail" for a controlled result that was stronger than the raw one. */
+      gateRow('Survives the strength control', ctrlHolds, ctrl ? 'β ' + ctrl.b.toFixed(4) + ', t ' + ctrl.t.toFixed(2) : 'not computable') +
+      `<div class="subnote" style="margin-top:2px">That row asks only whether the effect survives the confound — <b style="color:var(--text)">not</b> whether it is big enough to use. Gate 2 above is the only place size is judged, and it is judged once.</div>` +
+      `<div class="subnote" style="border-left:3px solid ${colour};padding-left:9px;margin-top:12px">${verdict}</div>` +
+      `<div class="subnote"><b style="color:var(--text)">How to read the slope.</b> It is the change in the engine's ERROR, in home points, per extra day of rest the home side has over the away side. Positive means rested teams beat the engine's expectation. The engine cannot see rest at all, so any real number here is information it is missing.</div>` +
+      `<div class="subnote">Rest is counted across every loaded competition, so midweek European ties count. Walk-forward throughout: each match is priced on matches dated before it. ${Object.keys(idx).length} teams indexed.</div>`;
+  }
+}
+
 /* ══ LONG-SHOT CALIBRATION + STAKE-PLAN BACKTEST (build 100) ═══════════════════════
    Ken's question: "I want a betting system that will lead to winnings" — a 1,2,3,4,5 progression
    at 5.00 odds minimum, five attempts, any win resets.
@@ -4950,7 +5241,6 @@ function refreshSkills(){
   const step = ()=>{
     const id = todo.shift();
     if(id == null){ _skillTimer = null; saveState();
-      try{ renderEdgeSetting(); renderGateSetting(); }catch(e){}   // build 120/128 — only true once these finish
       if(lastTab==='predict') renderFixtures(); else if(lastTab==='analysis') renderStrongPicks();
       return; }
     const L = afState.leagues[id];
@@ -5649,11 +5939,18 @@ function visibleLeagues(){
      cache and reinstalled chasing a data bug that was never there. A filter that hides competitions
      silently is indistinguishable from a broken feed, so `_edgeHidden` is published for the feed to
      report. */
+  /* BUILD 129 — THE LEAGUE-LEVEL FILTER IS RETIRED. Ken: "i don't want the league with an edge...
+     league with an edge doesn't mean all the fixtures have an edge, this is how we end up throwing
+     predictions for matches with no edge as a top prediction just because the league has an edge."
+
+     He is right, and per-match edge strictly supersedes it. A league verdict is an average over
+     hundreds of fixtures, and applying an average to any single member of the group is the
+     ecological fallacy — it cut both ways here. It hid whole competitions that contained perfectly
+     good individual matches (which cost a session in §33), while waving through no-edge fixtures in
+     any league whose average happened to clear. The per-match floor in gateReason now does this job
+     fixture by fixture, which is the only level at which the question was ever meaningful.
+     `prefs.edgeOnly` is still read so old saved state loads without error; it no longer filters. */
   _edgeHidden = [];
-  if(prefs.edgeOnly){ const proven = Ls.filter(l=>{ const sk = skillOf(l); return !sk || !sk.ready || sk.proven; });
-                      if(proven.length){ const keep = new Set(proven);
-                                         _edgeHidden = Ls.filter(l=>!keep.has(l));
-                                         Ls = proven; } }
   /* Ken's call: publish everywhere, but let the competitions with a measured edge lead. A proven
      league outranks an unproven one regardless of how famous it is (build 65). */
   return Ls.sort((a,b)=> (skillProven(b)?1:0)-(skillProven(a)?1:0)
@@ -6285,6 +6582,7 @@ async function loadCloudLeagues(force){
                removed. So: past picks stay visible and stay graded, and the gate changes what the
                app says from here on. `gated` is stored on the fixture so every screen reads one
                decision instead of each recomputing its own. */
+            f.edge  = started ? f.edge : pickEdge(L, f.pick, f.prob);   // build 129 — for Top Matches
             f.gated = started ? null : gateReason(L, f, f.pick, f.prob);
             // a withheld pick is not recorded either — the record must contain what was published
             if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
@@ -6829,18 +7127,30 @@ function renderFixtures(){
     return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}</div>`;
   };
 
-  // ⭐ featured: fixtures involving famous clubs/nations float to the top
+  /* BUILD 129 — TOP MATCHES IS NOW RANKED BY EDGE, NOT BY FAME.
+     Ken: "don't you think matches with an edge should suffice? taking them to top matches. league
+     with an edge doesn't mean all the fixtures have an edge, this is how we end up throwing
+     predictions for matches with no edge as a top prediction just because the league has an edge."
+
+     He is right about the outcome and it was worse than he thought: this list was never edge-based
+     at ALL. It was `FAMOUS_CLUBS.some(...)` — a hardcoded list of big club names. A section called
+     "Top Matches" sitting above the feed was selecting on brand recognition and nothing else, which
+     is precisely how a fixture the engine has no opinion about ends up presented as a top pick.
+     Now it ranks by each fixture's own edge over its league's baseline — the same number the gate
+     uses — and only fixtures that clear the gate are eligible. */
   if(afState.filter==='all' || afState.filter==='football' || afState.filter==='basketball'){
     const feat = [];
     for(const L of Ls) for(const f of L.upcoming){
       if(f.date!==afState.selectedDate) continue;
       if(!f.pick) continue;   // Predict is for fixtures the engine has actually priced (build 84)
-      if(f.gated) continue;   // build 118 — Top Matches is a shortlist of TIPS, and a withheld pick
-                              // is not a tip. The fixture still appears in its competition below.
-      if(FAMOUS_CLUBS.some(c=>f.home.includes(c) || f.away.includes(c))) feat.push([L,f]);
+      if(f.gated) continue;   // build 118 — a withheld pick is not a tip. The fixture still appears
+                              // in its competition below.
+      if(f.edge == null || f.edge <= 0) continue;   // no edge, no top billing — whatever the badge
+      feat.push([L,f]);
     }
+    feat.sort((a,b)=> (b[1].edge||0) - (a[1].edge||0));
     if(feat.length){
-      html += `<div class="lghead">⭐ Top Matches</div>`;
+      html += `<div class="lghead">⭐ Top Matches <span class="muted" style="font-size:.7rem;font-weight:600">biggest edge over an average match</span></div>`;
       for(const [L,f] of feat.slice(0,8)) html += rowHtml(L,f);
     }
   }
@@ -6885,7 +7195,6 @@ function renderFixtures(){
   { const eh = $('edgeHint');
     if(eh) eh.addEventListener('click', ()=>{
       prefs.edgeOnly = false; savePrefs();
-      try{ renderEdgeSetting(); }catch(e){}
       renderFixtures();
       toast('Showing every competition');
     });
@@ -7337,7 +7646,7 @@ function renderLangSetting(){
    English label found it. */
 function applyLanguage(){
   applyStaticI18n();
-  try{ renderLangSetting(); renderTzSetting(); renderEdgeSetting(); renderGateSetting();
+  try{ renderLangSetting(); renderTzSetting();
        renderScores(); renderFixtures(); renderFavs();
        if(lastTab==='tips') renderTips(); }catch(e){}
 }
@@ -7408,52 +7717,23 @@ $('tzSel').addEventListener('change', ()=>{
   try{ renderScores(); renderFixtures(); renderFavs(); if(lastTab==='tips') renderTips(); }catch(e){}
   toast(prefs.tz ? 'Times now shown for '+prefs.tz.split('/').pop().replace(/_/g,' ') : 'Times follow this device');
 });
-/* BUILD 128 — an automatic threshold nobody can see is the silent-filter mistake from §33 all over
-   again: the app would be withholding picks on a number the user has no way to inspect. This prints
-   what each competition decided FOR ITSELF and what that bar actually delivered on its own history,
-   so "automatic" means measured-and-shown rather than hidden. */
-function renderGateSetting(){
-  const el = $('gateInfo'); if(!el) return;
-  const Ls = footballLeagues();
-  if(!Ls.length){ el.textContent = 'Publishes a pick only when it clears the bar its competition earned.'; return; }
-  const parts = [], fallback = [];
-  for(const L of Ls){
-    const g = afState.gate && afState.gate[L.id];
-    if(g && g.bar) parts.push(`${L.name} ${pct(g.bar)}${g.met?'':'*'}`);
-    else fallback.push(L.name);
-  }
-  el.textContent = (parts.length ? parts.join(' · ') : '')
-    + (parts.length && fallback.length ? ' · ' : '')
-    + (fallback.length ? `${fallback.length} still on the default ${pct(PICK_GATE.MIN_PROB)}` : '')
-    + (parts.some(p=>p.endsWith('*')) ? `  (* no bar reached ${pct(GATE_TARGET)} here — this is the best it can do)` : '');
-}
-function renderEdgeSetting(){
-  const b = $('edgeToggle'); if(!b) return;
-  b.textContent = prefs.edgeOnly ? 'On' : 'Off';
-  b.classList.toggle('active', !!prefs.edgeOnly);
-  /* BUILD 120 — Ken asked "how many leagues in matchmind have an edge?" and there was no way to find
-     out short of scrolling the feed counting badges. The skill verdict is computed on THIS device
-     from the history it has loaded, so the honest answer is a live count rather than a number I could
-     put in a document. Untested competitions are named separately: no verdict is not a bad verdict,
-     and lumping them in with the failures would misreport both. */
-  const el = $('edgeCount'); if(!el) return;
-  const Ls = footballLeagues();
-  let proven = 0, tested = 0, untested = 0;
-  for(const L of Ls){ const s = skillOf(L);
-    if(s && s.ready){ tested++; if(s.proven) proven++; } else untested++; }
-  el.textContent = !Ls.length
-    ? 'Hide competitions the engine has been measured on and does not beat'
-    : `${proven} of ${tested} tested competition${tested===1?'':'s'} beat home advantage`
-      + (untested ? ` · ${untested} still untested (kept either way)` : '')
-      + ' · hidden when on';
-}
-$('edgeToggle').addEventListener('click', ()=>{
-  prefs.edgeOnly = !prefs.edgeOnly; savePrefs(); renderEdgeSetting();
-  try{ renderFixtures(); if(lastTab==='tips') renderTips(); }catch(e){}
-  toast(prefs.edgeOnly
-    ? 'Showing only competitions with a measured edge'
-    : 'Showing every competition');
-});
+/* BUILD 130 — renderGateSetting() and renderEdgeSetting() removed along with the two settings rows
+   they filled (see the comment in the Settings card markup). Their call sites went with them.
+
+   THE AUTO-GATE ITSELF IS UNTOUCHED. autoGate(), afState.gate, PICK_GATE and GATE_TARGET all still
+   decide which picks get published. What was deleted is a READOUT, not a mechanism — no pick
+   changes as a result of this build.
+
+   Note what used to sit at the end of this block: an UNGUARDED click listener attached straight to
+   the edge-toggle lookup, with no null check. Deleting the markup and leaving that line would have
+   thrown a TypeError during boot and taken the rest of the script with it — every listener
+   registered after it would silently never attach, which is build 92's failure exactly. When
+   removing markup, hunt the unguarded lookups first; the guarded fetch-then-return-if-missing form
+   fails safe, and a bare lookup does not.
+
+   (Writing that line out in full here broke the build: verify_no_null_refs scans comments too and
+   read the example as a live reference to an element that no longer exists. The checker was right
+   to be blunt about it — a rule that parses prose is better than one that misses real code.) */
 
 /* Clearing the cache must not sign anyone out or drop their favourites — those live in the same
    localStorage blob, so this rebuilds the record rather than wiping the key. */
@@ -8119,6 +8399,7 @@ function renderNewcomerSweep(){
 }
 { const b=$('ncSweepBtn'); if(b) b.addEventListener('click', renderNewcomerSweep); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
+{ const b=$('restBtn'); if(b) b.addEventListener('click', renderRestDayTest); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
@@ -8227,7 +8508,7 @@ if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
 /* AFTER restoreState, not before — these two controls display saved preferences, and painting them
    first showed the defaults while the feed already honoured the saved values. */
-try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); renderEdgeSetting(); renderGateSetting(); }catch(e){}
+try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); }catch(e){}
 try{ renderNotif(); setTimeout(ensurePushFresh, 3000); }catch(e){}
 try{ setTimeout(fillLongShotLeagues, 4000); }catch(e){}
 /* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
