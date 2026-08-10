@@ -170,7 +170,8 @@
   .dpill .dd{font-size:.9rem; font-weight:800; color:var(--text);}
   .dpill.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold);}
   .dpill.active .dw,.dpill.active .dd{color:#1a1405;}
-  .fxrow{display:flex; align-items:center; gap:7px; padding:12px 0; border-bottom:1px solid var(--border);}
+  .formflag{font-size:.82rem;margin-right:5px;opacity:.95;flex:0 0 auto}
+.fxrow{display:flex; align-items:center; gap:7px; padding:12px 0; border-bottom:1px solid var(--border);}
   .fxrow:last-child{border-bottom:none;}
   .fxtime{width:42px; font-size:.73rem; color:var(--muted); font-weight:600; flex-shrink:0;}
   .fxteams{flex:1; font-size:.9rem; font-weight:600; line-height:1.5;}
@@ -455,6 +456,7 @@
         <div class="acc-body">
           <div id="outcomeRows"></div>
           <div class="subnote" id="xgInfo"></div>
+          <div class="subnote hidden" id="formNote"></div>
         </div>
       </div>
 
@@ -625,6 +627,8 @@
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <button id="restBtn"></button><div id="restOut"></div>
+      <button id="formBtn"></button><div id="formOut"></div>
+      <button id="faBtn"></button><div id="faOut"></div>
       <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
@@ -663,7 +667,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 131;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 141;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1033,6 +1037,56 @@ const ENGINE2 = {
   ITERS_WARM: 3,      // passes when warm-starting from the previous walk-forward step
   SHRINK_K: 4,        // pseudo-matches at league average — same meaning as TUNE.SHRINK_K
   RHO: -0.08          // Dixon-Coles low-score correction. FITTED on Ken's data, never chosen.
+};
+
+/* ══ FORM ADJUSTMENT (build 138) — Ken's margin rule. OFF until the sweep says otherwise. ═══
+   §55a: picks where the chosen side leads on last-6 form by 6+ points beat their confidence band
+   by +6.97 ± 2.36 (z 2.96), across 9 competitions with I² = 0% — one common effect, surviving
+   leave-one-out. That is the strongest measured signal found in this project since Engine 2.
+
+   THREE THINGS KEN ASKED FOR, AND THEY ARE NOT EQUALLY SUPPORTED. Recording which is which here,
+   because a constants block is where a future session will look:
+
+     1. RANKING + BADGE — fully supported. Surface these fixtures first, mark them.
+     2. BOOST (probability) — supported in DIRECTION only. The +6.97 is a hit-rate lift, not a
+        probability correction, and converting one to the other is an assumption. So BOOST is not
+        set from it. It is FITTED walk-forward on log loss, exactly as DAMPEN, TEMP, HALF_LIFE and
+        RHO were. Default 0 = no change.
+     3. PENALTY (downgrade when the weaker side is in better form) — Ken asked for it and
+        THERE IS NO EVIDENCE FOR IT. The `≤ −6` bucket was 36 picks at 1.3σ pointing the WRONG WAY.
+        It is built as a swept parameter whose default is ZERO, so the data may switch it on and
+        will not be assumed to. Same treatment as the newcomer prior (§42–45), which was built,
+        swept, and correctly left off.
+
+   NOTHING HERE CHANGES A PROBABILITY WHILE ON IS FALSE. Turning it on is a decision the sweep
+   makes, not one this comment makes. */
+const FORM_ADJ = {
+  /* BUILD 141 — ON for SELECTION. The two fitted numbers stay at zero, and that is a measured
+     decision, not caution.
+
+     WHAT IS ON: ranking and a badge. Fixtures where the picked side leads on last-6 form by 6+
+     points sort above others in Top Matches, and say so on the row and the match page. This rests
+     on §55a — +6.97 +/- 2.36 across nine competitions, I^2 = 0%, surviving leave-one-out. That is
+     a MEASUREMENT of which picks did better. Nothing is fitted, so nothing can overfit.
+
+     WHAT IS OFF, AND WHY IT MUST STAY OFF: BOOST. The build-140 holdout fitted it on the oldest
+     60% of fixtures (which chose +6.0) and scored it on the newest 40%, which had no say. The
+     gain was -0.00403 — it made predictions WORSE on data it had not seen. And the value itself
+     moved from +4.0 on all rows to +6.0 on the training half: a stable effect does not do that.
+     Turning BOOST on would degrade every published probability. This is not "unproven", it is
+     measured harm.
+
+     PENALTY stays 0 too: 36 fixtures, under the 200 the sweep requires to fit anything.
+
+     THE DISTINCTION WORTH KEEPING: knowing WHICH picks are better is not the same as knowing HOW
+     MUCH better. The first is measured here and is enough to re-rank. The second was tested and
+     failed. Selection can be right while the size of the correction is unknowable at this n. */
+  ON: true,         // build 141 — ranking + badge only
+  WIN: 6,           // matches over which form is measured (§54 primary; 5-8 all held)
+  UP: 6,            // margin at or above which the pick is "strongly backed" by form
+  DOWN: -6,         // margin at or below which form strongly opposes the pick
+  BOOST: 0,         // FAILED the holdout (-0.00403). Do not set without a fresh-season re-test.
+  PENALTY: 0        // no downgrade is supported — 36 fixtures, 1.3 sigma, wrong sign
 };
 
 function parseCSV(text){
@@ -1565,13 +1619,61 @@ function localVerdict(ctx){
 
 /* ---- AI writer: multiple providers + head-to-head compare (#20) ----
    The engine's probabilities are always the source of truth; the model only writes them up. */
-const AI_PROMPT = `You are a professional football/basketball analyst. Below is raw output from a statistical prediction engine. Write a sharp, engaging pre-match analysis (3-4 short paragraphs) covering: the probabilities and what drives them, recent form, head-to-head, injury news and its likely impact (note the engine's numbers do NOT account for absences), goals/points expectations, and likely scorers if provided. End with a one-line verdict including the confidence level. Do not invent facts not present in the data. Data:\n`;
+const AI_PROMPT = `You are a professional football/basketball analyst. Below is raw output from a statistical prediction engine. Write a sharp, engaging pre-match analysis (3-4 short paragraphs) covering: the probabilities and what drives them, recent form, head-to-head, injury news and its likely impact (note the engine's numbers do NOT account for absences), goals/points expectations, and likely scorers if provided. End with a one-line verdict including the confidence level. Do not invent facts not present in the data. Write for an ordinary football fan: plain prose only. Never use LaTeX, mathematical notation, backslashes, dollar signs or Greek letters, and never name a field from the data — say "expected goals" rather than any symbol or variable name. Data:\n`;
+/* BUILD 132 — THE APP WAS HANDING THE AI ITS OWN VARIABLE NAMES, AND THE AI FAITHFULLY PRINTED THEM.
+   Ken, reading a real analysis: "what is the Lambda in the analysis?" The write-up said
+   "a superior expected goal output ($\lambda_A = 1.74$ compared to Heerenveen's $\lambda_H = 1.48$)".
+
+   Not a hallucination — the opposite. `ctx.pred` was `JSON.stringify`'d whole, so the model received
+   `"lambdaH": 1.48, "lambdaA": 1.74` and reported the field names it was given, in the notation
+   those names come from. The engine's screen labels have said "Expected goals" since build 1;
+   only the AI was ever shown the internal spelling.
+
+   Two things were wrong and both are fixed here:
+     1. The KEYS are now the words a reader should see. Nothing is renamed on screen or in the
+        engine — `lambdaH` is still `lambdaH` everywhere it belongs, which is in the maths.
+     2. The raw internals are no longer shipped at all. `raw`, `team`, `hcap`, `combos` and the
+        full score grid were being posted to a third-party model on every match open: more tokens,
+        more surface for exactly this kind of leak, and nothing the prose ever used.
+
+   This does NOT change a single probability. It changes what the writer is told they are called. */
 function enginePayloadStr(ctx){
+  const p = ctx.pred || {};
+  const r3 = v => (typeof v === 'number' ? +v.toFixed(3) : v);
+  const plain = ctx.sport === 'football' ? {
+    expectedGoalsHome:  r3(p.lambdaH),
+    expectedGoalsAway:  r3(p.lambdaA),
+    homeWinProbability: r3(p.pW),
+    drawProbability:    r3(p.pD),
+    awayWinProbability: r3(p.pL),
+    bothTeamsToScore:   r3(p.btts),
+    overUnder:          p.over,
+    mostLikelyScores:   p.topScores
+  } : p;
   return JSON.stringify({
     sport: ctx.sport, fixture: `${ctx.home} vs ${ctx.away}`,
-    prediction: ctx.pred, homeForm: ctx.formH, awayForm: ctx.formA,
+    prediction: plain, homeForm: ctx.formH, awayForm: ctx.formA,
     headToHead: ctx.h2h, likelyScorers: ctx.scorers || [], injuryNews: ctx.injuries || 'not available'
   }, null, 1);
+}
+
+/* Belt and braces. Build 87's lesson was that a model does what it does regardless of what the
+   prompt asked for, so the instruction not to write LaTeX cannot be the only defence. This strips
+   the notation if it arrives anyway: $...$ delimiters, \lambda and friends, and the _H / _A
+   subscripts. A reader should never meet a backslash in a sentence about football. */
+function deLatex(s){
+  if(!s) return s;
+  return String(s)
+    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    .replace(/\$([^$\n]{1,120}?)\$/g, '$1')
+    // do NOT put \s* before the optional closing brace — it eats the space and yields "…(away)= 1.74"
+    .replace(/\\lambda\s*_?\s*\{?\s*([HA])\}?/gi, (m,g)=> g.toUpperCase()==='H' ? 'expected goals (home)' : 'expected goals (away)')
+    .replace(/\\lambda/gi, 'expected goals')
+    .replace(/\\(?:text|mathrm|mathit|mathbf)\s*\{([^}]*)\}/g, '$1')
+    .replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '$1/$2')
+    .replace(/\\[a-zA-Z]+/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 async function callClaude(payload, key){
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2493,6 +2595,28 @@ function pickBaseline(L, code){
        : code==='2D' ? (nd>0 ? NP.pL/nd : 0)
        : code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
 }
+/* BUILD 141 — form margin for a fixture that has NOT been played yet.
+   The test panels walked history and could read each team's prior results as they went. The live
+   feed cannot: it needs the last N results for two named teams as of today. Same definition —
+   points from the last FORM_ADJ.WIN completed matches — read from the competition's own history.
+   Returns null when either side has too few, so a fixture is never badged on a guess. */
+function formMarginFor(L, home, away, code){
+  if(!FORM_ADJ.ON || !L || !L.matches || (code !== '1' && code !== '2')) return null;
+  const last = team => {
+    const out = [];
+    for(let i = L.matches.length - 1; i >= 0 && out.length < FORM_ADJ.WIN; i--){
+      const m = L.matches[i];
+      if(m.hg == null || m.ag == null) continue;
+      if(m.home === team) out.push(m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0);
+      else if(m.away === team) out.push(m.ag > m.hg ? 3 : m.hg === m.ag ? 1 : 0);
+    }
+    return out.length === FORM_ADJ.WIN ? out.reduce((a,b)=>a+b,0) : null;
+  };
+  const h = last(home), a = last(away);
+  if(h == null || a == null) return null;
+  return code === '1' ? h - a : a - h;   // positive = form backs the side the engine picked
+}
+
 function pickEdge(L, code, prob){
   const b = pickBaseline(L, code);
   return (b == null || prob == null) ? null : prob - b;
@@ -3211,6 +3335,25 @@ async function analyze(){
         : '');
     $('xgInfo').textContent = `Expected goals — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
 
+    /* BUILD 141 — the form line, on the page where someone actually decides.
+       It says what was measured and STOPS THERE. No adjusted percentage, because §58's holdout
+       showed the size of the correction does not survive on unseen data — only the direction did.
+       Claiming a number here would be inventing the one thing that failed to replicate. */
+    if($('formNote')){
+      const _L = afState.leagues[afState.activeLeagueId] || null;
+      const _fm = (!pendingMetaPlayed && _L && hp) ? formMarginFor(_L, home, away, hp.code) : null;
+      if(_fm == null){ $('formNote').textContent = ''; $('formNote').classList.add('hidden'); }
+      else {
+        $('formNote').classList.remove('hidden');
+        const backed = _fm >= FORM_ADJ.UP;
+        $('formNote').innerHTML = backed
+          ? `<b style="color:var(--green2)">🔥 Recent form backs this pick.</b> Over the last ${FORM_ADJ.WIN} matches the side picked here is <b>${_fm} points</b> better than its opponent. Historically, picks like this beat their confidence band by about <b>7 points of hit rate</b> — measured across nine competitions. <span class="muted">That is why the fixture sits higher in Top Matches. The probability above is unchanged: what recent form is worth in percentage terms could not be pinned down on fresh data, so no number is invented here.</span>`
+          : _fm <= FORM_ADJ.DOWN
+          ? `<b>Recent form runs against this pick</b> — the other side is ${Math.abs(_fm)} points better over the last ${FORM_ADJ.WIN}. <span class="muted">Worth knowing, but not counted against the pick: only 36 such fixtures existed in the history, far too few to measure anything from.</span>`
+          : `<span class="muted">Recent form is close between these sides (${_fm >= 0 ? '+' : ''}${_fm} over the last ${FORM_ADJ.WIN}), so it neither backs nor opposes the pick.</span>`;
+      }
+    }
+
     // build 85 — same ranking the Tips tab uses, so the two pages can no longer disagree silently
     renderSmartBet(afState.leagues[afState.activeLeagueId] || null, {home, away}, pred, !!pendingMetaPlayed, hp);
 
@@ -3373,7 +3516,7 @@ async function analyze(){
     const payload = enginePayloadStr(ctx);
     try{
       const r = await runAIWriter(aiProvider, payload);
-      $('analysisText').textContent = r.text;
+      $('analysisText').textContent = deLatex(r.text);
       $('verdictBox').textContent = `✨ Written by ${r.label} from the engine output above.` + quotaNote(r.via);
       // head-to-head compare against a second provider (#20)
       if(aiCompare && aiCompare!==aiProvider){
@@ -3381,7 +3524,7 @@ async function analyze(){
         $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_p2.name+' too…';
         try{
           const r2 = await runAIWriter(aiCompare, payload);
-          $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${r.label}</div>${escapeHtml(r.text)}</div><div class="cmp"><div class="cmp-h">${r2.label}</div>${escapeHtml(r2.text)}</div>`;
+          $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${r.label}</div>${escapeHtml(deLatex(r.text))}</div><div class="cmp"><div class="cmp-h">${r2.label}</div>${escapeHtml(deLatex(r2.text))}</div>`;
           $('verdictBox').textContent = `✨ ${r.label} vs ${r2.label} — compare their takes above.` + quotaNote(r2.via);
         }catch(e2){ $('verdictBox').textContent += `  (${_p2.name} compare unavailable: ${e2.message})`; }
       }
@@ -4581,6 +4724,644 @@ function renderRestDayTest(){
       `<div class="subnote" style="border-left:3px solid ${colour};padding-left:9px;margin-top:12px">${verdict}</div>` +
       `<div class="subnote"><b style="color:var(--text)">How to read the slope.</b> It is the change in the engine's ERROR, in home points, per extra day of rest the home side has over the away side. Positive means rested teams beat the engine's expectation. The engine cannot see rest at all, so any real number here is information it is missing.</div>` +
       `<div class="subnote">Rest is counted across every loaded competition, so midweek European ties count. Walk-forward throughout: each match is priced on matches dated before it. ${Object.keys(idx).length} teams indexed.</div>`;
+  }
+}
+
+/* ══ THE FORM-CONFIRMATION TEST (build 133) ═════════════════════════════════════════
+   PRE-REGISTERED IN HANDOFF §52 ON 2026-08-09, BEFORE THIS CODE EXISTED.
+
+   Ken: "Ensure the team for the win is very much more in form on a long run, then confirm with
+   their short term form of 5 games... what if there is a case of multiple injuries, squad low
+   morale, fatigue, lack of team spirit?"
+
+   THIS IS NOT THE QUESTION §15 CLOSED, and the distinction is the whole reason this exists.
+   §15 asked whether recent matches should count for MORE when computing a rating — no, three
+   times. This asks whether short-term form tells us WHICH of the engine's existing picks to
+   trust. A signal can be useless for estimating strength and still useful for flagging when an
+   estimate is temporarily wrong. Same family as the auto-gate and per-match edge: selectivity,
+   not probability.
+
+   THE CONFOUND, WHICH DECIDES WHETHER THIS MEASURES ANYTHING: form is derived from results, the
+   rating is derived from results, and those results overlap. Agreement cases skew toward lopsided
+   fixtures — a strong side thrashing weak opposition has both a high rating and a hot run. So the
+   comparison is STRATIFIED BY ENGINE CONFIDENCE. Without that it measures fixture difficulty and
+   reports it as form. This is §15's trap ("a shorter memory departs less often, onto easier
+   fixtures, and that looks exactly like skill") in a new costume. */
+
+const FORM_N       = 5;      // Ken's window
+const FORM_GATE2   = 0.05;   // §52: confirmed must beat contradicted by >= 5 percentage points
+const FORM_GATE3   = 0.30;   // §52: ...while keeping >= 30% of decisive picks. §14: volume matters.
+const FORM_BAND    = 0.05;   // confidence-band width for stratification
+
+/* Walk one competition forward, collecting everything both parts of the test need.
+   Form is read BEFORE the current result is recorded, so a match can never see itself. */
+function formRowsFor(L, WIN){
+  const ms = (L && L.matches) || null;
+  if(!ms || ms.length < 150) return [];
+  const tmp = Object.create(footballEngine); tmp.matches = ms;
+  const start = Math.max(60, Math.floor(ms.length * 0.3));
+  const recent = {};                       // team -> array of points, oldest first
+  const rows = [];
+  const pts = (gf, ga) => gf > ga ? 3 : gf === ga ? 1 : 0;
+
+  for(let i=0;i<ms.length;i++){
+    const m = ms[i];
+    if(m.hg == null || m.ag == null){ continue; }
+    const rh = recent[m.home] || (recent[m.home] = []);
+    const ra = recent[m.away] || (recent[m.away] = []);
+
+    const W = WIN || FORM_N;
+    if(i >= start && rh.length >= W && ra.length >= W){
+      const sum = a => a.slice(-W).reduce((x,y)=>x+y,0);
+      const fH = sum(rh), fA = sum(ra);
+      const p = tmp.predict(m.home, m.away, i);
+      if(p){
+        const exp = 3*p.pW + 1*p.pD;
+        const act = m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0;
+        const actual = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
+        const hp = headlinePick(p, 'H', 'A');
+        rows.push({
+          x: fH - fA,                       // form differential, -15..+15
+          y: act - exp,                     // the engine's error
+          c: exp,                           // control: how strong the engine thought the home side
+          pick: hp ? hp.code : null,
+          prob: hp ? hp.prob : null,
+          hit:  hp ? pickHit(hp.code, actual) : null,
+          /* Signed form margin FROM THE PICKED SIDE'S POINT OF VIEW. Positive = the side the
+             engine picked is also the one in better form. This is the number Ken's "far better"
+             is about, and keeping it (rather than only its sign) is what build 135 added. */
+          margin: !hp ? null : hp.code === '1' ? (fH - fA) : hp.code === '2' ? (fA - fH) : null,
+          /* BUILD 135 — TIES USED TO COUNT AS DISAGREEMENT. `fH > fA` is false when the two sides
+             are level, so every tie was scored as "form contradicts the pick". A tie is neither
+             confirmation nor contradiction; padding the contradicted group with neutral fixtures
+             pulled its hit rate toward average and shrank the measured gap. Now null, and excluded
+             from Part B rather than silently counted against the hypothesis. */
+          confirms: !hp ? null : (hp.code !== '1' && hp.code !== '2') ? null
+                    : (hp.code === '1' ? fH - fA : fA - fH) === 0 ? null
+                    : (hp.code === '1' ? fH > fA : fA > fH)
+        });
+      }
+    }
+    rh.push(pts(m.hg, m.ag)); ra.push(pts(m.ag, m.hg));
+    if(rh.length > 40) rh.shift();
+    if(ra.length > 40) ra.shift();
+  }
+  return rows;
+}
+
+/* PART B. Hit rate of form-confirmed vs form-contradicted picks, WITHIN confidence bands, pooled.
+   Weighting each band by n1*n2/(n1+n2) is the standard precision weight for a difference of two
+   proportions: a band with plenty of both groups informs the answer, a band that is nearly all one
+   group cannot and is automatically ignored. */
+function formStratified(rows){
+  const decisive = rows.filter(r => (r.pick === '1' || r.pick === '2') && r.confirms !== null && r.prob != null);
+  if(decisive.length < 200) return null;
+  const bands = {};
+  for(const r of decisive){
+    const b = Math.floor(r.prob / FORM_BAND);
+    const o = bands[b] || (bands[b] = { cN:0, cH:0, xN:0, xH:0 });
+    if(r.confirms){ o.cN++; if(r.hit) o.cH++; } else { o.xN++; if(r.hit) o.xH++; }
+  }
+  let wSum = 0, dSum = 0, vSum = 0, used = 0;
+  const detail = [];
+  for(const b of Object.keys(bands).sort((a,z)=>a-z)){
+    const o = bands[b];
+    if(o.cN < 20 || o.xN < 20) continue;               // a band needs both groups to say anything
+    const p1 = o.cH/o.cN, p2 = o.xH/o.xN;
+    const w = (o.cN*o.xN)/(o.cN+o.xN);
+    wSum += w; dSum += w*(p1-p2);
+    vSum += w*w*( p1*(1-p1)/o.cN + p2*(1-p2)/o.xN );
+    used++;
+    detail.push({ lo:b*FORM_BAND, p1, p2, cN:o.cN, xN:o.xN });
+  }
+  if(!wSum || used < 2) return null;
+  const diff = dSum/wSum, se = Math.sqrt(vSum)/wSum;
+  const conf = decisive.filter(r=>r.confirms).length;
+  // the same comparison WITHOUT stratifying — kept to show what the confound was worth
+  const cAll = decisive.filter(r=>r.confirms), xAll = decisive.filter(r=>!r.confirms);
+  const raw = (cAll.length && xAll.length)
+    ? (cAll.filter(r=>r.hit).length/cAll.length) - (xAll.filter(r=>r.hit).length/xAll.length) : null;
+  return { diff, se, t: diff/se, bands: used, detail,
+           share: conf/decisive.length, n: decisive.length, raw };
+}
+
+/* ══ PART C — THE FORM MARGIN (build 135). Pre-registered in handoff §54. ═══════════
+   Ken said "FAR better", and §52 tested "better". A side one point clear over five games counted
+   the same as one nine points clear, which averages the marginal cases in with the decisive ones
+   and blunts exactly the contrast he described.
+
+   NO THRESHOLD IS CHOSEN, deliberately. Ken's claim is monotonic — the bigger the gap, the more it
+   should matter — and a trend is both a stronger claim and impossible to fish for. Picking cutoffs
+   until one looks good is how build 100 produced two patterns that died on pooling.
+
+   Each bucket is compared to ITS OWN CONFIDENCE BAND'S BASE RATE rather than to the opposite
+   bucket. That is what makes the asymmetry visible: Ken's rule treats the two sides differently
+   (confirm -> publish, contradict -> lower confidence), so the test must be able to see them apart. */
+const MARGIN_BUCKETS = [
+  { lo:-99, hi:-6, label:'≤ −6  form strongly against' },
+  { lo:-5,  hi:-3, label:'−5 to −3  against' },
+  { lo:-2,  hi: 2, label:'−2 to +2  neutral' },
+  { lo: 3,  hi: 5, label:'+3 to +5  backing' },
+  { lo: 6,  hi:99, label:'≥ +6  form strongly backing' }
+];
+const MARGIN_GATE2 = 0.05;   // §54: an extreme bucket must move >= 5 points off its band base rate
+
+function formMargin(rows){
+  const dec = rows.filter(r => (r.pick==='1'||r.pick==='2') && r.margin!=null && r.prob!=null);
+  if(dec.length < 300) return null;
+  // band base rates first — every lift below is measured against the band the fixture sits in
+  const band = {};
+  for(const r of dec){
+    const b = Math.floor(r.prob / FORM_BAND);
+    const o = band[b] || (band[b] = { n:0, h:0 });
+    o.n++; if(r.hit) o.h++;
+  }
+  const out = MARGIN_BUCKETS.map(bk => {
+    let wS=0, dS=0, vS=0, n=0, hits=0;
+    const per = {};
+    for(const r of dec){
+      if(r.margin < bk.lo || r.margin > bk.hi) continue;
+      const b = Math.floor(r.prob / FORM_BAND);
+      const o = per[b] || (per[b] = { n:0, h:0 });
+      o.n++; if(r.hit) o.h++; n++; if(r.hit) hits++;
+    }
+    for(const b of Object.keys(per)){
+      const o = per[b], base = band[b];
+      if(o.n < 15 || base.n - o.n < 15) continue;      // need a comparison group left in the band
+      const p = o.h/o.n, pb = (base.h - o.h)/(base.n - o.n);
+      const w = o.n;
+      wS += w; dS += w*(p - pb);
+      vS += w*w*( p*(1-p)/o.n + pb*(1-pb)/(base.n - o.n) );
+    }
+    const lift = wS ? dS/wS : null;
+    const se   = wS ? Math.sqrt(vS)/wS : null;
+    return { ...bk, n, rate: n?hits/n:null, lift, se };
+  });
+  /* THE TREND IS THE HYPOTHESIS. Weighted least squares of lift on bucket index, weights 1/se^2 —
+     a bucket measured precisely should steer the line more than a thin one. */
+  const pts = out.map((o,i)=>({ i, lift:o.lift, se:o.se })).filter(o=>o.lift!=null && o.se>0);
+  let trend = null;
+  if(pts.length >= 4){
+    let sw=0, sx=0, sy=0;
+    for(const q of pts){ const w=1/(q.se*q.se); sw+=w; sx+=w*q.i; sy+=w*q.lift; }
+    const mx=sx/sw, my=sy/sw;
+    let sxx=0, sxy=0;
+    for(const q of pts){ const w=1/(q.se*q.se); sxx+=w*(q.i-mx)*(q.i-mx); sxy+=w*(q.i-mx)*(q.lift-my); }
+    if(sxx > 0){ const b=sxy/sxx; trend = { b, se:Math.sqrt(1/sxx), t:b/Math.sqrt(1/sxx) }; }
+  }
+  const lo = out[0], hi = out[out.length-1];
+  return { buckets: out, trend, n: dec.length,
+           asym: (lo.lift!=null && hi.lift!=null) ? { down: lo.lift, up: hi.lift } : null };
+}
+
+/* BUILD 137 — DOES THE TOP BUCKET SURVIVE BEING TAKEN APART? §55.
+   The `>= +6` cell is the one thing in Part C that looks real: +6.7 on 939 picks, 3.0 sigma,
+   correctly signed, stable across windows. But it was FOUND by looking at five buckets, and a
+   cell located that way needs to replicate on data that did not choose it.
+
+   Window agreement does NOT provide that. Windows 5-8 are four overlapping views of the same
+   fixtures, so 4/4 is close to one result counted four times — it guards against window-shopping
+   and nothing else.
+
+   Competitions are the honest decomposition. Build 100's lesson ran one way ("cells of 300-800
+   bets are noise, pool before believing"); this is the same lesson run backwards — a pooled
+   finding that is real should still be visible, in the same direction, in most of the parts. */
+function formTopByLeague(groups){
+  const out = [];
+  for(const rows of groups){
+    const dec = rows.filter(r => (r.pick==='1'||r.pick==='2') && r.margin!=null && r.prob!=null);
+    if(dec.length < 120) continue;
+    const band = {};
+    for(const r of dec){
+      const b = Math.floor(r.prob / FORM_BAND);
+      const o = band[b] || (band[b] = { n:0, h:0 });
+      o.n++; if(r.hit) o.h++;
+    }
+    let wS=0, dS=0, vS=0, n=0;
+    const per = {};
+    for(const r of dec){
+      if(r.margin < 6) continue;
+      const b = Math.floor(r.prob / FORM_BAND);
+      const o = per[b] || (per[b] = { n:0, h:0 });
+      o.n++; if(r.hit) o.h++; n++;
+    }
+    for(const b of Object.keys(per)){
+      const o = per[b], base = band[b];
+      if(o.n < 10 || base.n - o.n < 10) continue;
+      const p = o.h/o.n, pb = (base.h - o.h)/(base.n - o.n), w = o.n;
+      wS += w; dS += w*(p - pb);
+      vS += w*w*( p*(1-p)/o.n + pb*(1-pb)/(base.n - o.n) );
+    }
+    if(wS) out.push({ name: rows.leagueName || '?', n, lift: dS/wS, se: Math.sqrt(vS)/wS });
+  }
+  out.sort((a,b)=>b.lift-a.lift);
+  const pos = out.filter(o=>o.lift > 0).length;
+  return { rows: out, pos, total: out.length };
+}
+
+/* ══ THE FORM-ADJUSTMENT SWEEP (build 138) ═══════════════════════════════════════════
+   §55a measured a +6.97 hit-rate lift. This turns that into the only two numbers that could
+   ever ship — BOOST and PENALTY — and it FITS them rather than converting the lift by hand.
+
+   WHY LOG LOSS AND NOT HIT RATE. A hit-rate lift says "these picks win more often". It does not
+   say by how much a probability should move; that conversion needs an assumption, and assumptions
+   are what §52's confound and §54's gate 2 were both made of. Log loss scores the whole
+   probability, punishes confident errors, and is the metric that settled DAMPEN, TEMP, HALF_LIFE
+   and RHO. If a boost is real, log loss falls. If it is a story, log loss rises and the sweep says
+   so in a way no amount of enthusiasm can talk around.
+
+   THE OUT-OF-SAMPLE PROPERTY THAT MATTERS. §55a's honest gap was that the ≥+6 bucket was chosen
+   after looking at five buckets. This sweep is walk-forward: every match is scored using a model
+   fitted only on matches before it, so the adjustment must EARN its keep on fixtures it has not
+   seen. That is the closest thing to fresh data available without waiting for the season. */
+function formAdjSweep(){
+  const box = $('faOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
+  });
+  if(!ids.length){ box.innerHTML = '<div class="subnote">No competition has enough history yet.</div>'; return; }
+
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Collecting priced fixtures…</div>';
+  setTimeout(()=>{
+    // one pass: every fixture with its true probabilities, outcome and form margin
+    const rows = [];
+    for(const id of ids){
+      const L = afState.leagues[id];
+      const ms = L.matches;
+      const tmp = Object.create(footballEngine); tmp.matches = ms;
+      const start = Math.max(60, Math.floor(ms.length*0.3));
+      const recent = {};
+      const pts = (a,b)=> a>b?3:a===b?1:0;
+      for(let i=0;i<ms.length;i++){
+        const m = ms[i];
+        if(m.hg==null || m.ag==null) continue;
+        const rh = recent[m.home] || (recent[m.home]=[]), ra = recent[m.away] || (recent[m.away]=[]);
+        if(i>=start && rh.length>=FORM_ADJ.WIN && ra.length>=FORM_ADJ.WIN){
+          const p = tmp.predict(m.home, m.away, i);
+          if(p){
+            const sum = a => a.slice(-FORM_ADJ.WIN).reduce((x,y)=>x+y,0);
+            const hp = headlinePick(p, 'H', 'A');
+            if(hp && (hp.code==='1' || hp.code==='2')){
+              const margin = hp.code==='1' ? sum(rh)-sum(ra) : sum(ra)-sum(rh);
+              const actual = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
+              rows.push({ p: hp.prob, hit: pickHit(hp.code, actual), margin, when: m.date || '' });
+            }
+          }
+        }
+        rh.push(pts(m.hg,m.ag)); ra.push(pts(m.ag,m.hg));
+        if(rh.length>40) rh.shift(); if(ra.length>40) ra.shift();
+      }
+    }
+    if(rows.length < 500){ box.innerHTML = '<div class="subnote">Only '+rows.length+' priced fixtures — not enough to fit anything.</div>'; return; }
+
+    /* Log loss of the PICK as a binary event: did the thing we published happen?
+       Adjusted probability is clamped — a boost must never push a claim to certainty. */
+    const clamp = v => Math.max(0.02, Math.min(0.97, v));
+    const loss = (boost, pen) => {
+      let s = 0;
+      for(const r of rows){
+        let q = r.p;
+        if(r.margin >= FORM_ADJ.UP) q += boost;
+        else if(r.margin <= FORM_ADJ.DOWN) q += pen;   // pen is negative if a downgrade helps
+        q = clamp(q);
+        s += r.hit ? -Math.log(q) : -Math.log(1-q);
+      }
+      return s / rows.length;
+    };
+
+    const base = loss(0, 0);
+    const GR = [];
+    for(let b=-0.04; b<=0.0801; b+=0.01) GR.push(+b.toFixed(3));
+    let best = { b:0, p:0, l:base };
+    const boostOnly = [];
+    for(const b of GR){
+      const l = loss(b, 0);
+      boostOnly.push({ b, l });
+      if(l < best.l) best = { b, p:0, l };
+    }
+    const nUp   = rows.filter(r=>r.margin >= FORM_ADJ.UP).length;
+    const nDown = rows.filter(r=>r.margin <= FORM_ADJ.DOWN).length;
+
+    /* ══ BUILD 139 — THREE GUARDS THE FIRST REAL SWEEP PROVED WERE MISSING ══════════════
+       Run of 2026-08-09 recommended `PENALTY = +0.04`. Every part of that was wrong:
+         · it was fitted on 36 fixtures — 1.6% of the sample, the same cell Part C measured
+           at +12.8 ± 10.0, i.e. 1.3σ of nothing;
+         · it landed on +0.04, THE TOP OF ITS OWN SEARCH GRID — a boundary hit is not a
+           minimum, it is where the search ran out of room;
+         · and its SIGN was incoherent. PENALTY applies where form OPPOSES the pick, so a
+           positive value RAISES confidence exactly where Ken asked to lower it.
+       Followed literally it would have boosted every pick the form contradicts, on 2% of
+       fixtures, from noise, into paid tips.
+
+       A sweep that reports its argmin without checking sample size, boundaries or sign is
+       not a measurement — it is an opinion with decimals. */
+    const MIN_FIT_N = 200;
+
+    const fitOne = (apply, grid, n, wantSign) => {
+      if(n < MIN_FIT_N) return { v:0, reason:'only ' + n + ' fixtures — under the ' + MIN_FIT_N + ' needed to fit anything' };
+      let bv = grid[0], bl = Infinity;
+      for(const g of grid){ const l = apply(g); if(l < bl){ bl = l; bv = g; } }
+      if(bv === grid[0] || bv === grid[grid.length-1])
+        return { v:0, reason:'best value sat on the edge of the search range (' + bv + ') — a boundary is not a minimum' };
+      if(wantSign < 0 && bv > 0) return { v:0, reason:'the fit wants to RAISE confidence here, which is the opposite of a downgrade — no downgrade is supported' };
+      if(wantSign > 0 && bv < 0) return { v:0, reason:'the fit wants to LOWER confidence here, the opposite of the measured effect' };
+      return { v:bv, reason:null };
+    };
+
+    const PGRID = []; for(let pn=-0.10; pn<=0.1001; pn+=0.01) PGRID.push(+pn.toFixed(3));
+    const penFit = fitOne(p2 => loss(best.b, p2), PGRID, nDown, -1);
+    const bestPen = { p: penFit.v, reason: penFit.reason };
+
+    // the boost must earn its keep ON ITS OWN, not on a total the penalty also contributed to
+    const impBoost = base - loss(best.b, 0);
+    const improvement = base - loss(best.b, bestPen.p);
+
+    /* A fitted parameter always fits SOMETHING. The question is whether it beats the noise floor:
+       shuffle the margins so they carry no information, refit, and see how much a meaningless
+       parameter buys. Anything below that line is curve-fitting with extra steps. */
+    let floor = 0;
+    for(let t=0;t<12;t++){
+      const sh = rows.map(r=>r.margin);
+      for(let i=sh.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const q=sh[i]; sh[i]=sh[j]; sh[j]=q; }
+      const shuf = rows.map((r,i)=>({ ...r, margin: sh[i] }));
+      const L0 = (bo,pe)=>{ let s=0; for(const r of shuf){ let q=r.p;
+        if(r.margin>=FORM_ADJ.UP) q+=bo; else if(r.margin<=FORM_ADJ.DOWN) q+=pe;
+        q=clamp(q); s += r.hit ? -Math.log(q) : -Math.log(1-q); } return s/shuf.length; };
+      const b0 = L0(0,0); let bst = b0;
+      for(const b of GR){ const l = L0(b,0); if(l < bst) bst = l; }
+      floor += (b0 - bst);
+    }
+    floor /= 12;
+    /* judged on the BOOST alone — a combined figure lets a rejected parameter flatter a real one */
+    const beatsFloor = impBoost > 2*floor;
+
+    /* ══ BUILD 140 — THE HOLDOUT. The last honest gap, closed. ═══════════════════════════
+       Everything above is walk-forward in its PRICING — each match is scored by a model fitted
+       only on earlier matches. But BOOST itself was chosen by minimising loss across ALL the
+       rows, so the PARAMETER is in-sample. The shuffled-margin floor bounds how much a single
+       fitted number can buy from nothing, and 5.2x answers that — but it is not the same as
+       never having seen the data.
+
+       §55a's remaining gap was that the >= +6 bucket was chosen after looking at five buckets.
+       This closes it the only way available before the season supplies fresh fixtures: fit BOOST
+       on the EARLIEST 60% of matches and score it on the LATEST 40%, which had no vote in
+       choosing it. If the boost is a property of football it survives; if it is a property of
+       these 2,182 rows it does not. */
+    const dated = rows.filter(r=>r.when).sort((a,b)=> a.when < b.when ? -1 : a.when > b.when ? 1 : 0);
+    let hold = null;
+    if(dated.length >= 800){
+      const cut = Math.floor(dated.length * 0.6);
+      const tr = dated.slice(0, cut), te = dated.slice(cut);
+      const lossOn = (set, boost) => {
+        let s2 = 0;
+        for(const r of set){
+          let q = r.p; if(r.margin >= FORM_ADJ.UP) q += boost;
+          q = clamp(q); s2 += r.hit ? -Math.log(q) : -Math.log(1-q);
+        }
+        return s2 / set.length;
+      };
+      let bTr = 0, lTr = Infinity;
+      for(const b of GR){ const l = lossOn(tr, b); if(l < lTr){ lTr = l; bTr = b; } }
+      hold = { bTr, gain: lossOn(te, 0) - lossOn(te, bTr), nTr: tr.length, nTe: te.length };
+    }
+
+    const row = (a,b,c)=>`<div class="frow"><span style="flex:1">${a}</span><span style="width:34%;text-align:right">${b}</span><span style="width:26%;text-align:right">${c||''}</span></div>`;
+    box.innerHTML =
+      row('<b>Priced fixtures</b>', '<b>'+rows.length.toLocaleString()+'</b>', '') +
+      row('Strongly backed by form (≥ +'+FORM_ADJ.UP+')', nUp.toLocaleString(), (100*nUp/rows.length).toFixed(0)+'%') +
+      row('Strongly opposed (≤ '+FORM_ADJ.DOWN+')', nDown.toLocaleString(), (100*nDown/rows.length).toFixed(0)+'%') +
+      `<div class="sec-label" style="margin-top:12px">Fitted walk-forward on log loss</div>` +
+      row('Baseline log loss', base.toFixed(5), '') +
+      row('<b>BOOST</b> — best probability lift', '<b style="color:'+(best.b>0?'var(--green2)':'var(--muted)')+'">'+(best.b>=0?'+':'')+(100*best.b).toFixed(1)+' pts</b>', '') +
+      row('<b>PENALTY</b> — best downgrade', '<b style="color:'+(bestPen.p<0?'var(--red)':'var(--muted)')+'">'+(bestPen.p>=0?'+':'')+(100*bestPen.p).toFixed(1)+' pts</b>', bestPen.p===0?'<span class="muted">rejected</span>':'') +
+      (bestPen.reason ? `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px"><b style="color:var(--text)">PENALTY held at zero:</b> ${escapeHtml(bestPen.reason)}. Left off rather than shipped.</div>` : '') +
+      row('Log-loss improvement — BOOST alone', impBoost.toFixed(5), '') +
+      (bestPen.p !== 0 ? row('…with the downgrade too', improvement.toFixed(5), '') : '') +
+      row('Noise floor (shuffled margins)', floor.toFixed(5), beatsFloor?'beaten':'NOT beaten') +
+      (hold
+        ? `<div class="sec-label" style="margin-top:12px">Holdout — fitted on the oldest 60%, scored on the newest 40%</div>`
+          + row('Boost chosen on the training half', (hold.bTr>=0?'+':'')+(100*hold.bTr).toFixed(1)+' pts',
+                hold.nTr.toLocaleString()+' / '+hold.nTe.toLocaleString())
+          + row('<b>Gain on fixtures it never saw</b>',
+                '<b style="color:'+(hold.gain>0?'var(--green2)':'var(--red)')+'">'+(hold.gain>=0?'+':'')+hold.gain.toFixed(5)+'</b>',
+                hold.gain>0?'holds up':'does NOT hold')
+        : `<div class="subnote">Too few dated fixtures to run a holdout.</div>`) +
+      `<div class="subnote" style="border-left:3px solid ${beatsFloor && best.b>0 && hold && hold.gain>0 ? 'var(--green2)' : 'var(--muted)'};padding-left:9px;margin-top:10px">` +
+      (beatsFloor && best.b > 0 && hold && hold.gain <= 0
+        ? `<b>Do not switch it on — it does not survive the holdout.</b> Fitted on the oldest 60% it looked worth having; scored on the newest 40%, which had no say in choosing it, the gain is ${hold.gain.toFixed(5)}. <b style="color:var(--text)">An adjustment that only helps on the data that chose it is the definition of overfitting.</b> The ranking and badge can still ship — they need no fitted number — but the probability change cannot.`
+      : beatsFloor && best.b > 0 && hold && hold.gain > 0
+        ? `<b>The boost earns its keep, including on data it never saw.</b> Set <code>FORM_ADJ.BOOST = ${best.b}</code>${bestPen.p!==0?`, <code>PENALTY = ${bestPen.p}</code>`:', leave <code>PENALTY = 0</code>'} and <code>ON = true</code>. On its own the boost is worth ${(impBoost/floor).toFixed(1)}× what a meaningless parameter buys on shuffled data, and every match was scored by a model fitted only on earlier ones.`
+        : `<b>Do not switch it on.</b> The best fitted boost buys ${improvement.toFixed(5)} against a noise floor of ${floor.toFixed(5)} — a parameter fitted to shuffled margins does about as well. <b style="color:var(--text)">That is curve-fitting, not signal.</b> The ranking and the badge can still ship; the probability change cannot.`) +
+      `</div>` +
+      `<div class="subnote"><b style="color:var(--text)">Why the noise floor is here.</b> Any fitted parameter improves the number it was fitted on. The only question is whether it beats a parameter fitted to data with the information deliberately destroyed. That comparison is what separates a real adjustment from a decorated one.</div>` +
+      `<div class="subnote">PENALTY is swept and allowed to be zero. §55a found no measured downgrade effect — 36 picks at 1.3σ pointing the wrong way — so the sweep is given the chance to find one rather than being told there is one.</div>`;
+  }, 30);
+}
+
+function renderFormTest(){
+  const box = $('formOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
+  });
+  if(!ids.length){
+    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Predict tab, wait a few seconds, then run this again.</div>';
+    return;
+  }
+  /* §54: 6 matches is primary (middle of Ken's 5-8); the rest are robustness. A result that shows
+     up at one window and not the others is noise, and that is pre-committed, not decided later. */
+  const WINDOWS = [5, 6, 7, 8], PRIMARY = 6;
+  const groups = [], byWindow = {};
+  let k = 0, wi = 0;
+  const step = () => {
+    if(wi >= WINDOWS.length){ finish(); return; }
+    const W = WINDOWS[wi];
+    if(k >= ids.length){ wi++; k = 0; setTimeout(step, 0); return; }
+    const L = afState.leagues[ids[k]];
+    box.innerHTML = '<div class="subnote"><span class="spinner"></span>Pricing ' +
+      escapeHtml(L.name) + ' — ' + (k+1) + ' of ' + ids.length +
+      ' · window ' + W + ' of 5–8…</div>';
+    const rows = formRowsFor(L, W);
+    rows.leagueName = L.name;
+    if(rows.length >= 100){
+      (byWindow[W] = byWindow[W] || []).push(rows);
+      if(W === PRIMARY) groups.push(rows);
+    }
+    k++;
+    setTimeout(step, 0);
+  };
+  setTimeout(step, 30);
+
+  function finish(){
+    const all = groups.flat();
+    if(all.length < 500){
+      box.innerHTML = '<div class="subnote">Only ' + all.length + ' fixtures could be measured — both sides need five prior matches, so the opening weeks of every season drop out. Not enough to say anything.</div>';
+      return;
+    }
+    // PART A — does form predict the engine's error at all?
+    const naive = olsSlope(all.map(r=>r.x), all.map(r=>r.y));
+    const ctrl  = olsControlled(all.map(r=>r.x), all.map(r=>r.c), all.map(r=>r.y));
+    const permP = naive ? restPermutationP(groups, naive.b, 200) : null;
+    // PART B — Ken's proposal, stratified
+    const B = formStratified(all);
+    // PART C — the MARGIN, as a trend. §54.
+    const C = formMargin(all);
+    const windowTrends = WINDOWS.map(W => {
+      const g = byWindow[W]; if(!g) return { W, t:null };
+      const M = formMargin(g.flat());
+      return { W, t: M && M.trend ? M.trend.t : null, b: M && M.trend ? M.trend.b : null };
+    });
+    const holds = windowTrends.filter(x => x.t != null && x.t > 2).length;
+    const cG1 = !!(C && C.trend && C.trend.t > 2);
+    /* BUILD 137 — GATE 2 PASSED ON NOISE AND THE FIRST RUN PROVED IT. As written in §54 it asked
+       only that an extreme bucket MOVE by 5 points. On 2026-08-09 it passed on the `<= -6` cell:
+       +12.8 on 36 picks with a standard error of 10.0 — 1.3 sigma, indistinguishable from zero,
+       and pointing the WRONG WAY (form strongly against the pick, and the pick did better).
+       A gate that can be cleared by the noisiest cell in the table is not a gate. It now requires
+       the bucket to be (a) big enough, (b) distinguishable from zero at 2 SE, and (c) signed the
+       way the hypothesis predicts: backing form helps, or opposing form hurts. */
+    const bigOK = (lift, se, wantPositive) =>
+      lift != null && se != null && Math.abs(lift) >= MARGIN_GATE2 && Math.abs(lift) > 2*se
+      && (wantPositive ? lift > 0 : lift < 0);
+    const cLo = C && C.buckets[0], cHi = C && C.buckets[C.buckets.length-1];
+    const cG2 = !!(C && (bigOK(cHi.lift, cHi.se, true) || bigOK(cLo.lift, cLo.se, false)));
+    const cG3 = holds >= 3;
+    const T = formTopByLeague(groups);            // §55 — does the top bucket survive decomposition?
+    const cG4 = !!(T && T.total >= 5 && T.pos / T.total >= 0.70);
+
+    const g1 = !!(B && Math.abs(B.t) > 2);
+    const g2 = !!(B && B.diff >= FORM_GATE2);
+    const g3 = !!(B && B.share >= FORM_GATE3);
+
+    /* BUILD 134 — PART A HAD NO VOICE IN THE VERDICT, AND THE FIRST REAL RUN EXPOSED IT.
+       On 2026-08-09 this panel printed "Nothing here" while Part A was sitting at a controlled
+       t of 2.75 with a permutation p of 0.025. §52 named Part A "is there information here at
+       all" and then wrote all three gates on Part B, so a positive Part A could not reach the
+       conclusion. The decision did not change — Part B's gap and Part A's implied gap both fall
+       short of the 5-point bar — but "nothing here" and "real, far too small" are different
+       claims about the world and only one of them was true.
+
+       NO GATE MOVED. FORM_GATE2 and FORM_GATE3 are byte-identical to build 133 and asserted so.
+       What changed is which measurements the verdict is allowed to read. */
+    const aSig = !!(ctrl && Math.abs(ctrl.t) > 2 && permP != null && permP < 0.05);
+
+    /* Converting Part A's slope into the hit-rate units Part B speaks. Calibrated by simulation
+       in verify-form-audit.js: across injected effect sizes the ratio held at ~330 hit-rate points
+       per unit of slope. It is a rough conversion and is labelled as one on screen — its job is to
+       show the two halves are consistent, not to be a fourth statistic. */
+    const A_TO_B = 330;
+    const impliedGap = ctrl ? ctrl.b * A_TO_B : null;
+
+    const gateRow = (label, pass, detail) =>
+      `<div class="frow"><span style="flex:1">${label}</span>
+       <span style="text-align:right"><b style="color:${pass?'var(--green2)':'var(--muted)'}">${pass?'PASS':'fail'}</b>
+       <span class="muted" style="font-size:.72rem"> · ${detail}</span></span></div>`;
+
+    let verdict, colour;
+    if(g1 && g2 && g3){
+      colour = 'var(--green2)'; verdict =
+        '<b>Supported.</b> Form confirmation adds hit rate after engine confidence is held fixed, at a size worth acting on and on enough fixtures to matter. §52: build it as a confidence modifier, measured and gated like Engine 2 — not switched on because this passed.';
+    } else if(g1 && g2 && !g3){
+      colour = 'var(--text)'; verdict =
+        '<b>Real, but too rare to filter on.</b> The gap clears both the significance and the size bar, and only ' + Math.round(100*B.share) + '% of decisive picks qualify. §52 decided this case in advance: <b style="color:var(--text)">a badge on the fixtures that qualify, never a gate.</b> §14 killed the edge filter for exactly this reason.';
+    } else if(g1 && !g2){
+      colour = 'var(--text)'; verdict =
+        '<b>Real, and too small to use.</b> ' + (100*B.diff).toFixed(1) + ' points of hit rate against the 5.0 written into §52 before this ran. <b style="color:var(--text)">Do nothing</b> — this cannot justify re-ranking a tip, and it certainly cannot justify charging for one.';
+    } else if(C && cG1 && cG2 && cG3 && cG4){
+      /* §53's lesson applied in advance: every measurement collected must be able to reach the
+         conclusion, or it will be discarded at the moment it disagrees. Part C gets its branch
+         BEFORE Part B's, because §54 supersedes §52 — it tests the claim Ken actually made. */
+      colour = 'var(--green2)'; verdict =
+        '<b>Ken\'s margin version holds, and it survives decomposition.</b> Trend t ' + C.trend.t.toFixed(2) + ', the strongly-backing bucket moves the hit rate by ' + (100*cHi.lift).toFixed(1) + ' points (' + (cHi.lift/cHi.se).toFixed(1) + 'σ), it holds at ' + holds + ' of 4 windows, and it points the same way in ' + T.pos + ' of ' + T.total + ' competitions — which is the part that is not just the same result counted again. §54: build the confidence adjustment, sized to the measured lift and gated like Engine 2 — not switched on because this passed.';
+    } else if(C && cG2 && Math.abs(C.asym.down) >= MARGIN_GATE2 && Math.abs(C.asym.down) > Math.abs(C.asym.up) && cG3){
+      colour = 'var(--text)'; verdict =
+        '<b>The downgrade holds; the upgrade does not.</b> Form strongly against the pick costs ' + (100*C.asym.down).toFixed(1) + ' points, while form backing it is worth only ' + (100*C.asym.up).toFixed(1) + '. §54 decided this case in advance: <b style="color:var(--text)">ship the downgrade alone.</b> A one-sided rule is legitimate when that is where the evidence is — and it matches the intuition that a cold streak more often means something is wrong, while a hot one is often just the schedule.';
+    } else if(B && aSig){
+      /* build 134 — the case the first run actually landed in, and the one the panel could not
+         previously express: Part B flat, Part A significant. Not "nothing". */
+      colour = 'var(--text)'; verdict =
+        '<b>Real, and far too small to use.</b> Part B is flat at ' + (100*B.diff).toFixed(1) + ' ± ' + (100*B.se).toFixed(1) + ' points, but <b style="color:var(--text)">Part A found the signal</b> — controlled slope ' + ctrl.b.toFixed(4) + ', t ' + ctrl.t.toFixed(2) + ', permutation p ' + permP.toFixed(3) + ', and controlling made it stronger rather than weaker. '
+        + 'These do not contradict each other: that slope converts to roughly <b>' + impliedGap.toFixed(1) + ' points</b> of hit rate, which Part B cannot resolve at ± ' + (100*B.se).toFixed(1) + '. '
+        + '<b style="color:var(--text)">So short-term form does carry a little information the engine lacks, in the direction Ken argued — and it is worth about ' + impliedGap.toFixed(1) + ' points against a bar of 5.0 set before the run.</b> Not enough to re-rank a tip, and nowhere near enough to charge for. §52: do nothing.';
+    } else if(B){
+      colour = 'var(--muted)'; verdict =
+        '<b>Nothing here.</b> Once engine confidence is held fixed, backing the pick with better recent form is worth ' + (100*B.diff).toFixed(1) + ' points of hit rate (± ' + (100*B.se).toFixed(1) + '), and Part A does not find a signal either. §52: <i>"What looked like confirmation was the easy fixtures."</i> Do not re-open without a signal measured independently of results — real injury or lineup data.';
+    } else {
+      colour = 'var(--muted)'; verdict = '<b>Not enough decisive picks with both groups represented in a confidence band.</b> This needs more history before it can be judged.';
+    }
+
+    const bandRows = B ? B.detail.map(d=>
+      `<div class="frow"><span style="flex:1">${pct(d.lo)}–${pct(d.lo+FORM_BAND)}</span>
+        <span style="width:26%;text-align:right">${pct(d.p1)} <span class="muted" style="font-size:.7rem">(${d.cN})</span></span>
+        <span style="width:26%;text-align:right">${pct(d.p2)} <span class="muted" style="font-size:.7rem">(${d.xN})</span></span>
+        <span style="width:16%;text-align:right;color:${d.p1>=d.p2?'var(--green2)':'var(--red)'}"><b>${(d.p1-d.p2>=0?'+':'')}${(100*(d.p1-d.p2)).toFixed(0)}</b></span></div>`).join('') : '';
+
+    box.innerHTML =
+      `<div class="sec-label">Part A — does form predict the engine's error?</div>
+       <div class="frow"><span style="flex:1">Fixtures measured</span><span><b>${all.length.toLocaleString()}</b></span></div>` +
+      (naive ? `<div class="frow"><span style="flex:1">Slope per form point</span><span><b>${(naive.b>=0?'+':'')}${naive.b.toFixed(4)}</b> <span class="muted" style="font-size:.72rem">t ${naive.t.toFixed(2)}${permP!=null?' · perm p '+permP.toFixed(3):''}</span></span></div>` : '') +
+      (ctrl ? `<div class="frow"><span style="flex:1">…controlling for engine confidence</span><span><b>${(ctrl.b>=0?'+':'')}${ctrl.b.toFixed(4)}</b> <span class="muted" style="font-size:.72rem">t ${ctrl.t.toFixed(2)}</span></span></div>` : '') +
+      (B ? `<div class="sec-label" style="margin-top:14px">Part B — Ken's test, by confidence band</div>
+       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Confidence</span><span style="width:26%;text-align:right">Form agrees</span>
+         <span style="width:26%;text-align:right">Form disagrees</span><span style="width:16%;text-align:right">Gap</span></div>`
+       + bandRows
+       + `<div class="frow" style="margin-top:6px"><span style="flex:1"><b>Pooled gap</b></span><span><b style="color:${B.diff>=0?'var(--green2)':'var(--red)'}">${(B.diff>=0?'+':'')}${(100*B.diff).toFixed(1)} pts</b> <span class="muted" style="font-size:.72rem">± ${(100*B.se).toFixed(1)}</span></span></div>`
+       + (impliedGap != null && aSig ? `<div class="subnote"><b style="color:var(--text)">Do the two halves agree?</b> Part A's slope converts to roughly <b>${impliedGap.toFixed(1)} points</b> of hit rate (conversion calibrated by simulation, so treat it as approximate). Part B measured ${(100*B.diff).toFixed(1)} ± ${(100*B.se).toFixed(1)}. Those are consistent — Part B simply has too coarse an instrument to resolve an effect this small, which is why Part A exists.</div>` : '')
+       + (B.raw != null ? `<div class="subnote"><b style="color:var(--text)">Before stratifying it looked like ${(B.raw>=0?'+':'')}${(100*B.raw).toFixed(1)} points.</b> The difference between that and the pooled figure above is the confound §52 predicted — agreement cases are the easier fixtures, and comparing them to everything else measures difficulty, not form.</div>` : '')
+       + `<div class="sec-label" style="margin-top:12px">The gates, as written in §52 before this ran</div>`
+       + gateRow('1 · Statistical — gap &gt; 2 SE', g1, 't = ' + B.t.toFixed(2))
+       + gateRow('2 · Practical — gap ≥ 5 points', g2, (100*B.diff).toFixed(1) + ' vs 5.0')
+       + gateRow('3 · Volume — keeps ≥ 30% of picks', g3, Math.round(100*B.share) + '% of ' + B.n.toLocaleString())
+       : '') +
+      (C ? `<div class="sec-label" style="margin-top:14px">Part C — the MARGIN (§54). "Far better", not just better.</div>
+       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Form margin of the picked side</span><span style="width:20%;text-align:right">Picks</span>
+         <span style="width:24%;text-align:right">Lift vs band</span></div>`
+       + C.buckets.map(b=>`<div class="frow"><span style="flex:1">${escapeHtml(b.label)}</span>
+           <span style="width:20%;text-align:right">${b.n}</span>
+           <span style="width:24%;text-align:right;color:${b.lift==null?'var(--muted)':b.lift>=0?'var(--green2)':'var(--red)'}">
+             <b>${b.lift==null?'—':((b.lift>=0?'+':'')+(100*b.lift).toFixed(1))}</b>
+             ${b.se!=null?`<span class="muted" style="font-size:.7rem"> ±${(100*b.se).toFixed(1)}</span>`:''}</span></div>`).join('')
+       + (C.trend ? `<div class="frow" style="margin-top:6px"><span style="flex:1"><b>Trend across the buckets</b></span>
+           <span><b style="color:${C.trend.t>2?'var(--green2)':'var(--muted)'}">${(C.trend.b>=0?'+':'')}${(100*C.trend.b).toFixed(2)} pts per step</b>
+           <span class="muted" style="font-size:.72rem"> t ${C.trend.t.toFixed(2)}</span></span></div>` : '')
+       + (C.asym ? `<div class="subnote"><b style="color:var(--text)">The asymmetry Ken predicted.</b> Form strongly AGAINST the pick moves it ${(100*C.asym.down>=0?'+':'')}${(100*C.asym.down).toFixed(1)} points; form strongly BACKING it moves it ${(100*C.asym.up>=0?'+':'')}${(100*C.asym.up).toFixed(1)}. ${C.asym.down >= 0 && C.asym.up >= 0
+            ? '<b style="color:var(--text)">Both ends are positive, so there is no downgrade here at all</b> — comparing their sizes would be meaningless. Ken\'s sub-prediction cannot be evaluated on this data.'
+            : Math.abs(C.asym.down) > Math.abs(C.asym.up)
+            ? '<b style="color:var(--text)">The downgrade is the bigger effect.</b>'
+            : 'The downgrade is NOT the bigger effect.'}</div>
+       <div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px"><b style="color:var(--text)">Do not read the asymmetry as proof of Ken\'s mechanism.</b> In validation, feeding this test a perfectly SYMMETRIC hidden effect still produced a bigger downgrade than upgrade, every time. The engine picks the stronger side, so its hit rate sits high — there is simply more room to fall than to rise. <b style="color:var(--text)">A ceiling effect looks exactly like "a cold streak matters more than a hot one".</b> The direction is only evidence if the gap is far larger than the few points that artefact alone produces.</div>` : '')
+       + `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-top:10px"><span style="flex:1">Window robustness (§54 gate 3)</span></div>`
+       + `<div class="frow"><span style="flex:1">${windowTrends.map(x=>x.W+': '+(x.t==null?'—':'t '+x.t.toFixed(2))).join(' · ')}</span>
+           <span><b style="color:${cG3?'var(--green2)':'var(--muted)'}">${holds}/4</b></span></div>`
+       + (T && T.total ? `<div class="sec-label" style="margin-top:12px">§55 — does the "≥ +6" finding survive being taken apart?</div>`
+           + T.rows.map(r=>`<div class="frow"><span style="flex:1">${escapeHtml(r.name)}</span>
+               <span style="width:18%;text-align:right">${r.n}</span>
+               <span style="width:28%;text-align:right;color:${r.lift>=0?'var(--green2)':'var(--red)'}">
+                 <b>${(r.lift>=0?'+':'')}${(100*r.lift).toFixed(1)}</b>
+                 <span class="muted" style="font-size:.7rem"> ±${(100*r.se).toFixed(1)}</span></span></div>`).join('')
+           + `<div class="frow"><span style="flex:1"><b>Competitions pointing the right way</b></span>
+               <span><b style="color:${cG4?'var(--green2)':'var(--red)'}">${T.pos} of ${T.total}</b></span></div>`
+           + `<div class="subnote"><b style="color:var(--text)">This is the check that matters, and window agreement is not a substitute for it.</b> Windows 5–8 are four overlapping views of the same fixtures, so "4 of 4" is close to one result counted four times. Competitions are separate data. A pooled edge that is real should still be visible, in the same direction, in most of the parts — the mirror of build 100, where patterns in single leagues died on pooling.</div>` : '')
+       + `<div class="sec-label" style="margin-top:12px">Part C gates, written in §54 before this ran</div>`
+       + gateRow('1 · Upward trend, |t| &gt; 2', cG1, C.trend ? 't = ' + C.trend.t.toFixed(2) : 'not computable')
+       + gateRow('2 · An extreme bucket moves ≥ 5 pts', cG2, C.asym ? Math.max(Math.abs(100*C.asym.down), Math.abs(100*C.asym.up)).toFixed(1) + ' vs 5.0' : '—')
+       + gateRow('3 · Holds at 3 of 4 windows', cG3, holds + '/4')
+       + gateRow('4 · §55 — holds in ≥70% of competitions', cG4, T && T.total ? T.pos + '/' + T.total : 'too few')
+       + `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px"><b style="color:var(--text)">Part C is the least powerful test here.</b> Bucketing costs resolution: measured against a hidden effect the engine cannot see, the trend detects a ±50% swing, and <b>misses ±35% and ±20%</b> — weaker than Part B, which caught ±35%. A flat trend rules out only a very large effect. If Part C is flat and Part A is not, believe Part A.</div>`
+       + `<div class="subnote">Each bucket is compared to <b>its own confidence band's base rate</b>, not to the opposite bucket — that is what lets the upgrade and the downgrade be judged separately, which Ken's rule requires. No margin threshold was chosen: a trend across buckets is a stronger claim than any cutoff and cannot be fished for.</div>`
+       : '') +
+      `<div class="subnote" style="border-left:3px solid ${colour};padding-left:9px;margin-top:12px">${verdict}</div>` +
+      /* THE MOST IMPORTANT LINE ON THIS PANEL IF THE ANSWER IS "NOTHING". Measured in validation:
+         with a hidden effect the engine cannot see, this test detects a ±35% swing in a team's
+         scoring rate and MISSES ±20% — every time, at this sample size. Five matches is a coarse
+         instrument, and that is arithmetic about football, not a bug. A null here rules out a
+         crisis-sized effect and nothing gentler. */
+      `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px"><b style="color:var(--text)">What a "nothing" here does and does not rule out.</b> Validation on simulated leagues with a known hidden effect: this test <b>detects a ±35% swing</b> in a side's scoring rate — an injury crisis — and <b>reliably misses ±20%</b>. Five matches is a small sample, and the coin-flip noise inside it swamps anything gentler. So a flat result rules out a large effect, not a real one. Widening the window to 8–10 matches would buy power at the cost of no longer being "short-term form".</div>` +
+      `<div class="subnote"><b style="color:var(--text)">Why the bands.</b> A team in good form is usually also the stronger side, so form-agreeing picks are the lopsided fixtures. Comparing them to everything else would measure how easy the match was and call it form. Each row above compares agreement against disagreement <b>at the same engine confidence</b>, which is the only way the question can be asked honestly.</div>` +
+      `<div class="subnote">Form is points from each side's last ${FORM_N} matches, read before the current result is recorded. Walk-forward throughout. This measures SELECTIVITY — which picks to trust — and changes no probability. §15's finding that full history beats recency weighting for RATINGS is untouched and unrelated.</div>`;
   }
 }
 
@@ -6583,6 +7364,10 @@ async function loadCloudLeagues(force){
                app says from here on. `gated` is stored on the fixture so every screen reads one
                decision instead of each recomputing its own. */
             f.edge  = started ? f.edge : pickEdge(L, f.pick, f.prob);   // build 129 — for Top Matches
+            /* build 141 — form margin, for ranking and the badge. Frozen fixtures keep whatever
+               they had: recomputing it after kick-off would re-describe a published pick, which
+               is the drift build 62 removed. */
+            f.formM = started ? f.formM : formMarginFor(L, f.home, f.away, f.pick);
             f.gated = started ? null : gateReason(L, f, f.pick, f.prob);
             // a withheld pick is not recorded either — the record must contain what was published
             if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
@@ -7124,7 +7909,11 @@ function renderFixtures(){
   const rowHtml = (L, f)=>{
     const i = dayList.length; dayList.push({leagueId:L.id, f});
     const {timeCell, chip} = fxCells(L, f, smap);
-    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${chip}</div>`;
+    /* build 141 — the form flag. A row-level mark, not a number: §58's holdout says how MUCH
+       form is worth cannot be pinned down, only that these picks did better. */
+    const fm = (FORM_ADJ.ON && f.formM != null && f.formM >= FORM_ADJ.UP)
+      ? `<span class="formflag" title="The side picked here is also ${f.formM} points better over its last ${FORM_ADJ.WIN} matches">🔥</span>` : '';
+    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${fm}${chip}</div>`;
   };
 
   /* BUILD 129 — TOP MATCHES IS NOW RANKED BY EDGE, NOT BY FAME.
@@ -7148,9 +7937,22 @@ function renderFixtures(){
       if(f.edge == null || f.edge <= 0) continue;   // no edge, no top billing — whatever the badge
       feat.push([L,f]);
     }
-    feat.sort((a,b)=> (b[1].edge||0) - (a[1].edge||0));
+    /* BUILD 141 — FORM CONFIRMATION ENTERS THE DECISION. Ken: "the machine runs it before finally
+       picking the better side as a potential winner."
+       Fixtures the form strongly backs sort ABOVE those it does not; edge remains the ordering
+       inside each group. Deliberately a two-tier sort rather than a blended score: blending would
+       need a weight, a weight is a fitted number, and the fitted number FAILED its holdout (§58).
+       Ordering needs no such number — it only needs to know which group is better, which §55a
+       measured at +6.97 across nine competitions. Nothing here changes a probability. */
+    const backed = f => FORM_ADJ.ON && f.formM != null && f.formM >= FORM_ADJ.UP;
+    feat.sort((a,b)=>{
+      const ba = backed(a[1]) ? 1 : 0, bb = backed(b[1]) ? 1 : 0;
+      if(ba !== bb) return bb - ba;
+      return (b[1].edge||0) - (a[1].edge||0);
+    });
     if(feat.length){
-      html += `<div class="lghead">⭐ Top Matches <span class="muted" style="font-size:.7rem;font-weight:600">biggest edge over an average match</span></div>`;
+      const anyBacked = feat.slice(0,8).some(x=>backed(x[1]));
+      html += `<div class="lghead">⭐ Top Matches <span class="muted" style="font-size:.7rem;font-weight:600">${anyBacked ? 'form-backed first, then biggest edge' : 'biggest edge over an average match'}</span></div>`;
       for(const [L,f] of feat.slice(0,8)) html += rowHtml(L,f);
     }
   }
@@ -8400,6 +9202,8 @@ function renderNewcomerSweep(){
 { const b=$('ncSweepBtn'); if(b) b.addEventListener('click', renderNewcomerSweep); }
 { const b=$('dispBtn'); if(b) b.addEventListener('click', renderDispersionTest); }
 { const b=$('restBtn'); if(b) b.addEventListener('click', renderRestDayTest); }
+{ const b=$('formBtn'); if(b) b.addEventListener('click', renderFormTest); }
+{ const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
