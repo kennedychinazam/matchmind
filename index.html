@@ -613,6 +613,13 @@
       <div class="subnote" id="delAcctNote"></div>
     </div>
 
+    <div class="sec-label">Accuracy</div>
+    <div class="card">
+      <h2>🎯 How the engine is doing</h2>
+      <div class="muted" id="moreRecordLine" style="line-height:1.5"></div>
+      <div id="moreRecordBreak" style="margin-top:10px"></div>
+    </div>
+
         <div id="devStub" hidden aria-hidden="true">
       <select id="homeTeam"></select><select id="awayTeam"></select>
       <textarea id="scorerData"></textarea><input id="afKey" value="">
@@ -629,6 +636,7 @@
       <button id="restBtn"></button><div id="restOut"></div>
       <button id="formBtn"></button><div id="formOut"></div>
       <button id="faBtn"></button><div id="faOut"></div>
+      <button id="flBtn"></button><div id="flOut"></div>
       <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
@@ -667,7 +675,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 141;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 153;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1027,10 +1035,40 @@ function registerLeagueDampen(L){
    properly. Kept because it is measured, not because it matters much.
    It also has not proved that goals are correlated. The engine quoted 24.4% draws against 25.5%
    actual, and rho patches any draw shortfall whatever its cause. */
-/* build 127 — the newcomer prior, OFF by default. MIN 1.00 is the identity: every team keeps the
-   rating it already had, so this constant existing changes nothing until the sweep says it should.
-   FULL is how many appearances it takes for a team to be treated as fully known. */
-const NEWCOMER = { MIN: 1.00, FULL: 20 };
+/* BUILD 149 — THE NEWCOMER PRIOR IS NOW ON, at Ken's instruction.
+
+   Ken: "ensure that newly promoted sides aren't regarded as big teams just yet until they have
+   reasonable history in the league. if the one team in the league last season and has a good
+   record meets a newly promoted side, the older team in the league should be the favorite."
+
+   WHY THIS FIXES EXACTLY WHAT HE DESCRIBES. Build 77 rates a side with no matches in the division
+   at EXACTLY 1.0 — league average — because that is what shrinkage returns at zero games. Honest
+   about our ignorance, and wrong about football: promoted teams are, as a class, the worst sides
+   in the division. The visible symptom is precisely his case — a newcomer sitting at average
+   OUTRANKS an established team rated below average, so a genuinely poor side that has survived a
+   season is made the underdog against a team nobody has seen play at this level.
+
+   MIN 0.85 IS MEASURED, NOT CHOSEN. From the sweep in §45, run on Ken's own ten competitions:
+
+     MIN    log loss   vs off    leagues better   McNemar
+     1.00   0.9968     —         —                —
+     0.95   0.9962     +0.06%    9/10             -0.35 sigma
+     0.90   0.9958     +0.10%    8/10             -0.49 sigma
+     0.85   0.9957     +0.11%    8/10             -0.21 sigma   <- best log loss, least-bad McNemar
+     0.80   0.9958     +0.10%    7/10             -1.39 sigma
+
+   WHAT THE MEASUREMENT SAID, IN FULL, INCLUDING THE PART AGAINST THIS. Log loss improves at every
+   setting and 9 of 10 competitions improve at 0.95 (sign test p = 1.07%) — a real, consistent
+   CALIBRATION gain. But McNemar is negative at every setting: when the correction changes a pick,
+   the new pick is no better and marginally worse. That is why §45 left it OFF, and that reasoning
+   has not been refuted — it has been overruled, deliberately, because Ken is asking for a specific
+   behaviour (a newcomer must not outrank an established side by default) that this constant is the
+   correct mechanism for, and the calibration gain is real even where the decision gain is not.
+
+   Set MIN back to 1.00 to disable. FULL is how many appearances until a team is treated as fully
+   known — a promoted side reaches full strength after 20 matches, ramping linearly, so it stops
+   being handicapped once it has earned a record of its own. */
+const NEWCOMER = { MIN: 0.85, FULL: 20 };
 const ENGINE2 = {
   ON: true,           // build 105 — turned on by the A/B panel, 10 of 10 competitions
   ITERS: 14,          // cold-start passes to convergence
@@ -1473,8 +1511,26 @@ const footballEngine = {
             topScores:scores.slice(0,5), topByPick};    // topByPick replaced topByResult in build 117
   },
 
-  form(team, k=5){
-    const ms = this.matches.filter(m=>m.home===team||m.away===team).slice(-k);
+  /* BUILD 150 — A CUTOFF, because these two panels were showing a match its own result.
+     Ken, on Cambuur 0-4 Excelsior: "that one match you see is this current match result from two
+     days ago. it is already written into them."
+
+     He is exactly right. `form()` and `h2h()` read the whole match list, so on a PLAYED fixture
+     they included the fixture being looked at. Cambuur's single "L" WAS this 0-4, and the only
+     head-to-head line WAS this match. The panel meant to show what the engine knew beforehand was
+     quietly showing it the answer.
+
+     WHAT THIS DID AND DID NOT AFFECT. The prediction itself was always clean — `predict()` is
+     called with an explicit cutoff index for played fixtures, which is why the probabilities never
+     drifted. But the evidence panels lied, and worse, the same form and h2h are posted to the AI
+     writer, so on a played match the model was handed the OUTCOME labelled as "recent form" and
+     could describe it as something known before kick-off.
+
+     The real cost was analytical: it made Cambuur look like a side with one match of history when
+     it had NONE, which sent an investigation down the wrong road for two rounds. */
+  form(team, k=5, upTo){
+    const src = upTo != null ? this.matches.slice(0, upTo) : this.matches;
+    const ms = src.filter(m=>m.home===team||m.away===team).slice(-k);
     return ms.map(m=>{
       const isHome = m.home===team;
       const gf = isHome?m.hg:m.ag, ga = isHome?m.ag:m.hg;
@@ -1482,8 +1538,9 @@ const footballEngine = {
     });
   },
 
-  h2h(home, away){
-    return this.matches.filter(m=>
+  h2h(home, away, upTo){
+    const src = upTo != null ? this.matches.slice(0, upTo) : this.matches;
+    return src.filter(m=>
       (m.home===home&&m.away===away)||(m.home===away&&m.away===home));
   },
 
@@ -1556,6 +1613,12 @@ function erf(x){
 function pct(x){ return (100*x).toFixed(1)+'%'; }
 function formString(form){ return form.map(f=>f.res).join('') || '—'; }
 function formPoints(form){ return form.reduce((s,f)=>s+(f.res==='W'?3:f.res==='D'?1:0),0); }
+// build 150 — no matches is not the same as no points, and the panel has to say which
+function formRow(form){
+  return form.length
+    ? `<span>${form.map(f=>pill(f.res)).join('')}</span><span class="muted">${formPoints(form)} pts</span>`
+    : `<span class="muted" style="font-size:.78rem">no earlier matches in this competition</span>`;
+}
 
 function localAnalysis(ctx){
   const {sport, home, away, pred, formH, formA, h2h} = ctx;
@@ -2765,6 +2828,29 @@ function rungsFor(P){
   return rungs;
 }
 
+/* BUILD 146 — A FLOOR PER MARKET, ON TOP OF THE COMPETITION'S MEASURED BAR.
+   Ken: "for double chance, the confidence must be at least 70% else, go for the next available
+   odd. like U3.5, O2.5, btts. I need to tighten my prediction and tip gate."
+
+   WHY DOUBLE CHANCE SPECIFICALLY NEEDS ITS OWN FLOOR. 1X and X2 cover two of the three outcomes,
+   so their probability is high on almost any fixture — pW + pD clears a 55-60% bar routinely
+   without the engine saying anything interesting. The competition bar (§46) is one number applied
+   to every market, so the rung that is easiest to clear wins the ladder most often. A floor is
+   what stops Double Chance being picked on arithmetic rather than on conviction.
+
+   THIS IS KEN'S JUDGEMENT, NOT A MEASUREMENT, and it is labelled as such deliberately. The
+   auto-gate bars in §46 were measured from each league's own history; 0.70 was chosen. It is a
+   selectivity preference — fewer, firmer tips — which is a product decision he is entitled to make
+   without a study. What it must NOT be mistaken for is evidence that DC picks above 70% win more
+   often; nothing here measured that. */
+/* BUILD 148 — EMPTIED ON KEN'S INSTRUCTION: "restore our prediction to how it was yesterday,
+   forget about the gates we added today."
+
+   The mechanism stays; only the values are gone, so the ladder behaves exactly as it did before
+   build 146 — every rung judged against its competition's own measured bar and nothing else.
+   Re-enabling is one line: put '1X': 0.70, 'X2': 0.70 back. */
+const RUNG_MIN = {};
+
 function ladderPick(P, home, away, L){
   if(!P) return null;
   const G = gateBarFor(L);   // build 128 — the competition's own measured bar, not one global number
@@ -2779,9 +2865,12 @@ function ladderPick(P, home, away, L){
      Over 1.5 is excluded from candidacy: near 75% on almost any fixture, it would win the rung on the
      league's base rate rather than on these teams. */
   const rungs = rungsFor(P);
-  for(const r of rungs)
-    if(r.prob >= G) return {...r, prob:+r.prob.toFixed(3), market:pickMarket(r.code),
-                            label:pickLabel(r.code, home, away), rung:rungs.indexOf(r)};
+  for(const r of rungs){
+    // build 146 — the higher of the league's measured bar and this market's own floor
+    const bar = Math.max(G, RUNG_MIN[r.code] || 0);
+    if(r.prob >= bar) return {...r, prob:+r.prob.toFixed(3), market:pickMarket(r.code),
+                              label:pickLabel(r.code, home, away), rung:rungs.indexOf(r)};
+  }
   return null;   // nothing on this match clears the bar — the fixture publishes no pick
 }
 /* build 120 — every goals code, in one place, so the grader, the labeller and the baseline lookup
@@ -3232,8 +3321,24 @@ async function analyze(){
   const eng = sport==='football' ? footballEngine : basketballEngine;
   const pred = (sport==='football' && pendingFrozenPred) ? pendingFrozenPred : eng.predict(home, away);
   if(!pred){ showNoAnalysis(home, away); return; }   // build 110 — was a dead-end alert
-  const formH = eng.form(home), formA = eng.form(away);
-  const h2h = eng.h2h(home, away);
+  /* BUILD 151 — READ FROM `pendingMeta`, NOT FROM THE UNPACKED GLOBALS.
+     Build 150 checked the two unpacked globals here — but those are not assigned
+     until ~40 lines further down, where `pendingMeta` is consumed. So this ran against the
+     PREVIOUS match's values, or empty strings on the first open, and the cutoff never applied.
+     Ken: "nothing changed after the last update." Correct, and twice over: build 150 fixed the
+     right function and read the flag before anything had set it.
+
+     `pendingMeta` itself is still populated at this point, so it is read directly. The played
+     check is also gone as redundant: `eng.matches` holds only FINISHED matches, so finding the
+     fixture in it IS the proof that it has been played. One condition instead of two, and neither
+     of them depends on assignment order. */
+  const _cutDate = pendingMeta && pendingMeta.date ? pendingMeta.date : null;
+  const formCut = (sport==='football' && _cutDate)
+    ? (() => { const i = eng.matches.findIndex(m => m.date===_cutDate && m.home===home && m.away===away);
+               return i >= 0 ? i : null; })()
+    : null;
+  const formH = eng.form(home, 5, formCut), formA = eng.form(away, 5, formCut);
+  const h2h = eng.h2h(home, away, formCut);
 
   showAnalysis();
 
@@ -3475,8 +3580,12 @@ async function analyze(){
 
   // form + h2h
   $('formBox').innerHTML =
-    `<div class="frow"><b>${home}</b><span>${formH.map(f=>pill(f.res)).join('')}</span><span class="muted">${formPoints(formH)} pts</span></div>` +
-    `<div class="frow"><b>${away}</b><span>${formA.map(f=>pill(f.res)).join('')}</span><span class="muted">${formPoints(formA)} pts</span></div>`;
+    /* build 150 — an EMPTY form row must not read as "played and took 0 points". With the cutoff
+       in place a promoted side can legitimately have no prior matches at all, and that is the most
+       important thing on the panel — it is the difference between a side that played badly and one
+       the engine had never seen. Cambuur was exactly this case. */
+    `<div class="frow"><b>${home}</b>${formRow(formH)}</div>` +
+    `<div class="frow"><b>${away}</b>${formRow(formA)}</div>`;
   $('h2hBox').innerHTML = h2h.length
     ? h2h.slice(-5).map(m=>`${m.date}: ${m.home} ${m.hg??m.hp}–${m.ag??m.ap} ${m.away}`).join('<br>')
     : 'No previous meetings in the dataset.';
@@ -3879,8 +3988,30 @@ function kickoffPassed(f){
   if(!d) return daysPast(f.date) > 0;            // no usable time: started once the date is behind us
   return Date.now() >= d.getTime();
 }
-function archivePrediction(L, f, p, hp){
+/* BUILD 142 — THE ARCHIVE WAS STORING A DIFFERENT PICK FROM THE ONE THE APP PUBLISHED.
+
+   Ken: "why didn't the prediction remain and why did the prediction after the result change?"
+   Santos v Paranaense was shown as **U3.5 · 78%** before kick-off. It finished 0-2 — two goals,
+   so U3.5 WON. Afterwards the app showed **1X ✗**, a loss, on the same fixture.
+
+   THE CAUSE, exactly. Since build 119 the app publishes the LADDER pick (`f.pick`) — which may be
+   a goals market, a Double Chance, a DNB. But this function was handed `hp`, the raw Win/Draw/Loss
+   `headlinePick`, and stored `hp.code`. So for every fixture where the ladder chose a different
+   market from the headline, the archive held a pick THE APP NEVER SHOWED. After kick-off the feed
+   restores from the archive (build 62's freeze), and the displayed pick silently changed market.
+
+   The local record was right all along — `recordPick()` uses `f.pick`. So the feed and the record
+   disagreed, which is precisely the contradiction build 62 was created to remove, reintroduced
+   through a parameter that was correct when it was written and became wrong when the ladder landed.
+
+   THE LESSON: build 62 froze the pick. It did not check that the thing being frozen was the thing
+   being shown. **A snapshot is only honest if it snapshots the published claim** — and when a new
+   publishing path (the ladder) was added, this write site was not revisited.
+
+   `hp` is deliberately no longer accepted. The published pick is the only pick this may store. */
+function archivePrediction(L, f, p){
   if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
+  if(!f.pick || f.prob == null) return;          // nothing was published — nothing to archive
   /* Only ever written BEFORE kick-off, so overwriting is safe and is what we want: the snapshot
      should be the last price the app showed, not the one it happened to compute a week out. After
      kick-off this returns immediately, which is what makes the record un-rewritable (build 62). */
@@ -3890,13 +4021,32 @@ function archivePrediction(L, f, p, hp){
     home: f.home, away: f.away,
     p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
     xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
-    pick: hp.code, pick_prob:+hp.prob.toFixed(4),
+    pick: f.pick, pick_prob:+(+f.prob).toFixed(4),   // THE PUBLISHED PICK. Never the headline.
     build: APP_BUILD, made_at: new Date().toISOString()
   });
   // batch, so opening the Predict tab is one write rather than forty
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(flushPredictionArchive, 2500);
 }
+/* BUILD 142 — the second half of the same bug. Bragantino v Corinthians read "No edge here"
+   before kick-off and came back as "1X ✗" afterwards.
+
+   A gated fixture is never archived — but one archived on an EARLIER load, before the competition's
+   bar rose (the auto-gate is raise-only, §47), leaves a stale row behind. After kick-off that row
+   is restored and a pick the user was explicitly told did not exist appears, graded, in the record.
+
+   So the archive is kept equal to what was published: publish -> upsert, withhold -> remove. */
+function unarchivePrediction(f){
+  if(!f || !f.fxid) return;
+  archiveQueue.delete(f.fxid);
+  if(afState.archive && afState.archive[f.fxid]) delete afState.archive[f.fxid];
+  if(!supa || kickoffPassed(f)) return;           // after kick-off the record is untouchable
+  if(_unarchived.has(f.fxid)) return;             // once per session is enough
+  _unarchived.add(f.fxid);
+  try{ supa.from('predictions').delete().eq('fxid', f.fxid).then(()=>{}, ()=>{}); }catch(e){}
+}
+const _unarchived = new Set();
+
 async function flushPredictionArchive(){
   if(!supa || !archiveQueue.size) return;
   const rows = [...archiveQueue.values()];
@@ -4499,6 +4649,209 @@ const REST_GATE2 = 0.10 / 3;   // §48 gate 2: a 3-day advantage must be worth >
    from the same provider and uses the same shortName — that assumption would break the day a second
    provider is mixed in, and the count of teams matched is reported on screen so it cannot break
    silently. */
+/* ══ THE FEATURE LAYER — PHASE 0 (build 152) ════════════════════════════════════════
+   Engine v2, per MatchMind-ENGINE-V2-PLAN.md.
+
+   THE METHOD CHANGE THIS BEGINS. Until now every variable was proposed, argued about, measured
+   alone, and usually rejected — four this week, three dead. That is slow, and it is not how a
+   real model is built. From here: compute EVERY reachable variable as a named feature, store it,
+   and let a regularised fit decide the weights in Phase 3. A feature that carries nothing gets a
+   weight near zero automatically. **Nothing has to be defended in advance any more.**
+
+   THIS FILE CHANGES NO PREDICTION. Every function below is pure measurement, computed
+   walk-forward, wired to nothing. That is deliberate — Phase 2 needs the features to exist and
+   accumulate before Phase 3 can fit anything against them.
+
+   PHASE 0 covers only what today's free data can produce: items 26, 27, 36, 38, 40, 47, 54 and
+   the history counts. Everything else waits on the API-Football migration in Phase 1. */
+
+/* Pooled fixture index: every match a team has played, in ANY loaded competition, with its
+   competition id. Rest days and cup-distraction both need to see across competitions — a midweek
+   European tie is invisible if you only look at the league. */
+function buildFixtureIndex(){
+  const byTeam = {};
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L || (L.sport||'football') !== 'football') continue;
+    const push = (team, date) => { if(team && date) (byTeam[team] = byTeam[team] || []).push({ date, lid: L.id }); };
+    for(const m of (L.matches || [])){ push(m.home, m.date); push(m.away, m.date); }
+    for(const f of (L.upcoming || [])){ push(f.home, f.date); push(f.away, f.date); }
+  }
+  for(const t of Object.keys(byTeam)){
+    byTeam[t].sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  }
+  return byTeam;
+}
+
+const _dayNum = d => Math.floor(Date.parse(d + 'T00:00:00Z') / 86400000);
+
+/* ITEM 38 — fixture congestion: matches played in the WINDOW days before this one, any competition. */
+function congestionFor(idx, team, date, WINDOW){
+  const a = idx[team]; if(!a) return null;
+  const d0 = _dayNum(date); let n = 0;
+  for(const e of a){ const d = _dayNum(e.date); if(d < d0 && d >= d0 - WINDOW) n++; }
+  return n;
+}
+
+/* ITEM 54 — cup / European distraction: does this team play again within LOOK days, in a DIFFERENT
+   competition? That is the fixture a manager rotates for. Uses upcoming fixtures too, so it works
+   on a match that has not been played yet. */
+function distractionFor(idx, team, date, lid, LOOK){
+  const a = idx[team]; if(!a) return null;
+  const d0 = _dayNum(date);
+  for(const e of a){
+    const d = _dayNum(e.date);
+    if(d > d0 && d <= d0 + LOOK && e.lid !== lid) return 1;
+  }
+  return 0;
+}
+
+/* ITEMS 26 & 27 — first- and second-half goal differential per 90, from matches BEFORE upTo.
+   Half-time scores have been stored since build 48, so this needs no new data at all. */
+function halfSplitFor(L, team, upTo){
+  const ms = (L.matches || []).slice(0, upTo == null ? undefined : upTo);
+  let n = 0, fh = 0, sh = 0;
+  for(const m of ms){
+    if(m.hg == null || m.ag == null || m.hth == null || m.hta == null) continue;
+    const isH = m.home === team, isA = m.away === team;
+    if(!isH && !isA) continue;
+    const f = isH ? (m.hth - m.hta) : (m.hta - m.hth);
+    const s = isH ? ((m.hg-m.hth) - (m.ag-m.hta)) : ((m.ag-m.hta) - (m.hg-m.hth));
+    fh += f; sh += s; n++;
+  }
+  return n >= 10 ? { fh: fh/n, sh: sh/n, n } : null;
+}
+
+/* ITEM 40 — TEAM-SPECIFIC home advantage, not the league's flat average. Points per game at home
+   minus points per game away. Needs 8 of each before it says anything. */
+function homeEdgeFor(L, team, upTo){
+  const ms = (L.matches || []).slice(0, upTo == null ? undefined : upTo);
+  let hn=0, hp=0, an=0, ap=0;
+  for(const m of ms){
+    if(m.hg == null || m.ag == null) continue;
+    if(m.home === team){ hn++; hp += m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0; }
+    else if(m.away === team){ an++; ap += m.ag > m.hg ? 3 : m.hg === m.ag ? 1 : 0; }
+  }
+  return (hn >= 8 && an >= 8) ? { edge: hp/hn - ap/an, hn, an } : null;
+}
+
+/* ITEM: matches this side has in THIS division before the fixture — the number the newcomer prior
+   ramps on, and the one a minimum-history gate would read. */
+function divHistoryFor(L, team, upTo){
+  const ms = (L.matches || []).slice(0, upTo == null ? undefined : upTo);
+  let n = 0;
+  for(const m of ms) if(m.home === team || m.away === team) n++;
+  return n;
+}
+
+const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14 };
+
+/* Every Phase-0 feature for one fixture, walk-forward. `upTo` cuts the competition's history at
+   the fixture, exactly as predict() does — a feature that can see its own result is worthless. */
+function matchFeatures(L, f, upTo, idx){
+  if(!L || !f || !f.home || !f.away || !f.date) return null;
+  const restOf = team => {
+    const a = idx[team]; if(!a) return null;
+    const d0 = _dayNum(f.date); let prev = null;
+    for(const e of a){ const d = _dayNum(e.date); if(d < d0) prev = d; else break; }
+    return prev == null ? null : Math.min(FEAT.REST_CAP_D, d0 - prev);
+  };
+  const hsH = halfSplitFor(L, f.home, upTo), hsA = halfSplitFor(L, f.away, upTo);
+  const heH = homeEdgeFor(L, f.home, upTo),  heA = homeEdgeFor(L, f.away, upTo);
+  const rH = restOf(f.home), rA = restOf(f.away);
+  const koH = f.time ? +String(f.time).slice(0,2) : null;
+  return {
+    restH: rH, restA: rA, restDiff: (rH!=null && rA!=null) ? rH - rA : null,   // 36
+    fhGD_H: hsH ? hsH.fh : null, fhGD_A: hsA ? hsA.fh : null,                  // 26
+    shGD_H: hsH ? hsH.sh : null, shGD_A: hsA ? hsA.sh : null,                  // 27
+    congestH: congestionFor(idx, f.home, f.date, FEAT.CONGEST_DAYS),           // 38
+    congestA: congestionFor(idx, f.away, f.date, FEAT.CONGEST_DAYS),
+    homeEdge: heH ? heH.edge : null,                                           // 40
+    awayHomeEdge: heA ? heA.edge : null,
+    koHour: koH,                                                               // 47
+    distractH: distractionFor(idx, f.home, f.date, L.id, FEAT.DISTRACT_LOOK),  // 54
+    distractA: distractionFor(idx, f.away, f.date, L.id, FEAT.DISTRACT_LOOK),
+    histH: divHistoryFor(L, f.home, upTo), histA: divHistoryFor(L, f.away, upTo)
+  };
+}
+
+/* THE PHASE-0 PANEL. Two jobs, and only two:
+     1. COVERAGE — what fraction of fixtures can actually produce each feature. A feature present
+        on 12% of matches cannot carry weight in Phase 3 no matter how good it looks, and that is
+        far better known now than after the model is fitted.
+     2. A DESCRIPTIVE slope of each feature against the engine's error, controlled for engine
+        confidence — the same instrument validated in §48a.
+
+   THE NUMBERS HERE DECIDE NOTHING. No gates, no verdicts, no recommendations. Phase 3 fits every
+   feature jointly with regularisation, and a joint fit routinely disagrees with sixteen separate
+   univariate slopes — features overlap, and one can be entirely explained by another. Reading a
+   single row here as "this variable works" is the exact mistake §52's confound was made of. */
+function renderFeatureLayer(){
+  const box = $('flOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
+  });
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building features…</div>';
+  setTimeout(()=>{
+    const idx = buildFixtureIndex();
+    const rows = [];
+    for(const id of ids){
+      const L = afState.leagues[id], ms = L.matches;
+      const tmp = Object.create(footballEngine); tmp.matches = ms;
+      const start = Math.max(60, Math.floor(ms.length*0.3));
+      for(let i=start;i<ms.length;i++){
+        const m = ms[i];
+        if(m.hg == null || m.ag == null || !m.date) continue;
+        const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+        const F = matchFeatures(L, m, i, idx); if(!F) continue;
+        const exp = 3*p.pW + 1*p.pD;
+        const act = m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0;
+        rows.push({ F, y: act - exp, c: exp });
+      }
+    }
+    if(rows.length < 300){ box.innerHTML = '<div class="subnote">Only '+rows.length+' fixtures produced features — too few to report.</div>'; return; }
+
+    const KEYS = ['restDiff','fhGD_H','fhGD_A','shGD_H','shGD_A','congestH','congestA',
+                  'homeEdge','awayHomeEdge','koHour','distractH','distractA','histH','histA'];
+    const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
+      fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
+      shGD_A:'Second-half GD, away (27)', congestH:'Fixture congestion, home (38)',
+      congestA:'Fixture congestion, away (38)', homeEdge:'Home advantage, this team (40)',
+      awayHomeEdge:'Away side\'s own home edge (40)', koHour:'Kick-off hour (47)',
+      distractH:'Cup distraction, home (54)', distractA:'Cup distraction, away (54)',
+      histH:'Matches in division, home', histA:'Matches in division, away' };
+
+    const out = KEYS.map(k=>{
+      const have = rows.filter(r=>r.F[k] != null);
+      const cov = have.length / rows.length;
+      let st = null;
+      if(have.length >= 200){
+        const xs = have.map(r=>r.F[k]);
+        if(new Set(xs).size > 1) st = olsControlled(xs, have.map(r=>r.c), have.map(r=>r.y));
+      }
+      return { k, cov, n: have.length, st };
+    });
+
+    box.innerHTML =
+      `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
+       <div class="frow"><span style="flex:1">Competitions</span><span>${ids.length}</span></div>
+       <div class="sec-label" style="margin-top:12px">Coverage and descriptive slope</div>
+       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Feature</span><span style="width:20%;text-align:right">Coverage</span>
+         <span style="width:30%;text-align:right">Slope vs error</span></div>` +
+      out.map(o=>`<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(LBL[o.k]||o.k)}</span>
+          <span style="width:20%;text-align:right;color:${o.cov>=0.8?'var(--green2)':o.cov>=0.4?'var(--text)':'var(--red)'}">${(100*o.cov).toFixed(0)}%</span>
+          <span style="width:30%;text-align:right">${o.st
+            ? `<b>${(o.st.b>=0?'+':'')}${o.st.b.toFixed(4)}</b> <span class="muted" style="font-size:.7rem">t ${o.st.t.toFixed(2)}</span>`
+            : '<span class="muted">—</span>'}</span></div>`).join('') +
+      `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">These numbers decide nothing.</b> Each slope is one feature on its own, and features overlap heavily — congestion and rest days are close to the same fact told twice. Phase 3 fits them <b>jointly</b> with regularisation, and a joint fit routinely disagrees with a column of separate slopes. Reading one row here as "this variable works" is the mistake §52's confound was made of.</div>` +
+      `<div class="subnote"><b style="color:var(--text)">Coverage is the column that matters today.</b> A feature present on a small share of fixtures cannot carry weight later however good its slope looks, and it is much cheaper to learn that now than after the model is fitted.</div>` +
+      `<div class="subnote">Walk-forward throughout: every feature is computed from matches dated before its own fixture. Rest days and congestion pool across all loaded competitions, so midweek European ties count. Nothing here is wired to any prediction.</div>`;
+  }, 30);
+}
+
 function buildRestIndex(){
   const byTeam = {};
   for(const id of Object.keys(afState.leagues || {})){
@@ -6473,12 +6826,15 @@ function runBacktest(){
    "rebuilt", and excluded from the engine's record automatically — `recordStats` only counts
    `build >= 62`, and `recordPick` never fires for a finished match. */
 const RECONSTRUCTED = -1;
+const BACKFILL_DAYS = 60;   // build 143 — Ken: "Fill in the last 60 days"
 async function backfillPredictions(){
   const out = $('archOut'); if(!out) return;
   if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend.</div>'; return; }
-  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Rebuilding the last 30 days, one match at a time…</div>';
+  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Rebuilding the last 60 days, one match at a time…</div>';
   try{
-    const from  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+    /* build 143 — 60 days, on Ken's instruction. The fixtures table retains back to
+       OLDEST_SEASON so the data is there; only this window was short. */
+    const from  = new Date(Date.now()-BACKFILL_DAYS*86400000).toISOString().slice(0,10);
     const today = todayStrLocal();
     const { data: have } = await fetchAllRows('predictions','fxid', q => q.gte('kickoff', from));   // build 123
     const known = new Set((have||[]).map(r=>r.fxid));
@@ -6490,7 +6846,7 @@ async function backfillPredictions(){
        to price from. */
     if(error) throw error;
 
-    const rows = []; let skippedThin = 0, already = 0;
+    const rows = []; let skippedThin = 0, already = 0, skippedNoPick = 0;
     for(const r of (fx||[])){
       if(known.has(r.fxid)){ already++; continue; }
       if(!FINISHED.includes(r.status) || r.gh==null || r.ga==null) continue;
@@ -6503,12 +6859,44 @@ async function backfillPredictions(){
       const tmp = Object.create(footballEngine); tmp.matches = L.matches;
       const p = tmp.predict(r.home, r.away, upTo);
       if(!p) continue;
-      const hp = headlinePick(p, r.home, r.away);
+      /* BUILD 143 — THIS FUNCTION CARRIED THE SAME BUG §60 JUST FIXED, and it would have
+         re-created it on every row Ken rebuilt. It stored `headlinePick`, while the app publishes
+         the LADDER pick. Repairing the archive with a tool that reproduces the original fault is
+         worse than not repairing it: the rows would look freshly rebuilt and still be wrong.
+         Now it reconstructs what the app WOULD HAVE PUBLISHED, by the same route the live feed
+         uses. Same function, same order of rungs, same competition bar.
+
+         THE GATE IS DELIBERATELY NOT APPLIED. gateBarFor(L) is measured from today's history;
+         applying today's bar to a fixture from seven weeks ago would decide what was publishable
+         then using data that did not exist then — hindsight wearing the costume of a filter. So
+         these rows say what the engine would have called, and stay labelled "rebuilt". */
+      /* BUILD 147 — the fallback defeated the gate, and it blocked what Ken asked for.
+         Build 143 wrote `lp ? lp.code : hp.code`, so when the ladder published NOTHING — no rung
+         clearing the bar — this archived the raw headline pick instead. The live app publishes
+         nothing in that case. So the rebuild was inventing picks the app would never have shown,
+         and the new 70% Double Chance floor would have been bypassed on exactly the fixtures it
+         was meant to filter out. A fixture with no publishable pick is skipped, as it is live. */
+      const lp = ladderPick(p, r.home, r.away, L);
+      if(!lp){ skippedNoPick++; continue; }
+      const code = lp.code, prob = lp.prob;
       rows.push({ fxid:r.fxid, lid:r.lid, lname:r.lname||L.name, kickoff:r.date, ktime:r.time||null,
         home:r.home, away:r.away,
         p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
         xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
-        pick:hp.code, pick_prob:+hp.prob.toFixed(4),
+        pick:code, pick_prob:+(+prob).toFixed(4),
+        /* BUILD 145 — REVERTED to -1, because build 144's change was wrong twice over.
+           1. It broke the write: "new row violates row-level security policy for table
+              predictions". The RLS policy accepts reconstructions for past fixtures; a row
+              stamped with a live build number for a match that has already kicked off is exactly
+              what the freeze rule forbids, and the database is enforcing it. That policy is
+              correct and is not being weakened to get around it.
+           2. It would not have achieved what Ken asked for anyway. The headline accuracy number
+              is built from `afState.record` (local, written by recordPick) — NOT from these
+              archive rows. `recordPick` never fires for a finished match, so a rebuilt fixture
+              never enters the record whatever this field says. The `build >= 62` filter is a
+              second belt on a mechanism that already excluded them.
+           Getting rebuilt matches into the headline number is a different change, on the record
+           side, and has not been made. */
         build: RECONSTRUCTED, made_at: new Date().toISOString() });
     }
     if(!rows.length){
@@ -6525,7 +6913,8 @@ async function backfillPredictions(){
     out.innerHTML = `<div class="frow"><span class="muted">Rebuilt</span><b style="color:var(--green2)">${rows.length} matches</b></div>` +
       `<div class="frow"><span class="muted">Already recorded live</span><b>${already}</b></div>` +
       (skippedThin ? `<div class="frow"><span class="muted">Skipped — too little history</span><b>${skippedThin}</b></div>` : '') +
-      `<div class="subnote">Priced using only matches played before each fixture.</div>`;
+      (skippedNoPick ? `<div class="frow"><span class="muted">Skipped — nothing cleared the bar</span><b>${skippedNoPick}</b></div>` : '') +
+      `<div class="subnote">Priced using only matches played before each fixture, and reconstructed as the <b>published</b> pick — the ladder rung the app would have shown, not the raw Win/Draw/Loss call. That distinction is what §60 was about.</div>`;
   }catch(e){
     out.innerHTML = `<div class="subnote">Couldn't rebuild: ${escapeHtml(e.message||String(e))}</div>`;
   }
@@ -6756,6 +7145,7 @@ function navTo(t){
   if(t==='predict') renderFixtures();
   if(t==='tips') renderTips();
   if(t==='favs') renderFavs();
+  if(t==='data') renderMoreRecord();   // build 147 — the accuracy card, refreshed on open
   // restore scroll: returning to a feed brings you back to where you tapped; detail/first-visit start at top
   const target = (t!=='detail' && (t in scrollPos)) ? scrollPos[t] : 0;
   curView = t;
@@ -7316,7 +7706,11 @@ async function loadCloudLeagues(force){
         if(r.home_logo) afState.logos[r.home]=r.home_logo;
         if(r.away_logo) afState.logos[r.away]=r.away_logo;
         const fin = FINISHED.includes(r.status) && r.gh!=null && r.ga!=null;
-        if(fin){ L.matches.push({date:r.date, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
+        /* build 153 — `time` added. The Phase-0 coverage column reported kick-off hour at 0%,
+           because the historical match list carried the date and the goals but never the time.
+           The feature was reading a field that had never existed on these rows. Exactly what the
+           coverage column was put there to catch, and cheaper to find now than after a fit. */
+        if(fin){ L.matches.push({date:r.date, time:r.time, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
         if((r.status==='NS' && r.date>=today) || (fin && r.date>=winStart)){
@@ -7370,7 +7764,11 @@ async function loadCloudLeagues(force){
             f.formM = started ? f.formM : formMarginFor(L, f.home, f.away, f.pick);
             f.gated = started ? null : gateReason(L, f, f.pick, f.prob);
             // a withheld pick is not recorded either — the record must contain what was published
-            if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p, hp); }
+            /* build 142 — the archive must equal what was published, in BOTH directions.
+               Publishing writes the pick that was shown; withholding removes any row an earlier
+               load left behind, so a gated fixture cannot come back graded after kick-off. */
+            if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p); }
+            else if(!f._fin && f.gated) unarchivePrediction(f);
           }
         }
       }
@@ -7424,7 +7822,7 @@ function recordStats(){
 }
 function clearLegacyRecord(){
   afState.record = afState.record.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
-  saveState(); renderStrongPicks(); toast('Old record cleared — counting from build 62');
+  saveState(); renderStrongPicks(); renderMoreRecord(); toast('Old record cleared — counting from build 62');
 }
 
 /* ---------- reconcile past-dated scores on open/refresh (#17) ----------
@@ -7778,6 +8176,50 @@ async function openFixture(leagueId, f, btn){
   } else {
     await apiAnalyze(f, L);
   }
+}
+
+/* BUILD 147 — the record, on the More tab, where Ken asked for it.
+   Reads the same recordStats() the Analysis tab uses, so the two can never disagree, and adds the
+   per-market split that recordPick has been stamping since build 120 but nothing displayed.
+   The breakdown is the useful part: one overall number cannot tell you that Double Chance is
+   carrying the record while the goals markets are dragging it, and that is exactly the question
+   the new 70% floor was meant to act on. */
+function renderMoreRecord(){
+  const line = $('moreRecordLine'); if(!line) return;
+  const stats = recordStats();
+  if(!stats || !stats.n){
+    line.textContent = 'No graded predictions yet. Every published pick is frozen at kick-off and counted here once its match finishes.';
+    const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
+    return;
+  }
+  line.innerHTML = `<b style="color:var(--green2);font-size:1.05rem">${stats.hits}/${stats.n} correct · ${stats.pct}%</b>`
+    + `<div class="subnote" style="margin-top:4px">Each pick is frozen at kick-off and graded when the result arrives.`
+    + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out rather than called a loss.` : '')
+    + (stats.legacy ? ` ${stats.legacy} older result${stats.legacy===1?'':'s'} predate the freeze rule and are not counted.` : '')
+    + `</div>`;
+
+  const box = $('moreRecordBreak'); if(!box) return;
+  const graded = (afState.record||[]).filter(r=>r.result && (r.build||0) >= FROZEN_FROM_BUILD);
+  const by = {};
+  for(const r of graded){
+    const g = gradePick(r.pick, r.result, r.gh, r.ga);
+    if(g == null) continue;                       // voids sit out of the denominator, as above
+    const m = r.market || pickMarket(r.pick) || 'Other';
+    const o = by[m] || (by[m] = { n:0, h:0 });
+    o.n++; if(g) o.h++;
+  }
+  const rows = Object.keys(by).sort((a,b)=>by[b].n - by[a].n);
+  if(!rows.length){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+      <span style="flex:1">Market</span><span style="width:24%;text-align:right">Picks</span>
+      <span style="width:28%;text-align:right">Correct</span></div>`
+    + rows.map(m=>{
+        const o = by[m], pct = Math.round(100*o.h/o.n);
+        return `<div class="frow"><span style="flex:1">${escapeHtml(m)}</span>
+          <span style="width:24%;text-align:right">${o.n}</span>
+          <span style="width:28%;text-align:right;color:${pct>=50?'var(--green2)':'var(--red)'}"><b>${o.h} · ${pct}%</b></span></div>`;
+      }).join('')
+    + `<div class="subnote">A market with only a handful of picks says nothing yet — read the count before the percentage.</div>`;
 }
 
 /* ---------- AI strong picks (Analysis tab) ---------- */
@@ -9204,6 +9646,7 @@ function renderNewcomerSweep(){
 { const b=$('restBtn'); if(b) b.addEventListener('click', renderRestDayTest); }
 { const b=$('formBtn'); if(b) b.addEventListener('click', renderFormTest); }
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
+{ const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
