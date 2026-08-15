@@ -451,6 +451,13 @@
 
       <div id="favRow" style="display:flex; gap:8px; justify-content:center; margin:0 0 12px;"></div>
 
+      <!-- BUILD 156 — share cards. Hidden until analyze() has confirmed there is a PUBLISHED pick
+           worth sharing: a gated fixture has no pick on screen, so it has no card either. `.hidden`
+           carries !important, so it still wins over the inline display:flex here. -->
+      <div id="shareRow" class="hidden" style="display:flex; justify-content:center; margin:0 0 12px;">
+        <button class="btn" id="shareCardBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg>Share this pick</button>
+      </div>
+
       <div class="acc open" id="acc-result">
         <div class="acc-head"><span class="ic">📊</span><span class="t">Match Result Predictions</span><span class="side" id="resultSide"></span><span class="chev">▼</span></div>
         <div class="acc-body">
@@ -504,6 +511,11 @@
           <div class="sec-label" style="margin:14px 0 6px;">Head to head</div>
           <div id="h2hBox" class="muted"></div>
         </div>
+      </div>
+
+      <div class="acc" id="acc-standings">
+        <div class="acc-head"><span class="ic">🏆</span><span class="t">League Table</span><span class="chev">▼</span></div>
+        <div class="acc-body"><div id="standingsBox"></div></div>
       </div>
 
       <div class="acc" id="acc-injuries">
@@ -675,7 +687,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 153;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 160;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -934,7 +946,21 @@ const DAMPEN_BY_LEAGUE = {
      is a coin toss, not a measurement. Given no measurable cost either way, 0.20 keeps slightly more
      fixture-specific information than 0.10 discards. Moving it would be chasing noise to four
      decimal places, which is the habit this file exists to prevent. */
-  'Campeonato Brasileiro Série A' : 0.20
+  'Campeonato Brasileiro Série A' : 0.20,
+
+  /* BUILD 158 — THE SAME TWO LEAGUES UNDER API-FOOTBALL'S NAMES, and this is the whole reason the
+     Pro migration was not a one-line id swap. This table is keyed on the league NAME, and the Pro
+     provider names exactly two of these ten differently:
+         'Primera Division'              → 'La Liga'
+         'Campeonato Brasileiro Série A' → 'Brasileirao Serie A'
+     Switching COMP_IDS without this would have silently fallen both leagues back to TUNE.DAMPEN
+     (0.5) — no error, no blank panel, just two competitions quietly predicting with an unfitted
+     constant. The other eight names are identical across the two providers and need nothing.
+
+     THE OLD KEYS STAY. They cost nothing, and free-provider rows still exist in the table and in
+     every archived prediction, so a league loaded from that history must keep resolving. */
+  'La Liga'                       : 0.60,   // = 'Primera Division', gain 0.64%
+  'Brasileirao Serie A'           : 0.20    // = 'Campeonato Brasileiro Série A', see the note above
 };
 const DAMPEN_OF_MATCHES = new WeakMap();
 function registerLeagueDampen(L){
@@ -2392,7 +2418,46 @@ function daysPast(dateStr){
   const now=new Date(); now.setHours(0,0,0,0);
   return Math.round((now-d)/86400000);
 }
+/* ══ BUILD 160 — THE TWO PROVIDERS DO NOT SPEAK THE SAME LANGUAGE ══════════════════════════════
+   Build 159 shipped with EVERY COMPETITION LOADING ZERO HISTORY and the regression suite fully
+   green. This is the fix, and the mechanism is worth stating exactly because nothing on screen
+   would have said a word.
+
+   The free provider wrote `FT`. The paid one writes `FINISHED`. `FINISHED.includes('FINISHED')`
+   is false — the constant is a LIST OF CODES, and the string that means the same thing is not one
+   of them. So the moment build 158 pointed the app at the paid ids, the filter that separates
+   played matches from upcoming ones matched nothing:
+
+       11 competitions × 0 matches. 21,974 finished matches in the table, none of them visible.
+
+   And because `normStatus()` maps anything it does not recognise to 'NS' (build 114, so a
+   malformed status is never shown to a user), every finished match ALSO read as "not started" —
+   a kick-off time where the score should be.
+
+   HOW IT PASSED 375 CHECKS: the suite asserts STRUCTURE — that the code implementing a feature is
+   present and wired. This code was all present and correctly wired. It was reading a vocabulary
+   that had changed underneath it, which is a DATA fact, and no static check can see one. Caught by
+   querying the database after the build rather than by trusting the green run.
+
+   Full vocabulary, read from the table rather than assumed from the provider's docs: FINISHED
+   21,974 · NS 3,069 · POSTPONED 5 · LIVE 3 · AWARDED 2 · CANCELLED 1. NS and LIVE already agreed;
+   the other four are aliased below.
+
+   THE ALIAS, NOT A RE-BACKFILL. 21,974 existing rows carry these strings and the collector only
+   rewrites its rolling window, so historical rows would keep the old spelling forever. Translating
+   on read fixes today's data and every row already written, in one place. */
+const STATUS_ALIAS = { FINISHED:'FT', AWARDED:'AWD', CANCELLED:'CANC', POSTPONED:'PST' };
+/* The single funnel. Every status from the database goes through this before it is compared with
+   anything — if a third provider ever appears, it is one line here and nothing else moves. */
+function canonStatus(s){
+  const v = String(s == null ? '' : s).trim().toUpperCase();
+  return STATUS_ALIAS[v] || v;
+}
 const FINISHED=['FT','AET','PEN'];
+/* Use this for a status read straight off a `fixtures` row. `FINISHED.includes(r.status)` is the
+   call that broke, and it looks completely correct at the call site, so the raw form is no longer
+   used anywhere on database rows. */
+function isFin(st){ return FINISHED.includes(canonStatus(st)); }
 
 /* Staleness fence (build 39 — replaces build 37's CLOUD_LID_MIN competition-number test).
    The `fixtures` table holds rows from more than one collector over its life. Orphaned rows are
@@ -2535,6 +2600,40 @@ function tableAsOf(L, upTo){
   const rows = Object.values(t).sort((x,y)=> y.pts-x.pts || y.gd-x.gd);
   rows.forEach((r,i)=> r.pos = i+1);
   return { rows, byTeam: Object.fromEntries(rows.map(r=>[r.team, r])) };
+}
+
+/* STANDINGS — backlog: "Standings & lineups on match detail" (2026-07-20). Lineups already exist
+   in the AF-extras panel; this is the other half, and it needs no new data or API call at all —
+   tableAsOf() already computes exactly this for the motivation model above, so this only surfaces
+   it. Shared between the Predict-tab flow (analyze()) and the Scores-tab flow (matchDetail()) —
+   one function, one accordion, so the two pages can't disagree about where a team stands.
+
+   Deliberately NOT walk-forward-cut like a prediction. The freeze-at-kickoff rule protects
+   PREDICTIONS from seeing their own result; this panel states a fact ("where do these teams stand
+   today"), not a forecast, so it always shows the fullest table available rather than one frozen
+   at some earlier point. */
+function renderStandings(L, homeTeam, awayTeam){
+  const acc = $('acc-standings'), box = $('standingsBox');
+  if(!acc || !box) return;
+  if(!L || !L.matches){ acc.classList.add('hidden'); return; }
+  acc.classList.remove('hidden');
+  const played = L.matches.filter(m=>m.hg!=null && m.ag!=null).length;
+  if(played < 10){ box.innerHTML = `<div class="subnote">Not enough results yet for a table — ${played} played.</div>`; return; }
+  const tbl = tableAsOf(L, null);
+  box.innerHTML =
+    `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+       <span style="width:22px">#</span><span style="flex:1">Team</span>
+       <span style="width:30px;text-align:right">P</span><span style="width:44px;text-align:right">GD</span>
+       <span style="width:34px;text-align:right">Pts</span></div>` +
+    tbl.rows.map(r=>{
+      const mine = r.team===homeTeam || r.team===awayTeam;
+      return `<div class="frow"${mine?' style="background:rgba(127,127,127,.14);border-radius:6px"':''}>`
+        + `<span style="width:22px">${r.pos}</span>`
+        + `<span style="flex:1${mine?';font-weight:700':''}">${escapeHtml(r.team)}</span>`
+        + `<span style="width:30px;text-align:right">${r.pl}</span>`
+        + `<span style="width:44px;text-align:right">${r.gd>0?'+':''}${r.gd}</span>`
+        + `<span style="width:34px;text-align:right"><b>${r.pts}</b></span></div>`;
+    }).join('');
 }
 
 /* How much is still at stake for one team, 0 (nothing to play for) to 1 (everything), plus WHICH
@@ -3030,6 +3129,187 @@ function setHeroMeta(meta){
   box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
 }
 
+/* ================= SHARE CARDS (build 156) — a prediction as a PNG for WhatsApp / X =============
+
+   THE ONE RULE THIS FEATURE IS BUILT AROUND: the card is drawn from the values analyze() ALREADY
+   PUT ON SCREEN. It never re-runs the engine, never re-walks the ladder, never re-checks the gate.
+   A second code path computing the same pick is exactly the shape of the §60 archive bug — the
+   archive recomputed a headline where the feed published a ladder rung, and Santos v Paranaense
+   went out as a winner and came back graded as a loss. An image that leaves the app and lands in
+   someone else's chat is the worst possible place to discover that drift, because it cannot be
+   corrected once sent. So `shareCtx` is filled in at the moment the hero card is written, from the
+   same `hp` the hero card was written from, and this code only formats what it was handed.
+
+   WHAT IS DELIBERATELY NOT SHAREABLE:
+     - a gated fixture ("No strong read"). There is no published pick, so there is nothing to share.
+     - a played fixture with no pre-match snapshot. Those probabilities were recalculated today with
+       the result already in the data — the page says so in as many words — and posting one as
+       "the prediction" would be a hindsight claim dressed as a forecast.
+*/
+let shareCtx = null;         // {home, away, pick, conf, comp, date} or null when nothing is publishable
+let _shareBusy = false;
+
+const SHARE_PX = 1080;       // square — WhatsApp, X and Instagram all show it uncropped
+
+/* The card is drawn in the app's DARK palette whatever theme the phone is on. It leaves the app,
+   so "the reader's preference" is not a thing that exists at the other end; being recognisably
+   MatchMind is. These are the same hex values as the dark :root block at the top of this file. */
+const SHARE_INK = { bg1:'#070c18', bg2:'#111a2e', line:'#243354',
+                    text:'#eef2fa', muted:'#7e8db0', gold:'#f6c344', gold2:'#ffd966' };
+
+function shareFont(px, weight){ return `${weight||800} ${px}px 'Inter','Segoe UI',Roboto,system-ui,sans-serif`; }
+
+/* Shrink until it fits. Team names run from "Ajax" to "Borussia Mönchengladbach"; one fixed size
+   either wastes half the card or runs off the edge of it. */
+function shareFitFont(g, text, maxW, startPx, weight){
+  let px = startPx;
+  for(;;){ g.font = shareFont(px, weight); if(px <= 22 || g.measureText(text).width <= maxW) break; px -= 2; }
+  return px;
+}
+function shareCentred(g, text, y, maxW, startPx, weight, colour){
+  shareFitFont(g, text, maxW, startPx, weight);
+  g.fillStyle = colour; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  g.fillText(text, SHARE_PX/2, y);
+}
+/* Written out rather than using ctx.roundRect, which is recent enough that a tester on an older
+   phone would get a thrown error instead of a picture. */
+function shareRoundRect(g, x, y, w, h, r){
+  g.beginPath();
+  g.moveTo(x+r, y);        g.lineTo(x+w-r, y);   g.quadraticCurveTo(x+w, y, x+w, y+r);
+  g.lineTo(x+w, y+h-r);    g.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  g.lineTo(x+r, y+h);      g.quadraticCurveTo(x, y+h, x, y+h-r);
+  g.lineTo(x, y+r);        g.quadraticCurveTo(x, y, x+r, y);
+  g.closePath();
+}
+
+function renderShareCanvas(d){
+  const S = SHARE_PX, PAD = 72, INNER = S - PAD*2;
+  const c = document.createElement('canvas');
+  c.width = S; c.height = S;
+  const g = c.getContext('2d');
+
+  const bg = g.createLinearGradient(0, 0, 0, S);
+  bg.addColorStop(0, SHARE_INK.bg1); bg.addColorStop(1, SHARE_INK.bg2);
+  g.fillStyle = bg; g.fillRect(0, 0, S, S);
+
+  const rule = g.createLinearGradient(0, 0, S, 0);
+  rule.addColorStop(0, SHARE_INK.gold); rule.addColorStop(1, SHARE_INK.gold2);
+  g.fillStyle = rule; g.fillRect(0, 0, S, 12);
+
+  // wordmark, matching the in-app brand lockup: gold name, muted PRO
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.font = shareFont(36, 900); g.fillStyle = SHARE_INK.gold;
+  g.fillText('MATCHMIND', PAD, 118);
+  const wmW = g.measureText('MATCHMIND').width;
+  g.font = shareFont(24, 800); g.fillStyle = SHARE_INK.muted;
+  g.fillText('PRO', PAD + wmW + 14, 118);
+
+  if(d.comp) shareCentred(g, d.comp, 244, INNER, 30, 700, SHARE_INK.muted);
+
+  shareCentred(g, d.home, 372, INNER, 64, 800, SHARE_INK.text);
+  shareCentred(g, 'V', 446, 200, 30, 800, SHARE_INK.gold);
+  shareCentred(g, d.away, 528, INNER, 64, 800, SHARE_INK.text);
+
+  // the pick, in a panel so it reads as the point of the image rather than one more line of text
+  const bx = PAD, by = 610, bw = INNER, bh = 250;
+  shareRoundRect(g, bx, by, bw, bh, 28);
+  g.fillStyle = 'rgba(246,195,68,0.09)'; g.fill();
+  g.strokeStyle = 'rgba(246,195,68,0.45)'; g.lineWidth = 2; g.stroke();
+
+  g.letterSpacing = '5px';                        // ignored where unsupported; no error either way
+  shareCentred(g, 'PREDICTION', by + 62, bw - 60, 22, 800, SHARE_INK.muted);
+  g.letterSpacing = '0px';
+  shareCentred(g, d.pick, by + 148, bw - 70, 66, 900, SHARE_INK.gold2);
+  if(d.conf) shareCentred(g, d.conf + ' confidence', by + 206, bw - 70, 30, 700, SHARE_INK.muted);
+
+  g.strokeStyle = SHARE_INK.line; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(PAD, 924); g.lineTo(S - PAD, 924); g.stroke();
+
+  if(d.date) shareCentred(g, d.date, 906, INNER, 30, 700, SHARE_INK.text);
+  /* The same disclaimer the app carries. A picture travels further than the page it came from and
+     arrives with no surrounding context at all, so the one line that matters travels with it. */
+  shareCentred(g, 'A statistical prediction — not betting advice', 986, INNER, 24, 600, SHARE_INK.muted);
+
+  return c;
+}
+
+/* NOT favDateHeader(). That says "Today", which is true on the page and meaningless in a picture
+   that will still be sitting in a WhatsApp thread next week. A share card gets an absolute date. */
+function shareDateText(dateStr){
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(String(dateStr || '') + 'T00:00:00');
+  if(isNaN(d)) return String(dateStr || '');
+  return `${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function shareFileName(d){
+  const slug = s => String(s == null ? '' : s).normalize('NFKD')
+                      .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 28);
+  const h = slug(d.home), a = slug(d.away);
+  return (h && a) ? `matchmind-${h}-v-${a}.png` : 'matchmind-prediction.png';
+}
+
+/* Everything up to navigator.share() is SYNCHRONOUS on purpose. The canvas has an async way to
+   produce a blob, and awaiting it spends the user's tap before the share sheet is asked for — some
+   browsers then refuse the share as "no user activation", a failure that would only ever appear on
+   a real phone and never on Ken's desktop. toDataURL is synchronous, so the tap is still live when
+   share() is called. (The async call is named in regression-test.py, which pins its absence here;
+   writing it out in this comment would defeat that check.) */
+function shareBlobFromCanvas(c){
+  const parts = c.toDataURL('image/png').split(',');
+  const bin = atob(parts[1]);
+  const buf = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], {type:'image/png'});
+}
+
+async function shareCard(){
+  if(_shareBusy) return;                                       // a double-tap must not make two files
+  if(!shareCtx){ toast('Open a match with a prediction first'); return; }
+  _shareBusy = true;
+  const btn = $('shareCardBtn'); if(btn) btn.disabled = true;
+  try{
+    const blob = shareBlobFromCanvas(renderShareCanvas(shareCtx));
+    const name = shareFileName(shareCtx);
+
+    /* canShare({files}) is the only honest test. Plenty of browsers define navigator.share and
+       still refuse to carry a file, and calling share() on those throws after the point where a
+       fallback would have been graceful. */
+    let file = null;
+    try{ file = new File([blob], name, {type:'image/png'}); }catch(e){}
+    if(file && navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file], title:'MatchMind prediction'});
+        return;
+      }catch(e){
+        // AbortError is the user closing the share sheet. That is a decision, not a fault, and
+        // dropping a file into their downloads afterwards would ignore it. Anything else is a real
+        // failure of the share path, so fall through and give them the file instead.
+        if(e && e.name === 'AbortError') return;
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    toast('Picture saved — share it from your downloads');
+  }catch(e){
+    toast('Could not make the picture: ' + ((e && e.message) || 'unknown error'));
+  }finally{
+    _shareBusy = false;
+    const b = $('shareCardBtn'); if(b) b.disabled = false;
+  }
+}
+
+/* Called by analyze() at the moment the hero card is final. `ok` false hides the button outright
+   rather than showing one that explains why it cannot do anything. */
+function setShareCard(ok, d){
+  shareCtx = ok ? d : null;
+  const row = $('shareRow'); if(row) row.classList.toggle('hidden', !ok);
+}
+
 /* ---------- match favourites (#7) ---------- */
 function isFavMatch(fxid){ return fxid!=null && afState.favM.some(x=>x.fxid===fxid); }
 function toggleFavMatch(f,meta){
@@ -3341,6 +3621,10 @@ async function analyze(){
   const h2h = eng.h2h(home, away, formCut);
 
   showAnalysis();
+  /* Off by default on every match open. The football block below is the only thing that turns it
+     back on, so basketball — and any future path that never reaches that block — cannot inherit the
+     previous fixture's share card the way build 111's favourite chips did. */
+  setShareCard(false, null);
 
   // hero card
   $('heroHome').innerHTML = heroSide(home,'Home');
@@ -3420,6 +3704,22 @@ async function analyze(){
           : baseLine;
       }
       $('resultSide').textContent = gr ? '—' : hp.label.replace(' WIN','');
+
+      /* BUILD 156 — SHARE CARD. Filled in here and nowhere else, because `hp` is only final at this
+         point: the ladder has re-pointed it (119) and the gate has had its say (118). Anything that
+         built the card earlier, or rebuilt it later from the fixture, would be a second path to the
+         same pick — which is how §60 shipped a graded loss on a fixture that had won.
+         Two cases get no card at all:
+           `gr`  — the fixture is gated, so no pick was published to share.
+           a played fixture with no pre-match snapshot — those numbers were recalculated today with
+           the result already in the data, and posting one as a forecast would be a hindsight claim. */
+      setShareCard(!gr && (!pendingMetaPlayed || pendingMetaPick != null), {
+        home, away,
+        pick: hp.label,
+        conf: pct(hp.prob),
+        comp: pendingMetaComp || '',
+        date: pendingMetaDate ? shareDateText(pendingMetaDate) : ''
+      });
     }
 
     /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
@@ -3589,6 +3889,7 @@ async function analyze(){
   $('h2hBox').innerHTML = h2h.length
     ? h2h.slice(-5).map(m=>`${m.date}: ${m.home} ${m.hg??m.hp}–${m.ag??m.ap} ${m.away}`).join('<br>')
     : 'No previous meetings in the dataset.';
+  renderStandings(sport==='football' ? (afState.leagues[afState.activeLeagueId]||null) : null, home, away);
 
   // injuries (API-Football, football only)
   let injuries = null;
@@ -4744,7 +5045,115 @@ function divHistoryFor(L, team, upTo){
   return n;
 }
 
-const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14 };
+/* ITEMS 37 & 53 — travel distance and derby detection. STATIC one-time table (§ engine v2 plan's
+   own term for this: "Ken types once"). This is that table, populated from known football
+   geography rather than scraped or measured — city-level coordinates, not exact stadium siting,
+   because the question this answers is "did this team travel far", not GPS-grade precision. A
+   team missing from this table returns null, same as every other feature here when data is
+   short — it does not guess.
+
+   Built from the exact team-name strings the database uses (checked against `fixtures`, not
+   assumed — team-name drift has broken three things in this project already, see §6). Two
+   entries are nominal rather than literal: Shaktar (Donetsk) and Qarabağ Ağdam currently play
+   home fixtures elsewhere because of the war, so their "home" distance will read wrong for as
+   long as that lasts. Everything else is a normal home city. */
+const VENUE = {
+  "1. FC Köln": [50.9375, 6.9603], "AC Goianiense": [-16.6869, -49.2648], "AC Pisa": [43.7228, 10.4017],
+  "Acad. Viseu": [40.6566, -7.9122], "Ajax": [52.3676, 4.9041], "Alavés": [42.8467, -2.6716],
+  "Almere City": [52.3508, 5.2647], "Almería": [36.8381, -2.4597], "Alverca": [38.8833, -9.0333],
+  "Amadora": [38.7536, -9.2302], "América (MG)": [-19.9167, -43.9345], "Angers SCO": [47.4784, -0.5632],
+  "Antwerp FC": [51.2194, 4.4025], "Arouca": [40.9308, -8.2497], "Arsenal": [51.5549, -0.1084],
+  "Aston Villa": [52.5092, -1.8848], "Atalanta": [45.6983, 9.6773], "Athletic": [43.2630, -2.9350],
+  "Atleti": [40.4362, -3.5995], "Augsburg": [48.3705, 10.8978], "Auxerre": [47.7982, 3.5731],
+  "AVS": [41.3667, -8.3667], "AZ": [52.6324, 4.7534], "Bahia": [-12.9777, -38.5016],
+  "Barça": [41.3874, 2.1686], "Bayern": [48.2188, 11.6247], "Birmingham": [52.4751, -1.8683],
+  "Blackburn": [53.7486, -2.4823], "Boavista": [41.1579, -8.6291], "Bochum": [51.4818, 7.2162],
+  "Bodø/Glimt": [67.2804, 14.4049], "Bologna": [44.4949, 11.3426], "Bolton": [53.5769, -2.4282],
+  "Botafogo": [-22.9068, -43.1729], "Bournemouth": [50.7192, -1.8808], "Braga": [41.5454, -8.4265],
+  "Bragantino": [-22.9519, -46.5419], "Bremen": [53.0793, 8.8017], "Brentford": [51.4906, -0.2887],
+  "Brest": [48.3904, -4.4861], "Brighton Hove": [50.8225, -0.1372], "Bristol City": [51.4400, -2.6203],
+  "Burnley": [53.7890, -2.2302], "Cádiz CF": [36.5297, -6.2909], "Cagliari": [39.2238, 9.1217],
+  "Cambuur": [53.1975, 5.7794], "Cardiff": [51.4816, -3.1791], "Casa Pia": [38.7223, -9.1393],
+  "CD Nacional": [32.6669, -16.9241], "Ceará": [-3.7319, -38.5267], "Celta": [42.2406, -8.7207],
+  "Celtic": [55.8497, -4.2058], "Chapecoense": [-27.1004, -52.6152], "Charlton": [51.4863, 0.0364],
+  "Chaves": [41.7405, -7.4693], "Chelsea": [51.4816, -0.1909], "Clermont Foot": [45.7772, 3.0870],
+  "Club Brugge": [51.2093, 3.2247], "Clube do Remo": [-1.4558, -48.4902], "Como 1907": [45.8081, 9.0852],
+  "Corinthians": [-23.5326, -46.4742], "Coritiba": [-25.4284, -49.2733], "Coventry City": [52.4482, -1.4954],
+  "Cremonese": [45.1335, 10.0227], "Criciúma": [-28.6779, -49.3697], "Cruzeiro": [-19.9167, -43.9345],
+  "Crvena Zvedza": [44.7866, 20.4489], "Crystal Palace": [51.3983, -0.0855], "Cuiabá EC": [-15.6014, -56.0979],
+  "Darmstadt": [49.8728, 8.6512], "Den Haag": [52.0705, 4.3007], "Deportivo": [43.3623, -8.4115],
+  "Derby County": [52.9225, -1.4746], "Dinamo Zagreb": [45.8150, 15.9819], "Dortmund": [51.5136, 7.4653],
+  "Elche": [38.2622, -0.6997], "Empoli": [43.7181, 10.9451], "Espanyol": [41.3465, 2.0759],
+  "Estoril Praia": [38.7050, -9.3973], "Everton": [53.4084, -2.9916], "Excelsior": [51.9081, 4.5108],
+  "Famalicão": [41.4082, -8.5215], "Farense": [37.0143, -7.9364], "FC Metz": [49.1193, 6.1757],
+  "Feyenoord": [51.9244, 4.4777], "Fiorentina": [43.7696, 11.2558], "FK Kairat": [43.2220, 76.8512],
+  "Flamengo": [-22.9068, -43.1729], "Fluminense": [-22.9068, -43.1729], "Fortaleza": [-3.7319, -38.5267],
+  "Frankfurt": [50.1109, 8.6821], "Freiburg": [47.9990, 7.8421], "Frosinone": [41.6400, 13.3506],
+  "Fulham": [51.4749, -0.2217], "Galatasaray": [41.0082, 28.9784], "Genoa": [44.4056, 8.9463],
+  "Getafe": [40.3057, -3.7327], "Gil Vicente": [41.5388, -8.6151], "Girona": [41.9794, 2.8214],
+  "Go Ahead": [52.2500, 6.1639], "Goiás": [-16.6869, -49.2648], "Granada": [37.1773, -3.5986],
+  "Grêmio": [-30.0346, -51.2177], "Groningen": [53.2194, 6.5665], "Heerenveen": [52.9594, 5.9181],
+  "Heidenheim": [48.6764, 10.1516], "Heracles": [52.3560, 6.6557], "Hoffenheim": [49.2500, 8.8833],
+  "Holstein Kiel": [54.3233, 10.1228], "HSV": [53.5511, 9.9937], "Huddersfield": [53.6458, -1.7850],
+  "Hull City": [53.7457, -0.3367], "Inter": [45.4780, 9.1240], "Internacional": [-30.0346, -51.2177],
+  "Ipswich Town": [52.0567, 1.1482], "Juventude": [-29.1634, -51.1797], "Juventus": [45.1096, 7.6413],
+  "København": [55.6761, 12.5683], "Las Palmas": [28.1235, -15.4363], "Lazio": [41.9339, 12.4547],
+  "Le Havre": [49.4944, 0.1079], "Lecce": [40.3515, 18.1750], "Leeds United": [53.8008, -1.5491],
+  "Leganés": [40.3287, -3.7638], "Leicester City": [52.6369, -1.1398], "Levante": [39.4699, -0.3763],
+  "Leverkusen": [51.0459, 6.9866], "Lille": [50.6119, 3.1300], "Lincoln City": [53.2307, -0.5406],
+  "Liverpool": [53.4308, -2.9608], "Lorient": [47.7482, -3.3660], "Luton Town": [51.8843, -0.4310],
+  "M'gladbach": [51.1805, 6.4428], "Mainz": [49.9840, 8.2242], "Málaga": [36.7213, -4.4213],
+  "Mallorca": [39.5696, 2.6502], "Man City": [53.4831, -2.2004], "Man United": [53.4631, -2.2913],
+  "Marítimo": [32.6669, -16.9241], "Marseille": [43.2965, 5.3698], "Middlesbrough": [54.5786, -1.2318],
+  "Milan": [45.4780, 9.1240], "Millwall": [51.4859, -0.0505], "Mineiro": [-19.9167, -43.9345],
+  "Mirassol": [-20.8181, -49.5222], "Monaco": [43.7275, 7.4155], "Montpellier": [43.6119, 3.8772],
+  "Monza": [45.5845, 9.2744], "Moreirense": [41.4353, -8.3625], "NAC": [51.5719, 4.7683],
+  "Nantes": [47.2184, -1.5536], "Napoli": [40.8518, 14.2681], "NEC": [51.8425, 5.8535],
+  "Newcastle": [54.9756, -1.6217], "Nice": [43.7102, 7.2620], "Norwich": [52.6226, 1.3089],
+  "Nottingham": [52.9399, -1.1327], "Olympiakos": [37.9484, 23.6469], "Olympique Lyon": [45.7640, 4.8357],
+  "Osasuna": [42.8125, -1.6458], "Oxford United": [51.7520, -1.2577], "Palmeiras": [-23.5326, -46.4742],
+  "Paphos FC": [34.7720, 32.4297], "Paranaense": [-25.4284, -49.2733], "Paris FC": [48.8566, 2.3522],
+  "Parma": [44.8015, 10.3279], "Plymouth Arg": [50.3755, -4.1427], "Portimonense": [37.1393, -8.5378],
+  "Porto": [41.1579, -8.6291], "Portsmouth": [50.7989, -1.0637], "Preston NE": [53.7601, -2.6885],
+  "PSG": [48.8414, 2.2530], "PSV": [51.4416, 5.4697], "Qarabağ Ağdam": [40.4093, 49.8671],
+  "QPR": [51.5094, -0.2325], "Rayo Vallecano": [40.3919, -3.6613], "RB Leipzig": [51.3396, 12.3481],
+  "RB Salzburg": [47.8095, 13.0550], "RC Lens": [50.4322, 2.8151], "Real Betis": [37.3565, -5.9823],
+  "Real Madrid": [40.4530, -3.6883], "Real Oviedo": [43.3619, -5.8494], "Real Sociedad": [43.3017, -1.9737],
+  "Recife": [-8.0476, -34.8770], "Rio Ave": [41.3526, -8.7433], "RKC": [51.6836, 5.0713],
+  "Roma": [41.9339, 12.4547], "Rotherham Utd": [53.4300, -1.3600], "Saint-Étienne": [45.4397, 4.3872],
+  "Salernitana": [40.6824, 14.7681], "Santa Clara": [37.7412, -25.6756], "Santander": [43.4623, -3.7998],
+  "Santos": [-23.9608, -46.3336], "São Paulo": [-23.5326, -46.4742], "Sassuolo": [44.6983, 10.6297],
+  "Sevilla FC": [37.3841, -5.9709], "Shaktar": [48.0159, 37.8028], "Sheffield Utd": [53.3703, -1.4713],
+  "Sheffield Wed": [53.4116, -1.4359], "Sittard": [50.9977, 5.8697], "SL Benfica": [38.7527, -9.1846],
+  "Sl. Bratislava": [48.1618, 17.1614], "Slavia Praha": [50.0870, 14.2135], "Southampton": [50.9058, -1.3910],
+  "Sparta": [51.9317, 4.4661], "Sparta Praha": [50.1000, 14.4181], "Sporting CP": [38.7614, -9.1614],
+  "St. Pauli": [53.5547, 9.9670], "Stade de Reims": [49.2478, 4.0325], "Stade Rennais": [48.1073, -1.7128],
+  "Stoke": [52.9884, -2.1751], "Strasbourg": [48.5595, 7.7553], "Sturm Graz": [47.0707, 15.4395],
+  "Stuttgart": [48.7923, 9.2321], "Sunderland": [54.9144, -1.3883], "Swansea": [51.6422, -3.9349],
+  "Telstar": [52.4597, 4.6389], "Tondela": [40.5192, -8.0817], "Torino": [45.0426, 7.6491],
+  "Tottenham": [51.6043, -0.0664], "Toulouse": [43.5828, 1.4342], "Twente": [52.2436, 6.8825],
+  "Udinese": [46.0703, 13.2028], "Union Berlin": [52.4573, 13.5687], "Union SG": [50.8206, 4.3453],
+  "Utrecht": [52.0908, 5.1222], "Valencia": [39.4746, -0.3582], "Valladolid": [41.6523, -4.8659],
+  "Vasco da Gama": [-22.9068, -43.1729], "Venezia FC": [45.4371, 12.3346], "Verona": [45.4351, 10.9986],
+  "Villarreal": [39.9375, -0.1004], "Vitesse": [51.9683, 5.8998], "Vitória": [-12.9777, -38.5016],
+  "Vitória SC": [41.4425, -8.2918], "Vizela": [41.3833, -8.3167], "Volendam": [52.4989, 5.0722],
+  "Watford": [51.6500, -0.4014], "West Brom": [52.5091, -1.9639], "West Ham": [51.5386, -0.0166],
+  "Willem II": [51.5628, 5.0864], "Wolfsburg": [52.4327, 10.8046], "Wolverhampton": [52.5900, -2.1300],
+  "Wrexham": [53.0446, -3.0007], "Young Boys": [46.9631, 7.4644], "Zwolle": [52.5168, 6.1000],
+};
+
+/* Great-circle distance in km. Returns null rather than throwing if either side is missing from
+   VENUE — a feature that can silently produce NaN and poison an average is worse than one that
+   plainly has no opinion. */
+function haversineKm(a, b){
+  if(!a || !b) return null;
+  const toRad = d => d * Math.PI/180;
+  const dLat = toRad(b[0]-a[0]), dLon = toRad(b[1]-a[1]);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*Math.sin(dLon/2)**2;
+  return 6371 * 2*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14, DERBY_KM: 30 };
 
 /* Every Phase-0 feature for one fixture, walk-forward. `upTo` cuts the competition's history at
    the fixture, exactly as predict() does — a feature that can see its own result is worthless. */
@@ -4760,6 +5169,8 @@ function matchFeatures(L, f, upTo, idx){
   const heH = homeEdgeFor(L, f.home, upTo),  heA = homeEdgeFor(L, f.away, upTo);
   const rH = restOf(f.home), rA = restOf(f.away);
   const koH = f.time ? +String(f.time).slice(0,2) : null;
+  // 37 & 53 — the match is played at the home team's ground, so this is the away side's travel.
+  const travelKm = haversineKm(VENUE[f.home], VENUE[f.away]);
   return {
     restH: rH, restA: rA, restDiff: (rH!=null && rA!=null) ? rH - rA : null,   // 36
     fhGD_H: hsH ? hsH.fh : null, fhGD_A: hsA ? hsA.fh : null,                  // 26
@@ -4771,7 +5182,9 @@ function matchFeatures(L, f, upTo, idx){
     koHour: koH,                                                               // 47
     distractH: distractionFor(idx, f.home, f.date, L.id, FEAT.DISTRACT_LOOK),  // 54
     distractA: distractionFor(idx, f.away, f.date, L.id, FEAT.DISTRACT_LOOK),
-    histH: divHistoryFor(L, f.home, upTo), histA: divHistoryFor(L, f.away, upTo)
+    histH: divHistoryFor(L, f.home, upTo), histA: divHistoryFor(L, f.away, upTo),
+    travelKm,                                                                  // 37
+    derby: travelKm == null ? null : (travelKm < FEAT.DERBY_KM ? 1 : 0)        // 53
   };
 }
 
@@ -4814,14 +5227,16 @@ function renderFeatureLayer(){
     if(rows.length < 300){ box.innerHTML = '<div class="subnote">Only '+rows.length+' fixtures produced features — too few to report.</div>'; return; }
 
     const KEYS = ['restDiff','fhGD_H','fhGD_A','shGD_H','shGD_A','congestH','congestA',
-                  'homeEdge','awayHomeEdge','koHour','distractH','distractA','histH','histA'];
+                  'homeEdge','awayHomeEdge','koHour','distractH','distractA','histH','histA',
+                  'travelKm','derby'];
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
       shGD_A:'Second-half GD, away (27)', congestH:'Fixture congestion, home (38)',
       congestA:'Fixture congestion, away (38)', homeEdge:'Home advantage, this team (40)',
       awayHomeEdge:'Away side\'s own home edge (40)', koHour:'Kick-off hour (47)',
       distractH:'Cup distraction, home (54)', distractA:'Cup distraction, away (54)',
-      histH:'Matches in division, home', histA:'Matches in division, away' };
+      histH:'Matches in division, home', histA:'Matches in division, away',
+      travelKm:'Away travel distance, km (37)', derby:'Derby flag, <30km (53)' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -6849,7 +7264,7 @@ async function backfillPredictions(){
     const rows = []; let skippedThin = 0, already = 0, skippedNoPick = 0;
     for(const r of (fx||[])){
       if(known.has(r.fxid)){ already++; continue; }
-      if(!FINISHED.includes(r.status) || r.gh==null || r.ga==null) continue;
+      if(!isFin(r.status) || r.gh==null || r.ga==null) continue;   // build 160 — alias-aware
       const L = afState.leagues[r.lid];
       if(!L || !L.matches || L.matches.length < 60){ skippedThin++; continue; }
       // cut BEFORE this fixture's own date — same-day results must not inform it either
@@ -6941,7 +7356,7 @@ async function renderArchiveDay(){
     let graded=0, hits=0, stale=0;
     const byLeague = {};
     for(const p of preds){
-      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && ['FT','AET','PEN'].includes(f.status);
+      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && isFin(f.status);   // build 160
       const act = done ? actualCode(f.gh, f.ga) : null;
       const hit = act ? gradePick(p.pick, act, f.gh, f.ga)==='hit' : null;   // build 120
       if(act){ graded++; if(hit) hits++; }
@@ -7179,11 +7594,28 @@ function showAnalysis(){
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
+  /* BUILD 157 — TWO panels were missing from this list, and the second one was found by the check
+     rather than by a person. `acc-standings` (League Table, build 155) and `acc-combo` (Combos,
+     build 120) are both shown by analyze(), which returns above before it ever reaches this
+     function — so each kept the PREVIOUS fixture's content on screen underneath a heading saying
+     there is no prediction. Build 120's has been doing it for 37 builds.
+
+     THE PATTERN, since this is now the third and fourth instance: when a panel is added to the
+     detail view, the page that CLEARS the detail view has to be updated in the same build. Build
+     110 asserted everything was cleared without checking, 111 found favRow and verdictBox still
+     showing, and 155 repeated it one build after adding the panel.
+     `uncleared_detail_panels()` in regression-test.py now compares this list against the markup, so
+     the NEXT panel fails on the build it is added in rather than two builds later in a screenshot. */
   for(const id of ['acc-timeline','acc-stats','acc-lineups','acc-result','acc-form','acc-smart',
-                   'acc-htft','acc-scorers','acc-goals','acc-score','acc-context','acc-injuries']){
+                   'acc-htft','acc-scorers','acc-goals','acc-score','acc-context','acc-injuries',
+                   'acc-standings','acc-combo']){
     const el = $(id); if(el) el.classList.add('hidden');
   }
   const strong = $('heroStrong'); if(strong) strong.classList.add('hidden');
+  /* BUILD 156 — this path returns before analyze() reaches its own setShareCard(false), so the
+     share card has to be cleared here too, or the previous fixture's pick stays shareable under a
+     heading saying there is no prediction. That is build 111's fault exactly. */
+  setShareCard(false, null);
   const acc = $('acc-analysis'); if(acc) acc.classList.remove('hidden');
   /* BUILD 111 — these two are OUTSIDE the accordions, so hiding acc-* left them on screen. Ken's
      screenshot showed the previous fixture's favourite chips (PSV · Sittard) and its verdict line
@@ -7340,7 +7772,9 @@ async function matchDetail(s){
                                      : (s.status==='NS' ? 'Kick-off '+localHM(s.date, s.time) : statusWord(s.status));
   $('resultSide').textContent = '';
   $('heroStrong').classList.add('hidden');
-  for(const id of ['acc-result','acc-smart','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis']) $(id).classList.add('hidden');
+  for(const id of ['acc-result','acc-smart','acc-goals','acc-score','acc-scorers','acc-form','acc-injuries','acc-analysis','acc-standings']) $(id).classList.add('hidden');
+  // needs no API call — pure client-side table from data already loaded, so it runs regardless of afExtras
+  renderStandings(s.lid!=null ? afState.leagues[s.lid] : null, s.home, s.away);
   /* BUILD 113 — do not advertise a provider this app does not use.
      Timeline, Match Stats and Lineups are the only three panels still served by API-Football, which
      stopped being this app's data source at build 37. With extras off — the normal state, and the
@@ -7566,7 +8000,7 @@ async function loadCloudResults(){
     const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,status,updated_at', q => q.gte('date', from));
     if(error || !data) return;
     const m = {};
-    for(const r of freshRows(data)){ if(r.gh!=null && r.ga!=null && FINISHED.includes(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }
+    for(const r of freshRows(data)){ if(r.gh!=null && r.ga!=null && isFin(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }   // build 160
     afState.cloudFix = m;
     gradeFromHistory();
     if(lastTab==='predict') renderFixtures(); else if(lastTab==='favs') renderFavs(); else if(lastTab==='tips') renderTips();
@@ -7574,7 +8008,81 @@ async function loadCloudResults(){
 }
 
 /* ---- build the whole league model (fixtures, history, predictions) from the cloud ---- */
-const FD_COMP_IDS = [2021,2014,2002,2019,2015,2001,2003,2017,2016,2013,2000,2018];
+/* BUILD 158 — THE PRO MIGRATION. These were Football-Data.org competition ids (the free tier).
+   Ken: "football-data is the free version i was using, api-football is the api i paid for it's pro
+   version. need to convert it all to the pro version."
+
+   Now API-Football league ids, and they MUST stay in step with AF_LEAGUES in refresh-af.ts —
+   the collector's comment says the same thing from the other side. §6 records what drift costs:
+   fixtures appear with a blank prediction panel and a misleading message.
+
+   WHAT THIS BUYS, measured in Ken's own database rather than claimed: every competition roughly
+   DOUBLES its usable history, because API-Football backfilled six seasons where Football-Data gave
+   three. Finished matches, read 2026-08-15 — Premier League 1,140 → 2,280 · Championship 1,679 →
+   3,350 · La Liga 1,140 → 2,280 · Brasileirão 1,178 → 2,290.
+
+   WHAT LEAVES: World Cup (2000) and European Championship (2018) were in the free list and are NOT
+   collected by refresh-af, so they drop out of Predict until the collector adds them. Both are
+   out of season. Copa Libertadores was never in this list — it reaches Scores only, and it is
+   handled by the twin rule in dedupeProviders() so it does not disappear. */
+const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13];
+
+/* BUILD 159 — 13 (CONMEBOL Libertadores) JOINS THE PREDICTION SET. It reached Scores in 158 and
+   Ken asked for predictions on it. It qualifies: 133 finished matches on 2026-08-15, well past the
+   15 the engine needs to price a fixture.
+
+   WHAT IT DOES NOT HAVE YET, so nobody reads more into this than is there:
+     - 133 is below the 150 that `skillOf()` and `autoGate()` require, so this competition has NO
+       measured edge and NO measured publish bar. It falls back to the global gate (70% + positive
+       edge) exactly like any league that has not been backtested — picks publish, but the app makes
+       no claim to an edge here and will not badge one.
+     - It is absent from DAMPEN_BY_LEAGUE and stays absent. An unmeasured league keeps TUNE.DAMPEN,
+       which is the documented rule; inventing a value to fill the row would be the precise habit
+       §17e exists to stop.
+   Both resolve on their own as the collector accumulates matches. Nothing needs switching on.
+
+   Only ONE season (2026) was backfilled for this competition, where the other ten carry six — the
+   history run covers the current season, and 13 was added after the six-season backfill. That is
+   why it sits at 133 rather than ~800. */
+
+/* The same competition, as numbered by each provider — API-Football id ← Football-Data id.
+   VERIFIED AGAINST THE LIVE TABLE on 2026-08-15, not assumed from the names, which is the whole
+   point: two of these pairs are the SAME competition under DIFFERENT names, so any dedupe that
+   matched on the name would have silently left them duplicated —
+       140 "La Liga"            ↔ 2014 "Primera Division"
+        71 "Brasileirao Serie A" ↔ 2013 "Campeonato Brasileiro Série A"
+   Both pairs carried identical fixture counts on identical dates when this was checked.
+   An FD competition with NO entry here (World Cup 2000, Euro 2018) has no Pro twin and is
+   therefore never dropped.
+
+   2152 → 13 IS LISTED BEFORE THE COLLECTOR WRITES IT, deliberately. Copa Libertadores is the last
+   competition still arriving only on the free tier; the moment refresh-af starts collecting league
+   13, the free copy would have appeared as an ELEVENTH duplicate heading with nothing here to pair
+   it against. Because the rule requires the twin to be present in the batch, this entry does
+   nothing at all until that day and then works by itself. Id 13 is "CONMEBOL Libertadores",
+   confirmed against the /leagues endpoint — NOT 540 (U20) or 949 (Femenina). */
+const AF_OF_FD = {2021:39, 2014:140, 2002:78, 2019:135, 2015:61, 2001:2, 2003:88, 2017:94, 2016:40, 2013:71,
+                  2152:13};
+
+/* Both collectors write the same table, so until refresh-scores is unscheduled every one of those
+   ten competitions arrives TWICE with two different lids, and the Scores tab — which groups by lid
+   — drew a heading for each. Ken: "some leagues are duplicated."
+
+   The free row is dropped only when its Pro twin is ACTUALLY PRESENT IN THIS BATCH. That condition
+   is the whole safety of this function: if the Pro collector misses a run, or has not reached a
+   competition yet, the free rows stay and the user sees a slightly older score instead of an empty
+   league. Dropping on the map alone would have emptied the screen the first time refresh-af failed,
+   and an empty result is indistinguishable from a working one — which is the rule this project has
+   paid for more than any other. */
+function dedupeProviders(rows){
+  const proLids = new Set();
+  for(const r of rows) if(r.provider === 'af') proLids.add(String(r.lid));
+  return rows.filter(r => {
+    if(r.provider === 'af') return true;
+    const twin = AF_OF_FD[r.lid];
+    return !(twin != null && proLids.has(String(twin)));
+  });
+}
 let _leaguesLoadedAt = 0;
 let _loadIssues = [];   // build 123 — competitions that failed to load even after a retry
 let _truncated = [];    // build 123 — anything that came back at the row cap and had to be paged
@@ -7673,22 +8181,22 @@ async function loadCloudLeagues(force){
        counted as missing (a transient blip usually survives a second attempt). If it still fails
        AND it was present in the last successful load — so this is a competition disappearing, not
        one that was never there — it is named on the Predict feed instead of just being gone. */
-    const results = await Promise.all(FD_COMP_IDS.map(id => fetchLeagueFixtures(id)));
+    const results = await Promise.all(COMP_IDS.map(id => fetchLeagueFixtures(id)));
     const bad = (r) => !!(r.error || !r.data || !r.data.length);
     const retryIdx = results.map((r,i)=> bad(r) ? i : -1).filter(i=>i>=0);
     if(retryIdx.length){
-      const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(FD_COMP_IDS[i])));
+      const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(COMP_IDS[i])));
       retryIdx.forEach((i,k)=>{ results[i] = retried[k]; });
     }
     // still missing after the retry, and it was there last time — that combination is what makes
     // this a LOAD FAILURE rather than a competition with nothing to show
-    _loadIssues = FD_COMP_IDS
+    _loadIssues = COMP_IDS
       .map((id,i)=> (bad(results[i]) && afState.leagues[id]) ? (afState.leagues[id].name || `competition ${id}`) : null)
       .filter(Boolean);
     /* build 123 — which competitions needed more than one page. Kept so the About screen can show
        it: this is the fingerprint of the bug that hid Brasileirão, and if it ever silently returns
        to one page for a league that should have thousands of rows, that number is the evidence. */
-    _truncated = FD_COMP_IDS
+    _truncated = COMP_IDS
       .map((id,i)=> (results[i] && results[i].pages > 1)
         ? { id, pages: results[i].pages, rows: (results[i].data||[]).length } : null)
       .filter(Boolean);
@@ -7705,7 +8213,7 @@ async function loadCloudLeagues(force){
       for(const r of data){
         if(r.home_logo) afState.logos[r.home]=r.home_logo;
         if(r.away_logo) afState.logos[r.away]=r.away_logo;
-        const fin = FINISHED.includes(r.status) && r.gh!=null && r.ga!=null;
+        const fin = isFin(r.status) && r.gh!=null && r.ga!=null;   // build 160 — was the line that loaded 0 matches
         /* build 153 — `time` added. The Phase-0 coverage column reported kick-off hour at 0%,
            because the historical match list carried the date and the goals but never the time.
            The feature was reading a field that had never existed on these rows. Exactly what the
@@ -7713,7 +8221,7 @@ async function loadCloudLeagues(force){
         if(fin){ L.matches.push({date:r.date, time:r.time, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
-        if((r.status==='NS' && r.date>=today) || (fin && r.date>=winStart)){
+        if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart)){
           display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away, _fin:fin});
         }
       }
@@ -7885,7 +8393,7 @@ const LIVE_CODES = ['1H','2H','HT','ET','BT','P','INT','LIVE'];
 const STATUS_CODES = ['NS','TBD','1H','2H','HT','ET','BT','P','INT','LIVE',
                       'FT','AET','PEN','PST','SUSP','CANC','ABD','AWD','WO'];
 function normStatus(s){
-  const v = String(s == null ? '' : s).trim().toUpperCase();
+  const v = canonStatus(s);   // build 160 — translate the paid provider's words first
   return STATUS_CODES.includes(v) ? v : 'NS';
 }
 
@@ -7925,7 +8433,10 @@ async function afScoresFromCloud(){
     const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
     const { data, error } = await fetchAllRows('fixtures','*', q => q.gte('date', dm).lte('date', dp));
     if(error){ afState.scores={at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(error.message||error.code||'error'); return true; }
-    const rows = freshRows(data||[]);   // drop orphaned rows from any retired collector
+    // freshRows drops orphaned rows from a RETIRED collector; dedupeProviders drops the free twin
+    // of a competition the Pro collector is also writing RIGHT NOW. Two different problems — the
+    // staleness fence cannot see this one, because both collectors are live and both look fresh.
+    const rows = dedupeProviders(freshRows(data||[]));
     for(const r of rows){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
     let newest = 0;
@@ -8549,7 +9060,7 @@ async function showPredictDate(d){
     const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
-      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && FINISHED.includes(f.status);
+      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && isFin(f.status);   // build 160
       const hit = done ? gradePick(p.pick, actualCode(f.gh, f.ga), f.gh, f.ga)==='hit' : null;   // build 120
       if(done){ graded++; if(hit) hits++; }
       if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
@@ -9668,6 +10179,7 @@ $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hid
 $('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
 syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
+$('shareCardBtn').addEventListener('click', shareCard);
 $('genSlipBtn').addEventListener('click', genSlip);
 $('lineupsHead').addEventListener('click', async ()=>{
   if(!curDetail || $('luBox').dataset.loaded===String(curDetail.fxid)) return;
