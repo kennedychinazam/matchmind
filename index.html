@@ -688,7 +688,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 163;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 164;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3067,6 +3067,12 @@ function fxCells(L,f,smap){
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
                 const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
                 chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
+    /* BUILD 164 — a played match with no frozen pick says so, rather than showing a blank space
+       where a result chip goes. It is deliberately ONE message for both causes — never archived,
+       or withheld and removed — because after the fact the app genuinely cannot tell them apart,
+       and a label that picks one would be stating something it does not know. What it does know,
+       and what matters, is that nothing was published, so nothing is graded. */
+    else chip = `<span class="predchip muted-chip" title="No pick was published for this match before kick-off, so it is not graded and does not count in the accuracy record">No pick</span>`;
     return {timeCell, chip, finished:true};
   }
   /* BUILD 118 — a withheld pick still shows the fixture. Ken's call: "show the fixture, no pick".
@@ -8497,13 +8503,35 @@ function recordStats(){
   /* build 120 — the score goes in too, because a goals or BTTS pick cannot be graded from the 1/X/2
      result. Entries written before 120 have no gh/ga, and every one of them is a 1X2 pick, so they
      grade from `result` exactly as they always did — no historical number moves. */
-  const g = trust.map(r=>gradePick(r.pick, r.result, r.gh, r.ga));
-  const hits  = g.filter(x=>x==='hit').length;
-  const voids = g.filter(x=>x==='void').length;
-  const settled = trust.length - voids;
-  return { n:settled, hits, voids, pct: settled ? (100*hits/settled).toFixed(1) : '—',
+  const t = tallyPicks(trust);
+  return { n:t.n, hits:t.hits, voids:t.voids, pct:t.pct,
            legacy, legacyHits: graded.filter(r=>(r.build||0) < FROZEN_FROM_BUILD && pickHit(r.pick, r.result)).length };
 }
+
+/* BUILD 164 — ONE TALLY, USED BY EVERY FIGURE THE APP SHOWS.
+   Extracted from recordStats unchanged, because build 164 adds a second and third place where a
+   hit-rate is computed (yesterday, and the last seven days). Three copies of "count the hits, drop
+   the voids from the denominator" is three chances for the headline number and the recent number to
+   disagree on the same picks — and a record that contradicts itself on screen is worth less than no
+   record at all. That is §60's whole lesson: the archive bug was two code paths to one published
+   claim. Voids leave the denominator here exactly as they always did (build 119): a Draw No Bet
+   that ended level returned the stake, so calling it a loss would understate the app. */
+function tallyPicks(rows){
+  const g = rows.map(r=>gradePick(r.pick, r.result, r.gh, r.ga));
+  const hits  = g.filter(x=>x==='hit').length;
+  const voids = g.filter(x=>x==='void').length;
+  const settled = rows.length - voids;
+  return { n:settled, hits, voids, pct: settled ? (100*hits/settled).toFixed(1) : '—' };
+}
+
+/* Graded, frozen-era picks whose match falls in [from, to] — the same population the headline
+   counts, narrowed by date and nothing else. */
+function recordBetween(from, to){
+  return tallyPicks((afState.record||[]).filter(r =>
+    r.result && (r.build||0) >= FROZEN_FROM_BUILD &&
+    r.date && r.date >= from && r.date <= to));
+}
+const ymdLocal = (d) => new Date(d).toISOString().slice(0,10);
 function clearLegacyRecord(){
   afState.record = afState.record.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
   saveState(); renderStrongPicks(); renderMoreRecord(); toast('Old record cleared — counting from build 62');
@@ -8879,10 +8907,32 @@ function renderMoreRecord(){
     const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
     return;
   }
+  /* BUILD 164 — RECENT PERFORMANCE, at Ken's request: "the accuracy record should be reading, with
+     an update of performance counting from yesterday."
+
+     A single lifetime percentage cannot answer "is it working NOW". It moves so slowly that a good
+     week and a bad week look identical, which is precisely the number that matters after a build
+     that re-tuned the engine. Yesterday and the last seven days are computed by `recordBetween`
+     off the SAME tally as the headline, so the three figures describe one population and can never
+     contradict each other on screen.
+
+     A day with no graded picks says so instead of showing 0% — an empty denominator is not a bad
+     result, and printing "0/0 · 0%" after an international break would read as a collapse. */
+  const yday = ymdLocal(Date.now()-86400000);
+  const y = recordBetween(yday, yday);
+  const w = recordBetween(ymdLocal(Date.now()-7*86400000), ymdLocal(Date.now()));
+  const cell = (label, t) => {
+    const body = t.n
+      ? `<b style="color:${(+t.pct)>=50?'var(--green2)':'var(--red)'}">${t.hits}/${t.n} · ${t.pct}%</b>`
+      : `<span class="muted">no graded picks</span>`;
+    return `<span style="flex:1"><span class="muted" style="font-size:.62rem;letter-spacing:.08em;text-transform:uppercase">${label}</span><br>${body}</span>`;
+  };
   line.innerHTML = `<b style="color:var(--green2);font-size:1.05rem">${stats.hits}/${stats.n} correct · ${stats.pct}%</b>`
+    + `<div class="frow" style="margin-top:8px">${cell('Yesterday', y)}${cell('Last 7 days', w)}</div>`
     + `<div class="subnote" style="margin-top:4px">Each pick is frozen at kick-off and graded when the result arrives.`
     + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out rather than called a loss.` : '')
     + (stats.legacy ? ` ${stats.legacy} older result${stats.legacy===1?'':'s'} predate the freeze rule and are not counted.` : '')
+    + ` Yesterday and the last seven days count the same picks as the total above, narrowed by date.`
     + `</div>`;
 
   const box = $('moreRecordBreak'); if(!box) return;
@@ -9086,8 +9136,35 @@ function renderFixtures(){
     }
   }
 
+  /* BUILD 164 — A PLAYED MATCH MUST NEVER SILENTLY VANISH.
+     Ken: "some of the matches in predictions disappear after the games are played or after every
+     build. i need it corrected, the matches remain."
+
+     This filter used to end `&& f.pick`, and a played fixture only HAS a pick if a row survives in
+     the archive. Two ordinary things remove that row, and neither is a bug on its own:
+
+       · the app was never open before kick-off, so nothing was ever archived (archivePrediction
+         only runs pre-kick-off, by design — that is the freeze rule);
+       · the pick was WITHHELD before kick-off and unarchivePrediction removed the row (build 142,
+         so a gated fixture cannot come back graded).
+
+     A build that re-tunes the engine moves the gate, so pending fixtures get re-judged and some
+     lose their row — which is why Ken saw matches vanish "after every build". Every step is
+     correct and the visible result is a match disappearing with no explanation, plus an empty-state
+     message that says "no matches were played" when matches were played.
+
+     This is build 118's own rule, which was only ever applied to fixtures that had not kicked off:
+     "show the fixture, no pick... rather than the fixture quietly disappearing, which would leave
+     the user unable to tell an absent prediction from an absent match." A played match is exactly
+     that case and had exactly that hole. */
+  let noPickPlayed = 0;
   for(const L of Ls){
-    const todays = L.upcoming.filter(f=>f.date===afState.selectedDate && f.pick);
+    const todays = L.upcoming.filter(f=>{
+      if(f.date !== afState.selectedDate) return false;
+      if(f.pick) return true;
+      if(!fixtureResult(L, f, smap)) return false;   // upcoming with no pick: unchanged, still hidden
+      noPickPlayed++; return true;                   // played: it stays, and says so
+    });
     if(!todays.length) continue;
     const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
     html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
@@ -9097,6 +9174,13 @@ function renderFixtures(){
     const dp = daysPast(afState.selectedDate);
     const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
     html = `<div class="subnote">No predictions for ${when}. ${dp>0?'No matches were played in the competitions the engine covers.':'Fixtures appear here once they are announced and both teams are confirmed.'}</div>`;
+  }
+  /* BUILD 164 — the rows above marked "No pick" get one line of explanation, and only when there
+     are some. The two causes cannot be told apart after the fact, so both are named rather than
+     guessed between. The last sentence is the one that matters: they are not in the record, so
+     seeing them here cannot move the accuracy number in either direction. */
+  if(noPickPlayed){
+    html += `<div class="subnote" style="margin-top:12px">${noPickPlayed} played ${noPickPlayed===1?'match is':'matches are'} shown with <b>No pick</b>. Either the app was not open before kick-off, or the pick was withheld at the time because it did not clear that competition's bar. Frozen picks are never re-calculated after the whistle, so these stay blank rather than being filled in now — and they are not counted in your accuracy record.</div>`;
   }
   /* BUILD 117 — say what the edge filter removed, and only when it actually cost you matches today.
      Naming a hidden competition that has no fixtures on this date would be noise, not information. */
