@@ -688,7 +688,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 164;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 168;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5162,6 +5162,133 @@ function haversineKm(a, b){
 
 const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14, DERBY_KM: 30 };
 
+/* ══ BUILD 168 — MILESTONE 13: THE FEATURES THEMSELVES ══════════════════════════════════════════
+   Build 163 carried the paid provider's ~30 columns onto the match row and measured them. It
+   deliberately computed nothing. This derives the first families the ROADMAP names — xG
+   differential, shot quality, keeper quality, formation change, coach change — walk-forward, and
+   wired to nothing, exactly as Phase 0 shipped.
+
+   ── THE TRAP THAT SHAPES ALL OF THIS, AND IT IS NOT THE ARITHMETIC ──
+   These variables sit on a FILL FRONTIER. The collector works oldest-first through ~22,000
+   fixtures, so xG is dense in the old seasons and absent last week, and coverage climbs every hour.
+   A rolling "last 8 matches" window bounded ONLY by a sample count therefore does something
+   silently different from what its name says: on a team whose recent matches are unfilled it walks
+   back until it finds 8 that are, and returns "form" assembled from matches spread over three
+   seasons. That is not a thin number or a missing one — it is a WRONG one, sitting at full coverage
+   in the panel. That is build 165's lesson exactly: a substring match on "draw no bet" would have
+   filed a first-half price as a full-time one, and no coverage query would ever have shown it,
+   because the column would have been full.
+
+   So every window here is bounded TWICE — by sample count AND by calendar age (PF.MAX_AGE_D). A
+   window that cannot be filled inside the age bound returns null and reads as low coverage, which
+   is the honest answer and the one Milestone 14 has to be able to see.
+
+   ── WHY FORMATION AND COACH CHANGE ARE GATED ON ADJACENCY ──
+   A change is only detectable between two CONSECUTIVE matches. If the coach id is present in a
+   team's match 12 and match 15 but missing from 13 and 14, "the coach changed" may well be true,
+   but attributing it to match 15 is a guess, and a change that happened and was reverted is
+   invisible. So both change features require their two observations to be adjacent in that team's
+   own match sequence and return null otherwise. `coachGapD` carries how many days separated them,
+   so a fit can tell a summer appointment from a midweek sacking as DATA rather than by a rule
+   hidden in here.
+
+   ── AND ONE ASSUMPTION IS TURNED INTO A MEASUREMENT ──
+   `goals_prevented` is the provider's own figure and this project has never verified what its sign
+   means. So keeper quality is derived twice: `gk` (the provider's number) and `gkProxy` (opponent
+   xG minus goals conceded), built from data whose meaning is certain. WRITTEN DOWN BEFORE IT WAS
+   RUN: if `goals_prevented` means shot-stopping above expectation, the two correlate positively and
+   clearly — r > +0.4. The panel prints r with its n. A near-zero or negative r means the column
+   does not mean what its name suggests, and that is far cheaper to learn now than from a fitted
+   weight in Milestone 14. */
+const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240 };
+
+/* Each team's own match sequence as indices into L.matches, which loadCloudLeagues has already
+   sorted by date — so position order IS date order, which is what the adjacency test above relies
+   on. Memoised in a WeakMap keyed on the matches ARRAY, deliberately, for two reasons: a reload
+   builds a fresh array so the cache invalidates itself with no staleness rule to get wrong, and
+   nothing is hung off the league object, which `saveState` serialises into a ~5MB localStorage
+   quota whose failure is silent (build 163). A cache that cannot be persisted cannot break
+   persistence. */
+const _teamSeq = new WeakMap();
+function teamSeqFor(L){
+  const ms = L && L.matches; if(!ms) return {};
+  let s = _teamSeq.get(ms); if(s) return s;
+  s = {};
+  for(let i=0;i<ms.length;i++){
+    const m = ms[i];
+    if(m.home) (s[m.home] = s[m.home] || []).push(i);
+    if(m.away) (s[m.away] = s[m.away] || []).push(i);
+  }
+  _teamSeq.set(ms, s);
+  return s;
+}
+
+/* One team's provider-derived form before a fixture. Walk-forward by construction: `upTo` is the
+   fixture's own index and every candidate at or after it is skipped, so a feature can never see its
+   own result — the rule Phase 0 was built on and the one §60 was about.
+   Returns null when nothing is derivable, and each feature inside is independently null when ITS
+   OWN denominator is short. One shared "we had 5 matches" gate would let a team with xG on 8
+   matches and goals_prevented on one publish a keeper rating built from that one. */
+function providerFormFor(L, team, upTo, seq, date){
+  const idxs = seq[team]; if(!idxs || !idxs.length || !date) return null;
+  const ms = L.matches, d0 = _dayNum(date);
+  const stat = [], lineup = [];
+  for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2); p--){
+    const i = idxs[p];
+    if(upTo != null && i >= upTo) continue;              // never this fixture, never a later one
+    const m = ms[i]; if(!m || !m.date) continue;
+    if(d0 - _dayNum(m.date) > PF.MAX_AGE_D) break;       // too old to be called form — see PF above
+    const x = m._x; if(!x) continue;
+    const H = m.home === team;
+    const mine = k => x[H ? k+'_h' : k+'_a'], theirs = k => x[H ? k+'_a' : k+'_h'];
+    if(stat.length < PF.WIN && mine('xg') != null){
+      stat.push({ xgF: mine('xg'), xgA: theirs('xg'),
+                  gF: H ? m.hg : m.ag, gA: H ? m.ag : m.hg,
+                  shots: mine('shots'), sib: mine('sib'), sob: mine('sob'), gprev: mine('gprev') });
+    }
+    const fm = mine('formation'), co = x[H ? 'coach_h' : 'coach_a'];
+    if(lineup.length < 2 && (fm != null || co != null)) lineup.push({ p, date:m.date, form:fm, coach:co });
+  }
+
+  const ok = v => v != null && isFinite(v);
+  // mean of a per-match quantity, null unless ITS OWN count clears the gate
+  const mean = pick => {
+    let s = 0, n = 0;
+    for(const r of stat){ const v = pick(r); if(ok(v)){ s += v; n++; } }
+    return n >= PF.MIN_N ? s/n : null;
+  };
+  // a rate is summed then divided, not averaged per match — 8 shots for 0.9 xG and 20 for 1.1 is
+  // one team's shot quality, and a mean of per-match ratios would weight the quiet game equally
+  const rate = (numer, denom) => {
+    let a = 0, b = 0, n = 0;
+    for(const r of stat){ const x1 = numer(r), y1 = denom(r); if(ok(x1) && ok(y1)){ a += x1; b += y1; n++; } }
+    return (n >= PF.MIN_N && b > 0) ? a/b : null;
+  };
+
+  const R = {
+    n: stat.length,
+    xgDiff: mean(r => (ok(r.xgF) && ok(r.xgA)) ? r.xgF - r.xgA : null),
+    xgOver: mean(r => (ok(r.gF)  && ok(r.xgF)) ? r.gF  - r.xgF : null),
+    shotQual: rate(r => r.xgF, r => r.shots),
+    boxShare: rate(r => r.sib, r => (ok(r.sib) && ok(r.sob)) ? r.sib + r.sob : null),
+    gk: mean(r => r.gprev),
+    gkProxy: mean(r => (ok(r.xgA) && ok(r.gA)) ? r.xgA - r.gA : null),
+    formChg: null, coachNew: null, coachGapD: null
+  };
+  /* ADJACENCY, and it is the whole guard. Two observations one position apart in this team's
+     sequence means no match sat between them unobserved, so a difference IS a change. Anything
+     else is a guess dressed as a measurement. */
+  if(lineup.length === 2 && lineup[0].p - lineup[1].p === 1){
+    const a = lineup[0], b = lineup[1];
+    if(a.form != null && b.form != null) R.formChg = String(a.form) === String(b.form) ? 0 : 1;
+    if(a.coach != null && b.coach != null){
+      R.coachNew = a.coach === b.coach ? 0 : 1;
+      R.coachGapD = _dayNum(a.date) - _dayNum(b.date);
+    }
+  }
+  return R;
+}
+
 /* Every Phase-0 feature for one fixture, walk-forward. `upTo` cuts the competition's history at
    the fixture, exactly as predict() does — a feature that can see its own result is worthless. */
 function matchFeatures(L, f, upTo, idx){
@@ -5178,6 +5305,15 @@ function matchFeatures(L, f, upTo, idx){
   const koH = f.time ? +String(f.time).slice(0,2) : null;
   // 37 & 53 — the match is played at the home team's ground, so this is the away side's travel.
   const travelKm = haversineKm(VENUE[f.home], VENUE[f.away]);
+  /* BUILD 168 — the provider-derived block joins THIS vector rather than getting its own function.
+     Milestone 14 fits one model over one feature layer; two functions producing two halves of one
+     vector is two code paths to a single published thing, which is §60's archive bug in its general
+     form. They differ only in how often they are available, and that is what the coverage column is
+     for. */
+  const seq = teamSeqFor(L);
+  const pH = providerFormFor(L, f.home, upTo, seq, f.date);
+  const pA = providerFormFor(L, f.away, upTo, seq, f.date);
+  const g = (o, k) => (o && o[k] != null) ? o[k] : null;
   return {
     restH: rH, restA: rA, restDiff: (rH!=null && rA!=null) ? rH - rA : null,   // 36
     fhGD_H: hsH ? hsH.fh : null, fhGD_A: hsA ? hsA.fh : null,                  // 26
@@ -5191,7 +5327,18 @@ function matchFeatures(L, f, upTo, idx){
     distractA: distractionFor(idx, f.away, f.date, L.id, FEAT.DISTRACT_LOOK),
     histH: divHistoryFor(L, f.home, upTo), histA: divHistoryFor(L, f.away, upTo),
     travelKm,                                                                  // 37
-    derby: travelKm == null ? null : (travelKm < FEAT.DERBY_KM ? 1 : 0)        // 53
+    derby: travelKm == null ? null : (travelKm < FEAT.DERBY_KM ? 1 : 0),       // 53
+    // ── build 168, provider-derived (Milestone 13). Null far more often than the block above. ──
+    xgDiffH: g(pH,'xgDiff'), xgDiffA: g(pA,'xgDiff'),                          // 1, 2
+    xgEdge: (g(pH,'xgDiff') != null && g(pA,'xgDiff') != null) ? pH.xgDiff - pA.xgDiff : null,
+    xgOverH: g(pH,'xgOver'), xgOverA: g(pA,'xgOver'),                          // 3 — finishing vs xG
+    shotQualH: g(pH,'shotQual'), shotQualA: g(pA,'shotQual'),                  // 8, 9
+    boxShareH: g(pH,'boxShare'), boxShareA: g(pA,'boxShare'),                  // 10
+    gkH: g(pH,'gk'), gkA: g(pA,'gk'),                                          // 4, 35
+    gkProxyH: g(pH,'gkProxy'), gkProxyA: g(pA,'gkProxy'),                      // 4 — the check on 4
+    formChgH: g(pH,'formChg'), formChgA: g(pA,'formChg'),                      // 34
+    coachNewH: g(pH,'coachNew'), coachNewA: g(pA,'coachNew'),                  // 51
+    coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD')
   };
 }
 
@@ -5233,9 +5380,17 @@ function renderFeatureLayer(){
     }
     if(rows.length < 300){ box.innerHTML = '<div class="subnote">Only '+rows.length+' fixtures produced features — too few to report.</div>'; return; }
 
-    const KEYS = ['restDiff','fhGD_H','fhGD_A','shGD_H','shGD_A','congestH','congestA',
+    const P0_KEYS = ['restDiff','fhGD_H','fhGD_A','shGD_H','shGD_A','congestH','congestA',
                   'homeEdge','awayHomeEdge','koHour','distractH','distractA','histH','histA',
                   'travelKm','derby'];
+    /* Build 168. Listed separately ONLY so the panel can show them under their own heading — they
+       go through the identical coverage and slope path, because they are the same feature layer.
+       Expect much lower coverage than the block above: these need a RUN of filled matches per team,
+       not one filled match, and the collector is still working oldest-first through ~22,000. */
+    const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
+                  'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
+                  'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA'];
+    const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
       shGD_A:'Second-half GD, away (27)', congestH:'Fixture congestion, home (38)',
@@ -5243,7 +5398,17 @@ function renderFeatureLayer(){
       awayHomeEdge:'Away side\'s own home edge (40)', koHour:'Kick-off hour (47)',
       distractH:'Cup distraction, home (54)', distractA:'Cup distraction, away (54)',
       histH:'Matches in division, home', histA:'Matches in division, away',
-      travelKm:'Away travel distance, km (37)', derby:'Derby flag, <30km (53)' };
+      travelKm:'Away travel distance, km (37)', derby:'Derby flag, <30km (53)',
+      xgDiffH:'xG differential, home (1)', xgDiffA:'xG differential, away (1)',
+      xgEdge:'xG differential edge, H−A (1)',
+      xgOverH:'Goals − xG, home (3)', xgOverA:'Goals − xG, away (3)',
+      shotQualH:'Shot quality, xG/shot, home (8)', shotQualA:'Shot quality, xG/shot, away (8)',
+      boxShareH:'Share of shots in box, home (10)', boxShareA:'Share of shots in box, away (10)',
+      gkH:'Keeper, goals prevented, home (4)', gkA:'Keeper, goals prevented, away (4)',
+      gkProxyH:'Keeper, opp xG − conceded, home', gkProxyA:'Keeper, opp xG − conceded, away',
+      formChgH:'Formation changed, home (34)', formChgA:'Formation changed, away (34)',
+      coachNewH:'Coach changed, home (51)', coachNewA:'Coach changed, away (51)',
+      coachGapDH:'Days between coach obs, home', coachGapDA:'Days between coach obs, away' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -5256,21 +5421,52 @@ function renderFeatureLayer(){
       return { k, cov, n: have.length, st };
     });
 
-    box.innerHTML =
-      `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
-       <div class="frow"><span style="flex:1">Competitions</span><span>${ids.length}</span></div>
-       <div class="sec-label" style="margin-top:12px">Coverage and descriptive slope</div>
-       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
-         <span style="flex:1">Feature</span><span style="width:20%;text-align:right">Coverage</span>
-         <span style="width:30%;text-align:right">Slope vs error</span></div>` +
-      out.map(o=>`<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(LBL[o.k]||o.k)}</span>
+    /* BUILD 168 — TURNING ONE ASSUMPTION INTO A MEASUREMENT. `goals_prevented` is the provider's
+       own column and nothing in this project has ever confirmed which way its sign runs. gkProxy is
+       the same quantity built from data whose meaning is certain (opponent xG minus goals
+       conceded), so the two should agree. Predicted before this was first run and written into the
+       source so it cannot be decided afterwards: r > +0.4 if the column means what its name says.
+       The two sides of one fixture are pooled here and they are NOT independent observations, so
+       this reports r and n and deliberately does not quote a t — the question is "does this column
+       mean what we think", not "is the effect significant". */
+    const gx = [], gy = [];
+    for(const r of rows){
+      if(r.F.gkH != null && r.F.gkProxyH != null){ gx.push(r.F.gkH); gy.push(r.F.gkProxyH); }
+      if(r.F.gkA != null && r.F.gkProxyA != null){ gx.push(r.F.gkA); gy.push(r.F.gkProxyA); }
+    }
+    const gkR = gx.length >= 30 ? correlate(gx, gy) : null;
+    const gkVerdict = !gkR
+      ? `<b style="color:var(--text)">Not enough coverage yet to check it.</b> ${gx.length} paired observations; 30 needed. This answers itself as the collector fills.`
+      : gkR.r >= 0.4
+        ? `<b style="color:var(--green2)">r = ${gkR.r.toFixed(3)} on n = ${gkR.n.toLocaleString()} — as predicted.</b> <code>goals_prevented</code> tracks shot-stopping above expectation, so the column means what its name suggests and can be used as one.`
+        : `<b style="color:var(--red)">r = ${gkR.r.toFixed(3)} on n = ${gkR.n.toLocaleString()} — the prediction of r > +0.4 FAILED.</b> <code>goals_prevented</code> does not measure what this project assumed. Do not fit a keeper feature on it until what it does mean has been established; <code>gkProxy</code> is built from certain data and is the one to use meanwhile.`;
+
+    const rowHtml = o => `<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(LBL[o.k]||o.k)}</span>
           <span style="width:20%;text-align:right;color:${o.cov>=0.8?'var(--green2)':o.cov>=0.4?'var(--text)':'var(--red)'}">${(100*o.cov).toFixed(0)}%</span>
           <span style="width:30%;text-align:right">${o.st
             ? `<b>${(o.st.b>=0?'+':'')}${o.st.b.toFixed(4)}</b> <span class="muted" style="font-size:.7rem">t ${o.st.t.toFixed(2)}</span>`
-            : '<span class="muted">—</span>'}</span></div>`).join('') +
+            : '<span class="muted">—</span>'}</span></div>`;
+    const head = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Feature</span><span style="width:20%;text-align:right">Coverage</span>
+         <span style="width:30%;text-align:right">Slope vs error</span></div>`;
+    const isProv = o => PROV_KEYS.indexOf(o.k) >= 0;
+
+    box.innerHTML =
+      `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
+       <div class="frow"><span style="flex:1">Competitions</span><span>${ids.length}</span></div>
+       <div class="sec-label" style="margin-top:12px">Phase 0 — from data the app always had</div>` + head +
+      out.filter(o=>!isProv(o)).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 — derived from the paid provider</div>
+       <div class="subnote">These will read far lower than the raw column coverage in the panel below, and that is the point: a rolling feature needs a <b>run</b> of filled matches for one team, not one filled match. Each window is capped at ${PF.WIN} matches and ${PF.MAX_AGE_D} days, and returns nothing rather than assembling "form" out of matches three seasons apart.</div>` + head +
+      out.filter(isProv).map(rowHtml).join('') +
+
+      `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Does <code>goals_prevented</code> mean what we assumed?</b> ${gkVerdict}</div>` +
+
       `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">These numbers decide nothing.</b> Each slope is one feature on its own, and features overlap heavily — congestion and rest days are close to the same fact told twice. Phase 3 fits them <b>jointly</b> with regularisation, and a joint fit routinely disagrees with a column of separate slopes. Reading one row here as "this variable works" is the mistake §52's confound was made of.</div>` +
       `<div class="subnote"><b style="color:var(--text)">Coverage is the column that matters today.</b> A feature present on a small share of fixtures cannot carry weight later however good its slope looks, and it is much cheaper to learn that now than after the model is fitted.</div>` +
-      `<div class="subnote">Walk-forward throughout: every feature is computed from matches dated before its own fixture. Rest days and congestion pool across all loaded competitions, so midweek European ties count. Nothing here is wired to any prediction.</div>`;
+      `<div class="subnote">Walk-forward throughout: every feature is computed from matches dated before its own fixture. Rest days and congestion pool across all loaded competitions, so midweek European ties count. Nothing here is wired to any prediction.</div>` +
+      `<div class="subnote">The provider features read <code>_x</code>, which is <b>memory only</b> — it is stripped before localStorage to keep the cache under quota. If this table shows them all at 0% while the panel below shows real coverage, the competitions came from cache without a cloud refresh; open Predict and reload rather than going looking at the collector.</div>`;
   }, 30);
 }
 
