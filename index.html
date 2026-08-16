@@ -649,6 +649,7 @@
       <button id="formBtn"></button><div id="formOut"></div>
       <button id="faBtn"></button><div id="faOut"></div>
       <button id="flBtn"></button><div id="flOut"></div>
+      <button id="pcBtn"></button><div id="pcOut"></div>
       <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
@@ -687,7 +688,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 160;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 163;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5267,6 +5268,125 @@ function renderFeatureLayer(){
   }, 30);
 }
 
+/* ══ BUILD 163 — MILESTONE 13's FIRST QUESTION, AND IT IS NOT "WHICH FEATURES SHOULD WE BUILD" ═══
+   It is "which of these variables actually exists, on how many fixtures, and since when".
+
+   Milestone 13's Done-when says every reachable variable is stored per fixture WITH A COVERAGE
+   REPORT PER FEATURE. That ordering is deliberate and it is the same one Phase 0 used: the coverage
+   column is what caught kick-off hour sitting at 0% in build 153, before anything had been fitted to
+   it. A variable present on 4% of fixtures cannot carry weight in Milestone 14 however good it
+   looks, and finding that out after a fit means the fit has to be thrown away.
+
+   THE NUMBER THIS IS REALLY FOR. The collector fills statistics 15 fixtures at a time, oldest
+   first, and since build 162 it does so with whatever wall clock the odds pass leaves it. There are
+   ~22,000 finished fixtures. So coverage today is PARTIAL AND CLIMBING, and the only honest way to
+   know whether Milestone 14 can start is to read the fill frontier rather than to estimate it — the
+   by-year table below is that frontier. A season at 100% is finished; the year where the percentage
+   collapses is where the collector has got to.
+
+   Nothing here computes a feature or touches a prediction. It reports what is in the data. */
+function renderProviderCoverage(){
+  const box = $('pcOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length;
+  });
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading coverage…</div>';
+  setTimeout(()=>{
+    const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a']);
+    const have = {}; for(const k of KEYS) have[k] = 0;
+    let total = 0, withAny = 0;
+    const byYear = {}, byComp = [];
+
+    for(const id of ids){
+      const L = afState.leagues[id];
+      let cN = 0, cX = 0;
+      for(const m of L.matches){
+        total++; cN++;
+        const x = m._x;
+        const yr = (m.date||'').slice(0,4) || '—';
+        const Y = byYear[yr] = byYear[yr] || { n:0, xg:0 };
+        Y.n++;
+        if(x && Object.keys(x).length){
+          withAny++;
+          for(const k of KEYS) if(x[k] != null) have[k]++;
+          if(x.xg_h != null){ Y.xg++; cX++; }
+        }
+      }
+      byComp.push({ name: L.name || String(id), n: cN, xg: cX });
+    }
+
+    if(!total){ box.innerHTML = '<div class="subnote">No finished matches are loaded.</div>'; return; }
+
+    const pct = n => (100*n/total);
+    const colour = p => p >= 80 ? 'var(--green2)' : p >= 30 ? 'var(--text)' : 'var(--red)';
+    const LBL = {
+      xg_h:'Expected goals, home (1)', xg_a:'Expected goals, away (1)',
+      gprev_h:'Goals prevented, home (4)', gprev_a:'Goals prevented, away (4)',
+      poss_h:'Possession, home (7)', poss_a:'Possession, away (7)',
+      shots_h:'Total shots, home (8)', shots_a:'Total shots, away (8)',
+      sot_h:'Shots on target, home (9)', sot_a:'Shots on target, away (9)',
+      sib_h:'Shots inside box, home (10)', sib_a:'Shots inside box, away (10)',
+      sob_h:'Shots outside box, home (10)', sob_a:'Shots outside box, away (10)',
+      blocked_h:'Blocked shots, home', blocked_a:'Blocked shots, away',
+      corners_h:'Corners, home', corners_a:'Corners, away',
+      fouls_h:'Fouls, home', fouls_a:'Fouls, away',
+      yellows_h:'Yellows, home', yellows_a:'Yellows, away',
+      reds_h:'Reds, home (11)', reds_a:'Reds, away (11)',
+      saves_h:'Keeper saves, home (35)', saves_a:'Keeper saves, away (35)',
+      passacc_h:'Pass accuracy, home', passacc_a:'Pass accuracy, away',
+      offsides_h:'Offsides, home', offsides_a:'Offsides, away',
+      formation_h:'Formation, home (34)', formation_a:'Formation, away (34)',
+      coach_h:'Coach id, home (51)', coach_a:'Coach id, away (51)',
+      referee:'Referee (57-59)', venue_id:'Venue id (39, 44-46)' };
+
+    const dead = KEYS.filter(k => have[k] === 0);
+    const years = Object.keys(byYear).sort();
+
+    box.innerHTML =
+      `<div class="frow"><span style="flex:1"><b>Finished fixtures loaded</b></span><span><b>${total.toLocaleString()}</b></span></div>
+       <div class="frow"><span style="flex:1">…carrying any provider detail</span><span><b style="color:${colour(pct(withAny))}">${withAny.toLocaleString()} (${pct(withAny).toFixed(1)}%)</b></span></div>
+       <div class="frow"><span style="flex:1">Competitions</span><span>${ids.length}</span></div>` +
+
+      `<div class="sec-label" style="margin-top:12px">Coverage per variable</div>
+       <div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
+         <span style="flex:1">Variable (plan item)</span><span style="width:22%;text-align:right">Fixtures</span>
+         <span style="width:18%;text-align:right">Coverage</span></div>` +
+      KEYS.map(k=>`<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(LBL[k]||k)}</span>
+         <span style="width:22%;text-align:right;font-size:.78rem" class="muted">${have[k].toLocaleString()}</span>
+         <span style="width:18%;text-align:right;color:${colour(pct(have[k]))}">${pct(have[k]).toFixed(1)}%</span></div>`).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">The fill frontier — xG by season</div>
+       <div class="subnote">The collector fills oldest-first, so this reads as a wave. The year where the percentage collapses is where it has reached.</div>` +
+      years.map(y=>{
+        const Y = byYear[y], p = Y.n ? 100*Y.xg/Y.n : 0;
+        return `<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(y)}</span>
+          <span style="width:22%;text-align:right;font-size:.78rem" class="muted">${Y.xg.toLocaleString()} / ${Y.n.toLocaleString()}</span>
+          <span style="width:18%;text-align:right;color:${colour(p)}">${p.toFixed(1)}%</span></div>`;
+      }).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">xG coverage per competition</div>` +
+      byComp.sort((a,b)=>b.n-a.n).map(c=>{
+        const p = c.n ? 100*c.xg/c.n : 0;
+        return `<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(c.name)}</span>
+          <span style="width:22%;text-align:right;font-size:.78rem" class="muted">${c.xg.toLocaleString()} / ${c.n.toLocaleString()}</span>
+          <span style="width:18%;text-align:right;color:${colour(p)}">${p.toFixed(1)}%</span></div>`;
+      }).join('') +
+
+      /* A variable at exactly zero is the one actionable result this panel can produce, and it has
+         two very different causes that look identical from here: the collector is not writing it, or
+         it is writing it under another name. Build 159 is the reason that distinction gets spelled
+         out rather than left to be inferred from a red 0.0%. */
+      (dead.length
+        ? `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px;margin-top:10px"><b style="color:var(--text)">${dead.length} variable${dead.length>1?'s are':' is'} at zero: ${dead.map(k=>escapeHtml(LBL[k]||k)).join(', ')}.</b> Zero does not mean "not collected yet" — a partly-filled column shows a small percentage, not none at all. It means the collector is not writing that column, or is writing it under a different name. Check <code>refresh-af.ts</code>'s statPair names against the probe's <code>statTypesAvailable</code> before assuming the provider does not have it.</div>`
+        : `<div class="subnote" style="border-left:3px solid var(--green2);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Every variable is arriving.</b> The percentages are a fill frontier, not a limit — the collector works oldest-first through ~22,000 fixtures at 15 per run.</div>`) +
+
+      `<div class="subnote"><b style="color:var(--text)">This decides when Milestone 14 can start, and nothing else.</b> A variable thin on coverage cannot carry weight in a fit however promising it looks, and the ridge regression cannot tell "no data" from "no effect" — it will hand a sparse variable a near-zero weight and that will read as evidence the variable does not matter. Wait for coverage, then fit.</div>` +
+      `<div class="subnote">Wired to nothing. This panel reads <code>_x</code> off the loaded match rows, which is memory only — the extras are stripped before localStorage to keep the cache under quota.</div>`;
+  }, 30);
+}
+
 function buildRestIndex(){
   const byTeam = {};
   for(const id of Object.keys(afState.leagues || {})){
@@ -8114,6 +8234,62 @@ let _truncated = [];    // build 123 — anything that came back at the row cap 
    short page, and a fetch that comes back exactly at the cap is RECORDED, because a query that
    silently returns partial data is indistinguishable from a competition with nothing on today —
    which is exactly the confusion this cost Ken. */
+/* ══ BUILD 163 — MILESTONE 13. THE PAID PROVIDER'S COLUMNS REACH THE APP FOR THE FIRST TIME ═════
+   Milestone 11 pointed the collector at API-Football Pro and it has been writing xG, possession,
+   shots, goals_prevented, the in/out-of-box split, formations, coach ids, referee and venue into
+   `fixtures` ever since. `fetchLeagueFixtures` selects `*`, so all of it has been arriving in the
+   browser — and then being DROPPED, because the line that builds a match row named eight fields and
+   ignored everything else.
+
+   That is the build-153 fault at ten times the scale. Read the comment beside `time` on the match
+   row: the Phase-0 coverage column reported kick-off hour at 0% because the historical match list
+   never carried the time, and "the feature was reading a field that had never existed on these
+   rows". Every Milestone 13 feature would have been computed from `undefined` in exactly the same
+   way, and the ones that degrade quietly — a possession differential that is always 0 — would not
+   even have shown up as a zero in the coverage column.
+
+   ── WHY THIS IS A SEPARATE `_x` OBJECT AND NOT THIRTY MORE FIELDS ON THE ROW ──
+   `saveState()` writes `afState.leagues` — every match of every competition — into localStorage,
+   whose quota is about 5MB, and it swallows the failure: `catch(e){ }`. A match row is currently
+   ~90 bytes of JSON and there are ~22,000 of them across the eleven competitions, so the cache
+   already sits near 2MB. Adding thirty numbers to each row is roughly +250 bytes × 22,000 ≈ 5.5MB,
+   which does not fail loudly — **it makes every future saveState() throw QuotaExceededError into an
+   empty catch block, and the app silently stops persisting anything at all.** Favourites, the
+   prediction record and the data chip would quietly stop surviving a reload.
+
+   So the extras hang off ONE property, `_x`, and `saveState` drops that property on the way out.
+   They live in memory for as long as the tab is open and come back from the database on the next
+   load, which costs nothing because the app re-fetches every competition at boot regardless.
+   The strip is asserted by the regression suite, because forgetting it breaks persistence silently
+   and the symptom appears nowhere near the cause.
+
+   Events and lineups are deliberately NOT carried. They are jsonb blobs of a few KB each and would
+   reintroduce the same problem for data that must be reduced to a handful of numbers anyway; the
+   next build extracts what it needs from them server-side. Only the coach id is taken here, because
+   it is one integer and it is what makes item 51 — the new-manager bounce — detectable at all. */
+const EXTRA_KEYS = ['xg_h','xg_a','gprev_h','gprev_a','poss_h','poss_a','shots_h','shots_a',
+  'sot_h','sot_a','sib_h','sib_a','sob_h','sob_a','blocked_h','blocked_a','corners_h','corners_a',
+  'fouls_h','fouls_a','yellows_h','yellows_a','reds_h','reds_a','saves_h','saves_a',
+  'passacc_h','passacc_a','offsides_h','offsides_a','formation_h','formation_a',
+  /* `attendance` and `surface` are NOT here, and their absence is a finding rather than an
+     oversight. Phase-1 SQL created both columns from the plan; the collector writes neither,
+     because API-Football's fixture payload does not carry them. Listing them would have put two
+     variables in the coverage panel permanently stuck at 0.0%, which reads as "the collector is
+     broken" rather than "the provider does not have this" — and someone would eventually spend a
+     build chasing it. A column existing in the schema is not evidence the data exists.
+     The regression suite now compares this list against what the collector actually writes. */
+  'referee','venue_id'];
+function providerExtras(r){
+  const x = {};
+  for(const k of EXTRA_KEYS){ const v = r[k]; if(v != null) x[k] = v; }
+  /* The coach id lives inside the lineup blob the collector stores per side. One integer each, and
+     a change between consecutive fixtures IS the manager change — no extra request, no extra table. */
+  const ch = r.lineup_h && r.lineup_h.coachId, ca = r.lineup_a && r.lineup_a.coachId;
+  if(ch != null) x.coach_h = ch;
+  if(ca != null) x.coach_a = ca;
+  return x;
+}
+
 const PAGE = 1000;
 async function fetchLeagueFixtures(id){
   let out = [], from = 0, pages = 0;
@@ -8218,7 +8394,7 @@ async function loadCloudLeagues(force){
            because the historical match list carried the date and the goals but never the time.
            The feature was reading a field that had never existed on these rows. Exactly what the
            coverage column was put there to catch, and cheaper to find now than after a fit. */
-        if(fin){ L.matches.push({date:r.date, time:r.time, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
+        if(fin){ L.matches.push({date:r.date, time:r.time, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r)}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
         if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart)){
@@ -9079,6 +9255,15 @@ async function showPredictDate(d){
 
 /* ---------- persistence (survives reload) ---------- */
 function savePrefs(){ saveState(); }
+/* BUILD 163 — THE ONE LINE THAT KEEPS THE CACHE UNDER THE QUOTA.
+   `_x` carries the paid provider's per-match statistics (see providerExtras). They are wanted in
+   memory and must never reach localStorage: ~30 numbers × ~22,000 matches is several megabytes
+   against a ~5MB quota, and saveState's catch block is empty, so exceeding it does not raise
+   anything — it just stops persisting favourites, the record and the data chip, for good, with no
+   symptom anywhere near the cause.
+   A replacer rather than a copy of the league objects: it cannot miss a nesting level, and it costs
+   nothing on a call that already serialises the whole state. */
+const dropExtras = (k, v) => k === '_x' ? undefined : v;
 function saveState(){
   try{
     localStorage.setItem('mm_state', JSON.stringify({
@@ -9088,7 +9273,7 @@ function saveState(){
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
       af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
-    }));
+    }, dropExtras));
   }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
 }
@@ -10158,6 +10343,7 @@ function renderNewcomerSweep(){
 { const b=$('formBtn'); if(b) b.addEventListener('click', renderFormTest); }
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
+{ const b=$('pcBtn'); if(b) b.addEventListener('click', renderProviderCoverage); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
@@ -10282,7 +10468,7 @@ setTimeout(()=>{
   // force one refresh when the cache was written by an older build (different list shape / fence)
   const _thinCache = afState.scores && afState.scores.v !== SCORES_CACHE_V;
   if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
-  if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (Football-Data.org)
+  if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (API-Football Pro since build 158)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
 // keep things fresh on their own (reads the DB only — no API cost): recent results every 2 min,
