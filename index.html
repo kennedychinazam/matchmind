@@ -688,7 +688,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 168;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 171;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5152,6 +5152,100 @@ const VENUE = {
 /* Great-circle distance in km. Returns null rather than throwing if either side is missing from
    VENUE — a feature that can silently produce NaN and poison an average is worse than one that
    plainly has no opinion. */
+/* ══ BUILD 171 — THE VENUE NAME VOCABULARY, AND WHY THIS IS NOT A FUZZY MATCHER ══════════════════
+   VENUE was written against the FREE provider's team names. Build 158 moved the app to
+   API-Football, whose names differ, and every lookup that stopped matching began returning
+   `undefined` — silently, because `undefined` is exactly what a genuinely unknown ground returns.
+
+   Build 170 measured the damage against the live database: `travelKm` and `derby` need BOTH grounds
+   and were sitting at 30.0% coverage, 6,597 of 22,005 fixtures. The missing 70% was NOT a random
+   sample — it was led by Manchester City, Paris Saint-Germain, Barcelona, Atlético Madrid and
+   Borussia Dortmund, because the big clubs are exactly the ones whose names get abbreviated
+   differently. A ridge fit on that is biased, not merely thin, and the ridge cannot tell "no data"
+   from "no effect".
+
+   THIS IS BUILD 159/160's FAULT CLASS: two halves of one system holding different vocabularies,
+   producing a WRONG number rather than an error. The repair is the shape build 160 already used for
+   the status vocabulary — canonicalise, do not guess:
+
+     1. EXACT match first, so nothing that already worked can change.
+     2. An EXPLICIT, hand-verified alias table.
+     3. Accent, case and punctuation normalisation only — "Sao Paulo" to "São Paulo".
+
+   AND DELIBERATELY NO FUZZY MATCHING, WHICH IS THE WHOLE POINT. A prefix/suffix matcher was written
+   to GENERATE candidates and its output was reviewed rather than shipped. It proposed
+   `Atletico-MG -> Atleti` and `Atletico Goianiense -> Atleti`: two Brazilian clubs given Atlético
+   Madrid's coordinates. That is a WRONG NUMBER AT FULL COVERAGE — strictly worse than the null it
+   replaces, invisible to every coverage query, and it would have made `travelKm` read ~8,000km for
+   a domestic Brazilian fixture. Build 165's Draw No Bet lesson exactly. Every alias below was
+   checked by hand against the key list; anything ambiguous was LEFT OUT.
+
+   REJECTED ON PURPOSE, recorded so nobody re-adds them: `Atletico-MG`, `Atletico Goianiense` and
+   `America Mineiro` (different clubs from the keys they resemble), and `Nacional` (ambiguous
+   between `CD Nacional` and `Internacional`). Those fixtures keep a null, which is the honest
+   answer until someone adds their real coordinates. */
+const VENUE_ALIAS = {
+  "Manchester City":"Man City", "Manchester United":"Man United", "Paris Saint Germain":"PSG",
+  "Barcelona":"Barça", "Atletico Madrid":"Atleti", "Sevilla":"Sevilla FC", "Celta Vigo":"Celta",
+  "Athletic Club":"Athletic", "Granada CF":"Granada", "Cadiz":"Cádiz CF", "Oviedo":"Real Oviedo",
+  "Coventry":"Coventry City", "Stoke City":"Stoke", "Preston":"Preston NE", "Leeds":"Leeds United",
+  "Nottingham Forest":"Nottingham", "Leicester":"Leicester City", "Brighton":"Brighton Hove",
+  "Luton":"Luton Town", "Wolves":"Wolverhampton", "Derby":"Derby County", "Ipswich":"Ipswich Town",
+  "Rotherham":"Rotherham Utd", "Sheffield Wednesday":"Sheffield Wed", "Plymouth":"Plymouth Arg",
+  "Borussia Dortmund":"Dortmund", "Bayer Leverkusen":"Leverkusen", "Eintracht Frankfurt":"Frankfurt",
+  "VfB Stuttgart":"Stuttgart", "VfL Wolfsburg":"Wolfsburg", "SC Freiburg":"Freiburg",
+  "FC Augsburg":"Augsburg", "1899 Hoffenheim":"Hoffenheim", "Bayern Munich":"Bayern",
+  "Bayern München":"Bayern", "Werder Bremen":"Bremen", "VfL Bochum":"Bochum", "Vfl Bochum":"Bochum",
+  "1. FC Heidenheim":"Heidenheim", "FC Heidenheim":"Heidenheim", "FC St. Pauli":"St. Pauli",
+  "AC Milan":"Milan", "AS Roma":"Roma", "Hellas Verona":"Verona", "Venezia":"Venezia FC",
+  "Como":"Como 1907", "Pisa":"AC Pisa",
+  "Lens":"RC Lens", "Lyon":"Olympique Lyon", "Reims":"Stade de Reims", "Angers":"Angers SCO",
+  "Metz":"FC Metz", "Rennes":"Stade Rennais", "Stade Brestois 29":"Brest",
+  "Benfica":"SL Benfica", "FC Porto":"Porto", "SC Braga":"Braga", "Estoril":"Estoril Praia",
+  "PSV Eindhoven":"PSV", "AZ Alkmaar":"AZ", "Sparta Rotterdam":"Sparta", "Fortuna Sittard":"Sittard",
+  "GO Ahead Eagles":"Go Ahead", "PEC Zwolle":"Zwolle", "FC Volendam":"Volendam",
+  "ADO Den Haag":"Den Haag", "Almere City FC":"Almere City",
+  "Fortaleza EC":"Fortaleza", "RB Bragantino":"Bragantino", "Sport Recife":"Recife",
+  "Cuiaba":"Cuiabá EC", "Chapecoense-sc":"Chapecoense", "Atletico Paranaense":"Paranaense",
+  "Club Brugge KV":"Club Brugge", "BSC Young Boys":"Young Boys", "Olympiakos Piraeus":"Olympiakos",
+  "Qarabag":"Qarabağ Ağdam",
+  /* Second pass — the largest names still unresolved after the first measurement. Same rule: the
+     VENUE key is unambiguously the same club, and `Guimaraes` maps to `Vitória SC` rather than to
+     `Vitória`, which is the Brazilian club and a different ground entirely. */
+  "FSV Mainz 05":"Mainz", "NEC Nijmegen":"NEC", "Borussia Monchengladbach":"M'gladbach",
+  "Waalwijk":"RKC", "Guimaraes":"Vitória SC"
+};
+
+/* Accents, case and punctuation only — never word-level cleverness. */
+const _venueNorm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+                                 .toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/* VENUE keyed by normalised name. A normalised form that TWO different grounds share is deleted
+   rather than resolved — an ambiguous name must return null, not whichever key was inserted last. */
+let _venueNormMap = null;
+function venueNormMap(){
+  if(_venueNormMap) return _venueNormMap;
+  const m = {}, dup = {};
+  for(const k of Object.keys(VENUE)){
+    const n = _venueNorm(k);
+    if(m[n] !== undefined) dup[n] = 1; else m[n] = k;
+  }
+  for(const n of Object.keys(dup)) delete m[n];
+  return (_venueNormMap = m);
+}
+
+/* One team's ground, or null. Exact, then hand-verified alias, then normalisation — in that order,
+   so an explicit decision always beats a mechanical one and nothing that already resolved can move. */
+function venueFor(team){
+  if(team == null) return null;
+  const direct = VENUE[team];
+  if(direct) return direct;
+  const alias = VENUE_ALIAS[team];
+  if(alias) return VENUE[alias] || null;
+  const k = venueNormMap()[_venueNorm(team)];
+  return k ? VENUE[k] : null;
+}
+
 function haversineKm(a, b){
   if(!a || !b) return null;
   const toRad = d => d * Math.PI/180;
@@ -5200,7 +5294,41 @@ const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14, DERBY_KM: 30 
    clearly — r > +0.4. The panel prints r with its n. A near-zero or negative r means the column
    does not mean what its name suggests, and that is far cheaper to learn now than from a fitted
    weight in Milestone 14. */
-const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240 };
+/* ══ BUILD 169 — PRESENCE AND ABSENCES, AND THE ONE THAT IS NOT A LEAKAGE RULE ═══════════════════
+   Milestone 13's next increment is "injuries and absences; captain / keeper / centre-back presence".
+   There is no injury history to read — nothing writes the `injuries` table, and API-Football's
+   /injuries endpoint answers "who is hurt now", not "who was missing in March 2023". What DOES
+   exist for every detailed fixture is the starting XI, which is the record of who was actually
+   available. An absence is measured, not asked about.
+
+   ── WHY THESE READ ONLY PRIOR MATCHES, WHICH IS A STRONGER RULE THAN WALK-FORWARD ──
+   Every feature here could have been built from THIS fixture's own XI. That is not result leakage —
+   a team sheet is published about an hour before kick-off, and the pick freezes at kick-off, so on
+   the face of it the app could see it in time.
+
+   It could not. The collector fetches lineups only for fixtures whose status is FINISHED
+   (refresh-af.ts, the detail pass), so this fixture's XI does not exist in the database until after
+   the match it would have been predicting. A feature built on it would fit beautifully across six
+   seasons of history and be null on every fixture the app actually publishes — a model that cannot
+   run, discovered after Milestone 14 had fitted it. AVAILABILITY AT PUBLISH TIME IS A SEPARATE
+   QUESTION FROM WALK-FORWARD, and a feature can pass the second while failing the first.
+
+   So every presence feature below describes the state a team was ALREADY in — measured on its most
+   recent previous match — and `xiAgeD` carries how stale that observation is, as data, the same way
+   `coachGapD` does rather than hiding a freshness rule in here.
+
+   ── AND WHY THE COLLECTOR IS NOT BEING CHANGED TO FETCH LINEUPS PRE-MATCH ──
+   It would make the same-fixture version legitimate, and it costs one API call per upcoming fixture
+   in exactly the window the odds pass owns. Build 162 settled that trade for good: a price exists
+   around match time and is then gone forever, while a team sheet is still there tomorrow, next week
+   and in a year. Anything that competes with the odds pass for the pre-match clock loses. If this
+   is ever wanted, it is a Milestone 13 decision to take deliberately with the budget measured
+   first — not a line added here.
+
+   XI_REG is the share of a window's matches a player must start to count as a regular. DEF_MIN is
+   the fewest defenders an XI must field for defender continuity to mean anything; below it the
+   denominator is too small for a share to be a number rather than a coin flip. */
+const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240, XI_REG: 0.6, DEF_MIN: 3 };
 
 /* Each team's own match sequence as indices into L.matches, which loadCloudLeagues has already
    sorted by date — so position order IS date order, which is what the adjacency test above relies
@@ -5232,8 +5360,8 @@ function teamSeqFor(L){
 function providerFormFor(L, team, upTo, seq, date){
   const idxs = seq[team]; if(!idxs || !idxs.length || !date) return null;
   const ms = L.matches, d0 = _dayNum(date);
-  const stat = [], lineup = [];
-  for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2); p--){
+  const stat = [], lineup = [], xis = [];
+  for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2 || xis.length < PF.WIN); p--){
     const i = idxs[p];
     if(upTo != null && i >= upTo) continue;              // never this fixture, never a later one
     const m = ms[i]; if(!m || !m.date) continue;
@@ -5248,6 +5376,9 @@ function providerFormFor(L, team, upTo, seq, date){
     }
     const fm = mine('formation'), co = x[H ? 'coach_h' : 'coach_a'];
     if(lineup.length < 2 && (fm != null || co != null)) lineup.push({ p, date:m.date, form:fm, coach:co });
+    // build 169 — the XI this team actually fielded, read inside the same walk-forward window
+    const lx = x[H ? 'xi_h' : 'xi_a'];
+    if(xis.length < PF.WIN && lx && lx.ids && lx.ids.length) xis.push({ p, date:m.date, ids:lx.ids, pos:lx.pos||'' });
   }
 
   const ok = v => v != null && isFinite(v);
@@ -5273,7 +5404,8 @@ function providerFormFor(L, team, upTo, seq, date){
     boxShare: rate(r => r.sib, r => (ok(r.sib) && ok(r.sob)) ? r.sib + r.sob : null),
     gk: mean(r => r.gprev),
     gkProxy: mean(r => (ok(r.xgA) && ok(r.gA)) ? r.xgA - r.gA : null),
-    formChg: null, coachNew: null, coachGapD: null
+    formChg: null, coachNew: null, coachGapD: null,
+    xiCont: null, defCont: null, gkChg: null, regMiss: null, xiAgeD: null
   };
   /* ADJACENCY, and it is the whole guard. Two observations one position apart in this team's
      sequence means no match sat between them unobserved, so a difference IS a change. Anything
@@ -5285,6 +5417,53 @@ function providerFormFor(L, team, upTo, seq, date){
       R.coachNew = a.coach === b.coach ? 0 : 1;
       R.coachGapD = _dayNum(a.date) - _dayNum(b.date);
     }
+  }
+
+  /* ── BUILD 169 — PRESENCE. Everything below describes this team's most recent PREVIOUS match.
+     `xiAgeD` is how many days ago that was, and it is a feature rather than a filter for the same
+     reason `coachGapD` is: a side disrupted three days ago and a side disrupted at the end of last
+     season are different facts, and which one matters is Milestone 14's to decide from data. */
+  if(xis.length) R.xiAgeD = d0 - _dayNum(xis[0].date);
+
+  /* ADJACENCY AGAIN, and for the identical reason as formation and coach change. Continuity is a
+     comparison between two matches, so an unobserved match sitting between them turns "seven of
+     this XI also started last time" into a statement about a game nobody looked at. The keeper is
+     taken from the POSITION STRING rather than from a fixed slot — startXI order is the provider's
+     and nothing guarantees the goalkeeper is first. */
+  const gkOf = e => { const i = e.pos ? e.pos.indexOf('G') : -1; return i >= 0 ? e.ids[i] : null; };
+  if(xis.length >= 2 && xis[0].p - xis[1].p === 1){
+    const a = xis[0], b = xis[1], prev = new Set(b.ids);
+    let same = 0;
+    for(const id of a.ids) if(prev.has(id)) same++;
+    R.xiCont = a.ids.length ? same / a.ids.length : null;
+    /* Defenders only. The roadmap asks for CENTRE-BACK presence and this is deliberately not that:
+       API-Football's startXI carries `pos` as G/D/M/F, which does not separate a centre-back from a
+       full-back. Naming it defender continuity states what it measures. The `grid` field could
+       narrow it by column and is not stored — a change worth making only if the fit says defender
+       continuity carries something, which is exactly the order Milestone 14 exists to impose. */
+    let dN = 0, dSame = 0;
+    for(let i = 0; i < a.ids.length; i++) if(a.pos[i] === 'D'){ dN++; if(prev.has(a.ids[i])) dSame++; }
+    R.defCont = dN >= PF.DEF_MIN ? dSame / dN : null;
+    const gA = gkOf(a), gB = gkOf(b);
+    if(gA != null && gB != null) R.gkChg = gA === gB ? 0 : 1;
+  }
+
+  /* REGULARS MISSING — the closest honest measure of "who is absent" without injury data. A regular
+     is a player who starts at least XI_REG of the window; the count is how many of them did not
+     start the most recent match.
+
+     THE WINDOW EXCLUDES THE MATCH BEING JUDGED, and that is not a detail. Include it and a player
+     defines the very norm he is being measured against: on a short window an absentee's own missing
+     start drags his rate below the threshold, he stops counting as a regular, and the feature
+     reports FEWER absences the more of them there are. It would have looked sane in every spot
+     check and inverted under load. */
+  if(xis.length >= PF.MIN_N + 1){
+    const base = xis.slice(1), cnt = {};
+    for(const e of base) for(const id of e.ids) cnt[id] = (cnt[id] || 0) + 1;
+    const need = PF.XI_REG * base.length, cur = new Set(xis[0].ids);
+    let miss = 0;
+    for(const id in cnt) if(cnt[id] >= need && !cur.has(+id)) miss++;   // +id — object keys are strings
+    R.regMiss = miss;
   }
   return R;
 }
@@ -5304,7 +5483,7 @@ function matchFeatures(L, f, upTo, idx){
   const rH = restOf(f.home), rA = restOf(f.away);
   const koH = f.time ? +String(f.time).slice(0,2) : null;
   // 37 & 53 — the match is played at the home team's ground, so this is the away side's travel.
-  const travelKm = haversineKm(VENUE[f.home], VENUE[f.away]);
+  const travelKm = haversineKm(venueFor(f.home), venueFor(f.away));
   /* BUILD 168 — the provider-derived block joins THIS vector rather than getting its own function.
      Milestone 14 fits one model over one feature layer; two functions producing two halves of one
      vector is two code paths to a single published thing, which is §60's archive bug in its general
@@ -5337,7 +5516,13 @@ function matchFeatures(L, f, upTo, idx){
     gkH: g(pH,'gk'), gkA: g(pA,'gk'),                                          // 4, 35
     gkProxyH: g(pH,'gkProxy'), gkProxyA: g(pA,'gkProxy'),                      // 4 — the check on 4
     formChgH: g(pH,'formChg'), formChgA: g(pA,'formChg'),                      // 34
-    coachNewH: g(pH,'coachNew'), coachNewA: g(pA,'coachNew'),                  // 51
+    coachNewH: g(pH,'coachNew'), coachNewA: g(pA,'coachNew'),
+    // ── build 169, presence. Measured on each side's most recent PREVIOUS match — see providerFormFor ──
+    xiContH: g(pH,'xiCont'), xiContA: g(pA,'xiCont'),                          // 21
+    defContH: g(pH,'defCont'), defContA: g(pA,'defCont'),                      // 23
+    gkChgH: g(pH,'gkChg'), gkChgA: g(pA,'gkChg'),                              // 22
+    regMissH: g(pH,'regMiss'), regMissA: g(pA,'regMiss'),                      // 19, 20
+    xiAgeDH: g(pH,'xiAgeD'), xiAgeDA: g(pA,'xiAgeD'),                  // 51
     coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD')
   };
 }
@@ -5387,9 +5572,17 @@ function renderFeatureLayer(){
        go through the identical coverage and slope path, because they are the same feature layer.
        Expect much lower coverage than the block above: these need a RUN of filled matches per team,
        not one filled match, and the collector is still working oldest-first through ~22,000. */
+    /* Build 169. A display subset only — these render under their own heading because they answer a
+       different question (who was available) from the block above (how well they played). They are
+       listed in PROV_KEYS too, so the coverage check that compares computed features against listed
+       ones needs no exception, and a check below pins this list as a subset so the two cannot drift. */
+    const PRES_KEYS = ['xiContH','xiContA','defContH','defContA','gkChgH','gkChgA',
+                  'regMissH','regMissA','xiAgeDH','xiAgeDA'];
     const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
                   'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
-                  'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA'];
+                  'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA',
+                  'xiContH','xiContA','defContH','defContA','gkChgH','gkChgA',
+                  'regMissH','regMissA','xiAgeDH','xiAgeDA'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -5408,7 +5601,12 @@ function renderFeatureLayer(){
       gkProxyH:'Keeper, opp xG − conceded, home', gkProxyA:'Keeper, opp xG − conceded, away',
       formChgH:'Formation changed, home (34)', formChgA:'Formation changed, away (34)',
       coachNewH:'Coach changed, home (51)', coachNewA:'Coach changed, away (51)',
-      coachGapDH:'Days between coach obs, home', coachGapDA:'Days between coach obs, away' };
+      coachGapDH:'Days between coach obs, home', coachGapDA:'Days between coach obs, away',
+      xiContH:'XI continuity vs previous, home', xiContA:'XI continuity vs previous, away',
+      defContH:'Defender continuity, home (23, approx)', defContA:'Defender continuity, away (23, approx)',
+      gkChgH:'Starting keeper changed, home (22)', gkChgA:'Starting keeper changed, away (22)',
+      regMissH:'Regulars missing, home (20/21 proxy)', regMissA:'Regulars missing, away (20/21 proxy)',
+      xiAgeDH:'Days since that XI, home', xiAgeDA:'Days since that XI, away' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -5450,6 +5648,7 @@ function renderFeatureLayer(){
          <span style="flex:1">Feature</span><span style="width:20%;text-align:right">Coverage</span>
          <span style="width:30%;text-align:right">Slope vs error</span></div>`;
     const isProv = o => PROV_KEYS.indexOf(o.k) >= 0;
+    const isPres = o => PRES_KEYS.indexOf(o.k) >= 0;
 
     box.innerHTML =
       `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
@@ -5459,7 +5658,14 @@ function renderFeatureLayer(){
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — derived from the paid provider</div>
        <div class="subnote">These will read far lower than the raw column coverage in the panel below, and that is the point: a rolling feature needs a <b>run</b> of filled matches for one team, not one filled match. Each window is capped at ${PF.WIN} matches and ${PF.MAX_AGE_D} days, and returns nothing rather than assembling "form" out of matches three seasons apart.</div>` + head +
-      out.filter(isProv).map(rowHtml).join('') +
+      out.filter(o=>isProv(o) && !isPres(o)).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 — presence and absences (build 169)</div>
+       <div class="subnote">Derived from the starting XI the provider already stores, because there is no injury history to read: nothing writes the <code>injuries</code> table, and the provider's injury endpoint answers "who is hurt now", not who was missing two seasons ago. An absence is measured here rather than asked about.</div>
+       <div class="subnote"><b style="color:var(--text)">Every one of these describes each side's most recent PREVIOUS match, not this one.</b> The collector fetches a lineup only once a fixture is FINISHED, so this fixture's own XI does not exist in the database until after the match it would have predicted. A feature built on it would fit across six seasons and be null on every fixture the app actually publishes. <b>Availability at publish time is a different question from walk-forward</b>, and a feature can pass the second while failing the first.</div>
+       <div class="subnote"><b style="color:var(--text)">Expect these to be near 0% on today's fixtures for a while, and that is the fill frontier pointing the wrong way.</b> The detail pass works oldest-first, so recent matches are the last to be filled — which is exactly where a live prediction needs them. Milestone 14 fits on history and is unaffected; a live presence feature has to wait for the backfill to reach the present.</div>
+       <div class="subnote">Item 19 — <b>captain present</b> — is <b>not</b> built. The stored XI carries each player's id, name, position and grid, and no captain flag; the provider marks the captain on a different endpoint. Listing it at 0% would read as a broken collector rather than as data the payload does not carry, which is build 163's <code>attendance</code> lesson.</div>` + head +
+      out.filter(isPres).map(rowHtml).join('') +
 
       `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Does <code>goals_prevented</code> mean what we assumed?</b> ${gkVerdict}</div>` +
 
@@ -5496,16 +5702,20 @@ function renderProviderCoverage(){
   if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading coverage…</div>';
   setTimeout(()=>{
-    const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a']);
+    const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a','xi_h','xi_a']);
     const have = {}; for(const k of KEYS) have[k] = 0;
     let total = 0, withAny = 0;
     const byYear = {}, byComp = [];
+    // build 170 — weather's ceiling. Counted here rather than in a second pass over the same rows.
+    let vHome = 0, vBoth = 0; const vMiss = {};
 
     for(const id of ids){
       const L = afState.leagues[id];
       let cN = 0, cX = 0;
       for(const m of L.matches){
         total++; cN++;
+        if(venueFor(m.home)) vHome++; else vMiss[m.home] = (vMiss[m.home] || 0) + 1;
+        if(venueFor(m.home) && venueFor(m.away)) vBoth++;   // what travelKm and derby actually need
         const x = m._x;
         const yr = (m.date||'').slice(0,4) || '—';
         const Y = byYear[yr] = byYear[yr] || { n:0, xg:0 };
@@ -5541,6 +5751,7 @@ function renderProviderCoverage(){
       offsides_h:'Offsides, home', offsides_a:'Offsides, away',
       formation_h:'Formation, home (34)', formation_a:'Formation, away (34)',
       coach_h:'Coach id, home (51)', coach_a:'Coach id, away (51)',
+      xi_h:'Starting XI, home (19, 22, 23)', xi_a:'Starting XI, away (19, 22, 23)',
       referee:'Referee (57-59)', venue_id:'Venue id (39, 44-46)' };
 
     const dead = KEYS.filter(k => have[k] === 0);
@@ -5583,6 +5794,42 @@ function renderProviderCoverage(){
       (dead.length
         ? `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px;margin-top:10px"><b style="color:var(--text)">${dead.length} variable${dead.length>1?'s are':' is'} at zero: ${dead.map(k=>escapeHtml(LBL[k]||k)).join(', ')}.</b> Zero does not mean "not collected yet" — a partly-filled column shows a small percentage, not none at all. It means the collector is not writing that column, or is writing it under a different name. Check <code>refresh-af.ts</code>'s statPair names against the probe's <code>statTypesAvailable</code> before assuming the provider does not have it.</div>`
         : `<div class="subnote" style="border-left:3px solid var(--green2);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Every variable is arriving.</b> The percentages are a fill frontier, not a limit — the collector works oldest-first through ~22,000 fixtures at 15 per run.</div>`) +
+
+      /* ══ BUILD 170 — WEATHER'S CEILING, MEASURED BEFORE ANYTHING IS COLLECTED ══════════════════
+         Weather (items 44-46) is the last variable Milestone 13 has left, and it is the only one
+         that needs a source this project does not already pay for. Before spending a new external
+         dependency, an Edge Function deploy and a ~22,000-row backfill on it, the honest question is
+         how many fixtures it could EVER cover — and that is knowable today, for free.
+
+         WHY THERE IS A CEILING AT ALL. Weather is looked up by coordinates and date. API-Football's
+         venue object carries id, name and city and NO latitude or longitude — the collector stores
+         `venue_id`, `venue_name`, `venue_city` and nothing else. So the only coordinates in this
+         project are the app's own VENUE table, keyed by team name. Weather can never reach more
+         fixtures than that table covers, however good the weather API is.
+
+         This is a CEILING, not coverage. Nothing is collected: `wx_temp`, `wx_rain` and `wx_wind`
+         have existed in the database since build 158 and are empty, and no line of the collector
+         writes them. They are deliberately NOT listed in the coverage table above — a variable the
+         collector does not write must not appear in EXTRA_KEYS, which is the guard that caught
+         build 159's fault and the reason `attendance` and `surface` are named as absent rather than
+         shown at 0.0%. */
+      (() => {
+        const vp = total ? 100 * vHome / total : 0, bp = total ? 100 * vBoth / total : 0;
+        const top = Object.entries(vMiss).sort((a,b)=>b[1]-a[1]).slice(0, 6);
+        return `<div class="sec-label" style="margin-top:12px">Weather (items 44-46) — not collected, and this is its ceiling</div>
+         <div class="frow"><span style="flex:1"><b>Fixtures whose home ground has coordinates</b></span><span><b style="color:${colour(vp)}">${vHome.toLocaleString()} / ${total.toLocaleString()} (${vp.toFixed(1)}%)</b></span></div>
+         <div class="frow"><span style="flex:1"><b>Both grounds known</b> — what <code>travelKm</code> and <code>derby</code> need</span><span><b style="color:${colour(bp)}">${vBoth.toLocaleString()} / ${total.toLocaleString()} (${bp.toFixed(1)}%)</b></span></div>
+         <div class="frow"><span style="flex:1">Grounds in the <code>VENUE</code> table</span><span>${Object.keys(VENUE).length} + ${Object.keys(VENUE_ALIAS).length} aliases</span></div>
+         <div class="frow"><span style="flex:1">Home teams with no coordinates</span><span>${Object.keys(vMiss).length}</span></div>
+         <div class="subnote"><b style="color:var(--text)">This is a ceiling, not coverage — nothing is collected yet.</b> <code>wx_temp</code>, <code>wx_rain</code> and <code>wx_wind</code> have existed in the database since build 158 and are empty; no line of the collector writes them. They are deliberately absent from the table above rather than shown at 0.0%, because a variable the collector does not write must never be claimed in <code>EXTRA_KEYS</code> — the <code>attendance</code> rule.</div>
+         <div class="subnote"><b style="color:var(--text)">Why a ceiling exists at all.</b> Weather is looked up by coordinates and date, and the provider does not supply them: its venue object carries id, name and city only. The sole coordinate source in this project is the app's own <code>VENUE</code> table, so weather can never cover more fixtures than that table does, whatever weather API is chosen.</div>` +
+        (top.length
+          ? `<div class="sec-label" style="margin-top:10px">Cheapest grounds to add, by fixtures they would unlock</div>` +
+            top.map(([t,n])=>`<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(t)}</span>
+              <span style="width:22%;text-align:right;font-size:.78rem" class="muted">${n.toLocaleString()} fixtures</span>
+              <span style="width:18%;text-align:right" class="muted">${(100*n/total).toFixed(2)}%</span></div>`).join('')
+          : `<div class="subnote" style="border-left:3px solid var(--green2);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Every loaded fixture's home ground is known.</b> Weather has no ceiling below full coverage.</div>`);
+      })() +
 
       `<div class="subnote"><b style="color:var(--text)">This decides when Milestone 14 can start, and nothing else.</b> A variable thin on coverage cannot carry weight in a fit however promising it looks, and the ridge regression cannot tell "no data" from "no effect" — it will hand a sparse variable a near-zero weight and that will read as evidence the variable does not matter. Wait for coverage, then fit.</div>` +
       `<div class="subnote">Wired to nothing. This panel reads <code>_x</code> off the loaded match rows, which is memory only — the extras are stripped before localStorage to keep the cache under quota.</div>`;
@@ -8489,6 +8736,32 @@ function providerExtras(r){
   const ch = r.lineup_h && r.lineup_h.coachId, ca = r.lineup_a && r.lineup_a.coachId;
   if(ch != null) x.coach_h = ch;
   if(ca != null) x.coach_a = ca;
+  /* BUILD 169 — THE STARTING XI, REDUCED HERE RATHER THAN COLLECTED AGAIN.
+     The plan for this increment was to have the collector write presence columns and backfill them.
+     Reading the code first killed that plan twice over, and both reasons are worth keeping:
+
+     1. THE BLOB IS ALREADY HERE. fetchLeagueFixtures selects '*', so `lineup_h` and `lineup_a` have
+        been arriving in this browser since build 158 and being dropped one line above — the same
+        finding as build 163, one level down. Adding columns would not have saved a single byte of
+        network; the reduction just had to happen at the point that was already discarding it.
+     2. NEW COLUMNS ALONE WOULD HAVE COVERED ALMOST NOTHING. The detail pass selects fixtures where
+        `xg_h is null`, so it never revisits a row it has already filled. A collector change would
+        have populated future fixtures only and left every already-detailed match empty for good —
+        needing an SQL backfill read out of the very blob sitting in this variable.
+
+     Reduced to ids and a position string, never carried whole: the blob is a few KB per side and
+     `_x` is held in memory for ~22,000 matches. Eleven integers and eleven characters is the same
+     bargain the coach id struck above. What is dropped — names, grid coordinates — is dropped
+     because nothing here reads it, not because it would not have been useful. */
+  const xiOf = lu => {
+    const a = lu && lu.xi; if(!Array.isArray(a) || !a.length) return null;
+    const ids = [], pos = [];
+    for(const p of a){ if(p && p.id != null){ ids.push(p.id); pos.push(p.pos || '?'); } }
+    return ids.length ? { ids, pos: pos.join('') } : null;
+  };
+  const xh = xiOf(r.lineup_h), xa = xiOf(r.lineup_a);
+  if(xh) x.xi_h = xh;
+  if(xa) x.xi_a = xa;
   return x;
 }
 
