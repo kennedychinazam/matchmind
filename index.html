@@ -650,6 +650,7 @@
       <button id="faBtn"></button><div id="faOut"></div>
       <button id="flBtn"></button><div id="flOut"></div>
       <button id="pcBtn"></button><div id="pcOut"></div>
+      <button id="vnBtn"></button><div id="vnOut"></div>
       <button id="lsBtn"></button><div id="lsOut"></div><select id="lsLeague"></select><input id="lsOdds" value="5">
       <button id="acBtn"></button><div id="acOut"></div><select id="acStrat"></select><input id="acTarget" value="5">
       <button id="dmBtn"></button><div id="dmOut"></div><input id="dmTarget" value="5"><input id="dmLegs" value="5">
@@ -688,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 171;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 174;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5330,6 +5331,39 @@ const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14, DERBY_KM: 30 
    denominator is too small for a share to be a number rather than a coin flip. */
 const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240, XI_REG: 0.6, DEF_MIN: 3 };
 
+/* ══ BUILD 174 — ONE MATCH'S EVENTS, FROM THE PERSPECTIVE OF ONE SIDE ═══════════════════════════
+   `ev` is the compact string built in providerExtras: minute, side, kind. `mine` is 'h' or 'a'.
+
+   OWN GOALS ARE CREDITED TO THE OTHER SIDE, and that is not a detail. The provider files an own goal
+   against the team of the PLAYER who scored it, so counting `o` as a goal for that side inverts it —
+   the conceding team would be recorded as having scored. On the measured sample own goals are ~2.5%
+   of goals, which is small enough to never look wrong in a spot check and large enough to bias
+   "who scored first" across 22,000 fixtures.
+
+   MISSED PENALTIES ('x') ARE NOT GOALS. They arrive as `type: "Goal"` from the provider and are kept
+   as their own kind precisely so that no sum here can quietly include them.
+
+   Returns null when the string is absent, so a match with no events contributes to no denominator
+   rather than contributing a zero. */
+function matchEvents(ev, mine){
+  if(!ev) return null;
+  const theirs = mine === 'h' ? 'a' : 'h';
+  const R = { gF: [], gA: [], sub: null, pen: 0, red: 0 };
+  for(const tok of ev.split(' ')){
+    const mt = /^(\d+)([ha])(.)$/.exec(tok);
+    if(!mt) continue;
+    const min = +mt[1], side = mt[2], k = mt[3];
+    if(k === 'g' || k === 'p'){ (side === mine ? R.gF : R.gA).push(min); }
+    else if(k === 'o'){ (side === mine ? R.gA : R.gF).push(min); }   // scored into their own net
+    else if(k === 'x'){ if(side === mine) R.pen++; }                 // awarded, not converted
+    else if(k === 'r'){ if(side === mine) R.red++; }
+    else if(k === 's'){ if(side === mine && (R.sub == null || min < R.sub)) R.sub = min; }
+    if(k === 'p' && side === mine) R.pen++;
+  }
+  R.gF.sort((a,b)=>a-b); R.gA.sort((a,b)=>a-b);
+  return R;
+}
+
 /* Each team's own match sequence as indices into L.matches, which loadCloudLeagues has already
    sorted by date — so position order IS date order, which is what the adjacency test above relies
    on. Memoised in a WeakMap keyed on the matches ARRAY, deliberately, for two reasons: a reload
@@ -5360,8 +5394,8 @@ function teamSeqFor(L){
 function providerFormFor(L, team, upTo, seq, date){
   const idxs = seq[team]; if(!idxs || !idxs.length || !date) return null;
   const ms = L.matches, d0 = _dayNum(date);
-  const stat = [], lineup = [], xis = [];
-  for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2 || xis.length < PF.WIN); p--){
+  const stat = [], lineup = [], xis = [], evs = [];
+  for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2 || xis.length < PF.WIN || evs.length < PF.WIN); p--){
     const i = idxs[p];
     if(upTo != null && i >= upTo) continue;              // never this fixture, never a later one
     const m = ms[i]; if(!m || !m.date) continue;
@@ -5379,6 +5413,11 @@ function providerFormFor(L, team, upTo, seq, date){
     // build 169 — the XI this team actually fielded, read inside the same walk-forward window
     const lx = x[H ? 'xi_h' : 'xi_a'];
     if(xis.length < PF.WIN && lx && lx.ids && lx.ids.length) xis.push({ p, date:m.date, ids:lx.ids, pos:lx.pos||'' });
+    // build 174 — the same window, one more record: what actually happened, minute by minute
+    if(evs.length < PF.WIN && x.ev){
+      const me = matchEvents(x.ev, H ? 'h' : 'a');
+      if(me) evs.push(me);
+    }
   }
 
   const ok = v => v != null && isFinite(v);
@@ -5405,8 +5444,38 @@ function providerFormFor(L, team, upTo, seq, date){
     gk: mean(r => r.gprev),
     gkProxy: mean(r => (ok(r.xgA) && ok(r.gA)) ? r.xgA - r.gA : null),
     formChg: null, coachNew: null, coachGapD: null,
-    xiCont: null, defCont: null, gkChg: null, regMiss: null, xiAgeD: null
+    xiCont: null, defCont: null, gkChg: null, regMiss: null, xiAgeD: null,
+    scoredFirst: null, firstGoalMin: null, lateShare: null, subMin: null, penRate: null, redRate: null
   };
+
+  /* ── BUILD 174 — EVENT-DERIVED FORM. Each has ITS OWN denominator, per build 168's rule: a team
+     with eight matches of events but only two in which it scored must not publish a mean first-goal
+     minute built from those two. `scoredFirst` counts only matches that HAD a goal — a goalless draw
+     is not evidence either way about who strikes first, and folding it in as a zero would read as
+     evidence of conceding first.
+
+     `scoredFirst` and "conceded first" are the same number — over matches with at least one goal they
+     sum to exactly 1 — so only one is published. Two columns of a perfect complement is one fact
+     twice, and a ridge fit handed both would split the weight arbitrarily between them. */
+  if(evs.length >= PF.MIN_N){
+    let firstN = 0, firstHit = 0, fgSum = 0, fgN = 0;
+    let goalsF = 0, lateF = 0, subSum = 0, subN = 0, pen = 0, red = 0;
+    for(const e of evs){
+      const f = e.gF.length ? e.gF[0] : null, a = e.gA.length ? e.gA[0] : null;
+      if(f != null || a != null){ firstN++; if(f != null && (a == null || f < a)) firstHit++; }
+      if(f != null){ fgSum += f; fgN++; }
+      goalsF += e.gF.length;
+      for(const mn of e.gF) if(mn > 75) lateF++;
+      if(e.sub != null){ subSum += e.sub; subN++; }
+      pen += e.pen; red += e.red;
+    }
+    R.scoredFirst  = firstN >= PF.MIN_N ? firstHit / firstN : null;
+    R.firstGoalMin = fgN   >= PF.MIN_N ? fgSum / fgN       : null;
+    R.lateShare    = goalsF > 0        ? lateF / goalsF    : null;
+    R.subMin       = subN  >= PF.MIN_N ? subSum / subN     : null;
+    R.penRate      = pen / evs.length;      // penalties AWARDED, scored or missed
+    R.redRate      = red / evs.length;
+  }
   /* ADJACENCY, and it is the whole guard. Two observations one position apart in this team's
      sequence means no match sat between them unobserved, so a difference IS a change. Anything
      else is a guess dressed as a measurement. */
@@ -5522,7 +5591,14 @@ function matchFeatures(L, f, upTo, idx){
     defContH: g(pH,'defCont'), defContA: g(pA,'defCont'),                      // 23
     gkChgH: g(pH,'gkChg'), gkChgA: g(pA,'gkChg'),                              // 22
     regMissH: g(pH,'regMiss'), regMissA: g(pA,'regMiss'),                      // 19, 20
-    xiAgeDH: g(pH,'xiAgeD'), xiAgeDA: g(pA,'xiAgeD'),                  // 51
+    xiAgeDH: g(pH,'xiAgeD'), xiAgeDA: g(pA,'xiAgeD'),
+    // ── build 174, from the events blob the app had never read ──
+    scoredFirstH: g(pH,'scoredFirst'), scoredFirstA: g(pA,'scoredFirst'),     // 28
+    firstGoalMinH: g(pH,'firstGoalMin'), firstGoalMinA: g(pA,'firstGoalMin'), // 26, 27
+    lateShareH: g(pH,'lateShare'), lateShareA: g(pA,'lateShare'),             // 26, 27
+    subMinH: g(pH,'subMin'), subMinA: g(pA,'subMin'),                         // 33
+    penRateH: g(pH,'penRate'), penRateA: g(pA,'penRate'),                     // 12, 13 partial
+    redRateH: g(pH,'redRate'), redRateA: g(pA,'redRate'),                     // 11                  // 51
     coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD')
   };
 }
@@ -5578,11 +5654,19 @@ function renderFeatureLayer(){
        ones needs no exception, and a check below pins this list as a subset so the two cannot drift. */
     const PRES_KEYS = ['xiContH','xiContA','defContH','defContA','gkChgH','gkChgA',
                   'regMissH','regMissA','xiAgeDH','xiAgeDA'];
+    /* Build 174. Same arrangement as PRES_KEYS: a display subset so the events block reads under its
+       own heading, while PROV_KEYS stays the full list the coverage check compares against. */
+    const EVT_KEYS = ['scoredFirstH','scoredFirstA','firstGoalMinH','firstGoalMinA',
+                  'lateShareH','lateShareA','subMinH','subMinA','penRateH','penRateA',
+                  'redRateH','redRateA'];
     const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
                   'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
                   'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA',
                   'xiContH','xiContA','defContH','defContA','gkChgH','gkChgA',
-                  'regMissH','regMissA','xiAgeDH','xiAgeDA'];
+                  'regMissH','regMissA','xiAgeDH','xiAgeDA',
+                  'scoredFirstH','scoredFirstA','firstGoalMinH','firstGoalMinA',
+                  'lateShareH','lateShareA','subMinH','subMinA','penRateH','penRateA',
+                  'redRateH','redRateA'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -5606,7 +5690,13 @@ function renderFeatureLayer(){
       defContH:'Defender continuity, home (23, approx)', defContA:'Defender continuity, away (23, approx)',
       gkChgH:'Starting keeper changed, home (22)', gkChgA:'Starting keeper changed, away (22)',
       regMissH:'Regulars missing, home (20/21 proxy)', regMissA:'Regulars missing, away (20/21 proxy)',
-      xiAgeDH:'Days since that XI, home', xiAgeDA:'Days since that XI, away' };
+      xiAgeDH:'Days since that XI, home', xiAgeDA:'Days since that XI, away',
+      scoredFirstH:'Scores the opener, home (28)', scoredFirstA:'Scores the opener, away (28)',
+      firstGoalMinH:'Mean first-goal minute, home (26/27)', firstGoalMinA:'Mean first-goal minute, away (26/27)',
+      lateShareH:'Share of goals after 75′, home', lateShareA:'Share of goals after 75′, away',
+      subMinH:'Mean first-sub minute, home (33)', subMinA:'Mean first-sub minute, away (33)',
+      penRateH:'Penalties awarded per match, home (12/13)', penRateA:'Penalties awarded per match, away (12/13)',
+      redRateH:'Red cards per match, home (11)', redRateA:'Red cards per match, away (11)' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -5649,6 +5739,7 @@ function renderFeatureLayer(){
          <span style="width:30%;text-align:right">Slope vs error</span></div>`;
     const isProv = o => PROV_KEYS.indexOf(o.k) >= 0;
     const isPres = o => PRES_KEYS.indexOf(o.k) >= 0;
+    const isEvt  = o => EVT_KEYS.indexOf(o.k) >= 0;
 
     box.innerHTML =
       `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
@@ -5658,7 +5749,13 @@ function renderFeatureLayer(){
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — derived from the paid provider</div>
        <div class="subnote">These will read far lower than the raw column coverage in the panel below, and that is the point: a rolling feature needs a <b>run</b> of filled matches for one team, not one filled match. Each window is capped at ${PF.WIN} matches and ${PF.MAX_AGE_D} days, and returns nothing rather than assembling "form" out of matches three seasons apart.</div>` + head +
-      out.filter(o=>isProv(o) && !isPres(o)).map(rowHtml).join('') +
+      out.filter(o=>isProv(o) && !isPres(o) && !isEvt(o)).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 — from the events blob (build 174)</div>
+       <div class="subnote">Goal minutes, cards and substitutions. <b>The collector has fetched these per fixture since build 158 and the app had never read them</b> — the third time a variable was arriving and being dropped one line from where it was needed, after the statistics (163) and the lineups (169).</div>
+       <div class="subnote"><b style="color:var(--text)">An event names a numeric team id, and the fixture row stores team NAMES only.</b> That looked like it needed new columns and a 22,000-fixture re-fetch to backfill. It did not: <code>home_logo</code> is <code>…/teams/214.png</code>, so the id has been on every row since build 158, stored for display. No new collection, no SQL, and it works on all existing history.</div>
+       <div class="subnote"><b style="color:var(--text)">Two traps that are in the data rather than the documentation.</b> A <b>missed penalty arrives as <code>type: "Goal"</code></b> with <code>detail: "Missed Penalty"</code>, so anything counting goal events scores misses as goals — it is kept as its own kind so no sum can include it. And an <b>own goal is filed against the team of the player who scored it</b>, so counting it for that side records the conceding team as having scored; it is credited to the opponent here. Own goals were ~2.5% of goals in the sample — small enough to survive a spot check, large enough to bias "who scored first" across six seasons.</div>` + head +
+      out.filter(isEvt).map(rowHtml).join('') +
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — presence and absences (build 169)</div>
        <div class="subnote">Derived from the starting XI the provider already stores, because there is no injury history to read: nothing writes the <code>injuries</code> table, and the provider's injury endpoint answers "who is hurt now", not who was missing two seasons ago. An absence is measured here rather than asked about.</div>
@@ -5702,7 +5799,7 @@ function renderProviderCoverage(){
   if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading coverage…</div>';
   setTimeout(()=>{
-    const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a','xi_h','xi_a']);
+    const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a','xi_h','xi_a','ev','tid_h','tid_a']);
     const have = {}; for(const k of KEYS) have[k] = 0;
     let total = 0, withAny = 0;
     const byYear = {}, byComp = [];
@@ -5752,6 +5849,7 @@ function renderProviderCoverage(){
       formation_h:'Formation, home (34)', formation_a:'Formation, away (34)',
       coach_h:'Coach id, home (51)', coach_a:'Coach id, away (51)',
       xi_h:'Starting XI, home (19, 22, 23)', xi_a:'Starting XI, away (19, 22, 23)',
+      ev:'Match events (12, 13, 26-28, 33)', tid_h:'Team id, home (from logo URL)', tid_a:'Team id, away (from logo URL)',
       referee:'Referee (57-59)', venue_id:'Venue id (39, 44-46)' };
 
     const dead = KEYS.filter(k => have[k] === 0);
@@ -5833,6 +5931,172 @@ function renderProviderCoverage(){
 
       `<div class="subnote"><b style="color:var(--text)">This decides when Milestone 14 can start, and nothing else.</b> A variable thin on coverage cannot carry weight in a fit however promising it looks, and the ridge regression cannot tell "no data" from "no effect" — it will hand a sparse variable a near-zero weight and that will read as evidence the variable does not matter. Wait for coverage, then fit.</div>` +
       `<div class="subnote">Wired to nothing. This panel reads <code>_x</code> off the loaded match rows, which is memory only — the extras are stripped before localStorage to keep the cache under quota.</div>`;
+  }, 30);
+}
+
+/* ══ BUILD 172 — THE `venues` TABLE, AND WHY IT IS A TABLE RATHER THAN A SECOND COPY OF VENUE ═════
+   Weather is Milestone 13's last variable and it is looked up by coordinates and date. The collector
+   has no coordinates — API-Football's venue object is id, name and city — so the coordinates have to
+   reach the server somehow. Two options were on the table and the cheaper one was rejected:
+
+     A. DUPLICATE THE `VENUE` TABLE INTO refresh-af.ts. One paste, no SQL, works immediately. And it
+        makes 246 coordinates plus 82 aliases exist in TWO places that must then be changed together
+        forever. This project has already paid for exactly that: `VENUE` itself drifted out of step
+        with the provider's team names at build 158 and nobody noticed for thirteen builds, because
+        a stale copy of a fact does not raise an error — it quietly returns the wrong answer. Adding
+        a second copy of the same fact, in a file that deploys separately from the app, is the same
+        bet again at longer odds.
+
+     B. A `venues` TABLE, POPULATED ONCE FROM THE APP. One source of truth. The app already holds the
+        coordinates AND resolves the name vocabulary (`venueFor`, build 171), and every fixture row
+        already carries `venue_id` — so the app can emit the join the collector needs, and the
+        collector reads a table instead of carrying a copy. CHOSEN.
+
+   AND IT EMITS SQL RATHER THAN WRITING THE ROWS ITSELF. Writing from the browser would need an
+   insert policy on a new table, which is a permanent widening of what the anon key can do, for a
+   one-time load of reference data. Emitting text Ken pastes into Supabase costs one manual step and
+   adds no write path at all. It also matches how every other schema change in this project has been
+   applied — see the SQL ledger.
+
+   KEYED ON venue_id, NOT ON TEAM NAME. The collector joins on what is on the fixture row, and a
+   numeric id does not get re-spelled by a provider migration — which is the exact failure build 171
+   spent a build repairing.
+
+   ONLY THE MODAL VENUE PER TEAM IS EMITTED. A team's home fixtures can carry several venue_ids —
+   a ground move, a cup tie at a neutral stadium, a club playing abroad during a war (the note above
+   `VENUE` covers Ukrainian clubs). `VENUE` holds one coordinate per TEAM, so attaching it to a
+   secondary venue_id would file the home ground's position under a stadium in another country. The
+   modal id is the one that coordinate actually describes; the rest are skipped and get no weather,
+   which is a null rather than a wrong number. */
+function renderVenuesSql(){
+  const box = $('vnOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {}).filter(id=>{
+    const L = afState.leagues[id];
+    return L && (L.sport||'football') === 'football' && L.matches && L.matches.length;
+  });
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building…</div>';
+  setTimeout(()=>{
+    const perTeam = {};
+    let total = 0, withVid = 0;
+    for(const id of ids){
+      for(const m of afState.leagues[id].matches){
+        total++;
+        const v = m._x && m._x.venue_id;
+        if(v == null || !m.home) continue;
+        withVid++;
+        const t = perTeam[m.home] = perTeam[m.home] || {};
+        t[v] = (t[v] || 0) + 1;
+      }
+    }
+    /* FOUND BY RUNNING IT, NOT BY READING IT. `_x` is memory-only — it is stripped before
+       localStorage to stay under quota (build 163) — so a page restored from cache has fixtures with
+       no `venue_id` at all, and this generator then emits a syntactically perfect INSERT with ZERO
+       rows. Pasting that into Supabase would run cleanly and populate nothing, and the obvious
+       conclusion would be that the venues design does not work. Say which it is instead. */
+    if(total && !withVid){
+      box.innerHTML = `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px"><b style="color:var(--text)">The competitions came from cache, so no fixture carries a <code>venue_id</code> and there is nothing to emit.</b> This is not a failure of the generator: <code>_x</code> is memory-only and is stripped before localStorage. <b>Open the Predict tab to trigger a cloud refresh, then run this again.</b> ${total.toLocaleString()} fixtures are loaded and 0 of them have provider detail attached.</div>`;
+      return;
+    }
+
+    let rows = [];
+    const noCoords = [];
+    let skippedSecondary = 0;
+    for(const team of Object.keys(perTeam)){
+      const seen = Object.entries(perTeam[team]).sort((a,b)=>b[1]-a[1]);
+      skippedSecondary += seen.length - 1;
+      const c = venueFor(team);
+      if(!c){ noCoords.push([team, seen.reduce((n,e)=>n+e[1],0)]); continue; }
+      rows.push({ vid: +seen[0][0], lat: c[0], lon: c[1], team, n: seen[0][1] });
+    }
+    /* ══ BUILD 173 — TWO TEAMS CAN SHARE ONE GROUND, AND THE FIRST VERSION DID NOT KNOW IT ═══════
+       The rows are built per TEAM, so nothing stopped two teams emitting the same `venue_id`.
+       Postgres rejected the whole statement:
+         "ON CONFLICT DO UPDATE command cannot affect row a second time"
+       — because `on conflict (venue_id)` cannot resolve the same key proposed twice in one command.
+       225 rows carried only 215 distinct venue ids. Three causes, and they are NOT the same thing:
+
+         · the provider spells one club two ways over time — `Bayern Munich` / `Bayern München`,
+           `VfL Bochum` / `Vfl Bochum`, `Bragantino` / `RB Bragantino`. Same ground, same numbers.
+         · clubs genuinely share a stadium — Inter and Milan at San Siro, Lazio and Roma at the
+           Olimpico, Flamengo and Fluminense at the Maracanã. Same ground, same numbers.
+         · AND ONE REAL CONFLICT: venue 1293 was claimed by Sporting CP (118 fixtures) and Benfica
+           (18) with DIFFERENT coordinates — two different Lisbon grounds under one id.
+
+       The first two collapse harmlessly. The third must not be silently collapsed, because picking
+       the loser would file every match at that stadium in the wrong part of the city and no query
+       would ever show it. So: keep the team that actually plays there most, and MEASURE how far the
+       discarded coordinate sits from the kept one. Anything beyond CONFLICT_KM is reported on screen
+       as a disagreement rather than quietly dropped. `haversineKm` is already here for travel. */
+    const CONFLICT_KM = 1;
+    const byVid = {};
+    for(const r of rows) (byVid[r.vid] = byVid[r.vid] || []).push(r);
+    const merged = [], sharedGround = [], conflicts = [];
+    for(const vid of Object.keys(byVid)){
+      const group = byVid[vid].sort((a,b)=>b.n-a.n);
+      const keep = group[0];
+      merged.push(keep);
+      for(const other of group.slice(1)){
+        const km = haversineKm([keep.lat, keep.lon], [other.lat, other.lon]);
+        (km != null && km > CONFLICT_KM ? conflicts : sharedGround)
+          .push({ vid:+vid, kept:keep.team, keptN:keep.n, dropped:other.team, droppedN:other.n, km });
+      }
+    }
+    rows = merged;
+    rows.sort((a,b)=>a.vid-b.vid);
+
+    /* What this actually unlocks, counted the way the collector will see it: a fixture gets weather
+       only if its own venue_id is one of the emitted rows. Reported BEFORE the SQL so the number is
+       read rather than the wall of text. */
+    const mapped = new Set(rows.map(r=>r.vid));
+    let covered = 0;
+    for(const id of ids) for(const m of afState.leagues[id].matches){
+      const v = m._x && m._x.venue_id;
+      if(v != null && mapped.has(+v)) covered++;
+    }
+    const cp = total ? 100*covered/total : 0;
+
+    // ' is doubled — `M'gladbach` and `Nott'm` would otherwise end the string literal mid-row.
+    const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+    const sql =
+      'insert into venues (venue_id, lat, lon, team, source) values\n' +
+      rows.map(r=>`  (${r.vid}, ${r.lat}, ${r.lon}, ${q(r.team)}, 'app VENUE table')`).join(',\n') +
+      '\non conflict (venue_id) do update set\n' +
+      '  lat = excluded.lat, lon = excluded.lon, team = excluded.team,\n' +
+      '  source = excluded.source, updated_at = now();';
+
+    const colour = p => p >= 80 ? 'var(--green2)' : p >= 30 ? 'var(--text)' : 'var(--red)';
+    box.innerHTML =
+      `<div class="frow"><span style="flex:1"><b>Venue rows to write</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
+       <div class="frow"><span style="flex:1"><b>Fixtures this would give weather</b></span><span><b style="color:${colour(cp)}">${covered.toLocaleString()} / ${total.toLocaleString()} (${cp.toFixed(1)}%)</b></span></div>
+       <div class="frow"><span style="flex:1">Fixtures carrying a <code>venue_id</code> at all</span><span>${(100*withVid/total).toFixed(1)}%</span></div>
+       <div class="frow"><span style="flex:1">Home teams with no coordinates yet</span><span>${noCoords.length}</span></div>
+       <div class="frow"><span style="flex:1">Secondary / neutral venue ids skipped</span><span>${skippedSecondary}</span></div>
+       <div class="frow"><span style="flex:1">Two teams on one ground, merged</span><span>${sharedGround.length}</span></div>
+       <div class="frow"><span style="flex:1"><b>Coordinate conflicts</b> — same id, different place</span><span><b style="color:${conflicts.length ? 'var(--red)' : 'var(--green2)'}">${conflicts.length}</b></span></div>
+       <div class="subnote"><b style="color:var(--text)">Run <code>MatchMind-Venues-SQL.md</code> §1 first</b>, once, to create the table. Then paste the block below into the Supabase SQL editor. It is idempotent — <code>on conflict do update</code> — so re-running it after adding coordinates to <code>VENUE</code> refreshes rather than duplicates.</div>
+       <div class="subnote">Only each team's <b>modal</b> venue id is emitted. <code>VENUE</code> holds one coordinate per team, so filing it under a cup tie's neutral stadium would put the home ground in the wrong city. Skipped ids get no weather, which is a null rather than a wrong number.</div>
+       <textarea readonly style="width:100%;height:220px;margin-top:10px;font:11px ui-monospace,monospace">${escapeHtml(sql)}</textarea>` +
+
+      (conflicts.length
+        ? `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px;margin-top:10px"><b style="color:var(--text)">${conflicts.length} venue id${conflicts.length>1?'s are':' is'} claimed by two teams whose grounds are more than ${CONFLICT_KM}km apart.</b> The team that plays there more often was kept and the other was dropped — it gets no weather, which is a null rather than a stadium in the wrong part of the city. Worth a look: the provider may be filing one club's home matches under another's ground.</div>` +
+          conflicts.map(c=>`<div class="frow"><span style="flex:1;font-size:.82rem">id ${c.vid} — kept <b>${escapeHtml(c.kept)}</b> (${c.keptN}), dropped ${escapeHtml(c.dropped)} (${c.droppedN})</span>
+             <span style="width:20%;text-align:right;color:var(--red)">${c.km.toFixed(1)} km</span></div>`).join('')
+        : '') +
+
+      (sharedGround.length
+        ? `<div class="sec-label" style="margin-top:10px">Shared grounds and duplicate spellings, merged</div>
+           <div class="subnote">Same <code>venue_id</code>, same coordinates — either one club spelled two ways by the provider, or two clubs genuinely sharing a stadium. Collapsing these is what the first version failed to do, and Postgres rejected the whole insert for it.</div>` +
+          sharedGround.map(c=>`<div class="frow"><span style="flex:1;font-size:.82rem">id ${c.vid} — <b>${escapeHtml(c.kept)}</b> + ${escapeHtml(c.dropped)}</span>
+             <span style="width:20%;text-align:right" class="muted">${c.km == null ? '—' : c.km.toFixed(2)+' km'}</span></div>`).join('')
+        : '') +
+      (noCoords.length
+        ? `<div class="sec-label" style="margin-top:10px">Biggest teams still without coordinates</div>` +
+          noCoords.sort((a,b)=>b[1]-a[1]).slice(0,8).map(([t,n])=>
+            `<div class="frow"><span style="flex:1;font-size:.82rem">${escapeHtml(t)}</span>
+             <span style="width:24%;text-align:right;font-size:.78rem" class="muted">${n.toLocaleString()} fixtures</span></div>`).join('') +
+          `<div class="subnote">These need real coordinates added to <code>VENUE</code> — not an alias, since no matching ground exists in the table. Adding them and re-running lifts the percentage above.</div>`
+        : '');
   }, 30);
 }
 
@@ -8762,6 +9026,58 @@ function providerExtras(r){
   const xh = xiOf(r.lineup_h), xa = xiOf(r.lineup_a);
   if(xh) x.xi_h = xh;
   if(xa) x.xi_a = xa;
+
+  /* ══ BUILD 174 — EVENTS, THE THIRD TIME THIS EXACT PATTERN HAS APPEARED ═════════════════════════
+     The collector has fetched `/fixtures/events` per fixture since build 158 — goal minutes, cards,
+     substitutions — and this function has dropped it every time, exactly as it dropped the
+     statistics before build 163 and the lineups before build 169.
+
+     ── THE PROBLEM THAT LOOKED LIKE A BLOCKER, AND THE COLUMN THAT ALREADY SOLVED IT ──
+     An event carries `team` as a NUMERIC TEAM ID, and `mapFixture` stores team NAMES only — no
+     `home_id`, no `away_id`. With no way to tell which side an event belongs to, every per-side
+     feature here is impossible, and the obvious fixes are all expensive: add id columns and re-fetch
+     22,000 fixtures to backfill them, or infer the mapping from goal counts.
+     Neither is needed. **`home_logo` is `https://media.api-sports.io/football/teams/214.png`** — the
+     team id is in a URL that has been stored on every row since build 158 for display. Verified
+     against a real fixture: logo ids 214 / 4716, event team ids 214 / 4716. No new collection, no
+     SQL, no inference, and it works on all existing history.
+
+     ── STORED AS ONE COMPACT STRING, FOR THE SAME REASON THE XI IS ──
+     Measured on a 64-fixture sample: 15.2 events per match, median 15, max 22. Kept as objects with
+     player and assist names that nothing here reads, ~22,000 matches would cost double-digit MB of
+     heap on every phone for a dev-only panel. `"61hg 66as 80ar"` is ~7 characters an event, so the
+     whole thing is ~2.3MB and still legible in a debugger. Player and assist names are dropped
+     because no feature uses them — the same bargain as the XI's names and grid coordinates.
+
+     ── AND ONE TRAP THAT IS IN THE DATA, NOT IN THE DOCS ──
+     **A MISSED PENALTY HAS `type: "Goal"`.** The provider files it as a Goal event with
+     `detail: "Missed Penalty"`, so anything counting `type === 'Goal'` scores misses as goals. Found
+     by reading 64 fixtures' worth of responses, not by reading a specification: the sample held
+     142 Normal Goal, 14 Penalty, 4 Own Goal and 1 Missed Penalty. `x` below is deliberately a
+     separate kind from `p` so nothing downstream can add them together by accident. */
+  const evKind = (t, d) => {
+    d = String(d || '');
+    if(t === 'Goal') return d === 'Own Goal' ? 'o' : d === 'Penalty' ? 'p'
+                          : d === 'Missed Penalty' ? 'x' : 'g';
+    if(t === 'Card') return /red/i.test(d) || /second yellow/i.test(d) ? 'r' : 'y';
+    if(t === 'subst') return 's';
+    return null;                                  // Var and anything new: skipped, not guessed at
+  };
+  const teamId = u => { const mt = /\/teams\/(\d+)\./.exec(String(u || '')); return mt ? +mt[1] : null; };
+  const th = teamId(r.home_logo), ta = teamId(r.away_logo);
+  if(th != null) x.tid_h = th;
+  if(ta != null) x.tid_a = ta;
+  if(Array.isArray(r.events) && r.events.length && th != null && ta != null && th !== ta){
+    const enc = [];
+    for(const e of r.events){
+      if(!e || e.m == null) continue;
+      const side = e.team === th ? 'h' : e.team === ta ? 'a' : null;
+      if(!side) continue;                         // an event for neither side is not attributable
+      const k = evKind(e.type, e.detail);
+      if(k) enc.push(String(e.m) + side + k);
+    }
+    if(enc.length) x.ev = enc.join(' ');
+  }
   return x;
 }
 
@@ -10897,6 +11213,7 @@ function renderNewcomerSweep(){
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
 { const b=$('pcBtn'); if(b) b.addEventListener('click', renderProviderCoverage); }
+{ const b=$('vnBtn'); if(b) b.addEventListener('click', renderVenuesSql); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
