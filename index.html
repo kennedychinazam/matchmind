@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 174;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 180;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5371,6 +5371,87 @@ function matchEvents(ev, mine){
    nothing is hung off the league object, which `saveState` serialises into a ~5MB localStorage
    quota whose failure is silent (build 163). A cache that cannot be persisted cannot break
    persistence. */
+/* ══ BUILD 180 — THE REFEREE, STORED SINCE BUILD 158 AND READ BY NOTHING ═══════════════════════
+   `referee` sits on 22,007 of 22,009 finished fixtures — the most complete column in the database,
+   more complete than the scores — and until this build no feature had ever touched it. Items 57, 58
+   and 59 of the Engine v2 plan are penalty rate, card rate and home bias, and all three come out of
+   `x.ev`, the token string build 174 already encodes: side-attributed cards, penalties awarded, and
+   penalties missed, per match.
+
+   ── ONE THING HERE IS AVAILABLE AT PUBLISH TIME, WHICH PRESENCE WAS NOT ──
+   The referee's NAME arrives with the fixture window, before kick-off, not with the detail pass. So
+   unlike build 169's presence features — which describe a side's previous match because this
+   match's lineup does not exist until afterwards — a referee feature is legitimately about THIS
+   fixture. What must still be walk-forward is his HISTORY, and that is what `upTo` bounds below.
+
+   ── WHY THE HISTORY IS PER COMPETITION AND NOT POOLED ──
+   `teamSeqFor` pools rest and congestion across every loaded competition, deliberately, because a
+   midweek European tie tires a squad exactly as a league match does. Referees are the opposite
+   case: card rates differ enormously BETWEEN competitions, so pooling a strict domestic league with
+   a lenient continental one would credit the referee with the difference between the tournaments.
+   Keyed on L.matches through a WeakMap, same as the team index and for the same two reasons — a
+   reload invalidates it with no staleness rule, and nothing hangs off the league object that
+   `saveState` would try to serialise into a ~5MB quota.
+
+   ── AND THE NAME VOCABULARY IS NOT ONE VOCABULARY ──
+   The provider writes two forms: `B. Berke` and `Bruno Arleu de Araujo, Brazil`. The trailing
+   `, Country` is noise, and left alone it would split nothing today but would silently split a
+   referee's history the moment the provider wrote him both ways — which is exactly what build 171
+   found had happened to venue names, where travel and derby sat at 30% coverage for eight builds.
+   So the key is normalised, and the panel REPORTS how many distinct names collapse, because a
+   normaliser that merges two different people is a worse bug than the one it fixes. */
+const REF = { WIN: 20, MIN_N: 8, MAX_AGE_D: 540 };
+
+/* Longer than PF's 240 days on purpose: a referee officiates ~30 matches a season, so 20 of them
+   needs roughly eighteen months, and a referee's strictness is a far more stable property than a
+   team's form. Still bounded twice — count AND calendar — for build 168's reason: a window bounded
+   only by count walks back until it finds enough and calls three seasons of a career "current". */
+function refKey(name){
+  if(name == null) return null;
+  let s = String(name).trim().replace(/\s+/g, ' ');
+  s = s.replace(/,\s*[^,]+$/, '');                 // "Bruno Arleu de Araujo, Brazil" -> the name
+  return s ? s.toLowerCase() : null;
+}
+
+const _refSeq = new WeakMap();
+function refSeqFor(L){
+  const ms = L && L.matches; if(!ms) return {};
+  let r = _refSeq.get(ms); if(r) return r;
+  r = {};
+  for(let i = 0; i < ms.length; i++){
+    const k = refKey(ms[i] && ms[i]._x && ms[i]._x.referee);
+    if(k) (r[k] = r[k] || []).push(i);
+  }
+  _refSeq.set(ms, r);
+  return r;
+}
+
+/* One referee's record before this fixture. Walk-forward by the same `>= upTo` rule as everything
+   else in this layer, and every feature independently null when its own denominator is short. */
+function refFormFor(L, key, upTo, seq, date){
+  if(!key || !date) return null;
+  const idxs = seq[key]; if(!idxs || !idxs.length) return null;
+  const ms = L.matches, d0 = _dayNum(date);
+  let n = 0, pens = 0, cards = 0, bias = 0;
+  for(let p = idxs.length - 1; p >= 0 && n < REF.WIN; p--){
+    const i = idxs[p];
+    if(upTo != null && i >= upTo) continue;        // never this fixture, never a later one
+    const m = ms[i]; if(!m || !m.date) continue;
+    if(d0 - _dayNum(m.date) > REF.MAX_AGE_D) break;
+    const ev = m._x && m._x.ev; if(!ev) continue;
+    let h = 0, a = 0, pn = 0;
+    for(const tok of String(ev).split(' ')){
+      const mt = /^(\d+)([ha])(.)$/.exec(tok); if(!mt) continue;
+      const side = mt[2], k = mt[3];
+      if(k === 'y' || k === 'r'){ if(side === 'h') h++; else a++; }
+      if(k === 'p' || k === 'x') pn++;             // awarded: converted or missed
+    }
+    n++; cards += h + a; pens += pn; bias += a - h;
+  }
+  if(n < REF.MIN_N) return null;                   // one gate, one denominator — n counts matches
+  return { n, penRate: pens / n, cardRate: cards / n, homeBias: bias / n };
+}
+
 const _teamSeq = new WeakMap();
 function teamSeqFor(L){
   const ms = L && L.matches; if(!ms) return {};
@@ -5559,6 +5640,9 @@ function matchFeatures(L, f, upTo, idx){
      form. They differ only in how often they are available, and that is what the coverage column is
      for. */
   const seq = teamSeqFor(L);
+  /* build 180 — the referee is a property of THIS fixture, not of either side, so one record
+     rather than a home/away pair. Its history is still bounded by `upTo`. */
+  const rf = refFormFor(L, refKey(f._x && f._x.referee), upTo, refSeqFor(L), f.date);
   const pH = providerFormFor(L, f.home, upTo, seq, f.date);
   const pA = providerFormFor(L, f.away, upTo, seq, f.date);
   const g = (o, k) => (o && o[k] != null) ? o[k] : null;
@@ -5599,7 +5683,12 @@ function matchFeatures(L, f, upTo, idx){
     subMinH: g(pH,'subMin'), subMinA: g(pA,'subMin'),                         // 33
     penRateH: g(pH,'penRate'), penRateA: g(pA,'penRate'),                     // 12, 13 partial
     redRateH: g(pH,'redRate'), redRateA: g(pA,'redRate'),                     // 11                  // 51
-    coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD')
+    coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD'),
+    // ── build 180, the referee. One record per fixture, not per side ──
+    refPenRate: g(rf,'penRate'),                                              // 57
+    refCardRate: g(rf,'cardRate'),                                            // 58
+    refHomeBias: g(rf,'homeBias'),                                            // 59
+    refN: g(rf,'n')
   };
 }
 
@@ -5659,6 +5748,10 @@ function renderFeatureLayer(){
     const EVT_KEYS = ['scoredFirstH','scoredFirstA','firstGoalMinH','firstGoalMinA',
                   'lateShareH','lateShareA','subMinH','subMinA','penRateH','penRateA',
                   'redRateH','redRateA'];
+    /* Build 180. Same arrangement as PRES_KEYS and EVT_KEYS: a display subset, listed in PROV_KEYS
+       too so the coverage check needs no exception, with a subset assertion stopping the two lists
+       drifting apart. */
+    const REF_KEYS = ['refPenRate','refCardRate','refHomeBias','refN'];
     const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
                   'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
                   'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA',
@@ -5666,7 +5759,8 @@ function renderFeatureLayer(){
                   'regMissH','regMissA','xiAgeDH','xiAgeDA',
                   'scoredFirstH','scoredFirstA','firstGoalMinH','firstGoalMinA',
                   'lateShareH','lateShareA','subMinH','subMinA','penRateH','penRateA',
-                  'redRateH','redRateA'];
+                  'redRateH','redRateA',
+                  'refPenRate','refCardRate','refHomeBias','refN'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -5686,6 +5780,8 @@ function renderFeatureLayer(){
       formChgH:'Formation changed, home (34)', formChgA:'Formation changed, away (34)',
       coachNewH:'Coach changed, home (51)', coachNewA:'Coach changed, away (51)',
       coachGapDH:'Days between coach obs, home', coachGapDA:'Days between coach obs, away',
+      refPenRate:'Referee penalties per match (57)', refCardRate:'Referee cards per match (58)',
+      refHomeBias:'Referee home bias, away minus home cards (59)', refN:'Referee matches in window',
       xiContH:'XI continuity vs previous, home', xiContA:'XI continuity vs previous, away',
       defContH:'Defender continuity, home (23, approx)', defContA:'Defender continuity, away (23, approx)',
       gkChgH:'Starting keeper changed, home (22)', gkChgA:'Starting keeper changed, away (22)',
@@ -5717,6 +5813,21 @@ function renderFeatureLayer(){
        The two sides of one fixture are pooled here and they are NOT independent observations, so
        this reports r and n and deliberately does not quote a t — the question is "does this column
        mean what we think", not "is the effect significant". */
+    /* BUILD 180 — REPORTING WHAT THE NORMALISER DID, because a normaliser that merges two people is
+       a worse bug than the split it fixes. Build 171 found venue names split across three spellings
+       and travel stuck at 30% for eight builds; the lesson was not "normalise", it was "measure what
+       normalising changed". `raw` counts the provider's own strings, `keyed` counts what the feature
+       layer actually groups on. A large gap is either a real vocabulary split being repaired or two
+       different referees being fused, and only the numbers being on screen makes anyone look. */
+    const refRaw = new Set(), refKeyed = new Set();
+    for(const id of ids){
+      const L = afState.leagues[id]; if(!L || !L.matches) continue;
+      for(const m of L.matches){
+        const nm = m._x && m._x.referee; if(nm == null) continue;
+        refRaw.add(String(nm).trim()); const k = refKey(nm); if(k) refKeyed.add(k);
+      }
+    }
+
     const gx = [], gy = [];
     for(const r of rows){
       if(r.F.gkH != null && r.F.gkProxyH != null){ gx.push(r.F.gkH); gy.push(r.F.gkProxyH); }
@@ -5740,6 +5851,7 @@ function renderFeatureLayer(){
     const isProv = o => PROV_KEYS.indexOf(o.k) >= 0;
     const isPres = o => PRES_KEYS.indexOf(o.k) >= 0;
     const isEvt  = o => EVT_KEYS.indexOf(o.k) >= 0;
+    const isRef  = o => REF_KEYS.indexOf(o.k) >= 0;
 
     box.innerHTML =
       `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
@@ -5749,13 +5861,21 @@ function renderFeatureLayer(){
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — derived from the paid provider</div>
        <div class="subnote">These will read far lower than the raw column coverage in the panel below, and that is the point: a rolling feature needs a <b>run</b> of filled matches for one team, not one filled match. Each window is capped at ${PF.WIN} matches and ${PF.MAX_AGE_D} days, and returns nothing rather than assembling "form" out of matches three seasons apart.</div>` + head +
-      out.filter(o=>isProv(o) && !isPres(o) && !isEvt(o)).map(rowHtml).join('') +
+      out.filter(o=>isProv(o) && !isPres(o) && !isEvt(o) && !isRef(o)).map(rowHtml).join('') +
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — from the events blob (build 174)</div>
        <div class="subnote">Goal minutes, cards and substitutions. <b>The collector has fetched these per fixture since build 158 and the app had never read them</b> — the third time a variable was arriving and being dropped one line from where it was needed, after the statistics (163) and the lineups (169).</div>
        <div class="subnote"><b style="color:var(--text)">An event names a numeric team id, and the fixture row stores team NAMES only.</b> That looked like it needed new columns and a 22,000-fixture re-fetch to backfill. It did not: <code>home_logo</code> is <code>…/teams/214.png</code>, so the id has been on every row since build 158, stored for display. No new collection, no SQL, and it works on all existing history.</div>
        <div class="subnote"><b style="color:var(--text)">Two traps that are in the data rather than the documentation.</b> A <b>missed penalty arrives as <code>type: "Goal"</code></b> with <code>detail: "Missed Penalty"</code>, so anything counting goal events scores misses as goals — it is kept as its own kind so no sum can include it. And an <b>own goal is filed against the team of the player who scored it</b>, so counting it for that side records the conceding team as having scored; it is credited to the opponent here. Own goals were ~2.5% of goals in the sample — small enough to survive a spot check, large enough to bias "who scored first" across six seasons.</div>` + head +
       out.filter(isEvt).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 — the referee (build 180)</div>
+       <div class="subnote"><code>referee</code> is on <b>22,007 of 22,009</b> finished fixtures — the most complete column in the database, more complete than the scores — and until this build <b>no feature had ever read it</b>. Items 57, 58 and 59 all come out of the same <code>ev</code> token string build 174 encoded, so this needed no new collection and no SQL.</div>
+       <div class="subnote"><b style="color:var(--text)">Unlike the presence features, these are about THIS match.</b> The referee's name arrives with the fixture window before kick-off, not with the detail pass, so a referee feature is legitimately about the fixture being predicted. What is walk-forward is his <b>history</b>, which is bounded by <code>upTo</code> exactly as everything else here is.</div>
+       <div class="subnote"><b style="color:var(--text)">His record is kept per competition, deliberately not pooled.</b> Rest and congestion pool across competitions because a midweek European tie tires a squad the same way. Referees are the opposite: card rates differ enormously between tournaments, so pooling would credit the referee with the difference between the competitions he works in. Window ${REF.WIN} matches, ${REF.MAX_AGE_D} days, minimum ${REF.MIN_N} — longer than the ${PF.MAX_AGE_D}-day form window because strictness is a far more stable property than form.</div>
+       <div class="subnote"><b style="color:var(--text)">Name vocabulary:</b> the provider writes both <code>B. Berke</code> and <code>Bruno Arleu de Araujo, Brazil</code>. The trailing country is stripped before grouping. <b>${refRaw.size.toLocaleString()}</b> distinct strings collapse to <b>${refKeyed.size.toLocaleString()}</b> keys. A big gap is either a real split being repaired or two different officials being fused — build 171's venue names were the first kind, and the only way anyone finds the second kind is this number being on screen.</div>
+       <div class="subnote">Coverage will read far below the ${(100*refRaw.size/Math.max(1,refRaw.size)).toFixed(0)}% the raw column shows, and that is the fill frontier again: cards and penalties come from the detail pass, which has filled ~1,200 of 22,000 fixtures. The referee's NAME is nearly universal; his RECORD is not, and will not be until the backfill runs.</div>` + head +
+      out.filter(isRef).map(rowHtml).join('') +
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — presence and absences (build 169)</div>
        <div class="subnote">Derived from the starting XI the provider already stores, because there is no injury history to read: nothing writes the <code>injuries</code> table, and the provider's injury endpoint answers "who is hurt now", not who was missing two seasons ago. An absence is measured here rather than asked about.</div>
