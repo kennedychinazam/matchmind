@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 183;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 185;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5524,6 +5524,75 @@ function teamSeqFor(L){
   return s;
 }
 
+/* ══ BUILD 185 — MILESTONE 13 ITEMS 20, 21 AND 25 ══════════════════════════════════════════════
+   Item 20 primary goalscorer absent · item 21 playmaker absent · item 25 key player rustiness.
+
+   `pf` is one side's providerFormFor result — goal and assist tallies by player id, gathered
+   walk-forward inside the same window every other provider feature uses. `injStr` is THIS fixture's
+   own injury list for that side.
+
+   READING THIS FIXTURE'S OWN INJURY LIST IS LEGITIMATE, AND IT IS THE OPPOSITE OF BUILD 169.
+   The presence features describe each side's PREVIOUS match, because the collector fetches a lineup
+   only once a fixture is FINISHED — so a feature built on this match's XI fits beautifully across
+   six seasons and is null on every fixture the app actually publishes. Injuries do not have that
+   problem: the 2026-08-19 sweep found rows for fixtures two and three days ahead (La Liga to
+   2026-08-20, the Champions League to 2026-08-19), and the collector refreshes the league-season
+   whose next kick-off is soonest. So this is genuinely about the fixture being predicted.
+   NOT ESTABLISHED, and it must not be assumed: how complete the list is in the final hour before
+   kick-off. Two to three days ahead is what was measured.
+
+   🚨 null AND '' ARE DIFFERENT AND THE WHOLE FUNCTION TURNS ON IT.
+     injStr == null  ->  this league-season was never asked about. EVERY feature is null.
+     injStr === ''   ->  asked, nobody is injured. absN is 0 and scorerOut is 0 — a real measurement.
+   Collapsing them would turn the most common informative case ("we checked, nobody is out") into a
+   missing value, and a ridge fit cannot tell a missing value from a zero effect.
+
+   A LEADER MUST BE UNIQUE OR THERE IS NO LEADER. Two players tied on two goals do not have a
+   "primary goalscorer" between them, and picking whichever the object happened to enumerate first
+   would make item 20 a coin toss dressed as a measurement. So the leader needs a strict maximum and
+   at least two goals; below that the share features still work, because a share needs no identity. */
+function absenceFeatures(pf, injStr){
+  if(!pf || injStr == null) return null;
+  const hard = new Set(), soft = new Set();
+  for(const t of String(injStr).split(' ')){
+    if(!t) continue;
+    if(t[0] === '?') soft.add(t.slice(1)); else hard.add(t);
+  }
+  /* Strict leader: the single highest tally, only if nobody else matches it. */
+  const leader = tally => {
+    let best = null, top = 0, ties = 0, tot = 0;
+    for(const k in tally){
+      const v = tally[k]; tot += v;
+      if(v > top){ top = v; best = k; ties = 1; } else if(v === top) ties++;
+    }
+    return { id: (ties === 1 && top >= 2) ? best : null, tot };
+  };
+  const shareOut = tally => {
+    let out = 0, tot = 0;
+    for(const k in tally){ tot += tally[k]; if(hard.has(k)) out += tally[k]; }
+    return tot >= PF.MIN_N ? out / tot : null;
+  };
+  const g = leader(pf.goalsBy), a = leader(pf.assistsBy);
+  /* Item 25 — a key player who WAS missing for the previous match and is not missing now. Built
+     from the two leaders rather than a top-N list, because "key" has to mean something measured and
+     the leaders are the only players this window can identify without inventing a rank. Null when
+     no previous absentee list exists, because "nobody returned" and "we never knew" are different. */
+  let rust = null;
+  if(pf.injPrev){
+    rust = 0;
+    for(const id of [g.id, a.id]) if(id && pf.injPrev.has(id) && !hard.has(id) && !soft.has(id)) rust++;
+  }
+  return {
+    absN: hard.size,                                                    // context for the fit
+    absDoubt: soft.size,
+    scorerOut: g.id ? (hard.has(g.id) ? 1 : 0) : null,                  // item 20
+    assistOut: a.id ? (hard.has(a.id) ? 1 : 0) : null,                  // item 21
+    scorerShare: shareOut(pf.goalsBy),                                  // item 20, continuous
+    assistShare: shareOut(pf.assistsBy),                                // item 21, continuous
+    keyRust: rust,                                                      // item 25
+  };
+}
+
 /* One team's provider-derived form before a fixture. Walk-forward by construction: `upTo` is the
    fixture's own index and every candidate at or after it is skipped, so a feature can never see its
    own result — the rule Phase 0 was built on and the one §60 was about.
@@ -5534,6 +5603,8 @@ function providerFormFor(L, team, upTo, seq, date){
   const idxs = seq[team]; if(!idxs || !idxs.length || !date) return null;
   const ms = L.matches, d0 = _dayNum(date);
   const stat = [], lineup = [], xis = [], evs = [];
+  const goalsBy = {}, assistsBy = {};        // build 185 — player id -> count, this window
+  let scorerN = 0, injPrev;                  // injPrev stays `undefined` until a list is seen
   for(let p = idxs.length - 1; p >= 0 && (stat.length < PF.WIN || lineup.length < 2 || xis.length < PF.WIN || evs.length < PF.WIN); p--){
     const i = idxs[p];
     if(upTo != null && i >= upTo) continue;              // never this fixture, never a later one
@@ -5557,6 +5628,21 @@ function providerFormFor(L, team, upTo, seq, date){
       const me = matchEvents(x.ev, H ? 'h' : 'a');
       if(me) evs.push(me);
     }
+    /* build 185 — the same window again: who scored and who created, tallied by player id. This is
+       history, so it is bounded by `upTo` like everything else here and can never see the fixture
+       being predicted. */
+    if(scorerN < PF.WIN && x.ev){
+      for(const p of String(x[H ? 'gsH' : 'gsA'] || '').split(' ')) if(p) goalsBy[p] = (goalsBy[p] || 0) + 1;
+      for(const p of String(x[H ? 'asH' : 'asA'] || '').split(' ')) if(p) assistsBy[p] = (assistsBy[p] || 0) + 1;
+      scorerN++;
+    }
+    /* Item 25 needs who was ALREADY missing, so the most recent previous match's absentee list is
+       kept separately. `!= null` again — an empty string is "nobody was out", which is exactly the
+       state that makes a returning player detectable. */
+    if(injPrev === undefined){
+      const ij = x[H ? 'inj_h' : 'inj_a'];
+      if(ij != null) injPrev = new Set(String(ij).split(' ').filter(Boolean).map(s => s[0] === '?' ? s.slice(1) : s));
+    }
   }
 
   const ok = v => v != null && isFinite(v);
@@ -5576,6 +5662,8 @@ function providerFormFor(L, team, upTo, seq, date){
 
   const R = {
     n: stat.length,
+    goalsBy, assistsBy, scorerN, injPrev,     // build 185 — raw tallies; the features are below
+
     xgDiff: mean(r => (ok(r.xgF) && ok(r.xgA)) ? r.xgF - r.xgA : null),
     xgOver: mean(r => (ok(r.gF)  && ok(r.xgF)) ? r.gF  - r.xgF : null),
     shotQual: rate(r => r.xgF, r => r.shots),
@@ -5703,6 +5791,9 @@ function matchFeatures(L, f, upTo, idx){
   const rf = refFormFor(L, refKey(f._x && f._x.referee), upTo, refSeqFor(L), f.date);
   const pH = providerFormFor(L, f.home, upTo, seq, f.date);
   const pA = providerFormFor(L, f.away, upTo, seq, f.date);
+  /* build 185 — this fixture's own absentees, against each side's own scoring history. */
+  const aH = absenceFeatures(pH, f._x ? f._x.inj_h : null);
+  const aA = absenceFeatures(pA, f._x ? f._x.inj_a : null);
   const g = (o, k) => (o && o[k] != null) ? o[k] : null;
   return {
     restH: rH, restA: rA, restDiff: (rH!=null && rA!=null) ? rH - rA : null,   // 36
@@ -5743,6 +5834,14 @@ function matchFeatures(L, f, upTo, idx){
     redRateH: g(pH,'redRate'), redRateA: g(pA,'redRate'),                     // 11                  // 51
     coachGapDH: g(pH,'coachGapD'), coachGapDA: g(pA,'coachGapD'),
     // ── build 180, the referee. One record per fixture, not per side ──
+    // ── build 185, items 20 / 21 / 25 — absence-weighted, and null wherever it is unknown ──
+    absNH: g(aH,'absN'), absNA: g(aA,'absN'),
+    absDoubtH: g(aH,'absDoubt'), absDoubtA: g(aA,'absDoubt'),
+    scorerOutH: g(aH,'scorerOut'), scorerOutA: g(aA,'scorerOut'),               // 20
+    scorerShareH: g(aH,'scorerShare'), scorerShareA: g(aA,'scorerShare'),       // 20
+    assistOutH: g(aH,'assistOut'), assistOutA: g(aA,'assistOut'),               // 21
+    assistShareH: g(aH,'assistShare'), assistShareA: g(aA,'assistShare'),       // 21
+    keyRustH: g(aH,'keyRust'), keyRustA: g(aA,'keyRust'),                       // 25
     refPenRate: g(rf,'penRate'),                                              // 57
     refCardRate: g(rf,'cardRate'),                                            // 58
     refHomeBias: g(rf,'homeBias'),                                            // 59
@@ -5810,6 +5909,12 @@ function renderFeatureLayer(){
        too so the coverage check needs no exception, with a subset assertion stopping the two lists
        drifting apart. */
     const REF_KEYS = ['refPenRate','refCardRate','refHomeBias','refN'];
+    /* Build 185. Same arrangement again — a display subset, and every key is in PROV_KEYS too
+       so the coverage check needs no exception. Build 180 appended its four keys to EVT_KEYS by
+       mistake because both lists end identically; the drift check now covers every subset. */
+    const ABS_KEYS = ['absNH','absNA','absDoubtH','absDoubtA','scorerOutH','scorerOutA',
+                  'scorerShareH','scorerShareA','assistOutH','assistOutA',
+                  'assistShareH','assistShareA','keyRustH','keyRustA'];
     const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
                   'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
                   'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA',
@@ -5818,7 +5923,10 @@ function renderFeatureLayer(){
                   'scoredFirstH','scoredFirstA','firstGoalMinH','firstGoalMinA',
                   'lateShareH','lateShareA','subMinH','subMinA','penRateH','penRateA',
                   'redRateH','redRateA',
-                  'refPenRate','refCardRate','refHomeBias','refN'];
+                  'refPenRate','refCardRate','refHomeBias','refN',
+                  'absNH','absNA','absDoubtH','absDoubtA','scorerOutH','scorerOutA',
+                  'scorerShareH','scorerShareA','assistOutH','assistOutA',
+                  'assistShareH','assistShareA','keyRustH','keyRustA'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -5840,6 +5948,13 @@ function renderFeatureLayer(){
       coachGapDH:'Days between coach obs, home', coachGapDA:'Days between coach obs, away',
       refPenRate:'Referee penalties per match (57)', refCardRate:'Referee cards per match (58)',
       refHomeBias:'Referee home bias, away minus home cards (59)', refN:'Referee matches in window',
+      absNH:'Absentees, home (20)', absNA:'Absentees, away (20)',
+      absDoubtH:'Doubtful, home (20)', absDoubtA:'Doubtful, away (20)',
+      scorerOutH:'Top scorer absent, home (20)', scorerOutA:'Top scorer absent, away (20)',
+      scorerShareH:'Share of goals absent, home (20)', scorerShareA:'Share of goals absent, away (20)',
+      assistOutH:'Playmaker absent, home (21)', assistOutA:'Playmaker absent, away (21)',
+      assistShareH:'Share of assists absent, home (21)', assistShareA:'Share of assists absent, away (21)',
+      keyRustH:'Key player back from absence, home (25)', keyRustA:'Key player back from absence, away (25)',
       xiContH:'XI continuity vs previous, home', xiContA:'XI continuity vs previous, away',
       defContH:'Defender continuity, home (23, approx)', defContA:'Defender continuity, away (23, approx)',
       gkChgH:'Starting keeper changed, home (22)', gkChgA:'Starting keeper changed, away (22)',
@@ -9190,6 +9305,14 @@ function providerExtras(r){
   for(const k of EXTRA_KEYS){ const v = r[k]; if(v != null) x[k] = v; }
   /* The coach id lives inside the lineup blob the collector stores per side. One integer each, and
      a change between consecutive fixtures IS the manager change — no extra request, no extra table. */
+  /* BUILD 185 — the injury lists, carried with `!= null` and NOT with a truthiness test.
+     An empty string is a real answer here: `null` means this fixture's league-season was never
+     asked about, `''` means it was asked and the provider reported nobody injured. `if(r.inj_h)`
+     would drop every one of the second kind and turn "we know nobody is out" into "we do not know",
+     which is the same collapse the collector's queue was designed to avoid at build 182 and would
+     silently delete the more informative half of the data. */
+  if(r.inj_h != null) x.inj_h = r.inj_h;
+  if(r.inj_a != null) x.inj_a = r.inj_a;
   const ch = r.lineup_h && r.lineup_h.coachId, ca = r.lineup_a && r.lineup_a.coachId;
   if(ch != null) x.coach_h = ch;
   if(ca != null) x.coach_a = ca;
@@ -9270,6 +9393,30 @@ function providerExtras(r){
       if(k) enc.push(String(e.m) + side + k);
     }
     if(enc.length) x.ev = enc.join(' ');
+    /* BUILD 185 — WHO scored and WHO created it, as ids. `ev` records that a goal happened and in
+       which minute; items 20 and 21 need to know whose it was, and an id is the only thing that can
+       be joined to an injury list. Build 184 added `pid`/`aid` to the stored events for exactly
+       this, after reading real rows showed events carry "S. Studer" while the XI carries
+       "Sheyko Studer" — abbreviated against full, so a name join was never going to work and fuzzy
+       matching is banned (build 171).
+       OWN GOALS AND MISSED PENALTIES ARE EXCLUDED, and not for tidiness: an own goal is filed
+       against the scoring player's own team, so counting it as his attacking output would make a
+       defender the team's "top scorer" — and a missed penalty is `type: "Goal"` in this provider's
+       payload, which is the trap build 174 recorded. Only 'g' and 'p' count. */
+    const gs = { h: [], a: [] }, asst = { h: [], a: [] };
+    for(const e of r.events){
+      if(!e || e.m == null) continue;
+      const side = e.team === th ? 'h' : e.team === ta ? 'a' : null;
+      if(!side) continue;
+      const k = evKind(e.type, e.detail);
+      if(k !== 'g' && k !== 'p') continue;
+      if(e.pid != null) gs[side].push(String(e.pid));
+      if(e.aid != null) asst[side].push(String(e.aid));
+    }
+    if(gs.h.length) x.gsH = gs.h.join(' ');
+    if(gs.a.length) x.gsA = gs.a.join(' ');
+    if(asst.h.length) x.asH = asst.h.join(' ');
+    if(asst.a.length) x.asA = asst.a.join(' ');
   }
   return x;
 }
