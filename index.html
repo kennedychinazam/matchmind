@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 185;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 186;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5387,7 +5387,12 @@ const FEAT = { CONGEST_DAYS: 21, DISTRACT_LOOK: 4, REST_CAP_D: 14, DERBY_KM: 30 
    XI_REG is the share of a window's matches a player must start to count as a regular. DEF_MIN is
    the fewest defenders an XI must field for defender continuity to mean anything; below it the
    denominator is too small for a share to be a number rather than a coin flip. */
-const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240, XI_REG: 0.6, DEF_MIN: 3 };
+/* WIN_B and LOW_POSS are build 186's, and both are stated rather than fitted. WIN_B is longer than
+   WIN for the reason REF.WIN is: possession share and passing accuracy are STYLE, and style is a far
+   more stable property of a side than form. LOW_POSS is 50 because possession sums to 100 between two
+   teams, so "under 50" is exactly "the opponent had more of the ball" — a structural midpoint that
+   needs no calibration and cannot be tuned after the fact to flatter a result. */
+const PF = { WIN: 8, MIN_N: 5, MAX_AGE_D: 240, XI_REG: 0.6, DEF_MIN: 3, WIN_B: 12, LOW_POSS: 50 };
 
 /* ══ BUILD 174 — ONE MATCH'S EVENTS, FROM THE PERSPECTIVE OF ONE SIDE ═══════════════════════════
    `ev` is the compact string built in providerExtras: minute, side, kind. `mine` is 'h' or 'a'.
@@ -5645,6 +5650,49 @@ function providerFormFor(L, team, upTo, seq, date){
     }
   }
 
+  /* ══ BUILD 186 — A SECOND WINDOW, AND IT EXISTS BECAUSE OF BUILD 179'S SENTINEL ═════════════════
+     Milestone 13's finish-line step 3 is "proxies from columns already stored": item 15 (build-up
+     completion, via pass accuracy) and item 29 (low-block resilience, via possession and goals
+     conceded). Neither needs xG, and that is the whole reason this is a separate window rather than
+     two more fields on the one above.
+
+     THE WINDOW ABOVE ADMITS A MATCH ONLY IF IT HAS xG, AND xG BEGINS AT SEASON 2022. Build 179
+     measured that by probe: seasons 2020 and 2021 return sixteen perfectly good statistics —
+     possession, shots, cards, saves, passes — and no expected_goals at all. The collector had this
+     exact bug and it cost this project a deadlocked queue for seventeen builds: `.is("xg_h", null)`
+     asked "is xG missing" and used the answer as "does this fixture still need fetching". Build 179
+     changed the collector's sentinel to `poss_h` — "do we have ANY statistics for this fixture" —
+     and the line below is that same change made in the browser. Gating pass accuracy on xG would
+     discard 7,185 fixtures whose pass accuracy is sitting right there in `_x`, and it would surface
+     in the coverage report as a thin feature rather than as a bug.
+
+     WHY A SEPARATE LOOP AND NOT A SIXTH ARRAY IN THE ONE ABOVE. That loop's termination test is a
+     disjunction over its arrays, so adding a term to it makes it walk further back — and `injPrev`
+     up there takes the FIRST non-null absentee list it meets, so a longer walk would quietly
+     re-point build 185's item 25 at a staler match. A behaviour change to a shipped feature arrived
+     at as a side effect of an unrelated addition is precisely the class of defect this project
+     keeps paying for, so the loop above is left byte-identical and this one carries its own bound.
+
+     LONGER THAN PF.WIN, for the same reason REF.WIN is longer than PF.WIN: these measure STYLE, not
+     form. How much of the ball a side cedes and how accurately it passes are far more stable
+     properties than how well it is playing, and twelve matches make the low-possession split large
+     enough to be a mean rather than a coin flip. The 240-day age cap is unchanged and still binds
+     first — build 168's rule that a window bounded only by count walks back until it finds enough
+     and returns "form" assembled from matches three seasons apart. */
+  const base = [];
+  for(let p = idxs.length - 1; p >= 0 && base.length < PF.WIN_B; p--){
+    const i = idxs[p];
+    if(upTo != null && i >= upTo) continue;              // never this fixture, never a later one
+    const m = ms[i]; if(!m || !m.date) continue;
+    if(d0 - _dayNum(m.date) > PF.MAX_AGE_D) break;
+    const x = m._x; if(!x) continue;
+    const H = m.home === team;
+    const mine = k => x[H ? k+'_h' : k+'_a'], theirs = k => x[H ? k+'_a' : k+'_h'];
+    if(mine('poss') == null) continue;                   // build 179's sentinel: any statistics at all
+    base.push({ poss: mine('poss'), passF: mine('passacc'), passA: theirs('passacc'),
+                gA: H ? m.ag : m.hg, xgA: theirs('xg') });
+  }
+
   const ok = v => v != null && isFinite(v);
   // mean of a per-match quantity, null unless ITS OWN count clears the gate
   const mean = pick => {
@@ -5659,6 +5707,21 @@ function providerFormFor(L, team, upTo, seq, date){
     for(const r of stat){ const x1 = numer(r), y1 = denom(r); if(ok(x1) && ok(y1)){ a += x1; b += y1; n++; } }
     return (n >= PF.MIN_N && b > 0) ? a/b : null;
   };
+  /* build 186 — `mean` over an arbitrary row set, so the low-possession subset gets its own count
+     gate rather than publishing on the full window's sample. Build 168's rule, one level out: a
+     shared "we had enough matches" test is how a thin feature rides another feature's denominator. */
+  const meanB = (rows, pick) => {
+    let s = 0, n = 0;
+    for(const r of rows){ const v = pick(r); if(ok(v)){ s += v; n++; } }
+    return n >= PF.MIN_N ? s/n : null;
+  };
+  /* THE SIDE THAT DID NOT HAVE THE BALL. `lowGc` and `lowOppXg` are null for a team that is rarely
+     under 50% — and that null is a fact about the team rather than missing data, which is why
+     `lowPossShare` is published beside them and is 0 rather than null for exactly that team. A ridge
+     fit cannot tell a missing value from a zero effect (build 185, item 20's null-versus-empty
+     distinction), so the state "this side is never in a low block" is given a number of its own
+     instead of being left for the fit to infer from an absence. */
+  const low = base.filter(r => ok(r.poss) && r.poss < PF.LOW_POSS);
 
   const R = {
     n: stat.length,
@@ -5672,7 +5735,19 @@ function providerFormFor(L, team, upTo, seq, date){
     gkProxy: mean(r => (ok(r.xgA) && ok(r.gA)) ? r.xgA - r.gA : null),
     formChg: null, coachNew: null, coachGapD: null,
     xiCont: null, defCont: null, gkChg: null, regMiss: null, xiAgeD: null,
-    scoredFirst: null, firstGoalMin: null, lateShare: null, subMin: null, penRate: null, redRate: null
+    scoredFirst: null, firstGoalMin: null, lateShare: null, subMin: null, penRate: null, redRate: null,
+
+    /* ── build 186, items 15 and 29 — from columns the collector has stored since build 158 and
+       which no feature has ever read. The fourth time this exact pattern has appeared: the
+       statistics themselves (163), the lineups (169), the events blob (174), and now pass accuracy
+       and possession. No new endpoint, no SQL, no deploy. ── */
+    passAcc: meanB(base, r => r.passF),                                    // 15, proxy
+    passAccDiff: meanB(base, r => (ok(r.passF) && ok(r.passA)) ? r.passF - r.passA : null),
+    possMean: meanB(base, r => r.poss),                                    // 29
+    lowPossShare: base.length >= PF.MIN_N ? low.length / base.length : null,
+    lowGc: meanB(low, r => r.gA),                                          // 29 — the resilience
+    lowOppXg: meanB(low, r => r.xgA),                                      // 29 — quality-adjusted
+    gcMean: meanB(base, r => r.gA)                                         // 29 — the reference
   };
 
   /* ── BUILD 174 — EVENT-DERIVED FORM. Each has ITS OWN denominator, per build 168's rule: a team
@@ -5842,6 +5917,16 @@ function matchFeatures(L, f, upTo, idx){
     assistOutH: g(aH,'assistOut'), assistOutA: g(aA,'assistOut'),               // 21
     assistShareH: g(aH,'assistShare'), assistShareA: g(aA,'assistShare'),       // 21
     keyRustH: g(aH,'keyRust'), keyRustA: g(aA,'keyRust'),                       // 25
+    // ── build 186, items 15 and 29 — proxies from columns stored since build 158, read by nothing
+    //    until now. These are the ONLY features here that survive season 2021 and earlier, because
+    //    they are the only ones that do not need xG. ──
+    passAccH: g(pH,'passAcc'), passAccA: g(pA,'passAcc'),                       // 15
+    passAccDiffH: g(pH,'passAccDiff'), passAccDiffA: g(pA,'passAccDiff'),       // 15
+    possMeanH: g(pH,'possMean'), possMeanA: g(pA,'possMean'),                   // 29
+    lowPossShareH: g(pH,'lowPossShare'), lowPossShareA: g(pA,'lowPossShare'),   // 29
+    lowGcH: g(pH,'lowGc'), lowGcA: g(pA,'lowGc'),                               // 29
+    lowOppXgH: g(pH,'lowOppXg'), lowOppXgA: g(pA,'lowOppXg'),                   // 29
+    gcMeanH: g(pH,'gcMean'), gcMeanA: g(pA,'gcMean'),                           // 29 reference
     refPenRate: g(rf,'penRate'),                                              // 57
     refCardRate: g(rf,'cardRate'),                                            // 58
     refHomeBias: g(rf,'homeBias'),                                            // 59
@@ -5915,6 +6000,16 @@ function renderFeatureLayer(){
     const ABS_KEYS = ['absNH','absNA','absDoubtH','absDoubtA','scorerOutH','scorerOutA',
                   'scorerShareH','scorerShareA','assistOutH','assistOutA',
                   'assistShareH','assistShareA','keyRustH','keyRustA'];
+    /* Build 186. Same arrangement as every subset since 169 — a display subset, every key also in
+       PROV_KEYS so the coverage check needs no exception. AND IT IS ACTUALLY RENDERED, which
+       ABS_KEYS was not: build 185 declared that list and never wrote an `isAbs` or a section for
+       it, so fourteen absence features have been rendering under the generic provider heading and
+       the list itself was dead. The subset check added that same build passes on it, because it
+       asserts subset-of-PROV_KEYS and says nothing about whether the subset is used. Both are
+       fixed here, and a check below now pins "declared implies rendered". */
+    const PROX_KEYS = ['passAccH','passAccA','passAccDiffH','passAccDiffA',
+                  'possMeanH','possMeanA','lowPossShareH','lowPossShareA',
+                  'lowGcH','lowGcA','lowOppXgH','lowOppXgA','gcMeanH','gcMeanA'];
     const PROV_KEYS = ['xgDiffH','xgDiffA','xgEdge','xgOverH','xgOverA','shotQualH','shotQualA',
                   'boxShareH','boxShareA','gkH','gkA','gkProxyH','gkProxyA',
                   'formChgH','formChgA','coachNewH','coachNewA','coachGapDH','coachGapDA',
@@ -5926,7 +6021,10 @@ function renderFeatureLayer(){
                   'refPenRate','refCardRate','refHomeBias','refN',
                   'absNH','absNA','absDoubtH','absDoubtA','scorerOutH','scorerOutA',
                   'scorerShareH','scorerShareA','assistOutH','assistOutA',
-                  'assistShareH','assistShareA','keyRustH','keyRustA'];
+                  'assistShareH','assistShareA','keyRustH','keyRustA',
+                  'passAccH','passAccA','passAccDiffH','passAccDiffA',
+                  'possMeanH','possMeanA','lowPossShareH','lowPossShareA',
+                  'lowGcH','lowGcA','lowOppXgH','lowOppXgA','gcMeanH','gcMeanA'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -5965,7 +6063,14 @@ function renderFeatureLayer(){
       lateShareH:'Share of goals after 75′, home', lateShareA:'Share of goals after 75′, away',
       subMinH:'Mean first-sub minute, home (33)', subMinA:'Mean first-sub minute, away (33)',
       penRateH:'Penalties awarded per match, home (12/13)', penRateA:'Penalties awarded per match, away (12/13)',
-      redRateH:'Red cards per match, home (11)', redRateA:'Red cards per match, away (11)' };
+      redRateH:'Red cards per match, home (11)', redRateA:'Red cards per match, away (11)',
+      passAccH:'Pass accuracy %, home (15)', passAccA:'Pass accuracy %, away (15)',
+      passAccDiffH:'Pass accuracy vs opponent, home (15)', passAccDiffA:'Pass accuracy vs opponent, away (15)',
+      possMeanH:'Mean possession %, home (29)', possMeanA:'Mean possession %, away (29)',
+      lowPossShareH:'Share of matches under 50% ball, home (29)', lowPossShareA:'Share of matches under 50% ball, away (29)',
+      lowGcH:'Conceded when under 50% ball, home (29)', lowGcA:'Conceded when under 50% ball, away (29)',
+      lowOppXgH:'Opponent xG when under 50% ball, home (29)', lowOppXgA:'Opponent xG when under 50% ball, away (29)',
+      gcMeanH:'Goals conceded per match, home (29 ref)', gcMeanA:'Goals conceded per match, away (29 ref)' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -6025,6 +6130,16 @@ function renderFeatureLayer(){
     const isPres = o => PRES_KEYS.indexOf(o.k) >= 0;
     const isEvt  = o => EVT_KEYS.indexOf(o.k) >= 0;
     const isRef  = o => REF_KEYS.indexOf(o.k) >= 0;
+    const isAbs  = o => ABS_KEYS.indexOf(o.k) >= 0;
+    const isProx = o => PROX_KEYS.indexOf(o.k) >= 0;
+    /* BUILD 186 - THE EXCLUSION IS DERIVED FROM ONE LIST, NOT WRITTEN OUT AT EACH CALL SITE. Every
+       subset that gets its own heading must also be removed from the generic block above it, and
+       until this build that was a hand-written chain of !isPres && !isEvt && !isRef, with exactly
+       the failure mode of the list build 185 replaced. ABS_KEYS was never added to it, which is
+       half of why build 185's fourteen absence features had no heading of their own. One list now
+       feeds the exclusion, and the lock asserts every declared subset is in it. */
+    const IN_OWN_SECTION = [].concat(PRES_KEYS, EVT_KEYS, REF_KEYS, ABS_KEYS, PROX_KEYS);
+    const inSubset = o => IN_OWN_SECTION.indexOf(o.k) >= 0;
 
     box.innerHTML =
       `<div class="frow"><span style="flex:1"><b>Fixtures with features</b></span><span><b>${rows.length.toLocaleString()}</b></span></div>
@@ -6034,7 +6149,7 @@ function renderFeatureLayer(){
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — derived from the paid provider</div>
        <div class="subnote">These will read far lower than the raw column coverage in the panel below, and that is the point: a rolling feature needs a <b>run</b> of filled matches for one team, not one filled match. Each window is capped at ${PF.WIN} matches and ${PF.MAX_AGE_D} days, and returns nothing rather than assembling "form" out of matches three seasons apart.</div>` + head +
-      out.filter(o=>isProv(o) && !isPres(o) && !isEvt(o) && !isRef(o)).map(rowHtml).join('') +
+      out.filter(o=>isProv(o) && !inSubset(o)).map(rowHtml).join('') +
 
       `<div class="sec-label" style="margin-top:12px">Milestone 13 — from the events blob (build 174)</div>
        <div class="subnote">Goal minutes, cards and substitutions. <b>The collector has fetched these per fixture since build 158 and the app had never read them</b> — the third time a variable was arriving and being dropped one line from where it was needed, after the statistics (163) and the lineups (169).</div>
@@ -6056,6 +6171,21 @@ function renderFeatureLayer(){
        <div class="subnote"><b style="color:var(--text)">Expect these to be near 0% on today's fixtures for a while, and that is the fill frontier pointing the wrong way.</b> The detail pass works oldest-first, so recent matches are the last to be filled — which is exactly where a live prediction needs them. Milestone 14 fits on history and is unaffected; a live presence feature has to wait for the backfill to reach the present.</div>
        <div class="subnote">Item 19 — <b>captain present</b> — is <b>not</b> built. The stored XI carries each player's id, name, position and grid, and no captain flag; the provider marks the captain on a different endpoint. Listing it at 0% would read as a broken collector rather than as data the payload does not carry, which is build 163's <code>attendance</code> lesson.</div>` + head +
       out.filter(isPres).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 &mdash; injuries and absences (build 185)</div>
+       <div class="subnote">Items 20, 21 and 25, read from the <code>inj_h</code>/<code>inj_a</code> lists the collector has written since build 182. <b style="color:var(--text)">These are the first features in this project that describe the fixture being predicted rather than the one before it.</b> Injury rows exist for fixtures two and three days ahead; a starting XI does not exist until the match has finished, which is why everything in the block above is about each side's previous match.</div>
+       <div class="subnote"><b style="color:var(--text)"><code>null</code> and the empty string are different, and collapsing them destroys the more informative half.</b> <code>null</code> means this league-season was never asked about; an empty string means it was asked and nobody is injured. <i>We checked, nobody is out</i> is the most common informative case there is, and <code>if(!injStr)</code> turns every one of them into a missing value &mdash; which a ridge fit reads as no data and cannot tell apart from no effect.</div>
+       <div class="subnote"><b style="color:var(--text)">A tie means there is no leader, and a doubt is not an absence.</b> Two players on two goals have no primary scorer between them, so item 20 needs a strict maximum of at least two; taking whichever the object enumerated first would be a coin toss dressed as a measurement. <code>absDoubt</code> is kept apart from <code>absN</code> for the same reason, and both statuses are live in production.</div>
+       <div class="subnote"><b style="color:var(--text)">This block had no heading of its own until build 186.</b> Build 185 declared its key list and never wrote a filter or a section for it, so these fourteen features rendered under the generic provider heading and the list itself was dead code. The subset check added in that same build does not catch it: it asserts every subset key is also a measured one, which was true, and says nothing about whether the subset is ever used. A check pinning declared-implies-rendered is added at build 186.</div>` + head +
+      out.filter(isAbs).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 &mdash; proxies from stored columns (build 186)</div>
+       <div class="subnote">Item 15 (build-up completion, via pass accuracy) and item 29 (low-block resilience, via possession and goals conceded). <b>No new endpoint, no SQL, no deploy.</b> <code>passacc_h</code> and <code>poss_h</code> have been in the database since build 158 and in this browser since build 163, and no feature had ever read either &mdash; the fourth time this exact pattern has appeared, after the statistics (163), the lineups (169) and the events blob (174).</div>
+       <div class="subnote"><b style="color:var(--text)">These are the only provider-derived features here that survive season 2021 and earlier.</b> Every other one above admits a match only if it carries xG, and build 179 measured that <b>xG begins at season 2022</b> &mdash; so 7,185 fixtures contribute to nothing above while carrying sixteen perfectly good statistics. This block walks a second window whose sentinel is <code>poss</code> rather than <code>xg</code>, which is the same correction build 179 made inside the collector after the identical mistake deadlocked the detail queue for seventeen builds.</div>
+       <div class="subnote"><b style="color:var(--text)">A low block is defined by the structural midpoint, not by a fitted threshold.</b> Possession sums to 100 between two sides, so <i>under 50 per cent</i> is exactly <i>the opponent had more of the ball</i> &mdash; it needs no calibration and cannot be tuned afterwards to flatter a result. The window is ${PF.WIN_B} matches against ${PF.WIN} for form, for the reason the referee's window is longer than both: how much of the ball a side cedes is a far more stable property than how well it is playing.</div>
+       <div class="subnote"><b style="color:var(--text)">A side that is never in a low block gets a null, and that null is a fact about the side rather than missing data.</b> <code>lowGc</code> and <code>lowOppXg</code> need ${PF.MIN_N} low-possession matches of their own, and a team that dominates the ball will not have them. <code>lowPossShare</code> is published beside them and reads <b>0</b> rather than null for exactly that team &mdash; the same null-versus-zero distinction items 20 and 25 turn on, applied to a different variable.</div>
+       <div class="subnote"><b style="color:var(--text)">Item 31 &mdash; cross completion versus aerial duels &mdash; is NOT built, and is recorded here rather than left to be rediscovered.</b> The Engine v2 map lists it as <i>API (partial)</i>. The stored columns carry no crosses and no duels, so it is not reachable from data already held, and whether the provider's statistics response carries them at all is a question for the collector's probe mode, which already returns <code>statTypesAvailable</code>. Listing it at 0% would read as a broken collector rather than as data this project does not have &mdash; build 163's <code>attendance</code> rule, and the same treatment items 39, 43 and 19 already have.</div>` + head +
+      out.filter(isProx).map(rowHtml).join('') +
 
       `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Does <code>goals_prevented</code> mean what we assumed?</b> ${gkVerdict}</div>` +
 
