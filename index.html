@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 187;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 188;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5529,6 +5529,155 @@ function teamSeqFor(L){
   return s;
 }
 
+
+/* ══ BUILD 188 — THE LEAGUE TABLE, DERIVED RATHER THAN COLLECTED ════════════════════════════════
+   Milestone 13's finish-line step 5: items 48 (relegation desperation), 49 (title-race pressure)
+   and 50 (dead rubbers). The roadmap said this step "needs new collection and a deploy" from build
+   173 until now, and that was wrong for a reason worth more than the saved API budget.
+
+   ── /standings IS A SNAPSHOT, AND THESE THREE ITEMS ARE ABOUT A MOMENT ──
+   API-Football's standings endpoint returns the table as it stands; for a finished season that is
+   the FINAL table. But relegation desperation in matchweek 30 is invisible in May's final table —
+   a side that was 18th at Christmas and finished 11th reads as comfortable, and the fixture being
+   predicted was played in the middle of a relegation fight. Collecting standings would have bought
+   a well-populated column that answers a different question, which is build 165's near-miss
+   (first-half prices filed as full-time ones, the column equally full) in a different market.
+
+   ── AND THE TABLE AT ANY DATE IS ARITHMETIC ON DATA ALREADY HELD ──
+   22,000 finished fixtures with scores, six seasons. Points, goal difference and position as at any
+   moment are a scan over the fixtures before it, walk-forward by construction, at no API cost, no
+   SQL and no deploy. Sixth instance of this project's most repeated pattern.
+
+   ── WHAT DERIVATION CANNOT REPRODUCE, STATED RATHER THAN DISCOVERED LATER ──
+   Administrative POINT DEDUCTIONS (Everton, Juventus) and per-competition TIE-BREAK rules — some
+   competitions separate level teams on head-to-head rather than goal difference. Both are real and
+   neither is visible in a fixture list. The ordering below uses points, then goal difference, then
+   goals for, then name; a deduction makes this table disagree with the official one for that
+   team-season, and a head-to-head competition makes it disagree for level teams.
+   THE VALIDATION FOR BOTH IS ONE PASS OF /standings COMPARED AGAINST THE DERIVED FINAL TABLE —
+   about 66 calls, once, and every disagreement is then a known deduction or a known tie-break rule
+   rather than a silent error. That is build 168's gkProxy method (derive it twice from different
+   data and check the two agree) applied to a table, and it is deliberately NOT done here: there
+   was nothing to compare against until this function existed. */
+const TBL = { MIN_PLAYED: 5 };
+
+const _seasonSeq = new WeakMap();
+function seasonSeqFor(L){
+  const ms = L && L.matches; if(!ms) return {};
+  let s = _seasonSeq.get(ms); if(s) return s;
+  s = {};
+  for(let i=0;i<ms.length;i++){
+    const x = ms[i] && ms[i]._x, sn = x && x.season;
+    if(sn != null) (s[sn] = s[sn] || []).push(i);
+  }
+  _seasonSeq.set(ms, s);                 // WeakMap, never on L — saveState serialises that (163)
+  return s;
+}
+
+/* THE DOUBLE ROUND-ROBIN IS CONFIRMED ON THE PREVIOUS SEASON, NEVER ASSUMED, and the alternatives
+   were both worse. "Matches remaining" needs a season length. Counting this season's own fixtures
+   gives the right answer for finished seasons and reads ZERO REMAINING for every fixture the app
+   actually publishes — build 169's trap exactly, a feature that fits across six seasons and is null
+   or wrong live. Hard-coding 38 is a per-competition constant nobody measured. So the structure is
+   read off the PREVIOUS season of the same competition, which is in the past and therefore
+   walk-forward: if every team there played exactly 2*(teams-1), this is a double round-robin and
+   the same length applies. A competition that fails the test — Libertadores' group stage and
+   knockout, anything with playoffs — returns null rather than a number built on a shape it does not
+   have. The earliest season in the data has no predecessor and returns null too. */
+const _rrOK = new WeakMap();
+function roundRobinOK(L, season, seq){
+  const ms = L && L.matches; if(!ms) return null;
+  let cache = _rrOK.get(ms); if(!cache){ cache = {}; _rrOK.set(ms, cache); }
+  if(season in cache) return cache[season];
+  const prev = seq[season - 1];
+  let ok = null;
+  if(prev && prev.length){
+    const n = {};
+    for(const i of prev){
+      const m = ms[i]; if(!m) continue;
+      if(m.home) n[m.home] = (n[m.home] || 0) + 1;
+      if(m.away) n[m.away] = (n[m.away] || 0) + 1;
+    }
+    const names = Object.keys(n), want = 2 * (names.length - 1);
+    ok = names.length > 2 && names.every(t => n[t] === want);
+  }
+  cache[season] = ok;
+  return ok;
+}
+
+/* The table as at `upTo`, built from this season's matches only. `idxs` is ascending because
+   seasonSeqFor walks the array forward, so the bound is a break rather than a filter. */
+function tableAt(L, season, upTo, seq){
+  const idxs = seq[season]; if(!idxs || !idxs.length) return null;
+  const ms = L.matches, R = {};
+  const bump = (t, gf, ga) => {
+    if(!t) return;
+    const r = R[t] || (R[t] = { pts:0, gf:0, ga:0, played:0 });
+    r.played++; r.gf += gf; r.ga += ga;
+    r.pts += gf > ga ? 3 : gf === ga ? 1 : 0;
+  };
+  for(const i of idxs){
+    if(upTo != null && i >= upTo) break;          // never this fixture, never a later one
+    const m = ms[i];
+    if(!m || m.hg == null || m.ag == null) continue;
+    bump(m.home, m.hg, m.ag);
+    bump(m.away, m.ag, m.hg);
+  }
+  const names = Object.keys(R);
+  if(!names.length) return null;
+  /* Points, then goal difference, then goals for, then NAME. The last term is not cosmetic: without
+     a total order the sort is implementation-defined for level teams and a position could change
+     between two runs on identical data. A stable wrong answer is debuggable; an unstable one is not. */
+  names.sort((a,b) => (R[b].pts - R[a].pts)
+                   || ((R[b].gf - R[b].ga) - (R[a].gf - R[a].ga))
+                   || (R[b].gf - R[a].gf)
+                   || (a < b ? -1 : a > b ? 1 : 0));
+  const pos = {};
+  for(let i=0;i<names.length;i++) pos[names[i]] = i + 1;
+  const bot = R[names[names.length - 1]];
+  return { R, names, pos, teams: names.length,
+           topPts: R[names[0]].pts, botPts: bot.pts, botPlayed: bot.played };
+}
+
+/* One side's standing. `rr` is roundRobinOK's verdict for this season.
+
+   POSITION IS PUBLISHED AS A SHARE AS WELL AS A RANK, because 14th means something different in a
+   20-team league and a 38-team one, and this project runs eleven competitions of different sizes.
+   `ppg` is published beside `pts` for the same reason one level down: early in a season, and after
+   a postponement, teams have played different numbers of matches and the raw total misranks them.
+
+   `dead` IS DELIBERATELY CONSERVATIVE AND SAYS SO. It fires only when this side can no longer reach
+   the leader's CURRENT points and the bottom side can no longer reach this side's — both sound
+   tests, because the comparison is against a total already banked. It is NOT "safe from
+   relegation": relegation zones are two to four teams depending on the competition, and that is a
+   per-competition constant nobody in this project has measured. Keying a feature on an unmeasured
+   guess is what build 183 spent a whole build undoing. So this flags the two mathematical extremes
+   and under-reports the middle, which is the direction that cannot invent a dead rubber. */
+function tableFeatures(tb, team, rr){
+  if(!tb) return null;
+  const r = tb.R[team];
+  if(!r || r.played < TBL.MIN_PLAYED) return null;
+  const full = rr ? 2 * (tb.teams - 1) : null;
+  const left = full != null ? full - r.played : null;
+  let dead = null;
+  if(left != null && left >= 0){
+    const leftBot = Math.max(0, full - tb.botPlayed);
+    const canWin  = r.pts + 3 * left >= tb.topPts;
+    const canDrop = tb.botPts + 3 * leftBot >= r.pts;
+    dead = (!canWin && !canDrop) ? 1 : 0;
+  }
+  return {
+    pos: tb.pos[team],
+    posRel: tb.teams > 1 ? (tb.pos[team] - 1) / (tb.teams - 1) : null,
+    pts: r.pts,
+    ppg: r.pts / r.played,
+    gd: r.gf - r.ga,
+    gapTop: tb.topPts - r.pts,
+    gapBot: r.pts - tb.botPts,
+    left, dead
+  };
+}
+
 /* ══ BUILD 185 — MILESTONE 13 ITEMS 20, 21 AND 25 ══════════════════════════════════════════════
    Item 20 primary goalscorer absent · item 21 playmaker absent · item 25 key player rustiness.
 
@@ -5869,6 +6018,15 @@ function matchFeatures(L, f, upTo, idx){
   /* build 185 — this fixture's own absentees, against each side's own scoring history. */
   const aH = absenceFeatures(pH, f._x ? f._x.inj_h : null);
   const aA = absenceFeatures(pA, f._x ? f._x.inj_a : null);
+  /* build 188 — the table as at THIS fixture, from this season's earlier matches only. The season
+     comes off the fixture rather than from the date, because a date rule correct for England is
+     wrong for Brazil. No season, no table: null rather than a guess. */
+  const sSeq = seasonSeqFor(L);
+  const sn = f._x ? f._x.season : null;
+  const tb = sn != null ? tableAt(L, sn, upTo, sSeq) : null;
+  const rr = sn != null ? roundRobinOK(L, sn, sSeq) : null;
+  const tH = tableFeatures(tb, f.home, rr);
+  const tA = tableFeatures(tb, f.away, rr);
   const g = (o, k) => (o && o[k] != null) ? o[k] : null;
   return {
     restH: rH, restA: rA, restDiff: (rH!=null && rA!=null) ? rH - rA : null,   // 36
@@ -5927,6 +6085,17 @@ function matchFeatures(L, f, upTo, idx){
     lowGcH: g(pH,'lowGc'), lowGcA: g(pA,'lowGc'),                               // 29
     lowOppXgH: g(pH,'lowOppXg'), lowOppXgA: g(pA,'lowOppXg'),                   // 29
     gcMeanH: g(pH,'gcMean'), gcMeanA: g(pA,'gcMean'),                           // 29 reference
+    // ── build 188, the derived league table — items 48, 49 and 50 ──
+    tblPosH: g(tH,'pos'), tblPosA: g(tA,'pos'),                                 // 48, 49
+    tblPosRelH: g(tH,'posRel'), tblPosRelA: g(tA,'posRel'),                     // 48, 49
+    tblPtsH: g(tH,'pts'), tblPtsA: g(tA,'pts'),
+    tblPpgH: g(tH,'ppg'), tblPpgA: g(tA,'ppg'),
+    tblGdH: g(tH,'gd'), tblGdA: g(tA,'gd'),
+    tblGapTopH: g(tH,'gapTop'), tblGapTopA: g(tA,'gapTop'),                     // 49
+    tblGapBotH: g(tH,'gapBot'), tblGapBotA: g(tA,'gapBot'),                     // 48
+    tblLeftH: g(tH,'left'), tblLeftA: g(tA,'left'),                             // 48, 49, 50
+    tblDeadH: g(tH,'dead'), tblDeadA: g(tA,'dead'),                             // 50
+    tblTeams: tb ? tb.teams : null,
     refPenRate: g(rf,'penRate'),                                              // 57
     refCardRate: g(rf,'cardRate'),                                            // 58
     refHomeBias: g(rf,'homeBias'),                                            // 59
@@ -6007,6 +6176,12 @@ function renderFeatureLayer(){
        the list itself was dead. The subset check added that same build passes on it, because it
        asserts subset-of-PROV_KEYS and says nothing about whether the subset is used. Both are
        fixed here, and a check below now pins "declared implies rendered". */
+    /* Build 188. A display subset like every one since 169 — every key also in PROV_KEYS, in
+       IN_OWN_SECTION so the generic block excludes it, and rendered by `isTbl` below. All three
+       are pinned by the lock, which is what build 185's ABS_KEYS did not have. */
+    const TBL_KEYS = ['tblPosH','tblPosA','tblPosRelH','tblPosRelA','tblPtsH','tblPtsA',
+                  'tblPpgH','tblPpgA','tblGdH','tblGdA','tblGapTopH','tblGapTopA',
+                  'tblGapBotH','tblGapBotA','tblLeftH','tblLeftA','tblDeadH','tblDeadA','tblTeams'];
     const PROX_KEYS = ['passAccH','passAccA','passAccDiffH','passAccDiffA',
                   'possMeanH','possMeanA','lowPossShareH','lowPossShareA',
                   'lowGcH','lowGcA','lowOppXgH','lowOppXgA','gcMeanH','gcMeanA'];
@@ -6024,7 +6199,10 @@ function renderFeatureLayer(){
                   'assistShareH','assistShareA','keyRustH','keyRustA',
                   'passAccH','passAccA','passAccDiffH','passAccDiffA',
                   'possMeanH','possMeanA','lowPossShareH','lowPossShareA',
-                  'lowGcH','lowGcA','lowOppXgH','lowOppXgA','gcMeanH','gcMeanA'];
+                  'lowGcH','lowGcA','lowOppXgH','lowOppXgA','gcMeanH','gcMeanA',
+                  'tblPosH','tblPosA','tblPosRelH','tblPosRelA','tblPtsH','tblPtsA',
+                  'tblPpgH','tblPpgA','tblGdH','tblGdA','tblGapTopH','tblGapTopA',
+                  'tblGapBotH','tblGapBotA','tblLeftH','tblLeftA','tblDeadH','tblDeadA','tblTeams'];
     const KEYS = P0_KEYS.concat(PROV_KEYS);
     const LBL = { restDiff:'Rest days differential (36)', fhGD_H:'First-half GD, home (26)',
       fhGD_A:'First-half GD, away (26)', shGD_H:'Second-half GD, home (27)',
@@ -6070,7 +6248,17 @@ function renderFeatureLayer(){
       lowPossShareH:'Share of matches under 50% ball, home (29)', lowPossShareA:'Share of matches under 50% ball, away (29)',
       lowGcH:'Conceded when under 50% ball, home (29)', lowGcA:'Conceded when under 50% ball, away (29)',
       lowOppXgH:'Opponent xG when under 50% ball, home (29)', lowOppXgA:'Opponent xG when under 50% ball, away (29)',
-      gcMeanH:'Goals conceded per match, home (29 ref)', gcMeanA:'Goals conceded per match, away (29 ref)' };
+      gcMeanH:'Goals conceded per match, home (29 ref)', gcMeanA:'Goals conceded per match, away (29 ref)',
+      tblPosH:'League position, home (48/49)', tblPosA:'League position, away (48/49)',
+      tblPosRelH:'Position as a share of the table, home (48/49)', tblPosRelA:'Position as a share of the table, away (48/49)',
+      tblPtsH:'Points, home', tblPtsA:'Points, away',
+      tblPpgH:'Points per game, home', tblPpgA:'Points per game, away',
+      tblGdH:'Goal difference, home', tblGdA:'Goal difference, away',
+      tblGapTopH:'Points behind the leader, home (49)', tblGapTopA:'Points behind the leader, away (49)',
+      tblGapBotH:'Points above last, home (48)', tblGapBotA:'Points above last, away (48)',
+      tblLeftH:'Matches remaining, home (48/49/50)', tblLeftA:'Matches remaining, away (48/49/50)',
+      tblDeadH:'Dead rubber, home (50)', tblDeadA:'Dead rubber, away (50)',
+      tblTeams:'Teams in this competition' };
 
     const out = KEYS.map(k=>{
       const have = rows.filter(r=>r.F[k] != null);
@@ -6132,13 +6320,14 @@ function renderFeatureLayer(){
     const isRef  = o => REF_KEYS.indexOf(o.k) >= 0;
     const isAbs  = o => ABS_KEYS.indexOf(o.k) >= 0;
     const isProx = o => PROX_KEYS.indexOf(o.k) >= 0;
+    const isTbl  = o => TBL_KEYS.indexOf(o.k) >= 0;
     /* BUILD 186 - THE EXCLUSION IS DERIVED FROM ONE LIST, NOT WRITTEN OUT AT EACH CALL SITE. Every
        subset that gets its own heading must also be removed from the generic block above it, and
        until this build that was a hand-written chain of !isPres && !isEvt && !isRef, with exactly
        the failure mode of the list build 185 replaced. ABS_KEYS was never added to it, which is
        half of why build 185's fourteen absence features had no heading of their own. One list now
        feeds the exclusion, and the lock asserts every declared subset is in it. */
-    const IN_OWN_SECTION = [].concat(PRES_KEYS, EVT_KEYS, REF_KEYS, ABS_KEYS, PROX_KEYS);
+    const IN_OWN_SECTION = [].concat(PRES_KEYS, EVT_KEYS, REF_KEYS, ABS_KEYS, PROX_KEYS, TBL_KEYS);
     const inSubset = o => IN_OWN_SECTION.indexOf(o.k) >= 0;
 
     box.innerHTML =
@@ -6187,6 +6376,15 @@ function renderFeatureLayer(){
        <div class="subnote"><b style="color:var(--text)">Item 31 &mdash; cross completion versus aerial duels &mdash; is UNREACHABLE, and that is now measured rather than inferred.</b> The Engine v2 map lists it as <i>API (partial)</i>, and build 186 could only say it was absent from the columns this project stores. The <code>probe</code> run on <b>2026-08-19</b> listed all eighteen statistic types the plan returns and <b>there are no crosses and no aerial duels among them</b> &mdash; so it is absent from the provider's response, not merely from our schema. Recorded permanently rather than shown at 0%, which would read as a broken collector: build 163's <code>attendance</code> rule, and the same treatment items 39, 43 and 19 already have.</div>
        <div class="subnote"><b style="color:var(--text)">The same probe found pass VOLUME arriving and being dropped, and build 187 collects it.</b> Three of the eighteen types were never stored. <code>Shots off Goal</code> and <code>Passes accurate</code> are both derivable from columns already held &mdash; total minus on-target minus blocked, and total passes times the stored percentage &mdash; so neither earns a column. <b><code>Total passes</code> is not derivable from anything</b>, and the probe fixture is the argument: 346 passes at 82% against 452 at 83%. <b>Identical accuracy, completely different build-up.</b> Item 15 above currently sees only the 82 and the 83. The column ships at build 187 and the feature waits for coverage, because the detail pass never revisits a filled row &mdash; so the column is free on the ~86% of the Milestone 14 pool still unfilled today and costs 14,830 re-fetches once that pool completes.</div>` + head +
       out.filter(isProx).map(rowHtml).join('') +
+
+      `<div class="sec-label" style="margin-top:12px">Milestone 13 &mdash; the league table, derived (build 188)</div>
+       <div class="subnote">Items 48 (relegation desperation), 49 (title-race pressure) and 50 (dead rubbers). <b>The roadmap said this step needed new collection and a deploy, from build 173 until build 188, and that was wrong.</b> No API call, no SQL, no deploy &mdash; the table as at any date is arithmetic over the fixtures this app already holds.</div>
+       <div class="subnote"><b style="color:var(--text)">And collecting it would have bought the wrong instrument.</b> <code>/standings</code> returns a snapshot &mdash; for a finished season, the FINAL table. These three items are about the table <i>as at the fixture being predicted</i>: a side 18th at Christmas that finished 11th reads as comfortable in May's table, and the match in question was played in the middle of a relegation fight. A well-populated column answering a different question is build 165's near-miss in another market.</div>
+       <div class="subnote"><b style="color:var(--text)">What derivation cannot reproduce, said here rather than discovered later.</b> Administrative <b>point deductions</b> and per-competition <b>tie-break rules</b> &mdash; some competitions separate level teams on head-to-head rather than goal difference. The order here is points, then goal difference, then goals for, then name. <b>The validation is one pass of <code>/standings</code> against the derived FINAL table</b>, about 66 calls once, after which every disagreement is a known deduction or a known tie-break rule instead of a silent error. That is build 168's <code>gkProxy</code> method applied to a table, and it has not been run &mdash; there was nothing to compare against until this existed.</div>
+       <div class="subnote"><b style="color:var(--text)">Matches remaining is read off the PREVIOUS season, not counted in this one.</b> Counting this season's own fixtures gives the right answer for finished seasons and reads <i>zero remaining</i> for every fixture the app actually publishes &mdash; build 169's trap exactly. Hard-coding 38 is a per-competition constant nobody measured. So if every team in the previous season played exactly 2&times;(teams&minus;1), this is a double round-robin and the same length applies; a competition that fails that test returns <b>null</b> rather than a number built on a shape it does not have.</div>
+       <div class="subnote"><b style="color:var(--text)">Dead rubber is deliberately conservative, and it is not &ldquo;safe from relegation&rdquo;.</b> It fires only when a side can no longer reach the leader's <i>current</i> points and the bottom side can no longer reach this side's &mdash; both sound, because each compares against a total already banked. Relegation zones are two to four teams depending on the competition, and that is a per-competition constant this project has never measured; keying a feature on an unmeasured guess is what build 183 spent a whole build undoing. So this flags the two mathematical extremes and under-reports the middle, which is the direction that cannot invent a dead rubber.</div>
+       <div class="subnote">Position is published as a <b>share</b> as well as a rank, because 14th means different things in a 20-team league and a 38-team one and this app runs eleven competitions of different sizes. Points per game is published beside points for the same reason one level down: early in a season, and after a postponement, sides have played different numbers of matches and the raw total misranks them. Minimum ${TBL.MIN_PLAYED} matches played, or null.</div>` + head +
+      out.filter(isTbl).map(rowHtml).join('') +
 
       `<div class="subnote" style="border-left:3px solid var(--gold);padding-left:9px;margin-top:10px"><b style="color:var(--text)">Does <code>goals_prevented</code> mean what we assumed?</b> ${gkVerdict}</div>` +
 
@@ -9423,6 +9621,17 @@ const EXTRA_KEYS = ['xg_h','xg_a','gprev_h','gprev_a','poss_h','poss_a','shots_h
   'sot_h','sot_a','sib_h','sib_a','sob_h','sob_a','blocked_h','blocked_a','corners_h','corners_a',
   'fouls_h','fouls_a','yellows_h','yellows_a','reds_h','reds_a','saves_h','saves_a',
   'passacc_h','passacc_a','offsides_h','offsides_a','formation_h','formation_a',
+  /* BUILD 188 — THE SEASON, WHICH THE APP HAS NEVER KNOWN. `select('*')` has carried it since
+     build 158 and the row builder dropped it, which is the fifth time this has happened after the
+     statistics (163), the lineups (169), the events blob (174) and pass volume (187).
+     Without it NOTHING CAN TELL WHERE ONE SEASON ENDS AND THE NEXT BEGINS, and a league table that
+     does not reset in August is not a league table. Inferring it from the date is not available:
+     European seasons straddle two calendar years and Brazil's do not, so a date rule correct for
+     one competition is wrong for another — build 183's lesson about per-league constants, in a
+     different variable. It rides in `_x` rather than on the match row itself because `_x` is
+     memory-only: one integer across ~22,000 matches is ~350KB of JSON, which is real against a
+     ~5MB localStorage quota that fails silently (build 163). */
+  'season',
   /* BUILD 187 — pass VOLUME, collected from af-19 onward. Legitimately listed here even though it
      reads 0% today: the collector writes it, which is the whole distinction the `attendance` rule
      below turns on. It fills as the detail backfill runs, and the coverage panel is the instrument
