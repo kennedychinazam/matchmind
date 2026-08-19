@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 180;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 183;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -964,10 +964,68 @@ const DAMPEN_BY_LEAGUE = {
   'La Liga'                       : 0.60,   // = 'Primera Division', gain 0.64%
   'Brasileirao Serie A'           : 0.20    // = 'Campeonato Brasileiro Série A', see the note above
 };
+/* ══ BUILD 183 — A FITTED CONSTANT IS FOUND BY LEAGUE ID. NAMES ARE NOT IDENTITIES. ══
+   THE BUG THIS FIXES WAS LIVE FOR TWENTY-FOUR BUILDS AND HAD NO ERROR STATE.
+   Read from the database on 2026-08-18, grouped by id:
+
+       lid  71  lname 'Serie A'  lcountry 'Brazil'   2,660 fixtures
+       lid 135  lname 'Serie A'  lcountry 'Italy'    2,661 fixtures
+
+   API-Football calls BOTH competitions 'Serie A'. The collector stores the provider's own name
+   (`lname: f?.league?.name`), this app builds its league object as `{ id: f0.lid, name: f0.lname }`,
+   and DAMPEN_BY_LEAGUE was keyed on that name — so Brasileirão resolved to 'Serie A' → **0.35, the
+   value fitted on ITALY**, while its own fitted 0.20 sat under a key nothing could ever match.
+
+   BUILD 158 GUARDED AGAINST THE WRONG HAZARD, AND SAID SO IN WRITING. Its note reads: "the Pro
+   provider names exactly two of these ten differently: 'Primera Division' → 'La Liga',
+   'Campeonato Brasileiro Série A' → 'Brasileirao Serie A'." The first is right. The second is not —
+   the provider does not rename Brazil to 'Brasileirao Serie A', it renames it to a name ALREADY IN
+   THE TABLE belonging to another competition. **A rename leaves a missing key, which falls back to
+   TUNE.DAMPEN and is at least visibly unfitted. A COLLISION returns a real, fitted, plausible
+   number belonging to someone else, and the lookup succeeds.** No error, no blank panel, and every
+   structural assertion about this table kept passing because both keys are present and both are
+   read — Milestone 7's known limit exactly: the suite cannot see which string a provider writes.
+
+   THE FIX IS BUILD 172's VENUES REASONING APPLIED TO CONSTANTS: "a numeric id cannot be re-spelled
+   by a provider migration — which is precisely what broke at build 158."
+
+   ⚠ THE FITTED NUMBERS ARE NOT COPIED HERE, AND THAT IS DELIBERATE. This table maps a competition
+   to THE NAME ITS CONSTANT WAS FITTED UNDER; the value itself still lives once, in
+   DAMPEN_BY_LEAGUE. Two copies of the same fitted number is the exact drift that broke travelKm and
+   derby for thirteen builds (158→171) and cost a whole build to repair. An index is not a copy. */
+const LEAGUE_FIT_NAME = {
+   39: 'Premier League',
+   40: 'Championship',
+  140: 'Primera Division',                 // Spain — fitted under the free provider's name
+  135: 'Serie A',                          // ITALY — the key Brazil had been reading since build 158
+   78: 'Bundesliga',
+   61: 'Ligue 1',
+   88: 'Eredivisie',
+   94: 'Primeira Liga',
+    2: 'UEFA Champions League',
+   71: 'Campeonato Brasileiro Série A'      // BRAZIL — 0.20, unreachable by name since build 158
+  /* 13 CONMEBOL Libertadores is DELIBERATELY ABSENT and must stay absent: 133 finished matches at
+     build 159, never backtested, so it keeps TUNE.DAMPEN. Inventing a value to fill the row is the
+     precise habit §17e exists to stop. Ten competitions are fitted — Engine 2 won 10 of 10. */
+};
+
+/* THE ONLY PLACE DAMPEN_BY_LEAGUE IS READ. Two call sites reading one table by two routes is §60's
+   archive bug in miniature, and an assertion pins this to one function so a third site cannot
+   quietly reintroduce the name lookup.
+   Id first, then name. The name fallback is NOT vestigial: archived predictions and rows written by
+   the retired free provider carry ids this map does not contain, and 'Campeonato Brasileiro
+   Série A' / 'Primera Division' still resolve correctly through it. Returns undefined when a
+   competition has no fitted value, so callers keep their own TUNE.DAMPEN fallback. */
+function dampenFor(L){
+  if(!L) return undefined;
+  const fit = LEAGUE_FIT_NAME[L.id];
+  if(fit != null){ const v = DAMPEN_BY_LEAGUE[fit]; if(typeof v === 'number') return v; }
+  return DAMPEN_BY_LEAGUE[String(L.name || '').trim()];
+}
 const DAMPEN_OF_MATCHES = new WeakMap();
 function registerLeagueDampen(L){
   if(!L || !Array.isArray(L.matches)) return;
-  const v = DAMPEN_BY_LEAGUE[String(L.name || '').trim()];
+  const v = dampenFor(L);
   if(typeof v === 'number') DAMPEN_OF_MATCHES.set(L.matches, v);
 }
 /* TEMP 0.70 -> 0.91 (build 103). THE ENGINE WAS UNDERSTATING ITS OWN BEST PICKS, and the proof was
@@ -7956,7 +8014,7 @@ function runBacktest(){
   /* build 107 — this league's ACTUAL setting, which since build 106 is usually not TUNE.DAMPEN.
      Reporting the global value as "current" would compare the best fit against a configuration the
      app no longer runs for this competition, which is a measurement that lies. */
-  const effDampen = (()=>{ const v = L ? DAMPEN_BY_LEAGUE[String(L.name||'').trim()] : undefined;
+  const effDampen = (()=>{ const v = dampenFor(L);
                            return (typeof v === 'number') ? v : TUNE.DAMPEN; })();
   let bestA=effDampen, bestAL=Infinity, curAL=null;
   if(dampRows.length >= 40){
@@ -8296,14 +8354,18 @@ async function renderArchiveDay(){
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading what the app predicted that day…</div>';
   try{
     const { data: preds, error } = await supa.from('predictions')
-      .select('fxid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build')
+      .select('fxid,lid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build')
       .eq('kickoff', d).order('ktime');
     if(error) throw error;
     if(!preds || !preds.length){
       out.innerHTML = `<div class="subnote">Nothing stored for ${d}. The archive started at build 59, and a fixture is only recorded if someone had the app open before it kicked off. Missing days stay missing on purpose — filling them in now would mean predicting a result we already know.</div>`;
       return;
     }
-    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
+    /* build 183 — lcountry joins this select for one reason: two competitions are named
+       'Serie A' and this panel grouped by NAME, so Brazil and Italy were pooled under one
+       heading. It costs no extra round trip and it is the same collision that had the engine
+       pricing Brasileirão with Italy's constant. */
+    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status,lcountry').in('fxid', preds.map(p=>p.fxid));
     const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
 
     let graded=0, hits=0, stale=0;
@@ -8314,7 +8376,11 @@ async function renderArchiveDay(){
       const hit = act ? gradePick(p.pick, act, f.gh, f.ga)==='hit' : null;   // build 120
       if(act){ graded++; if(hit) hits++; }
       if((p.build||0) < FROZEN_FROM_BUILD) stale++;
-      (byLeague[p.lname||'—'] = byLeague[p.lname||'—'] || []).push({p, f, done, hit});
+      /* Keyed on the league ID. A name is not an identity — see LEAGUE_FIT_NAME. */
+      const lkey = (p.lid!=null ? 'id:'+p.lid : 'nm:'+(p.lname||'—'));
+      const grp = (byLeague[lkey] = byLeague[lkey] || {label:(p.lname||'—'), rows:[]});
+      if(f && f.lcountry && grp.label === (p.lname||'')) grp.labelCountry = f.lcountry;
+      grp.rows.push({p, f, done, hit});
     }
     let html = graded
       ? `<div class="frow"><span class="muted">Graded that day</span><b style="color:var(--green2)">${hits}/${graded} correct (${(100*hits/graded).toFixed(0)}%)</b></div>`
@@ -8323,8 +8389,15 @@ async function renderArchiveDay(){
       html += `<div class="frow"><span class="muted">Still to finish</span><b>${preds.length-graded}</b></div>`;
 
 
-    for(const [lname, rows] of Object.entries(byLeague)){
-      html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(lname)}</div>`;
+    /* The country is shown only when it is needed to tell two headings apart — Milestone 2's
+       rule ("country shown beside ambiguous competition names"), applied where it was missing. */
+    const labelCounts = {};
+    for(const g of Object.values(byLeague)) labelCounts[g.label] = (labelCounts[g.label]||0)+1;
+    for(const g of Object.values(byLeague)){
+      const rows = g.rows;
+      const heading = (labelCounts[g.label] > 1 && g.labelCountry)
+        ? g.label + ' (' + g.labelCountry + ')' : g.label;
+      html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(heading)}</div>`;
       for(const {p, f, done, hit} of rows){
         const score = done ? `${f.gh}–${f.ga}` : (f && f.status ? statusWord(f.status) : '—');
         const mark = hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
