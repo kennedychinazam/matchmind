@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 191;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 192;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1238,6 +1238,12 @@ function poissonPMF(lambda, k){
   return p;
 }
 
+/* BUILD 192 — one shared cache for the two whole-history computations every fixture repeats.
+   WeakMap keyed on the matches array: it cannot collide between competitions, it invalidates itself
+   when a reload builds a fresh array, and it can never reach localStorage. Same arrangement as
+   `_teamSeq`, `_refSeq` and `_seasonSeq`. */
+const _engCache = new WeakMap();
+
 const footballEngine = {
   matches: [],
   /* Which goals this engine is modelling. Overriding these two is all it takes to turn the
@@ -1263,7 +1269,43 @@ const footballEngine = {
     return (typeof v === 'number') ? v : TUNE.DAMPEN;
   },
 
+  /* ══ BUILD 192 — MEASURED: THE TIPS TAB TOOK 20.6 SECONDS, AND AGAIN ON EVERY RE-OPEN ═════════
+     Ken reported it as slow. Timed on a DESKTOP against the live database: Scores 13ms, Predict
+     36ms, Favs 1ms, More 457ms, and **Tips 20,649ms — with 19,592ms on the second open**, so
+     nothing was being cached at all. On a phone it is far worse.
+
+     WHY. `renderTipList` walks 3,185 upcoming fixtures and calls `fxPredict` on each, and that does
+     `Object.create(footballEngine)` with `tmp.matches = L.matches` — A FRESH ENGINE PER FIXTURE.
+     Every one of them recomputes the whole competition's team ratings from up to 3,350 matches,
+     and `strengths2` is an ITERATIVE solver. The same ratings, several thousand times over.
+
+     WHY THIS CACHE IS SAFE, AND THE CONDITION IS NOT DECORATION.
+       - `upTo == null` ONLY. A walk-forward caller passes an index and must never be handed the
+         full-history answer; that is result leakage, the one thing this whole layer exists to
+         prevent. Every walk-forward path passes `upTo`, so none of them can reach this.
+       - `!this._s2` ONLY. `strengths2` runs a FIXED number of passes — `ITERS` cold, `ITERS_WARM`
+         warm — so it does not iterate to convergence and a warm start gives a DIFFERENT answer
+         from a cold one. A fresh `Object.create` engine has no `_s2` and is always cold, so the
+         cached value is bit-for-bit what that caller computes today. An engine carrying a warm
+         start is left alone entirely rather than being served someone else's cold answer.
+       - Keyed on the matches ARRAY by reference, in a WeakMap, for the two reasons `_s2` itself
+         gives: two competitions with the same match count cannot collide, and nothing hangs off the
+         league object that `saveState` serialises into a ~5MB quota (build 163). */
   strengths(upTo){
+    const canCache = (upTo == null) && !!this.matches && !this._s2;
+    if(canCache){
+      const c = _engCache.get(this.matches);
+      if(c && c.s && c.sN === this.matches.length && c.sE2 === ENGINE2.ON) return c.s;
+    }
+    const val = this._strengthsRaw(upTo);
+    if(canCache){
+      const c = _engCache.get(this.matches) || {};
+      c.s = val; c.sN = this.matches.length; c.sE2 = ENGINE2.ON;
+      _engCache.set(this.matches, c);
+    }
+    return val;
+  },
+  _strengthsRaw(upTo){
     if(ENGINE2.ON) return this.strengths2(upTo);   // build 104 — flag is false until measured
     const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
     const n = arr.length;
@@ -1425,6 +1467,15 @@ const footballEngine = {
      Brasileirão and the Eredivisie have very different BTTS and Over 2.5 rates, so the anchor the
      goals markets regress toward has to come from the league itself (build 45). */
   rates(upTo){
+    /* BUILD 192 — the per-instance cache below never hits from the Tips tab, because `fxPredict`
+       builds a new engine for every fixture and `this._rates` is written on that throwaway object.
+       Same shared cache as `strengths`, same `upTo == null` guard, and no warm-start subtlety here
+       because this one is a plain pass over the array. */
+    const canCacheR = (upTo == null) && !!this.matches;
+    if(canCacheR){
+      const c = _engCache.get(this.matches);
+      if(c && c.rN === this.matches.length && 'r' in c) return c.r;
+    }
     const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
     if(this._rates && this._ratesN === arr.length) return this._rates;
     let btts=0, o15=0, o25=0, o35=0;
@@ -1436,6 +1487,11 @@ const footballEngine = {
     const n = arr.length;
     this._rates = n >= 30 ? {btts:btts/n, 1.5:o15/n, 2.5:o25/n, 3.5:o35/n, n} : null;   // too thin to trust
     this._ratesN = arr.length;
+    if(canCacheR){
+      const c = _engCache.get(this.matches) || {};
+      c.r = this._rates; c.rN = this.matches.length;
+      _engCache.set(this.matches, c);
+    }
     return this._rates;
   },
 
@@ -3267,9 +3323,26 @@ let _toastT=null;
 function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
 
 // engine prediction for a loaded fixture (needs league history)
+/* BUILD 192 — memoised PER FIXTURE as well as per competition. Sharing the team ratings took the
+   Tips tab from 20,649ms to 3,070ms; the remaining cost is the 13x13 scoreline grid, which is
+   genuinely per-fixture and has to run once. It does NOT have to run again every time the tab is
+   re-opened, which is the common case — tapping between Tips and Scores repriced all 3,185
+   fixtures each way.
+
+   A WeakMap keyed on the FIXTURE OBJECT, deliberately, not a field on it: `L.upcoming` is
+   serialised into localStorage by saveState, and a prediction carries a full scoreline grid, so
+   storing it on the row would put megabytes into a ~5MB quota that fails silently (build 163).
+   The map also invalidates itself — a reload builds fresh fixture objects — and the match count is
+   checked so a competition that has grown reprices rather than serving a stale number. */
+const _fxPredCache = new WeakMap();
 function fxPredict(L,f){
-  if(L && L.matches && L.matches.length>=15){ const tmp=Object.create(footballEngine); tmp.matches=L.matches; return tmp.predict(f.home,f.away); }
-  return null;
+  if(!(L && L.matches && L.matches.length>=15 && f)) return null;
+  const hit = _fxPredCache.get(f);
+  if(hit && hit.n === L.matches.length) return hit.P;
+  const tmp=Object.create(footballEngine); tmp.matches=L.matches;
+  const P = tmp.predict(f.home,f.away);
+  _fxPredCache.set(f, {n:L.matches.length, P});
+  return P;
 }
 // every priceable selection for a fixture, from the engine's numbers
 function allSelections(P,f,L){
@@ -4103,6 +4176,17 @@ async function analyze(){
   $('analysisText').textContent = localAnalysis(ctx);
   $('verdictBox').textContent = localVerdict(ctx);
 
+  /* BUILD 192 — THE SCROLL HAPPENS HERE, WHERE THE RESULTS APPEAR, and not at the end of this
+     function. Ken: "once the analysis loads up, the page returns to the top."
+     It used to be the last line of analyze(), which was correct when the last line ran a few
+     milliseconds after the first. Then the AI write-up was added and put an `await` in between —
+     so the sequence became: results render, reader scrolls down to read them, Gemini answers eight
+     seconds later, and the scroll fires and throws the reader back to the top of the panel.
+     THE AWAIT GREW UNDERNEATH THE LINE; nobody moved it. The engine's own numbers are complete at
+     this point and they are what the scroll is for. The write-up filling in below must never move
+     the page under a reader's thumb. */
+  $('results').scrollIntoView({behavior:'smooth', block:'start'});
+
   // AI write-up: via the server proxy when signed in, or a personal key if one is saved (build 39)
   const _prov = aiProviderById(aiProvider), _key = aiKeys[aiProvider];
   const _session = supa ? await proxySession() : null;
@@ -4132,8 +4216,6 @@ async function analyze(){
       renderAISettings();
     }
   }
-
-  $('results').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 /* Half-time / full-time panel (build 48). Hidden entirely when the competition lacks the
