@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 188;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 191;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2647,19 +2647,112 @@ function htftText(i, j, home, away){
    sides needed at kick-off. */
 
 // the league table exactly as it stood before match index `upTo`
-function tableAsOf(L, upTo){
-  const ms = upTo==null ? L.matches : L.matches.slice(0, upTo);
-  const t = {};
-  const row = n => t[n] || (t[n] = {team:n, pl:0, pts:0, gd:0});
-  for(const m of ms){
-    if(m.hg==null || m.ag==null) continue;
-    const h = row(m.home), a = row(m.away);
-    h.pl++; a.pl++; h.gd += m.hg-m.ag; a.gd += m.ag-m.hg;
-    if(m.hg>m.ag) h.pts += 3; else if(m.hg===m.ag){ h.pts++; a.pts++; } else a.pts += 3;
+/* ══ BUILD 190 — THIS TABLE POOLED EVERY SEASON, AND KEN SAW IT ═════════════════════════════════
+   Reported 2026-08-19 from a live Atletico Madrid match page: **228 matches played**. That is
+   6 x 38 exactly — six seasons of La Liga summed into one standing. The version this replaces
+   walked `L.matches` from the beginning of history with no season filter of any kind, because when
+   it was written at build 52 the app held one season and the distinction did not exist. Milestone
+   11 doubled the history to six seasons and nothing here was revisited.
+
+   ── IT WAS NEVER ONLY A DISPLAY BUG ──
+   `motivationEdge` reads the same table. Pooled, `N` becomes every side that has appeared in the
+   division across six seasons — about 28 in La Liga rather than 20 — so `total = 2*(N-1)` is 54
+   while `pl` climbs past 200. `hLeft = total - pl` goes NEGATIVE, and the guard below it returns
+   null. **The motivation study has therefore been measuring almost nothing, silently**, on a table
+   that mixes sides from different divisions. Nothing errored and no panel said so.
+   What it did NOT reach is a prediction: both call sites are backtest panels marked "measured,
+   never applied", and no other code calls this. That was checked before this fix was written.
+
+   ── ONE TABLE, NOT TWO ──
+   Build 188 already computes a correct season-scoped table for Milestone 13 items 48-50. Writing a
+   second correct one here is how the first one drifted in the first place — the same reasoning that
+   refused to copy VENUE into the collector at build 172. This is now a thin adapter over `tableAt`,
+   so there is exactly one place in this app that knows how to build a league table, and it is the
+   one with a browser harness and eleven assertions against it.
+   The adapter inherits `tableAt`'s TOTAL order (points, goal difference, goals for, then name).
+   The old sort here was points then goal difference only, so two level sides could swap position
+   between renders on identical data.
+
+   ── AND IT RETURNS null RATHER THAN A POOLED TABLE WHEN THE SEASON IS UNKNOWN ──
+   `season` rides in `_x`, which is memory-only and stripped before localStorage, so a competition
+   restored from cache without a cloud refresh has none. The honest answer there is no table and a
+   line saying why. A wrong table is worse than an absent one — Milestone 8's rule, and the whole
+   reason this defect survived: a pooled table looks exactly like a real one. */
+function tableAsOf(L, upTo, season){
+  if(!L || !L.matches || season == null) return null;
+  const tb = tableAt(L, season, upTo, seasonSeqFor(L));
+  const roster = seasonRoster(L, season);
+  if(!tb && !roster.size) return null;
+
+  /* BUILD 191 — THE ARITHMETIC IS STILL tableAt's; THIS ONLY ADDS THE ROWS IT HAS NOTHING TO SAY
+     ABOUT. `tableAt` counts played matches, so a side that has not played is absent from it
+     entirely — correct for what that function is, and useless as a standing. Seeding the roster at
+     zero here keeps ONE implementation of the arithmetic (build 190's whole point) and gives the
+     panel the structure Ken asked for.
+     A seeded side sorts last on merit rather than by a special case: nought points, nought goal
+     difference, and `tableAt`'s own name tiebreak orders the untouched sides among themselves, so
+     the table is stable from the moment the fixtures are published. */
+  const rows = [];
+  const seen = new Set();
+  if(tb) for(const n of tb.names){
+    const r = tb.R[n];
+    rows.push({ team:n, pl:r.played, pts:r.pts, gd:r.gf - r.ga, pos:0 });
+    seen.add(n);
   }
-  const rows = Object.values(t).sort((x,y)=> y.pts-x.pts || y.gd-x.gd);
-  rows.forEach((r,i)=> r.pos = i+1);
+  const rest = [];
+  for(const n of roster) if(!seen.has(n)) rest.push(n);
+  rest.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  for(const n of rest) rows.push({ team:n, pl:0, pts:0, gd:0, pos:0 });
+  for(let i = 0; i < rows.length; i++) rows[i].pos = i + 1;
   return { rows, byTeam: Object.fromEntries(rows.map(r=>[r.team, r])) };
+}
+
+/* The newest season this competition holds. renderStandings wants "where do these teams stand
+   today", which is the current season — not the season of whatever fixture is on screen, which for
+   an archived match would be a table nobody is asking about.
+
+   BUILD 191 — UPCOMING FIXTURES COUNT, AND THEY ARE THE WHOLE POINT AT THIS TIME OF YEAR. Reading
+   only played matches meant that on the opening weekend of a season the "current" season was still
+   the previous one, so the table showed last year's finished standings as though it were live. The
+   max across both is right in every part of the calendar: mid-season the two agree, and in August
+   the fixtures know something the results cannot. */
+function latestSeasonOf(L){
+  let best = null;
+  const take = s => { if(s != null && (best == null || s > best)) best = s; };
+  for(const m of (L && L.matches) || []) take(m && m._x && m._x.season);
+  for(const f of (L && L.upcoming) || []) take(f && f.season);
+  return best;
+}
+
+/* EVERY SIDE IN THE COMPETITION THIS SEASON, whether it has kicked a ball or not.
+
+   Ken, 2026-08-19: "the table and teams should be there but the values of match played, goals and
+   the rest should be 0,0". A standing is a STRUCTURE — twenty rows in a twenty-team division from
+   the day the fixtures are published — and a sentence saying "not enough results yet" is not a
+   league table, it is an apology for not having one.
+
+   A side appears here if it played in this season or is scheduled to. Both halves are needed:
+   played-only is empty in August, and upcoming-only loses sides whose remaining fixtures have all
+   been played by the end of the season. */
+function seasonRoster(L, season){
+  const out = new Set();
+  if(!L || season == null) return out;
+  for(const m of (L.matches || [])){
+    if(m && m._x && m._x.season === season){
+      if(m.home) out.add(m.home);
+      if(m.away) out.add(m.away);
+    }
+  }
+  for(const f of (L.upcoming || [])){
+    /* A fixture with no season is one this app cached before build 191. Counting it would put
+       last season's relegated sides in this season's table, so it is skipped rather than guessed
+       at — the same refusal the table itself makes when the season is unknown. */
+    if(f && f.season === season){
+      if(f.home) out.add(f.home);
+      if(f.away) out.add(f.away);
+    }
+  }
+  return out;
 }
 
 /* STANDINGS — backlog: "Standings & lineups on match detail" (2026-07-20). Lineups already exist
@@ -2677,10 +2770,29 @@ function renderStandings(L, homeTeam, awayTeam){
   if(!acc || !box) return;
   if(!L || !L.matches){ acc.classList.add('hidden'); return; }
   acc.classList.remove('hidden');
-  const played = L.matches.filter(m=>m.hg!=null && m.ag!=null).length;
-  if(played < 10){ box.innerHTML = `<div class="subnote">Not enough results yet for a table — ${played} played.</div>`; return; }
-  const tbl = tableAsOf(L, null);
-  box.innerHTML =
+  /* BUILD 190 — the season, and the table is refused without one. Before this the count below was
+     taken over ALL of L.matches and the table under it pooled six seasons; Ken saw 228 played. */
+  const season = latestSeasonOf(L);
+  if(season == null){
+    box.innerHTML = '<div class="subnote">No table — this competition came from the offline cache, which does not carry the season each match belongs to. Open Predict and reload to refresh it from the cloud. <b>A table without a season would pool every season into one</b>, which is what this panel used to do.</div>';
+    return;
+  }
+  const tbl = tableAsOf(L, null, season);
+  if(!tbl || !tbl.rows.length){
+    box.innerHTML = '<div class="subnote">No fixtures loaded for this competition yet.</div>';
+    return;
+  }
+  /* BUILD 191 — the count is a NOTE ABOVE the table, never a replacement for it. Until now a
+     season with fewer than ten results printed a sentence and no table at all, which is what Ken
+     objected to: at the start of a season the structure is exactly what a reader wants, with the
+     numbers all reading nought. */
+  const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
+  const note = played === 0
+    ? '<div class="subnote">Season not started — every side is listed and every number is nought until the first results come in.</div>'
+    : played < 10
+      ? `<div class="subnote">Early days — ${played} ${played === 1 ? 'match' : 'matches'} played this season, so these positions will move a lot.</div>`
+      : '';
+  box.innerHTML = note +
     `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
        <span style="width:22px">#</span><span style="flex:1">Team</span>
        <span style="width:30px;text-align:right">P</span><span style="width:44px;text-align:right">GD</span>
@@ -2734,7 +2846,15 @@ function teamStakes(tbl, team, gamesLeft){
 /* The motivation edge for one fixture: positive means the HOME side has more to play for. */
 function motivationEdge(L, m, upTo){
   if(!L || !L.matches) return null;
-  const tbl = tableAsOf(L, upTo);
+  /* BUILD 190 — THIS FIXTURE'S OWN season, not the newest. This is a walk-forward measurement at
+     `upTo`, so the table must be the one that existed then, in the competition it existed in.
+     Pooled, `total` was 54 against a `pl` past 200, `hLeft` went negative and the guard below
+     returned null on nearly every row — which is why this study has been quietly measuring
+     almost nothing rather than measuring something wrong. */
+  const season = m && m._x ? m._x.season : null;
+  if(season == null) return null;
+  const tbl = tableAsOf(L, upTo, season);
+  if(!tbl) return null;
   const me = tbl.byTeam[m.home], you = tbl.byTeam[m.away];
   if(!me || !you || me.pl < 5 || you.pl < 5) return null;
   const N = tbl.rows.length, total = 2*(N-1);
@@ -9874,7 +9994,15 @@ async function loadCloudLeagues(force){
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
         if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart)){
-          display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away, _fin:fin});
+          /* BUILD 191 — the season rides along. Without it the app cannot know a new season has
+             started until a match in it has been PLAYED: `L.season` is taken from `data[0]`, the
+             oldest row in the query, and the match list only holds finished fixtures. So on the
+             opening weekend the newest season the app could see was the previous one — which is
+             precisely when a league table full of zeros is the only correct thing to show.
+             One integer per upcoming fixture, and `upcoming` is a few hundred rows rather than
+             ~22,000, so this one is nowhere near the localStorage quota that governs `_x`. */
+          display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away,
+                        season:r.season, _fin:fin});
         }
       }
       L.matches.sort((a,b)=> a.date<b.date?-1:1);
