@@ -689,7 +689,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 192;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 193;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3346,15 +3346,31 @@ function fxPredict(L,f){
 }
 // every priceable selection for a fixture, from the engine's numbers
 function allSelections(P,f,L){
-  const S=[]; const add=(m,sel,prob,code)=>{ if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null}); };
+  /* BUILD 193 — `key` is the SLOT this selection occupies, with no team name in it. `sel` stays
+     exactly as it was, because it is what the reader sees. The two are one-to-one: every label this
+     function can emit maps to exactly one key and back.
+
+     It exists because Smart Bet compares each fixture against the same competition's average match,
+     and the baseline was being looked up by LABEL — "Arsenal to win" — which differs per fixture
+     even though the probability behind it does not. That forced the whole neutral list to be
+     rebuilt 3,185 times, once per fixture, for numbers that are identical across the competition.
+     Keyed on the slot instead, the baseline is built once per league.
+
+     CORRECT SCORE KEEPS THE SCORELINE AS ITS KEY, deliberately. Today the neutral lookup for it
+     succeeds only when the average match's top scoreline happens to equal this fixture's, and
+     misses otherwise — and a miss means edge is measured against 0.5. A stable key like 'CS-TOP'
+     would always hit and would quietly CHANGE that number. Correct score is filtered out of the
+     Smart Bet pool anyway, so this is unobservable either way; it is written this way so the
+     change is a pure speed-up rather than a speed-up carrying a silent behaviour edit. */
+  const S=[]; const add=(m,sel,prob,code,key)=>{ if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null,key:key||sel}); };
   /* HT/FT doubles enter the slip only when a league is passed in, because they need the half-time
      models (build 52). Measured on 192 real matches these prices land within ~2.5 points of reality,
      so they are fair to stake — but they are long shots by nature, so the slip's risk ceiling will
      exclude most of them unless the slider is well up. That is correct, not a fault. */
   if(L){ const H = htftFor(L, f);
-    if(H) for(const d of H.doubles) add('HT/FT', d.code+'  '+d.text, d.prob, d.code); }
-  add('Winner', f.home+' to win', P.pW,'1'); add('Winner','Draw',P.pD,'X'); add('Winner', f.away+' to win', P.pL,'2');
-  add('Double Chance', f.home+' or Draw', P.pW+P.pD); add('Double Chance','Draw or '+f.away, P.pD+P.pL);
+    if(H) for(const d of H.doubles) add('HT/FT', d.code+'  '+d.text, d.prob, d.code, 'HTFT-'+d.code); }
+  add('Winner', f.home+' to win', P.pW,'1','W-H'); add('Winner','Draw',P.pD,'X','W-D'); add('Winner', f.away+' to win', P.pL,'2','W-A');
+  add('Double Chance', f.home+' or Draw', P.pW+P.pD, null,'DC-1X'); add('Double Chance','Draw or '+f.away, P.pD+P.pL, null,'DC-X2');
   /* '12' (Home or Away) was removed in build 62. Its probability is exactly 1 − pD, so backing it is
      nothing more than betting against a draw — it inherits none of the engine's skill, only the
      league's draw rate. And the draw is the one outcome this engine prices well. In Brasileirão,
@@ -3363,14 +3379,14 @@ function allSelections(P,f,L){
      It is also the wrong rung: the ladder straight win → DNB → 1X/X2 trades odds for a draw that
      either wins or voids. '12' does the opposite — it removes that protection while still charging
      short odds for it. */
-  const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb); }
-  add('Goals','Over 2.5',P.over[2.5]); add('Goals','Under 2.5',1-P.over[2.5]);
-  add('Goals','Over 1.5',P.over[1.5]); add('Goals','Under 1.5',1-P.over[1.5]);
-  add('Goals','Over 3.5',P.over[3.5]); add('Goals','Under 3.5',1-P.over[3.5]);
-  add('BTTS','BTTS Yes',P.btts); add('BTTS','BTTS No',1-P.btts);
-  if(P.hcap){ add('Handicap', f.home+' -1.5',P.hcap.h); add('Handicap', f.away+' -1.5',P.hcap.a); add('Handicap', f.home+' +1.5',1-P.hcap.a); add('Handicap', f.away+' +1.5',1-P.hcap.h); }
-  if(P.team){ add('Team total', f.home+' Over 1.5',P.team.h15); add('Team total', f.away+' Over 1.5',P.team.a15); add('Team total', f.home+' Under 1.5',1-P.team.h15); add('Team total', f.away+' Under 1.5',1-P.team.a15); }
-  if(P.topScores&&P.topScores[0]) add('Correct score', P.topScores[0].score, P.topScores[0].p);
+  const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb, null,'DNB-H'); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb, null,'DNB-A'); }
+  add('Goals','Over 2.5',P.over[2.5],null,'O25'); add('Goals','Under 2.5',1-P.over[2.5],null,'U25');
+  add('Goals','Over 1.5',P.over[1.5],null,'O15'); add('Goals','Under 1.5',1-P.over[1.5],null,'U15');
+  add('Goals','Over 3.5',P.over[3.5],null,'O35'); add('Goals','Under 3.5',1-P.over[3.5],null,'U35');
+  add('BTTS','BTTS Yes',P.btts,null,'BTTS-Y'); add('BTTS','BTTS No',1-P.btts,null,'BTTS-N');
+  if(P.hcap){ add('Handicap', f.home+' -1.5',P.hcap.h,null,'HC-H-15'); add('Handicap', f.away+' -1.5',P.hcap.a,null,'HC-A-15'); add('Handicap', f.home+' +1.5',1-P.hcap.a,null,'HC-H+15'); add('Handicap', f.away+' +1.5',1-P.hcap.h,null,'HC-A+15'); }
+  if(P.team){ add('Team total', f.home+' Over 1.5',P.team.h15,null,'TT-H-O15'); add('Team total', f.away+' Over 1.5',P.team.a15,null,'TT-A-O15'); add('Team total', f.home+' Under 1.5',1-P.team.h15,null,'TT-H-U15'); add('Team total', f.away+' Under 1.5',1-P.team.a15,null,'TT-A-U15'); }
+  if(P.topScores&&P.topScores[0]) add('Correct score', P.topScores[0].score, P.topScores[0].p);   // key = the scoreline, see above
   return S;
 }
 function fairOdds(p){ return p>0 ? (1/p).toFixed(2) : '—'; }
@@ -3697,10 +3713,26 @@ function fxNeutral(L){
   L._neutral = tmp.neutral(); L._neutralN = L.matches.length;
   return L._neutral;
 }
-function neutralSelections(L, f){
-  const NP = fxNeutral(L); if(!NP) return null;
-  const m = {}; for(const s of allSelections(NP, f)) m[s.sel] = s.prob;
-  return m;
+/* BUILD 193 — ONCE PER COMPETITION, not once per fixture. `fxNeutral(L)` was already cached; the
+   list built FROM it was not, so Smart Bet paid for 3,185 identical rebuilds. Keyed on the slot
+   (build 193's `key`), the map has no team name in it and the placeholder fixture below is enough
+   to generate it — the set of slots depends only on which probabilities fall strictly between 0 and
+   1, which is a property of NP, not of who is playing.
+
+   WeakMap on the matches array, and invalidated by its length: same arrangement as build 192's
+   engine caches, for the same two reasons — two competitions cannot collide, and nothing hangs off
+   the league object that saveState serialises into a ~5MB quota that fails silently (build 163). */
+const _neutralSel = new WeakMap();
+const NEUTRAL_FX = {home:'\u0001H', away:'\u0001A'};
+function neutralSelections(L){
+  const ms = L && L.matches; if(!ms) return null;
+  const hit = _neutralSel.get(ms);
+  if(hit && hit.n === ms.length) return hit.map;
+  const NP = fxNeutral(L);
+  if(!NP){ _neutralSel.set(ms, {n:ms.length, map:null}); return null; }
+  const map = {}; for(const s of allSelections(NP, NEUTRAL_FX)) map[s.key] = s.prob;
+  _neutralSel.set(ms, {n:ms.length, map});
+  return map;
 }
 
 function tipPickFor(market,P,f,L){
@@ -3727,11 +3759,11 @@ function tipPickFor(market,P,f,L){
    asserting a gap the user has to take on trust. Ranking behaviour is unchanged: a missing base
    still scores against a flat 0.5, exactly as before. */
 function smartRanked(P, f, L){
-  const base = neutralSelections(L, f);
+  const base = neutralSelections(L);
   const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score','HT/FT'].includes(s.m));
   const actionable = pool.filter(s=>s.prob >= 0.5);
   return (actionable.length ? actionable : pool)
-    .map(s=>{ const b = base && base[s.sel]!=null ? base[s.sel] : null;
+    .map(s=>{ const b = base && base[s.key]!=null ? base[s.key] : null;
               return {...s, base:b, edge: s.prob - (b==null ? 0.5 : b)}; })
     .sort((a,b)=> b.edge - a.edge);
 }
