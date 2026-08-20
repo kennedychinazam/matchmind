@@ -633,6 +633,7 @@
     </div>
 
         <div id="devStub" hidden aria-hidden="true">
+      <span id="compCount"></span>
       <select id="homeTeam"></select><select id="awayTeam"></select>
       <textarea id="scorerData"></textarea><input id="afKey" value="">
       <input type="checkbox" id="afExtrasChk"><select id="afSeason"></select>
@@ -689,7 +690,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 193;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 194;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2842,13 +2843,38 @@ function renderStandings(L, homeTeam, awayTeam){
      season with fewer than ten results printed a sentence and no table at all, which is what Ken
      objected to: at the start of a season the structure is exactly what a reader wants, with the
      numbers all reading nought. */
+  /* ══ BUILD 194 — WHAT THIS TABLE CANNOT SEE, SAID ON THE PANEL ══════════════════════════════════
+     The standings sweep of 2026-08-20 compared this derivation against the provider's own table for
+     ten competitions. Three matched exactly — La Liga, Serie A and Brasileirao. Five did not, and
+     neither cause is arithmetic:
+
+       1. PLAY-OFFS ARE STORED UNDER THE SAME LEAGUE ID. Wolfsburg read 36 matches against the
+          provider's 34, because the Bundesliga relegation play-off sits in `fixtures` beside the
+          306 league games. Ligue 1, Primeira Liga and Eredivisie the same; the Championship's
+          promotion play-off gives four clubs two or three extra matches each.
+       2. POINT DEDUCTIONS APPEAR IN NO FIXTURE LIST. The sweep found THREE in the Championship
+          alone — Sheffield Wednesday docked 18, Leicester 6, West Brom 2. No derivation from
+          results can ever recover an administrative penalty.
+
+     Build 194 adds `round` to the collector, the field that separates a league fixture from a
+     play-off. Until that column is filled this panel CANNOT be made correct, so it says so rather
+     than presenting a wrong table as a right one — Milestone 8's rule, one step on: a number that
+     can be neither measured nor omitted is labelled. */
+  const rrOK = roundRobinOK(L, season, seasonSeqFor(L));
+  const maxLeague = 2 * (tbl.rows.length - 1);
+  const over = tbl.rows.filter(r => r.pl > maxLeague).length;
+  const caveat =
+    (over ? `<div class="subnote"><b style="color:var(--gold)">Play-off results are counted in here.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} league matches a ${tbl.rows.length}-team season contains. Measured against the provider on 2026-08-20.</div>`
+     : rrOK !== true ? `<div class="subnote"><b style="color:var(--gold)">This competition plays more than a round-robin</b>, so qualifying or knockout ties may be counted in here. Measured against the provider on 2026-08-20.</div>`
+     : '') +
+    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b> — the same check found three in the Championship (Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2).</div>`;
   const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
   const note = played === 0
     ? '<div class="subnote">Season not started — every side is listed and every number is nought until the first results come in.</div>'
     : played < 10
       ? `<div class="subnote">Early days — ${played} ${played === 1 ? 'match' : 'matches'} played this season, so these positions will move a lot.</div>`
       : '';
-  box.innerHTML = note +
+  box.innerHTML = caveat + note +
     `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
        <span style="width:22px">#</span><span style="flex:1">Team</span>
        <span style="width:30px;text-align:right">P</span><span style="width:44px;text-align:right">GD</span>
@@ -12240,6 +12266,12 @@ loadAFExtras();                         // API-Football extras opt-in (build 40)
 if(supa) refreshServerProviders();      // ask the proxy which writers it has keys for (build 39)
 initSupabase();                          // accounts + sync (guest mode until configured)
 try{ if($('verLabel')) $('verLabel').textContent = 'v0.9 · build '+APP_BUILD; }catch(e){}   // visible version
+/* BUILD 194 — KEN, 2026-08-20: "I WILL BE ADDING MORE LEAGUES. MANY MORE." Anything built from now
+   on has to survive that without an edit, so a count that is TYPED is a count that goes stale the
+   first time a competition is added. This one is read from COMP_IDS, which is the single list that
+   defines coverage — add an id there and this sentence corrects itself. The regression suite
+   asserts no literal "N competitions" survives in the copy. */
+try{ if($('compCount')) $('compCount').textContent = String(COMP_IDS.length); }catch(e){}
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
