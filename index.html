@@ -372,6 +372,10 @@
 
   <!-- ================= TIPS TAB ================= -->
   <div class="view hidden" id="view-tips">
+    <!-- BUILD 201 — the horizon comes FIRST, because every list below it was ranking nine months
+         of fixtures at once. See renderBanker() for the measurement that forced this. -->
+    <div class="sfilters" id="tipHorizon" style="margin:2px 0 8px"></div>
+    <div id="bankerCard"></div>
     <div class="htabs" id="tipTabs"></div>
 
     <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
@@ -524,7 +528,7 @@
       </div>
 
       <div class="acc open" id="acc-analysis">
-        <div class="acc-head"><span class="ic">🔥</span><span class="t">Professional AI Analysis</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic">🔥</span><span class="t">Professional AI Write-up</span><span class="chev">▼</span></div>
         <div class="acc-body">
           <div id="aiStatus" class="muted hidden" style="padding-top:10px;"><span class="spinner"></span>Asking Claude for the full write-up…</div>
           <div id="analysisText" class="analysis"></div>
@@ -671,7 +675,7 @@
   <!-- ================= BOTTOM NAV ================= -->
   <div class="bottomnav">
     <button class="nav-btn active" data-view="scores"><span class="nic">⚽</span><span data-i18n="Scores">Scores</span></button>
-    <button class="nav-btn" data-view="predict"><span class="nic">📊</span><span data-i18n="Predict">Predict</span></button>
+    <button class="nav-btn" data-view="predict"><span class="nic">📊</span><span data-i18n="Analysis">Analysis</span></button>
     <button class="nav-btn" data-view="tips"><span class="nic">🔥</span><span data-i18n="Tips">Tips</span></button>
     <button class="nav-btn" data-view="favs"><span class="nic">⭐</span><span data-i18n="Favs">Favs</span></button>
     <button class="nav-btn" data-view="data"><span class="nic">⚙️</span><span data-i18n="More">More</span></button>
@@ -690,7 +694,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 199;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 201;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2383,7 +2387,7 @@ const RTL = ['ar'];
 
 const I18N = {
  fr:{
-  'Scores':'Scores','Predict':'Pronostics','Tips':'Conseils','Favs':'Favoris','More':'Plus',
+  'Scores':'Scores','Analysis':'Analyse','Tips':'Conseils','Favs':'Favoris','More':'Plus',
   'Winner':'Vainqueur','Smart Bet':'Pari malin','Slip Generator':'Générateur de coupon',
   'Account':'Compte','Settings':'Paramètres','Your data':'Vos données',
   'Past predictions':'Pronostics passés','How it works':'Comment ça marche',
@@ -2403,7 +2407,7 @@ const I18N = {
   'Search':'Rechercher','Competitions':'Compétitions','Matches':'Matchs','Teams':'Équipes'
  },
  pt:{
-  'Scores':'Resultados','Predict':'Previsões','Tips':'Dicas','Favs':'Favoritos','More':'Mais',
+  'Scores':'Resultados','Analysis':'Análise','Tips':'Dicas','Favs':'Favoritos','More':'Mais',
   'Winner':'Vencedor','Smart Bet':'Aposta inteligente','Slip Generator':'Gerador de bilhete',
   'Account':'Conta','Settings':'Definições','Your data':'Os seus dados',
   'Past predictions':'Previsões anteriores','How it works':'Como funciona',
@@ -2423,7 +2427,7 @@ const I18N = {
   'Search':'Pesquisar','Competitions':'Competições','Matches':'Jogos','Teams':'Equipas'
  },
  es:{
-  'Scores':'Resultados','Predict':'Pronósticos','Tips':'Consejos','Favs':'Favoritos','More':'Más',
+  'Scores':'Resultados','Analysis':'Análisis','Tips':'Consejos','Favs':'Favoritos','More':'Más',
   'Winner':'Ganador','Smart Bet':'Apuesta inteligente','Slip Generator':'Generador de boleto',
   'Account':'Cuenta','Settings':'Ajustes','Your data':'Tus datos',
   'Past predictions':'Pronósticos anteriores','How it works':'Cómo funciona',
@@ -2443,7 +2447,7 @@ const I18N = {
   'Search':'Buscar','Competitions':'Competiciones','Matches':'Partidos','Teams':'Equipos'
  },
  ar:{
-  'Scores':'النتائج','Predict':'التوقعات','Tips':'النصائح','Favs':'المفضلة','More':'المزيد',
+  'Scores':'النتائج','Analysis':'التحليل','Tips':'النصائح','Favs':'المفضلة','More':'المزيد',
   'Winner':'الفائز','Smart Bet':'الرهان الذكي','Slip Generator':'منشئ القسيمة',
   'Account':'الحساب','Settings':'الإعدادات','Your data':'بياناتك',
   'Past predictions':'التوقعات السابقة','How it works':'كيف يعمل',
@@ -3729,7 +3733,7 @@ function searchData(q){
 function renderSearch(q){
   const box=$('searchResults'); const {comps,teams,matches}=searchData(q);
   if(!q){ box.innerHTML='<div class="subnote">Type to search everything loaded on your device — instant, no data used.</div>'; return; }
-  if(!comps.length&&!teams.length&&!matches.length){ box.innerHTML='<div class="subnote">Nothing loaded on this device matches “'+escapeHtml(q)+'”. Search only covers competitions the app already has — try the team\'s league in <b>Predict</b> first. Note the engine covers about ten major competitions, so lower divisions won\'t be here.</div>'; return; }
+  if(!comps.length&&!teams.length&&!matches.length){ box.innerHTML='<div class="subnote">Nothing loaded on this device matches “'+escapeHtml(q)+'”. Search only covers competitions the app already has — try the team\'s league in <b>Analysis</b> first. Note the engine covers about ten major competitions, so lower divisions won\'t be here.</div>'; return; }
   let html=''; const mrefs=[], crefs=[], trefs=[];
   if(matches.length){ html+='<div class="sres-grp">Matches</div>';
     for(const m of matches){ const i=mrefs.length; mrefs.push(m);
@@ -3762,12 +3766,106 @@ function openTeam(name){
 }
 
 /* ---------- Tips market tabs (#9) ---------- */
-const tipState={ tab:'winner', fair:false };
+/* `days` is the horizon in days from today: 0 = today only. It is NOT persisted — a betting tab
+   should open on today every time, not on whatever window the user last browsed. */
+const tipState={ tab:'winner', fair:false, days:0 };
+const TIP_HORIZONS = () => [[0, t('Today')], [3, t('Next 3 days')], [7, t('Next 7 days')]];
 const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
+function renderTipHorizon(){
+  const box=$('tipHorizon'); if(!box) return;
+  box.innerHTML = TIP_HORIZONS().map(([v,l])=>
+    `<button class="sfchip${tipState.days===v?' on':''}" data-th="${v}">${l}</button>`).join('');
+  box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
+    tipState.days = +b.dataset.th; renderTips(); }));
+}
+
+/* ══ THE DAY'S ANSWER, AND IT IS ALLOWED TO BE EMPTY ════════════════════════════════════════════
+   Ken wants the tab to say what to bet on rather than hand over a list to choose from. The pick
+   shown is the highest-probability PUBLISHED pick inside the horizon — published meaning it cleared
+   its own competition's measured bar, which is the gate Milestone 8 already fits per competition.
+
+   NO NEW THRESHOLD. The obvious move was "85%+ certainty", and that is a constant nobody measured —
+   the habit build 183 spent an entire build removing. On 2026-08-23 the day's best was 83.2%, so a
+   hard 85% bar would have shown nothing on a day that had a perfectly good lead pick. The bar that
+   already exists is per competition and was fitted; this ranks the picks that clear it.
+
+   AND IT CAN SAY NOTHING. If no fixture in the window clears its bar, this card says so rather than
+   promoting the best of a bad set — a daily slot that MUST be filled is filled, and that is the
+   bluff Milestone 8 exists to forbid.
+
+   THE ODDS ARE ON THE CARD DELIBERATELY. At this confidence the pick is usually Double Chance or
+   Draw No Bet, which pays short. A user who is shown "83%" and not "@ 1.20" thirty times, and then
+   loses once, has been misled by omission. */
+function bankerOf(){
+  let best = null;
+  for(const {L,f} of collectUpcoming(tipState.days)){
+    if(!f.pick || f.gated || f.prob==null) continue;
+    if(!best || f.prob > best.f.prob) best = {L,f};
+  }
+  return best;
+}
+
+function nextMatchday(){
+  const today = todayStrLocal(); let soonest = null, n = 0;
+  for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
+    const L=afState.leagues[id]; if(!L||(L.sport||'football')!=='football') continue;
+    for(const f of (L.upcoming||[])){
+      if(f.date<=today) continue;
+      if(!soonest || f.date<soonest) soonest = f.date;
+    }
+  }
+  if(!soonest) return null;
+  for(const id of Object.keys(afState.leagues)){
+    for(const f of (afState.leagues[id].upcoming||[])) if(f.date===soonest) n++;
+  }
+  return { date: soonest, n };
+}
+
+function renderBanker(){
+  const box=$('bankerCard'); if(!box) return;
+  const label = tipState.days===0 ? t('Today') : (tipState.days===3 ? t('Next 3 days') : t('Next 7 days'));
+  const inWindow = collectUpcoming(tipState.days).length;
+  const b = bankerOf();
+
+  if(!inWindow){
+    const nx = nextMatchday();
+    box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2>
+      <div class="subnote">No fixtures in this window.` +
+      (nx ? ` The next matchday is <b>${escapeHtml(nx.date)}</b> with ${nx.n} fixture${nx.n===1?'':'s'} \u2014
+             widen the window above to see it.` : '') + `</div></div>`;
+    return;
+  }
+  if(!b){
+    box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2>
+      <div class="subnote"><b style="color:var(--gold)">No pick clears the bar in this window.</b>
+      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them confidently enough to publish.
+      MatchMind says nothing rather than picking the best of a bad set.</div></div>`;
+    return;
+  }
+  const {L,f} = b;
+  const mk = f.market || pickMarket(f.pick) || 'Winner';
+  box.innerHTML = `<div class="card" style="border:1px solid var(--gold)">
+      <h2>\u26A1 ${escapeHtml(label)} \u2014 strongest read</h2>
+      <div class="frow"><span class="muted">${escapeHtml(L.name)}</span>
+        <span class="muted">${escapeHtml((f.date||'').slice(5).replace('-','/'))} ${escapeHtml(localHM(f.date,f.time))}</span></div>
+      <div style="font-weight:700;margin:4px 0">${crest(f.home)}${escapeHtml(f.home)} v ${crest(f.away)}${escapeHtml(f.away)}</div>
+      <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(pickLabel(f.pick,f.home,f.away))}</b></span>
+        <span><span class="predchip sm">${(100*f.prob).toFixed(0)}%</span>
+              <span class="predchip sm">@ ${fairOdds(f.prob)}</span></span></div>
+      <div class="subnote" style="margin-top:6px">Fair odds are what this probability is worth, before any
+        bookmaker margin \u2014 a high probability pays short. This is the strongest read in the window,
+        not a guarantee.</div>
+      <button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>
+    </div>`;
+  const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));
+}
+
 function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
   box.innerHTML=TIP_TABS().map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
   box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
 function renderTips(){
+  renderTipHorizon();
+  renderBanker();
   renderTipTabs();
   const t=tipState.tab, isList=['winner','ou','btts','smart'].includes(t);
   $('tipListWrap').classList.toggle('hidden', !isList);
@@ -3778,11 +3876,37 @@ function renderTips(){
   if(t==='smart') renderStrongPicks();
   if(isList) renderTipList(t);
 }
-function collectUpcoming(){
+/* Local calendar date, `n` days from today. Local rather than UTC for the reason `localHM` exists:
+   a user in Lagos and a user in London do not agree on when "today" starts, and a fixture list that
+   silently uses UTC drops the late kick-offs for one of them. */
+function dayStrLocal(n){
+  const d = new Date(); d.setDate(d.getDate() + (n||0));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+/* ══ BUILD 201 — A HORIZON, BECAUSE THIS TAB WAS ANSWERING THE WRONG QUESTION ═══════════════════
+   Ken: *"THE TIPS DON'T LOOK SO GOOD. IT IS MEANT TO GIVE PEOPLE WHAT TO BET ON DAILY, NOT KEEPING
+   THEM GUESSING WHAT TO PICK."*
+
+   MEASURED IN THE BROWSER ON 2026-08-23 BEFORE ANY OF THIS WAS WRITTEN, because "the tab feels
+   wrong" is a judgement and this turned out to be a number:
+
+     · 5 fixtures kicked off that day
+     · the tab ranked 2,964 fixtures spanning 135 dates, out to 2027-05-30
+     · of the 30 rows it displayed, ZERO kicked off today
+     · the top of the list was January, February and April 2027
+
+   The cause is that ranking by probability with no date anchor surfaces whichever fixtures the
+   engine is most certain about ANYWHERE in the season — a mismatch in February outranks every
+   game being played this afternoon. Nothing was broken; the list was sorted by the wrong axis for
+   the question the tab exists to answer. */
+function collectUpcoming(maxDays){
   const today=todayStrLocal(), smap=scoreMap(), out=[];
+  const last = (maxDays==null) ? null : dayStrLocal(maxDays);
   for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
     const L=afState.leagues[id]; if(!L||(L.sport||'football')!=='football') continue;
     for(const f of (L.upcoming||[])){ if(f.date<today) continue;
+      if(last && f.date>last) continue;
       const s=f.fxid!=null?smap[f.fxid]:null; if(isFinishedScore(s)) continue; out.push({L,f}); }
   }
   return out;
@@ -3909,7 +4033,7 @@ function renderTipList(market){
     if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
   const box=$('tipList'); if(!box) return;
   const rows=[];
-  for(const {L,f} of collectUpcoming()){
+  for(const {L,f} of collectUpcoming(tipState.days)){
     const P=fxPredict(L,f);
     if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:''}); continue; }
     const tp=tipPickFor(market,P,f,L);
@@ -3918,7 +4042,13 @@ function renderTipList(market){
   // Smart Bet ranks by strength of opinion; the single-market tabs still rank by probability
   if(market==='smart') rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
   else rows.sort((a,b)=>b.prob-a.prob);
-  if(!rows.length){ box.innerHTML='<div class="subnote">No priceable fixtures yet — open fixtures or load competitions so the engine can price them.</div>'; return; }
+  if(!rows.length){
+    /* Build 201 — this used to say "no priceable fixtures yet", which read as a broken app on any
+       day the window simply had no football in it. The window is now a user choice, so the message
+       names it. */
+    box.innerHTML = `<div class="subnote">Nothing to rank in this window. Widen it above, or check
+      back on a matchday \u2014 the engine prices fixtures as they are published.</div>`;
+    return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
     const val = tipState.fair ? `<span class="predchip sm">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>`;
@@ -8865,7 +8995,7 @@ function runBacktest(){
   const ms = L && L.matches && L.matches.length ? L.matches : footballEngine.matches;
   const label = L ? `${L.name}${L.country?' · '+L.country:''}` : 'loaded data';
   if(!ms || ms.length < 60){
-    out.innerHTML = `<div class="subnote">Need at least 60 completed matches to test. Open the <b>Predict</b> tab first so the competitions load, then come back — European leagues fill up once their season starts in August.</div>`;
+    out.innerHTML = `<div class="subnote">Need at least 60 completed matches to test. Open the <b>Analysis</b> tab first so the competitions load, then come back — European leagues fill up once their season starts in August.</div>`;
     return;
   }
   footballEngine.matches = ms;
