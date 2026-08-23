@@ -690,7 +690,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 194;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 196;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11085,6 +11085,82 @@ function savePrefs(){ saveState(); }
    symptom anywhere near the cause.
    A replacer rather than a copy of the league objects: it cannot miss a nesting level, and it costs
    nothing on a call that already serialises the whole state. */
+/* ══ BUILD 196 — 22,066 MATCHES, 474 TEAM NAMES ════════════════════════════════════════════════
+   MEASURED before anything was written, because the obvious fix was the wrong one. `saveState`
+   serialised 3.16MB against a typical ~5MB localStorage quota, and the split is:
+
+       leagues.matches   2.231MB      leagues.upcoming  0.710MB
+       record/scores/logos/rest 0.208MB
+
+   The obvious move was to stop persisting `matches` at all — `loadCloudLeagues()` re-fetches them
+   on every boot, so nothing would be lost but an empty first paint. That was rejected: this is a
+   betting app carried on mobile data, and a cold start with no cached history means no predictions
+   at all until the network answers. The cache earns its space.
+
+   SO THE BYTES WERE COUNTED INSTEAD OF THE ROWS. **22,066 matches carry only 474 distinct team
+   names**, and every row repeats two of them in full alongside eight long JSON keys. A shared name
+   table plus positional rows takes matches from **2.231MB to 0.694MB — losslessly**, verified by
+   round-tripping every match in the browser and comparing field by field.
+
+   Total falls from 3.16MB to ~1.6MB, which is headroom for roughly **22 more competitions instead
+   of 6**, and Ken has said many more are coming.
+
+   `upcoming` at 0.710MB is the next candidate and is deliberately NOT touched here: its rows carry
+   a published pick and probability, so compacting it is a change to something the app displays
+   rather than to something it recomputes. One risk per build.
+
+   THE FORMAT IS VERSIONED. `lv: 1` marks the packed shape; a cache written by build 194 or earlier
+   has no `lv` and is read through the legacy path unchanged, so this upgrade cannot orphan anyone's
+   favourites or record. */
+const LEAGUE_PACK_V = 1;
+
+function packLeagues(leagues){
+  const tbl = [], seen = new Map();
+  const ix = s => {
+    if(s == null) return -1;
+    let k = seen.get(s);
+    if(k === undefined){ k = tbl.length; seen.set(s, k); tbl.push(s); }
+    return k;
+  };
+  const out = {};
+  for(const id in leagues){
+    const L = leagues[id]; if(!L) continue;
+    const o = {};
+    for(const k in L) if(k !== 'matches') o[k] = L[k];
+    /* `_x` is memory-only and is dropped here as well as by dropExtras — this array never reaches
+       the replacer, because it is built rather than copied. */
+    o.m = (L.matches || []).map(m => [m.date ?? null, m.time ?? null, ix(m.home), ix(m.away),
+                                      m.hg ?? null, m.ag ?? null, m.hth ?? null, m.hta ?? null]);
+    out[id] = o;
+  }
+  return { t: tbl, l: out };
+}
+
+function unpackLeagues(p){
+  if(!p || !p.l) return p || {};            // build 194 and earlier: already the plain shape
+  const t = p.t || [], out = {};
+  for(const id in p.l){
+    const o = p.l[id], L = {};
+    for(const k in o) if(k !== 'm') L[k] = o[k];
+    L.matches = (o.m || []).map(r => ({
+      date: r[0], time: r[1],
+      home: r[2] >= 0 ? t[r[2]] : null,
+      away: r[3] >= 0 ? t[r[3]] : null,
+      hg: r[4], ag: r[5], hth: r[6], hta: r[7]
+    }));
+    out[id] = L;
+  }
+  return out;
+}
+
+/* ── AND THE FAILURE STOPS BEING SILENT ────────────────────────────────────────────────────────
+   `saveState` swallowed its quota error by design, so the app keeps working — which is right. What
+   was wrong is that NOTHING SAID SO. When it fires, favourites, the accuracy record and the scores
+   cache all stop persisting, and the only visible symptom is the Scores tab opening empty and
+   filling in once the network answers — which is exactly what Ken reported on 2026-08-19 and which
+   was never explained. Milestone 8's rule applies to the app's own health, not only to its numbers. */
+let saveFailed = null;
+
 const dropExtras = (k, v) => k === '_x' ? undefined : v;
 function saveState(){
   try{
@@ -11094,9 +11170,19 @@ function saveState(){
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
-      af: {season: afState.season, leagues: afState.leagues, leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(afState.leagues), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }, dropExtras));
-  }catch(e){ /* storage unavailable (private mode etc.) — app still works */ }
+  }catch(e){
+    /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
+       this stays caught — but it is now RECORDED and shown, instead of vanishing. */
+    const first = !saveFailed;
+    saveFailed = { at: new Date().toISOString(), name: String(e && e.name || e) };
+    if(first){
+      try{ console.warn('MatchMind: saveState failed —', saveFailed.name,
+                        '— favourites, record and the scores cache will not persist.'); }catch(_){}
+      try{ toast('Storage full — favourites and results may not be saved'); }catch(_){}
+    }
+  }
   cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
 }
 
@@ -11227,7 +11313,9 @@ function restoreState(){
     if(s.notif){ notif.kickoff=!!s.notif.kickoff; notif.result=!!s.notif.result; notif.digest=!!s.notif.digest; }
     if(s.af){
       afState.season = s.af.season || afState.season;
-      afState.leagues = s.af.leagues || {};
+      /* Build 196 — `lv` marks the packed shape. Absent means a cache from build 194 or earlier,
+         which unpackLeagues passes straight through. */
+      afState.leagues = s.af.lv === LEAGUE_PACK_V ? unpackLeagues(s.af.leagues) : (s.af.leagues || {});
       afState.leagueOrder = s.af.leagueOrder || Object.keys(afState.leagues).map(Number);
       afState.activeLeagueId = s.af.activeLeagueId || null;
       afState.selectedDate = s.af.selectedDate || '';
