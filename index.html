@@ -690,7 +690,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 196;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 197;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5790,6 +5790,52 @@ function teamSeqFor(L){
 }
 
 
+/* ══ BUILD 197 — THE LEAGUE PHASE, ENUMERATED FROM THE DATA ═════════════════════════════════════
+   The 2026-08-23 standings sweep proved the derived table wrong for five of eleven competitions:
+   Wolfsburg read 36 matches against the provider's 34, because the Bundesliga relegation play-off
+   is stored under the same league id as the 306 league games. Ligue 1, Primeira Liga, Eredivisie
+   and the Championship all the same.
+
+   THE VOCABULARY BELOW WAS READ OFF ALL 25,990 ROWS, NOT GUESSED — build 171's rule, the one the
+   venue names earned. Every kind the provider uses, counted:
+
+     Regular Season   all eight domestic leagues, including Brazil and La Liga which have nothing else
+     League Stage     the Champions League's 36-team phase from 2024 (288 fixtures over two seasons)
+     ── everything below is NOT the league phase ──
+     Relegation Round · Promotion Play-offs · Semi-finals · Final · Relegation Decider
+     Group Stage · Group A-H · Round of 16 · Quarter-finals · 8th Finals · Round of 32
+     1st/2nd/3rd Qualifying Round · Preliminary Round · Knockout Round Play-offs
+     Conference League Play-offs · Europa League Play-offs
+
+   `Relegation Decider` appears exactly ONCE in the whole database, and it is the 381st Serie A
+   fixture of 2022 that made that season fail the round-robin test — a loose end closed by the same
+   query rather than left as a curiosity.
+
+   THE CHAMPIONS LEAGUE EARNS ITS PLACE HERE ON EVIDENCE. Its own /standings response came back
+   `singleTable: true` with 36 teams, so the provider treats the League Stage as one table and so may
+   this. Seasons 2020-2023 used `Group Stage` and `Group A`-`Group H`, which are not in the set, so
+   those seasons produce no table at all — correct, automatically, with no per-season rule.
+
+   MATCHED ON THE WHOLE TOKEN BEFORE " - ", NEVER ON A SUBSTRING. `"Regular Season - 38"` splits to
+   `"Regular Season"` and is looked up in a map. A `.includes("Regular")` would also swallow anything
+   the provider invents later containing that word — the identical mistake the odds market lookup was
+   corrected for at build 158, and the reason ODDS_MARKETS is keyed on the whole name. */
+const LEAGUE_PHASE = { 'Regular Season': 1, 'League Stage': 1 };
+
+function roundKind(r){
+  if(r == null) return null;
+  const s = String(r), i = s.indexOf(' - ');
+  return i >= 0 ? s.slice(0, i) : s;
+}
+
+/* A fixture with NO round is excluded, deliberately. That is the state of a competition restored
+   from the offline cache, where `_x` does not survive — and build 190 settled that an absent table
+   beats a wrong one. renderStandings already explains that case on screen. */
+function isLeaguePhase(m){
+  const x = m && m._x;
+  return x ? LEAGUE_PHASE[roundKind(x.round)] === 1 : false;
+}
+
 /* ══ BUILD 188 — THE LEAGUE TABLE, DERIVED RATHER THAN COLLECTED ════════════════════════════════
    Milestone 13's finish-line step 5: items 48 (relegation desperation), 49 (title-race pressure)
    and 50 (dead rubbers). The roadmap said this step "needs new collection and a deploy" from build
@@ -5854,12 +5900,29 @@ function roundRobinOK(L, season, seq){
   if(prev && prev.length){
     const n = {};
     for(const i of prev){
-      const m = ms[i]; if(!m) continue;
+      const m = ms[i]; if(!m || !isLeaguePhase(m)) continue;   // build 197 — play-offs are not the league
       if(m.home) n[m.home] = (n[m.home] || 0) + 1;
       if(m.away) n[m.away] = (n[m.away] || 0) + 1;
     }
-    const names = Object.keys(n), want = 2 * (names.length - 1);
-    ok = names.length > 2 && names.every(t => n[t] === want);
+    /* BUILD 197 — THE MODE, NOT EVERY TEAM, and the data is what changed this. The first version
+       demanded that EVERY side played exactly 2*(teams-1). Measured against the real database after
+       the play-off filter landed, eight of nine leagues satisfied it and **Ligue 1 did not** — one
+       fixture is missing or void in the held history, which moves TWO teams off the number and
+       switches the test off for the whole competition. Its mode was a correct 34 throughout.
+
+       A tolerance would have been the obvious patch and would have needed a constant nobody
+       measured — the habit build 183 spent a whole build removing. The mode needs none: a double
+       round-robin has almost every team on the same count by construction, so the most common count
+       IS the season length, and a handful of gaps cannot move it. A competition with a genuinely
+       different shape still fails, which is the point. */
+    const names = Object.keys(n);
+    if(names.length > 2){
+      const want = 2 * (names.length - 1), tally = {};
+      for(const t of names) tally[n[t]] = (tally[n[t]] || 0) + 1;
+      let mode = null, best = -1;
+      for(const k in tally) if(tally[k] > best){ best = tally[k]; mode = +k; }
+      ok = mode === want;
+    } else ok = false;
   }
   cache[season] = ok;
   return ok;
@@ -5880,6 +5943,7 @@ function tableAt(L, season, upTo, seq){
     if(upTo != null && i >= upTo) break;          // never this fixture, never a later one
     const m = ms[i];
     if(!m || m.hg == null || m.ag == null) continue;
+    if(!isLeaguePhase(m)) continue;      // build 197 — a play-off result is not league points
     bump(m.home, m.hg, m.ag);
     bump(m.away, m.ag, m.hg);
   }
@@ -9892,6 +9956,9 @@ const EXTRA_KEYS = ['xg_h','xg_a','gprev_h','gprev_a','poss_h','poss_a','shots_h
      memory-only: one integer across ~22,000 matches is ~350KB of JSON, which is real against a
      ~5MB localStorage quota that fails silently (build 163). */
   'season',
+  /* BUILD 197 — the round, which is the only field separating a league fixture from a play-off.
+     Memory-only in `_x` for the same reason `season` is. */
+  'round',
   /* BUILD 187 — pass VOLUME, collected from af-19 onward. Legitimately listed here even though it
      reads 0% today: the collector writes it, which is the whole distinction the `attendance` rule
      below turns on. It fills as the detail backfill runs, and the coverage panel is the instrument
