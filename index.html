@@ -690,7 +690,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 197;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 199;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2794,19 +2794,53 @@ function latestSeasonOf(L){
 function seasonRoster(L, season){
   const out = new Set();
   if(!L || season == null) return out;
+  /* ══ BUILD 198 — THE ROSTER NOW OBEYS THE RULE THE ARITHMETIC ALREADY DID ══════════════════════
+     Build 197 filtered `tableAt` and `roundRobinOK` by league phase and LEFT THIS FUNCTION ALONE,
+     so the panel still seeded a row for every club appearing in ANY fixture of the season — the
+     club a relegation play-off was played against, and the entire qualifying field of a cup.
+     Measured in the browser against the live database, not reasoned about:
+
+         Champions League 2025   82 rows rendered   League Stage is 36
+         Champions League 2024   81                 36
+         Eredivisie, every season 24                18
+         Bundesliga / Ligue 1 / Primeira Liga  19   18
+         Libertadores, every season 47              eight groups, not a table
+
+     THE COLLECTOR'S STANDINGS PROBE COULD NOT SEE ANY OF IT. It compares arithmetic — points,
+     played, goals — and returned `match` for Bundesliga, Ligue 1, Primeira Liga and the Champions
+     League on 2026-08-23. This is the ROSTER the browser draws, which the probe never looks at, so
+     Milestone 13 was closed on an instrument structurally blind to the rows on screen. That is
+     build 190's lesson exactly one level over, and it is why the fix below was verified by running
+     these functions against real loaded data rather than by reading them. */
   for(const m of (L.matches || [])){
-    if(m && m._x && m._x.season === season){
+    if(m && m._x && m._x.season === season && isLeaguePhase(m)){
       if(m.home) out.add(m.home);
       if(m.away) out.add(m.away);
     }
   }
-  for(const f of (L.upcoming || [])){
-    /* A fixture with no season is one this app cached before build 191. Counting it would put
-       last season's relegated sides in this season's table, so it is skipped rather than guessed
-       at — the same refusal the table itself makes when the season is unknown. */
-    if(f && f.season === season){
-      if(f.home) out.add(f.home);
-      if(f.away) out.add(f.away);
+  /* UPCOMING FIXTURES CARRY NO `round` AT ALL — measured, 0 of 3,175 across all eleven
+     competitions — so they cannot be filtered the same way, and admitting them unconditionally is
+     exactly what puts a qualifying club into a League Stage table. Carrying `round` into the
+     upcoming projection was the obvious fix and was rejected: it spends localStorage, which build
+     196 established is the binding ceiling on Ken's standing direction to add many more
+     competitions, to buy something already derivable.
+
+     They are admitted only where the competition is a CONFIRMED double round-robin, because that
+     is precisely the shape in which every remaining fixture MUST be a league fixture. `roundRobinOK`
+     already answers that on the previous season, so this needs no new constant, no new column and
+     no new data. A cup, a group format, or a brand-new competition with no predecessor seeds
+     nothing and shows a table only once its league phase has actually been played — build 190's
+     rule that an absent table beats a wrong one, and the degrade-to-silence default the roadmap
+     requires of anything a new competition touches. */
+  if(roundRobinOK(L, season, seasonSeqFor(L)) === true){
+    for(const f of (L.upcoming || [])){
+      /* A fixture with no season is one this app cached before build 191. Counting it would put
+         last season's relegated sides in this season's table, so it is skipped rather than guessed
+         at — the same refusal the table itself makes when the season is unknown. */
+      if(f && f.season === season){
+        if(f.home) out.add(f.home);
+        if(f.away) out.add(f.away);
+      }
     }
   }
   return out;
@@ -2836,7 +2870,17 @@ function renderStandings(L, homeTeam, awayTeam){
   }
   const tbl = tableAsOf(L, null, season);
   if(!tbl || !tbl.rows.length){
-    box.innerHTML = '<div class="subnote">No fixtures loaded for this competition yet.</div>';
+    /* BUILD 198 — TWO DIFFERENT SILENCES HAD THE SAME SENTENCE, AND ONE OF THEM WAS A LIE.
+       A competition whose season holds no LEAGUE-PHASE fixture has plenty loaded and simply has no
+       single table to draw: the Champions League before its League Stage is drawn (1,467 matches
+       and 48 upcoming loaded, all of them qualifiers), its 2020-2023 seasons which were a group
+       stage, and the Libertadores, which is eight groups. Telling that reader "no fixtures loaded"
+       is false and invites them to reload forever chasing a table that does not exist. */
+    const anyThisSeason = (L.matches || []).some(m => m && m._x && m._x.season === season)
+                       || (L.upcoming || []).some(f => f && f.season === season);
+    box.innerHTML = anyThisSeason
+      ? '<div class="subnote">No league table for this competition yet — its fixtures this season are a qualifying round, a group stage or a knockout, and none of those is a single table. <b>A table is drawn only for a league phase.</b></div>'
+      : '<div class="subnote">No fixtures loaded for this competition yet.</div>';
     return;
   }
   /* BUILD 191 — the count is a NOTE ABOVE the table, never a replacement for it. Until now a
@@ -2860,14 +2904,27 @@ function renderStandings(L, homeTeam, awayTeam){
      play-off. Until that column is filled this panel CANNOT be made correct, so it says so rather
      than presenting a wrong table as a right one — Milestone 8's rule, one step on: a number that
      can be neither measured nor omitted is labelled. */
-  const rrOK = roundRobinOK(L, season, seasonSeqFor(L));
+  /* ══ BUILD 198 — THE CAVEAT NOW SAYS WHAT IS STILL TRUE, AND TWO THIRDS OF IT NO LONGER WAS ════
+     Build 194 wrote these warnings when the derived table really did add play-off results into
+     league points and really did pool knockout ties. Build 197's league-phase filter removed the
+     first cause; build 198's roster fix removed the second. BOTH SENTENCES OUTLIVED THEIR DEFECT —
+     the Champions League table, which now reconciles 36-for-36 against the provider's own, was
+     still telling the reader that qualifying ties might be counted in it.
+
+     A caveat describing a bug that has been fixed is not harmless caution. It is an unmeasured
+     claim on screen, which is the single thing Milestone 8 exists to forbid, and it teaches a
+     reader to discount a number that is now correct. What is kept is the one thing derivation
+     genuinely cannot do, with the date of the check that established it.
+
+     `over` IS KEPT AND RE-AIMED RATHER THAN DELETED. It can no longer fire on a play-off, so if it
+     ever fires it means a round kind reached this table that LEAGUE_PHASE does not classify — which
+     is exactly what a newly added competition can do, and Ken's standing direction is that many are
+     coming. It is a tripwire for that, not a caveat about known data, and it is worded as one. */
   const maxLeague = 2 * (tbl.rows.length - 1);
   const over = tbl.rows.filter(r => r.pl > maxLeague).length;
   const caveat =
-    (over ? `<div class="subnote"><b style="color:var(--gold)">Play-off results are counted in here.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} league matches a ${tbl.rows.length}-team season contains. Measured against the provider on 2026-08-20.</div>`
-     : rrOK !== true ? `<div class="subnote"><b style="color:var(--gold)">This competition plays more than a round-robin</b>, so qualifying or knockout ties may be counted in here. Measured against the provider on 2026-08-20.</div>`
-     : '') +
-    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b> — the same check found three in the Championship (Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2).</div>`;
+    (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name MatchMind does not yet classify.</div>` : '') +
+    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b> — checked against the provider on 2026-08-23, which found three in the Championship (Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2) and none anywhere else across ten competitions.</div>`;
   const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
   const note = played === 0
     ? '<div class="subnote">Season not started — every side is listed and every number is nought until the first results come in.</div>'
@@ -4606,6 +4663,16 @@ async function fetchMatchContext(){
    overwrites it (`ignoreDuplicates`). Whoever looks first sets the record; later viewers, and later
    versions of the engine, cannot rewrite history. */
 const archiveQueue = new Map();
+/* BUILD 199 — A SECOND QUEUE, BECAUSE THESE ARE TWO DIFFERENT WRITES AND THE FIRST DRAFT CONFLATED
+   THEM. Measured in the browser against real data before this was split: 2,445 PATCH requests on a
+   single load, one per published fixture, sequentially awaited — because every published fixture was
+   re-queued on every load. Worse, the value written was `f.pick`, which for a published fixture IS
+   the archived pick, so `final_pick` would have faithfully recorded that nothing ever drifts.
+   A storm of requests, each carrying a tautology. Neither was visible to any structural check. */
+const driftQueue = new Map();
+/* Deliberately small. This is bookkeeping about a pick that is already published and already
+   correct on screen; it must never compete with the app for a user's connection. */
+const DRIFT_PER_FLUSH = 40;
 let archiveTimer = null;
 /* True once the whistle has gone. Kick-off times are stored UTC; a fixture with no time is treated
    as started only when its date is behind us. */
@@ -4636,52 +4703,159 @@ function kickoffPassed(f){
    publishing path (the ladder) was added, this write site was not revisited.
 
    `hp` is deliberately no longer accepted. The published pick is the only pick this may store. */
+/* ══ BUILD 199 — FIRST PUBLICATION IS PERMANENT ════════════════════════════════════════════════
+   Ken, 2026-08-23: *"picks should freeze once they appear on the app. imagine someone betting with
+   the tip only to later realize the tip has disappeared because they were taken off just before
+   kickoff."*
+
+   He is describing two real behaviours, both of which were in this file by deliberate design:
+     1. THE PICK CHANGED. This function upserted on every load, so when the ladder walked to a
+        different rung the published pick was overwritten. A user who backed `1X` at 10:04 found the
+        record saying `1`.
+     2. THE PICK VANISHED. `unarchivePrediction` DELETED the row when the competition's bar rose —
+        the auto-gate is raise-only — so a fixture published in the morning was gone by kick-off.
+
+   BUILD 142 CHASED THE MIRROR IMAGE OF THE SAME BUG and fixed it in the wrong direction. There, a
+   fixture read "No edge here" on screen and came back graded `1X ✗`, and the fix was to keep the
+   archive equal to the CURRENT state: publish -> write, withhold -> delete. That does keep the
+   screen and the record consistent — by discarding the claim the user actually acted on.
+
+   The rule that satisfies both: **a pick is committed the first time it is shown to anyone, and is
+   never overwritten, never deleted, and never withdrawn from the screen.** Build 142's
+   incoherence cannot recur, because the app now never tells anyone "no pick exists" for a fixture
+   where one was published; it says the pick, and says the model has stopped backing it. Screen and
+   record still agree at every moment, which was always M5's actual requirement.
+
+   WHY THIS IS SERVER-SIDE AND NOT A localStorage FLAG. If each device froze its own first view, two
+   users would hold different "frozen" picks for one match and a public ROI ledger would be
+   meaningless. `predictions` is keyed on `fxid` (`predictions_pkey PRIMARY KEY (fxid)`, read from
+   the database 2026-08-23) and the write below is INSERT-IF-ABSENT, so the first device to render a
+   qualifying fixture commits it for everyone and every later device reads that row back.
+
+   The consequence, stated rather than discovered: A PICK IS PUBLISHED THE FIRST TIME ANYONE OPENS
+   THE APP ON IT. If nobody looks, nothing is committed — which is correct, because nobody could
+   have acted on it. This app already said so in the archive panel; it is now the rule. */
 function archivePrediction(L, f, p){
   if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
   if(!f.pick || f.prob == null) return;          // nothing was published — nothing to archive
-  /* Only ever written BEFORE kick-off, so overwriting is safe and is what we want: the snapshot
-     should be the last price the app showed, not the one it happened to compute a week out. After
-     kick-off this returns immediately, which is what makes the record un-rewritable (build 62). */
+  /* After kick-off nothing is written at all, which is what has made the record un-rewritable since
+     build 62 and is unchanged. What build 199 changes is the window BEFORE kick-off, which used to
+     be freely rewritable and now is not. */
   if(kickoffPassed(f)) return;
+  if(afState.archive && afState.archive[f.fxid]) return;   // already published — never rewritten
   archiveQueue.set(f.fxid, {
     fxid: f.fxid, lid: L.id, lname: L.name, kickoff: f.date, ktime: f.time || null,
     home: f.home, away: f.away,
     p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
     xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
     pick: f.pick, pick_prob:+(+f.prob).toFixed(4),   // THE PUBLISHED PICK. Never the headline.
+    /* build 199 — stamped, not derived later, for build 120's reason: deriving the market from the
+       code works today and breaks the first time a code is reused or renamed. */
+    market: pickMarket(f.pick),
     build: APP_BUILD, made_at: new Date().toISOString()
   });
   // batch, so opening the Predict tab is one write rather than forty
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(flushPredictionArchive, 2500);
 }
-/* BUILD 142 — the second half of the same bug. Bragantino v Corinthians read "No edge here"
-   before kick-off and came back as "1X ✗" afterwards.
 
-   A gated fixture is never archived — but one archived on an EARLIER load, before the competition's
-   bar rose (the auto-gate is raise-only, §47), leaves a stale row behind. After kick-off that row
-   is restored and a pick the user was explicitly told did not exist appears, graded, in the record.
-
-   So the archive is kept equal to what was published: publish -> upsert, withhold -> remove. */
-function unarchivePrediction(f){
-  if(!f || !f.fxid) return;
-  archiveQueue.delete(f.fxid);
-  if(afState.archive && afState.archive[f.fxid]) delete afState.archive[f.fxid];
-  if(!supa || kickoffPassed(f)) return;           // after kick-off the record is untouchable
-  if(_unarchived.has(f.fxid)) return;             // once per session is enough
-  _unarchived.add(f.fxid);
-  try{ supa.from('predictions').delete().eq('fxid', f.fxid).then(()=>{}, ()=>{}); }catch(e){}
+/* THE MODEL'S CURRENT VIEW OF AN ALREADY-PUBLISHED FIXTURE. Never touches `pick`, and is written
+   ONLY when it differs from what is already recorded — otherwise steady state is one request per
+   fixture per load, forever, to store a value that has not changed. */
+function recordDrift(f, now){
+  if(!supa || !f || !f.fxid || !now || driftQueue.has(f.fxid)) return;
+  if(kickoffPassed(f)) return;
+  const a = afState.archive ? afState.archive[f.fxid] : null;
+  if(!a) return;                                   // nothing published — nothing to drift from
+  if(now.code === (a.finalPick || a.pick)) return; // already recorded; say nothing
+  a.finalPick = now.code;                          // local, so one load does not queue it twice
+  driftQueue.set(f.fxid, { fxid: f.fxid, final_pick: now.code,
+                           final_prob: +(+now.prob).toFixed(4), final_at: new Date().toISOString() });
+  clearTimeout(archiveTimer);
+  archiveTimer = setTimeout(flushPredictionArchive, 2500);
 }
-const _unarchived = new Set();
+/* ⚠ BUILD 199 REVERSED THIS FUNCTION, AND THE ORIGINAL REASONING IS KEPT BECAUSE IT WAS HALF RIGHT.
+   Build 142: Bragantino v Corinthians read "No edge here" before kick-off and came back as "1X ✗".
+   A fixture archived on an EARLIER load, before the competition's bar rose (the auto-gate is
+   raise-only, §47), left a row behind that reappeared graded after kick-off — a pick the user had
+   been told did not exist. Build 142 deleted the row.
 
+   THE DIAGNOSIS WAS RIGHT AND THE DIRECTION WAS WRONG. The incoherence is not that the row exists;
+   it is that the SCREEN and the ROW disagreed. Deleting fixes that by throwing away the claim a
+   user may already have backed — which is precisely the failure Ken reported at build 199. Keeping
+   fixes it too, provided the screen keeps showing the pick as well. So this no longer deletes: it
+   stamps `withheld_at`, the row stays, the pick stays on screen, and the fixture is labelled as one
+   the model has stopped backing. Nothing is ever told to a user and then unsaid. */
+function markWithheld(f){
+  if(!f || !f.fxid) return;
+  /* NOT removed from afState.archive — the display reads it, and a published pick must survive the
+     bar rising. That single line is the whole of Ken's bug. */
+  if(!supa || kickoffPassed(f)) return;           // after kick-off the record is untouchable
+  if(!afState.archive || !afState.archive[f.fxid]) return;   // never published — nothing to withhold
+  if(afState.archive[f.fxid].withheldAt) return;             // already stamped
+  if(_withheldStamped.has(f.fxid)) return;        // once per session is enough
+  _withheldStamped.add(f.fxid);
+  const at = new Date().toISOString();
+  afState.archive[f.fxid].withheldAt = at;
+  try{ supa.from('predictions').update({ withheld_at: at }).eq('fxid', f.fxid).then(()=>{}, ()=>{}); }catch(e){}
+}
+const _withheldStamped = new Set();
+
+/* BUILD 199 — TWO WRITES WITH TWO DIFFERENT MEANINGS, WHERE THERE USED TO BE ONE UPSERT.
+   A fixture nobody has published yet is INSERTED and never overwritten. A fixture already published
+   gets only its `final_*` columns updated, so the first pick is untouchable while the model's
+   current view is still recorded — which is what makes "does late re-pricing actually improve
+   accuracy?" a question this project can answer instead of assume. */
 async function flushPredictionArchive(){
-  if(!supa || !archiveQueue.size) return;
-  const rows = [...archiveQueue.values()];
-  archiveQueue.clear();
+  if(!supa || (!archiveQueue.size && !driftQueue.size)) return;
+  const fresh = [...archiveQueue.values()];
+  const moved = [...driftQueue.values()];
+  archiveQueue.clear(); driftQueue.clear();
   try{
-    // overwrite is allowed here only because nothing reaches this line after kick-off (build 62)
-    await supa.from('predictions').upsert(rows, { onConflict:'fxid' });
+    if(fresh.length){
+      /* ignoreDuplicates is the whole mechanism. Two devices racing on the same fixture both send
+         an insert; the first lands, the second is discarded by the primary key rather than
+         overwriting it. `onConflict` names the key that decides. */
+      await supa.from('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
+      /* READ BACK, because the row that won may not be the row this device sent. Optimistically
+         trusting our own payload is how two phones end up showing different "frozen" picks, which
+         is the exact incoherence this build exists to remove. */
+      const { data } = await supa.from('predictions')
+        .select('fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build')
+        .in('fxid', fresh.map(r => r.fxid));
+      if(data){
+        afState.archive = afState.archive || {};
+        for(const r of data) afState.archive[r.fxid] = archiveRow(r);
+      }
+    }
+    /* PATCH cannot carry different values for different rows, so these stay one request each — but
+       there are now only as many as there are fixtures whose model view actually CHANGED since the
+       last write, which is nothing at all on a steady load.
+
+       CAPPED, BECAUSE "NOTHING ON A STEADY LOAD" IS NOT THE FIRST LOAD. Measured in the browser on
+       real data: the very first device to run this build faces ~645 of them, because no fixture has
+       a `final_pick` yet. Once written they are read back and never re-sent, so the cost is paid
+       once globally rather than per device — but paying it as 645 sequential requests on a phone on
+       mobile data is not acceptable, so the remainder is put back and goes out on the next flush. */
+    const rest = moved.slice(DRIFT_PER_FLUSH);
+    for(const r of rest) driftQueue.set(r.fxid, r);
+    if(rest.length){ clearTimeout(archiveTimer); archiveTimer = setTimeout(flushPredictionArchive, 4000); }
+    for(const r of moved.slice(0, DRIFT_PER_FLUSH)){
+      await supa.from('predictions')
+        .update({ final_pick:r.final_pick, final_prob:r.final_prob, final_at:r.final_at })
+        .eq('fxid', r.fxid);
+    }
   }catch(e){ /* archiving must never interrupt the app */ }
+}
+
+/* One shape for an archive entry, built in one place. loadArchive and the read-back above both
+   produce it, and a second spelling of the same row is how `fixtures.xg_h` and `predictions.xg_home`
+   came to disagree. */
+function archiveRow(r){
+  return { pick:r.pick, prob:r.pick_prob, market:r.market || null,
+           pW:r.p_home, pD:r.p_draw, pL:r.p_away, xgH:r.xg_home, xgA:r.xg_away,
+           at:r.made_at || null, withheldAt:r.withheld_at || null, finalPick:r.final_pick || null,
+           recon: r.build === RECONSTRUCTED };
 }
 
 /* ---------- calibration report (build 41) ----------/* ---------- calibration report (build 41) ----------
@@ -10133,12 +10307,16 @@ async function loadArchive(){
   if(!supa) return;
   try{
     const from = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // a month back (build 70)
+    /* build 199 — market, made_at and withheld_at join the select. The window already had no upper
+       date bound, so UPCOMING fixtures were always being fetched and were simply never applied
+       before kick-off; that is what made freezing on first publication a small change rather than a
+       new round trip. */
     const { data, error } = await fetchAllRows('predictions',
-      'fxid,pick,pick_prob,p_home,p_draw,p_away,xg_home,xg_away,build', q => q.gte('kickoff', from));
+      'fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build',
+      q => q.gte('kickoff', from));
     if(error || !data) return;
     const m = {};
-    for(const r of data) m[r.fxid] = { pick:r.pick, prob:r.pick_prob, pW:r.p_home, pD:r.p_draw, pL:r.p_away,
-                                       xgH:r.xg_home, xgA:r.xg_away, recon: r.build === RECONSTRUCTED };
+    for(const r of data) m[r.fxid] = archiveRow(r);
     afState.archive = m;
   }catch(e){}
 }
@@ -10231,15 +10409,27 @@ async function loadCloudLeagues(force){
                Order of trust: the archived pre-match prediction, then whatever is already stored,
                then a fresh calculation — and only ever a fresh one before kick-off. */
             const started = f._fin || kickoffPassed(f);
-            const arch = started && afState.archive ? afState.archive[f.fxid] : null;
-            if(arch){ f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL; f.frozen = true; }
+            /* BUILD 199 — THE ARCHIVE IS APPLIED WHETHER OR NOT THE MATCH HAS STARTED, and that
+               dropped `started &&` is the whole of Ken's fix. The window this app used to leave
+               freely rewritable was the one where it matters most: between a user reading a tip and
+               the match kicking off. `loadArchive` never had an upper date bound, so these rows were
+               already being fetched for upcoming fixtures and simply thrown away. */
+            const arch = afState.archive ? afState.archive[f.fxid] : null;
+            /* The ladder still runs on every load — not to publish, but so the CURRENT model view
+               can be recorded in `final_*` and shown beside a pick it has moved away from. */
+            const lp = started ? null : ladderPick(p, f.home, f.away, L);
+            if(arch){
+              f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL;
+              if(arch.market) f.market = arch.market;
+              f.frozen = true;
+              f.publishedAt = arch.at || null;
+            }
             else if(started && f.pick){ f.frozen = true; }
             else if(!started){
               /* BUILD 119 — walk the ladder to the bar instead of committing to a rung and then
                  failing it. `headlinePick` is untouched and still drives every measurement panel;
                  what changes is only what gets PUBLISHED. When no rung clears, the headline is kept
                  so the fixture can still say what it was and why it is being withheld. */
-              const lp = ladderPick(p, f.home, f.away, L);
               f.pick   = lp ? lp.code   : hp.code;
               f.prob   = lp ? lp.prob   : +hp.prob.toFixed(3);
               f.market = lp ? lp.market : 'Winner';
@@ -10257,13 +10447,35 @@ async function loadCloudLeagues(force){
                they had: recomputing it after kick-off would re-describe a published pick, which
                is the drift build 62 removed. */
             f.formM = started ? f.formM : formMarginFor(L, f.home, f.away, f.pick);
-            f.gated = started ? null : gateReason(L, f, f.pick, f.prob);
-            // a withheld pick is not recorded either — the record must contain what was published
-            /* build 142 — the archive must equal what was published, in BOTH directions.
-               Publishing writes the pick that was shown; withholding removes any row an earlier
-               load left behind, so a gated fixture cannot come back graded after kick-off. */
-            if(!f._fin && !f.gated){ recordPick(L.name,f); archivePrediction(L, f, p); }
-            else if(!f._fin && f.gated) unarchivePrediction(f);
+            /* ══ BUILD 199 — A PUBLISHED PICK IS NEVER GATED AGAIN ═══════════════════════════
+               `gateReason` decides what the app is willing to SAY. Once it has said something, the
+               question is settled for that fixture: re-asking it is how a tip disappeared from under
+               a user who had already backed it. So the gate now applies only to fixtures that have
+               never been published. */
+            f.gated = (started || arch) ? null : gateReason(L, f, f.pick, f.prob);
+            /* WHAT THE MODEL THINKS NOW, WHICH IS A DIFFERENT QUESTION FROM WHAT WAS PUBLISHED.
+               Both are shown. `moved` is the model having walked to another rung; `unbacked` is it
+               no longer clearing the bar at all. Neither changes the pick, the record or the
+               grading — they are the honest label on a claim the app is standing behind. */
+            f.moved = null; f.unbacked = null;
+            if(arch && !started){
+              const nowGate = lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
+              if(lp && lp.code !== arch.pick) f.moved = { pick:lp.code, prob:lp.prob, market:lp.market };
+              if(nowGate || arch.withheldAt) f.unbacked = nowGate || 'withdrawn earlier';
+            }
+            /* build 142's rule, corrected at 199. Publishing writes the pick that was shown and can
+               only ever INSERT. An unpublished fixture that fails the bar writes nothing at all —
+               that half of build 142 was right and is why its "1X ✗" cannot recur. A PUBLISHED
+               fixture that later fails the bar is stamped, not deleted. */
+            if(!f._fin && !f.gated){
+              recordPick(L.name,f);
+              /* Two mutually exclusive writes. An unpublished fixture is INSERTED once and never
+                 again; a published one can only ever have its `final_*` columns moved, and only
+                 when they actually changed. */
+              if(!arch) archivePrediction(L, f, p);
+              else      recordDrift(f, lp);
+            }
+            if(!f._fin && arch && f.unbacked) markWithheld(f);
           }
         }
       }
@@ -10953,10 +11165,18 @@ function renderFixtures(){
        · the pick was WITHHELD before kick-off and unarchivePrediction removed the row (build 142,
          so a gated fixture cannot come back graded).
 
-     A build that re-tunes the engine moves the gate, so pending fixtures get re-judged and some
-     lose their row — which is why Ken saw matches vanish "after every build". Every step is
-     correct and the visible result is a match disappearing with no explanation, plus an empty-state
-     message that says "no matches were played" when matches were played.
+     ✅ **THE SECOND CAUSE IS GONE AT BUILD 199, AND IT WAS THE SAME REPORT AS THIS ONE.** Ken again,
+     2026-08-23: *"imagine someone betting with the tip only to later realize the tip has
+     disappeared because they were taken off just before kickoff."* Build 164 patched the symptom —
+     show the fixture with no pick rather than let it vanish. Build 199 removes the cause: a
+     published pick is never deleted and never re-gated, so a row cannot be taken away from a user
+     who already had it. **The first cause remains and is correct**: if nobody opened the app before
+     kick-off, nothing was ever published and there is nothing to show. This filter still handles
+     that, and it is still the honest answer to it.
+
+     A build that re-tunes the engine moves the gate, so pending fixtures get re-judged — which is
+     why Ken saw matches vanish "after every build". At 199 a re-judged fixture keeps its published
+     pick and gains a label instead of losing its row.
 
      This is build 118's own rule, which was only ever applied to fixtures that had not kicked off:
      "show the fixture, no pick... rather than the fixture quietly disappearing, which would leave
