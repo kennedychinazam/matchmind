@@ -694,7 +694,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 201;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 202;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4803,6 +4803,39 @@ const driftQueue = new Map();
 /* Deliberately small. This is bookkeeping about a pick that is already published and already
    correct on screen; it must never compete with the app for a user's connection. */
 const DRIFT_PER_FLUSH = 40;
+
+/* ══ BUILD 202 — THE ARCHIVE STOPS FAILING IN SILENCE ══════════════════════════════════════════
+   On 2026-08-23 a query showed the prediction archive had not been written since 2026-08-15 19:23 —
+   EIGHT DAYS, across builds 161 to 200, with no symptom anywhere. The cause was a missing UPDATE
+   policy: build 198's merge-duplicates upsert is `INSERT ... ON CONFLICT DO UPDATE`, which under RLS
+   needs INSERT *and* UPDATE grants, and one already-stored fixture failed the entire batch — so new
+   fixtures never landed either.
+
+   🚨 AND THE FAILURE WAS QUIETER THAN A SWALLOWED EXCEPTION. `catch(e){}` was not what hid it:
+   **supabase-js does not throw on a policy denial, it RETURNS `{ error }`** — and nothing here ever
+   looked at the return value. There was no exception to catch. The archive reported success by
+   saying nothing, which is precisely build 90's fault ("filtering on two columns that did not exist
+   and reported ok:true, sent:0 for weeks"). The collector learned to read the write result at build
+   90 and the archive rebuild path at the bottom of this file reads `{ error: upErr }`; this path
+   never did.
+
+   So every archive write now reads its result, and the first failure is REPORTED. Deliberately no
+   toast: build 196 toasts a `saveState` failure because that degrades the user's OWN data —
+   favourites and results stop persisting on their phone. This degrades the SHARED record, which
+   changes nothing the user can see, so it is announced in the console and on the panel that reports
+   the archive, where anyone asking "is the record being kept?" is already looking. Alarming every
+   user about a backend policy is noise; leaving Ken to find it in eight days is what happened. */
+let archiveFailed = null;
+function archiveFailure(op, err){
+  if(!err) return false;
+  const first = !archiveFailed;
+  archiveFailed = { at: new Date().toISOString(), op, msg: String((err && err.message) || err) };
+  if(first){
+    try{ console.warn('MatchMind: prediction archive write failed —', op, '—', archiveFailed.msg,
+                      '— published picks are NOT reaching the shared record.'); }catch(_){}
+  }
+  return true;
+}
 let archiveTimer = null;
 /* True once the whistle has gone. Kick-off times are stored UTC; a fixture with no time is treated
    as started only when its date is behind us. */
@@ -4898,8 +4931,9 @@ function recordDrift(f, now){
   const a = afState.archive ? afState.archive[f.fxid] : null;
   if(!a) return;                                   // nothing published — nothing to drift from
   if(now.code === (a.finalPick || a.pick)) return; // already recorded; say nothing
+  const wasFinal = a.finalPick;                    // build 202 — restored if the write is refused
   a.finalPick = now.code;                          // local, so one load does not queue it twice
-  driftQueue.set(f.fxid, { fxid: f.fxid, final_pick: now.code,
+  driftQueue.set(f.fxid, { fxid: f.fxid, final_pick: now.code, _wasFinal: wasFinal,
                            final_prob: +(+now.prob).toFixed(4), final_at: new Date().toISOString() });
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(flushPredictionArchive, 2500);
@@ -4927,7 +4961,16 @@ function markWithheld(f){
   _withheldStamped.add(f.fxid);
   const at = new Date().toISOString();
   afState.archive[f.fxid].withheldAt = at;
-  try{ supa.from('predictions').update({ withheld_at: at }).eq('fxid', f.fxid).then(()=>{}, ()=>{}); }catch(e){}
+  /* BUILD 202 — the local stamp above is OPTIMISTIC, and if the write does not land it must not
+     become a permanent lie. Both guards are released on failure so the next load tries again;
+     otherwise one denied request means this fixture is never stamped for the life of the install. */
+  const undo = () => { _withheldStamped.delete(f.fxid);
+                       if(afState.archive && afState.archive[f.fxid]) afState.archive[f.fxid].withheldAt = null; };
+  try{
+    supa.from('predictions').update({ withheld_at: at }).eq('fxid', f.fxid)
+      .then(r => { if(r && r.error && archiveFailure('withhold', r.error)) undo(); },
+            e => { archiveFailure('withhold', e); undo(); });
+  }catch(e){ archiveFailure('withhold', e); undo(); }
 }
 const _withheldStamped = new Set();
 
@@ -4946,13 +4989,19 @@ async function flushPredictionArchive(){
       /* ignoreDuplicates is the whole mechanism. Two devices racing on the same fixture both send
          an insert; the first lands, the second is discarded by the primary key rather than
          overwriting it. `onConflict` names the key that decides. */
-      await supa.from('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
+      const ins = await supa.from('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
+      /* THE LINE WHOSE ABSENCE COST EIGHT DAYS. A denied insert comes back as `{ error }`, not as a
+         throw, so without this the batch vanishes and the app carries on looking healthy. Nothing is
+         re-queued: `archivePrediction` re-queues on the next load anyway, because the fixture still
+         has no row in `afState.archive`. Retry is already the shape of the system. */
+      if(ins && ins.error) archiveFailure('publish', ins.error);
       /* READ BACK, because the row that won may not be the row this device sent. Optimistically
          trusting our own payload is how two phones end up showing different "frozen" picks, which
          is the exact incoherence this build exists to remove. */
-      const { data } = await supa.from('predictions')
+      const { data, error: readErr } = await supa.from('predictions')
         .select('fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build')
         .in('fxid', fresh.map(r => r.fxid));
+      if(readErr) archiveFailure('read back', readErr);
       if(data){
         afState.archive = afState.archive || {};
         for(const r of data) afState.archive[r.fxid] = archiveRow(r);
@@ -4971,11 +5020,16 @@ async function flushPredictionArchive(){
     for(const r of rest) driftQueue.set(r.fxid, r);
     if(rest.length){ clearTimeout(archiveTimer); archiveTimer = setTimeout(flushPredictionArchive, 4000); }
     for(const r of moved.slice(0, DRIFT_PER_FLUSH)){
-      await supa.from('predictions')
+      const up = await supa.from('predictions')
         .update({ final_pick:r.final_pick, final_prob:r.final_prob, final_at:r.final_at })
         .eq('fxid', r.fxid);
+      if(up && up.error && archiveFailure('drift', up.error)){
+        /* release the optimistic local guard so the next load re-queues this one */
+        const a = afState.archive && afState.archive[r.fxid];
+        if(a) a.finalPick = r._wasFinal || null;
+      }
     }
-  }catch(e){ /* archiving must never interrupt the app */ }
+  }catch(e){ archiveFailure('flush', e); }   /* still never interrupts the app — but never silent */
 }
 
 /* One shape for an archive entry, built in one place. loadArchive and the read-back above both
@@ -9459,6 +9513,14 @@ async function renderArchiveDay(){
       : `<div class="frow"><span class="muted">Predictions stored</span><b>${preds.length}</b></div>`;
     if(graded && graded < preds.length)
       html += `<div class="frow"><span class="muted">Still to finish</span><b>${preds.length-graded}</b></div>`;
+    /* BUILD 202 — THE ARCHIVE'S OWN HEALTH, ON THE PANEL THAT REPORTS THE ARCHIVE. Between
+       2026-08-15 and 08-23 this panel would have shown a perfectly plausible count for a table
+       nothing had written in eight days, because a stored count cannot distinguish "kept up to date"
+       from "frozen". This line is the difference, and it is here rather than in a toast because it
+       is where someone asking "is the record being kept?" is already looking. */
+    if(archiveFailed)
+      html += `<div class="frow"><span class="muted">⚠ Archive write</span><b style="color:var(--gold)">failing — ${escapeHtml(archiveFailed.op)}</b></div>`
+            + `<div class="subnote">Published picks are not reaching the shared record. What you see is still correct; the stored history is not being added to. <span class="muted">${escapeHtml(archiveFailed.msg)}</span></div>`;
 
 
     /* The country is shown only when it is needed to tell two headings apart — Milestone 2's
