@@ -649,6 +649,7 @@
       <button id="loadCsvBtn"></button><button id="motStudyBtn"></button>
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
+      <button id="ledgerBtn"></button><div id="ledgerOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <button id="restBtn"></button><div id="restOut"></div>
       <button id="formBtn"></button><div id="formOut"></div>
@@ -694,7 +695,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 202;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 203;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4938,6 +4939,163 @@ function recordDrift(f, now){
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(flushPredictionArchive, 2500);
 }
+/* ══ BUILD 203 — THE PERFORMANCE LEDGER ════════════════════════════════════════════════════════
+   Ken's strategy document: *"Sports tipsters are infamous for deleting losing picks and lying about
+   win rates... an uneditable, automated log of every pick made in the past 30 days."*
+
+   THE HARD HALF WAS ALREADY BUILT AND IS NOT HERE. What makes this credible is not the panel, it is
+   that a published pick is INSERTED ONCE AND NEVER REWRITTEN (build 199) and that the database has
+   no UPDATE policy on `pick` and no DELETE policy at all (build 202's SQL). This function only
+   reads. It cannot flatter the record because it has no way to change it.
+
+   🚨 AND IT SHIPS WITHOUT ROI, WHICH THE DOCUMENT ASKED FOR. Measured on the real table, 2026-08-24,
+   171 published picks over 30 days:
+
+       Double Chance 71 (42%) · Draw No Bet 57 (33%) · Goals 27 (16%) · Winner 16 (9%)
+
+   `fixtures` carries closing prices for 1X2 ONLY; every other market lives in `odds_snapshots`. So
+   an ROI built from the fixture row would describe **9% of what this app publishes** while being
+   labelled as the app's return — which is a wrong number wearing the name of a right one, the exact
+   fault build 165 was corrected for. ROI arrives with Milestone 15, which is where the snapshot join
+   belongs. Until then the ledger reports what it can actually measure, and says why the rest is
+   missing.
+
+   WHAT IT REPORTS INSTEAD, and why each is the honest choice:
+     · HIT RATE PER MARKET, never pooled. A 90% Double Chance and a 55% Winner are different products
+       and one number covering both flatters the harder one out of existence.
+     · CALIBRATION — stated confidence against what actually happened, in the bands `calBucket`
+       already defines. This is the measure that cannot be gamed by picking easy markets: a market
+       that says 80% and delivers 80% is honest whatever the price.
+     · VOIDS SEPARATED. A drawn Draw No Bet returned the stake; counting it as a loss understates the
+       record and counting it as a win overstates it, so it is neither (build 119).
+     · Picks the model later moved away from, or stopped backing, are FLAGGED and still counted.
+       They were published, so they are in the record — that is the whole of build 199. */
+const LEDGER_DAYS = 30;
+async function renderLedger(){
+  const out = $('ledgerOut'); if(!out) return;
+  if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend, which isn\'t configured on this device.</div>'; return; }
+  out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading the published record…</div>';
+  try{
+    const from = new Date(Date.now() - LEDGER_DAYS*86400000).toISOString().slice(0,10);
+    const { data: preds, error } = await supa.from('predictions')
+      .select('fxid,lid,lname,kickoff,ktime,home,away,pick,pick_prob,market,made_at,final_pick,withheld_at,build')
+      .gte('kickoff', from).lte('kickoff', todayStrLocal()).order('kickoff', {ascending:false});
+    if(error) throw error;
+    if(!preds || !preds.length){
+      out.innerHTML = `<div class="subnote">Nothing published in the last ${LEDGER_DAYS} days. A fixture is only recorded if someone had the app open before it kicked off.</div>`;
+      return;
+    }
+    /* Results come from `fixtures`, because `predictions` deliberately stores no outcome column —
+       the archive holds WHAT WAS PUBLISHED and the result is a fact about the match. Grading at read
+       time is what makes the two impossible to disagree. */
+    const ids = preds.map(r=>r.fxid);
+    const res = {};
+    for(let i=0;i<ids.length;i+=200){
+      const { data: fx } = await supa.from('fixtures')
+        .select('fxid,gh,ga,status,provider').in('fxid', ids.slice(i,i+200));
+      for(const f of (fx||[])) res[f.fxid] = f;
+    }
+
+    /* build -1 is a RECONSTRUCTION and build < 62 predates the freeze rule, so neither is evidence
+       about what this app told anybody. Counted separately rather than dropped silently. */
+    const rows = [], excluded = [];
+    for(const r of preds){
+      const stale = (r.build||0) < FROZEN_FROM_BUILD || r.build === RECONSTRUCTED;
+      const f = res[r.fxid];
+      const done = f && ['FINISHED','FT','AET','PEN'].includes(f.status) && f.gh!=null && f.ga!=null;
+      const g = done ? gradePick(r.pick, actualCode(f.gh,f.ga), f.gh, f.ga) : null;
+      /* 🚨 THREE DIFFERENT SILENCES, MEASURED ON THE REAL TABLE RATHER THAN GUESSED. Of 164 past
+         picks, 34 could not be graded, and the first draft of this panel filed all 34 as "not yet
+         played" — implying the app is waiting on results that are never arriving. Asking the
+         database what was actually wrong with them gave three distinct answers:
+
+             26  provider is null, status stuck at NS   the RETIRED collector's rows
+              6  status LIVE                            in play right now
+              2  status POSTPONED                       no result exists to wait for
+
+         THE FIRST GROUP IS THE ONE THAT MATTERS AND IT IS NOT WHAT IT LOOKED LIKE. The fixtures are
+         present — the ids resolve perfectly well. They are frozen at NS forever because
+         `refresh-scores-10min` was unscheduled at build 161 and nothing has updated them since, so
+         they will read "not started" for as long as the table exists. They are visible in the list
+         as duplicates under the old provider's competition names ("Primera Division" beside
+         "La Liga", "Campeonato Brasileiro Série A" beside "Serie A"). Counted and named, never
+         quietly dropped — the whole point of the panel is that nothing disappears. */
+      const dead = f ? (f.provider !== 'af' && !done && r.kickoff < todayStrLocal()) : (r.kickoff < todayStrLocal());
+      const off  = !!(f && /POSTPON|CANCEL|ABAND|SUSP|AWARD/i.test(String(f.status||'')));
+      /* IN PLAY IS A STATUS, NOT A DATE. The first version asked whether kick-off had arrived,
+         which counted every one of today's not-yet-started fixtures as live — on a panel whose
+         entire purpose is that its numbers mean what they say. The provider's own live codes
+         are the only thing that knows. */
+      const live = !!(f && !done && !off && !dead && /^(1H|2H|HT|ET|BT|P|LIVE|INT)$/i.test(String(f.status||'')));
+      const orphan = dead;
+      (stale ? excluded : rows).push({ r, f, done, g, orphan, off, live,
+        market: r.market || pickMarket(r.pick),
+        moved: !!(r.final_pick && r.final_pick !== r.pick), withheld: !!r.withheld_at });
+    }
+
+    const graded = rows.filter(x => x.g === 'hit' || x.g === 'miss');
+    const voids  = rows.filter(x => x.g === 'void');
+    const orphans= rows.filter(x => x.orphan);
+    const pending= rows.filter(x => !x.done && !x.orphan && !x.off && !x.live);
+    const hits   = graded.filter(x => x.g === 'hit').length;
+
+    let html = `<div class="frow"><span class="muted">Published picks</span><b>${rows.length}</b></div>`
+      + `<div class="frow"><span class="muted">Graded</span><b>${graded.length}</b></div>`
+      + (graded.length ? `<div class="frow"><span class="muted">Hit rate</span><b style="color:var(--green2)">${hits}/${graded.length} (${(100*hits/graded.length).toFixed(0)}%)</b></div>` : '')
+      + (voids.length ? `<div class="frow"><span class="muted">Void (stake returned)</span><b>${voids.length}</b></div>` : '')
+      + (pending.length ? `<div class="frow"><span class="muted">Not yet played</span><b>${pending.length}</b></div>` : '')
+      + (orphans.length ? `<div class="frow"><span class="muted">No result on record</span><b>${orphans.length}</b></div>` : '')
+      + (rows.filter(x=>x.off).length ? `<div class="frow"><span class="muted">Postponed or abandoned</span><b>${rows.filter(x=>x.off).length}</b></div>` : '')
+      + (rows.filter(x=>x.live).length ? `<div class="frow"><span class="muted">In play</span><b>${rows.filter(x=>x.live).length}</b></div>` : '');
+
+    /* PER MARKET, because pooling them is the flattering mistake. */
+    const mk = {};
+    for(const x of graded){ const m = (mk[x.market] = mk[x.market] || {n:0,h:0}); m.n++; if(x.g==='hit') m.h++; }
+    const mkKeys = Object.keys(mk).sort((a,b)=>mk[b].n-mk[a].n);
+    if(mkKeys.length){
+      html += `<div class="sec-label" style="margin-top:14px">By market</div>`;
+      for(const k of mkKeys)
+        html += `<div class="frow"><span class="muted">${escapeHtml(k)}</span><b>${mk[k].h}/${mk[k].n} (${(100*mk[k].h/mk[k].n).toFixed(0)}%)</b></div>`;
+      html += `<div class="subnote">These are different products and are never pooled into one headline. A Double Chance winning 90% of the time and a straight Winner at 55% are not the same claim, and one number covering both hides the harder one.</div>`;
+    }
+
+    /* CALIBRATION — the measure that cannot be gamed by choosing easy markets. */
+    const cal = calBucket(graded, x => x.r.pick_prob, x => x.g === 'hit');
+    if(cal.length){
+      html += `<div class="sec-label" style="margin-top:14px">Stated confidence against what happened</div>`;
+      for(const b of cal)
+        html += `<div class="frow"><span class="muted">${b.band} <span style="font-size:.7rem">(${b.n})</span></span>`
+              + `<b>said ${(100*b.stated).toFixed(0)}% · did ${(100*b.actual).toFixed(0)}%</b></div>`;
+      html += `<div class="subnote">A band that says 80% and delivers about 80% is calibrated. This is the number a tipster cannot improve by picking short-priced markets, which is why it is here.</div>`;
+    }
+
+    html += `<div class="sec-label" style="margin-top:14px">Every published pick</div>`;
+    for(const x of rows){
+      const mark = x.g==='hit' ? '<span class="predchip hit">✓</span>'
+                 : x.g==='miss' ? '<span class="predchip miss">✗</span>'
+                 : x.g==='void' ? '<span class="predchip muted-chip">void</span>'
+                 : x.orphan ? '<span class="predchip muted-chip">no result</span>'
+                 : x.off ? '<span class="predchip muted-chip">postponed</span>'
+                 : x.live ? '<span class="predchip muted-chip">in play</span>'
+                 : '<span class="predchip muted-chip">pending</span>';
+      const flags = (x.moved ? ' <span class="muted" style="font-size:.68rem">model later moved</span>' : '')
+                  + (x.withheld ? ' <span class="muted" style="font-size:.68rem">later unbacked</span>' : '');
+      html += `<div class="frow"><span class="muted" style="flex:1">${x.r.kickoff.slice(5)} · ${escapeHtml(x.r.lname||'')} · ${escapeHtml(x.r.home)} v ${escapeHtml(x.r.away)}<br>`
+            + `<span style="font-size:.72rem">${escapeHtml(pickLabel(x.r.pick, x.r.home, x.r.away))} · ${(100*x.r.pick_prob).toFixed(0)}%${flags}</span></span>${mark}</div>`;
+    }
+
+    html += `<div class="subnote" style="margin-top:12px"><b>No profit figure is shown, and that is deliberate.</b> `
+          + `${mkKeys.length ? '' : ''}Of the picks in this window, roughly nine in ten are Double Chance, Draw No Bet or goals lines, and this app only stores closing prices for the straight 1X2 market. A return calculated from those would describe under a tenth of what MatchMind actually publishes while carrying the name of the whole record. It arrives when the odds history covers the markets the app really uses.</div>`;
+    if(orphans.length)
+      html += `<div class="subnote"><b>${orphans.length} pick${orphans.length===1?'':'s'} can never be graded.</b> ${orphans.length===1?'Its':'Their'} fixture belongs to the data provider this app retired at Milestone 11. The row is still there and still reads "not started", because the job that updated those fixtures was switched off and nothing has touched them since. You can spot them in the list under the old competition names — <i>Primera Division</i> beside <i>La Liga</i> — alongside their modern twins. Shown rather than hidden, and counted in neither the hit rate nor what is still to come.</div>`;
+    if(excluded.length)
+      html += `<div class="subnote">${excluded.length} older row${excluded.length===1?'':'s'} ${excluded.length===1?'is':'are'} left out: ${excluded.length===1?'it was':'they were'} rebuilt after the fact or predate the freeze rule, so ${excluded.length===1?'it is':'they are'} not evidence about what this app told anybody.</div>`;
+    out.innerHTML = html;
+  }catch(e){
+    out.innerHTML = `<div class="subnote">Could not read the ledger — ${escapeHtml(String(e && e.message || e))}</div>`;
+  }
+}
+
 /* ⚠ BUILD 199 REVERSED THIS FUNCTION, AND THE ORIGINAL REASONING IS KEPT BECAUSE IT WAS HALF RIGHT.
    Build 142: Bragantino v Corinthians read "No edge here" before kick-off and came back as "1X ✗".
    A fixture archived on an EARLIER load, before the competition's bar rose (the auto-gate is
@@ -12811,6 +12969,7 @@ $('saveScorersBtn').addEventListener('click', ()=>{
 $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('backtestBtn').addEventListener('click', runBacktest);
+if($('ledgerBtn')) $('ledgerBtn').addEventListener('click', renderLedger);
 if($('archBtn')) $('archBtn').addEventListener('click', renderArchiveDay);
 if($('archFillBtn')) $('archFillBtn').addEventListener('click', backfillPredictions);
 if($('archDate')) $('archDate').value = new Date(Date.now()-86400000).toISOString().slice(0,10);   // yesterday
