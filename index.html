@@ -650,6 +650,7 @@
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="ledgerBtn"></button><div id="ledgerOut"></div>
+      <button id="m14Btn"></button><div id="m14Out"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <button id="restBtn"></button><div id="restOut"></div>
       <button id="formBtn"></button><div id="formOut"></div>
@@ -695,7 +696,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 203;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 206;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4918,7 +4919,7 @@ function archivePrediction(L, f, p){
     market: pickMarket(f.pick),
     build: APP_BUILD, made_at: new Date().toISOString()
   });
-  // batch, so opening the Predict tab is one write rather than forty
+  // batch, so opening the Analysis tab is one write rather than forty
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(flushPredictionArchive, 2500);
 }
@@ -5693,7 +5694,7 @@ function renderDispersionTest(){
       box.innerHTML = '<div class="subnote">Only ' + rows.length + ' competition' + (rows.length===1?'':'s')
         + ' has enough completed history to measure (' + loaded + ' loaded in total). '
         + (loaded === 0
-            ? 'The leagues have not loaded yet — open the Predict tab, wait a few seconds, then run this again.'
+            ? 'The leagues have not loaded yet — open the Analysis tab, wait a few seconds, then run this again.'
             : 'Each needs at least 100 finished matches and 8 teams with 20+ games.') + '</div>';
       return;
     }
@@ -6954,13 +6955,410 @@ function matchFeatures(L, f, upTo, idx){
    feature jointly with regularisation, and a joint fit routinely disagrees with sixteen separate
    univariate slopes — features overlap, and one can be entirely explained by another. Reading a
    single row here as "this variable works" is the exact mistake §52's confound was made of. */
+/* ══ BUILD 204 — MILESTONE 14'S FEATURE MATRIX ═════════════════════════════════════════════════
+   The assembly already existed, inline inside `renderFeatureLayer`, and it was already correct in
+   the way that matters most: **the target is the RESIDUAL over the engine**, `actual points minus
+   expected points`, not a fresh prediction of the match. M14 is a correction layer on Engine 2, not
+   a replacement for it, and fitting anything else would quietly re-solve a problem Milestone 6
+   already solved. Measured over the pool, `y` has mean **+0.037** and sd **1.231** — near zero, which
+   is what a calibrated engine must produce and is the first thing that would have shown a bias.
+
+   WHAT WAS MISSING WAS NOT THE MATRIX. It was that no split existed, so nothing separated the data
+   that chooses the model from the data that judges it. That separation is the whole of the
+   milestone's "done when": *one holdout decides the model, and the decision is recorded either way.*
+
+   ── THE SPLIT IS BY SEASON, AND CHRONOLOGICAL ──
+   Random k-fold would leak: these features are built from each team's own recent history, so two
+   fixtures a week apart share most of their inputs, and a random split puts near-copies on both
+   sides of the wall. Seasons are the natural boundary and they run forwards, which is the same
+   walk-forward discipline every feature already obeys.
+
+   ── NULLS ARE NOT ZEROS, AND THIS IS WHERE A RIDGE FIT LIES TO YOU ──
+   The roadmap's warning, written before any of this existed: *a ridge fit cannot tell "no data" from
+   "no effect". It hands a sparse variable a near-zero weight, and that reads as evidence the
+   variable does not matter.* Mean-imputing a 40%-covered variable and fitting it does exactly that.
+   So every variable that has ANY missing value in training gets a companion indicator column, and
+   the fit sees both "the value, filled in" and "it was missing". A variable that only matters when
+   present can then say so, and one that is merely sparse cannot masquerade as one that is flat.
+
+   NO COVERAGE THRESHOLD IS APPLIED, deliberately. A cutoff would be a constant nobody measured —
+   the habit build 183 spent a build removing — and with the indicators above the fit can decide for
+   itself. Coverage today spans 17.9% to 100% across 110 variables and NONE is under 10%. */
+const M14 = {
+  POOL_FROM_SEASON: 2022,     // measured: xG does not exist before this on this plan (build 179)
+  TRAIN_TO: 2023,             // 2022-2023 fit the weights
+  VALID_TO: 2024,             // 2024 chooses lambda
+                              // 2025+ is the HOLDOUT and gets no vote in anything
+  MIN_HISTORY: 60
+};
+
+/* Every fixture the layer can describe, with the residual it has to explain. Walk-forward by
+   construction: `predict(home, away, i)` and `matchFeatures(..., i, ...)` both see only rows before
+   i, which is why `i` is threaded through rather than the fixture alone. */
+function m14Rows(onChunk){
+  const idx = buildFixtureIndex();
+  const rows = [];
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L || (L.sport||'football') !== 'football' || !L.matches || L.matches.length < 150) continue;
+    const ms = L.matches;
+    const tmp = Object.create(footballEngine); tmp.matches = ms;
+    const start = Math.max(M14.MIN_HISTORY, Math.floor(ms.length*0.3));
+    for(let i=start;i<ms.length;i++){
+      const m = ms[i];
+      if(m.hg == null || m.ag == null || !m.date) continue;
+      const sn = m._x ? m._x.season : null;
+      if(sn == null || sn < M14.POOL_FROM_SEASON) continue;   // the pool, not the archive
+      const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+      const F = matchFeatures(L, m, i, idx); if(!F) continue;
+      const exp = 3*p.pW + 1*p.pD;
+      const act = m.hg > m.ag ? 3 : m.hg === m.ag ? 1 : 0;
+      rows.push({ F, y: act - exp, exp, season: sn, date: m.date, lid: id });
+    }
+    if(onChunk) onChunk(rows.length);
+  }
+  return rows;
+}
+
+/* THE WALL. Named here once so no caller can quietly move it, and returned as three disjoint sets
+   rather than as indices — a holdout that is reachable by arithmetic is a holdout somebody will
+   eventually reach into. */
+function m14Split(rows){
+  const train = rows.filter(r => r.season <= M14.TRAIN_TO);
+  const valid = rows.filter(r => r.season === M14.VALID_TO);
+  const hold  = rows.filter(r => r.season >  M14.VALID_TO);
+  return { train, valid, hold };
+}
+
+/* Standardise on the TRAINING set only, and carry those constants to the other two. Computing a
+   mean or a standard deviation over the holdout is leakage — small, silent, and enough to make a
+   holdout flatter itself. */
+function m14Design(train, keys){
+  const stats = {};
+  for(const k of keys){
+    const vals = [];
+    for(const r of train) if(r.F[k] != null && isFinite(r.F[k])) vals.push(r.F[k]);
+    const n = vals.length;
+    const mean = n ? vals.reduce((a,b)=>a+b,0)/n : 0;
+    const sd = n > 1 ? Math.sqrt(vals.reduce((a,b)=>a+(b-mean)*(b-mean),0)/(n-1)) : 0;
+    stats[k] = { mean, sd: sd > 1e-9 ? sd : 1, miss: n < train.length, cov: train.length ? n/train.length : 0 };
+  }
+  const cols = [];
+  for(const k of keys){ cols.push(k); if(stats[k].miss) cols.push(k + '__miss'); }
+  const encode = r => {
+    const x = [];
+    for(const k of keys){
+      const v = r.F[k];
+      const ok = v != null && isFinite(v);
+      x.push(ok ? (v - stats[k].mean) / stats[k].sd : 0);   // imputed to the training MEAN, i.e. 0 once centred
+      if(stats[k].miss) x.push(ok ? 0 : 1);                 // ...and the fit is told that it was
+    }
+    return x;
+  };
+  return { stats, cols, encode };
+}
+
+/* ══ BUILD 205 — THE RIDGE SOLVER ══════════════════════════════════════════════
+   Normal equations with a Cholesky factorisation: (X'X + lambda I) beta = X'y.
+
+   THE MATHS WAS PROVEN ON CONSTRUCTED DATA BEFORE IT WAS WRITTEN INTO THIS FILE, against inputs
+   whose answers are known by construction — the same standard as verify-standings-190 and
+   verify-leaguephase-197. Coefficients [2, -1.5, 0.75, 0, 3.25] with intercept 5 and noise sd 0.01,
+   4,000 rows:
+
+     · recovered to a maximum absolute error of 8.7e-4
+     · intercept recovered as 4.9994 — and note it is `ybar - sum(mu_j beta_j)`, NOT `ybar`. The
+       first draft of the check compared against `ybar` and read a 0.26 "discrepancy" that was the
+       check being wrong, not the solver.
+     · OUT-OF-SAMPLE RMSE 0.0097 against a noise floor of 0.0100 — the strongest available check,
+       because a solver that has memorised its training set cannot pass it
+     · lambda = 1e9 shrinks every weight to 1.2e-5
+     · a CONSTANT column receives weight exactly 0
+     · an EXACT DUPLICATE column splits evenly, 1.0 and 1.0, summing to the true 2.0
+     · lambda = 0 on a singular matrix is REFUSED (null) rather than returning arithmetic garbage
+
+   WHY NORMAL EQUATIONS AND NOT A DECOMPOSITION OF X. Forming X'X squares the condition number,
+   which is the standard objection. It does not bite here: every column is standardised on the
+   training set, lambda is strictly positive on every fit that ships, and the degenerate cases above
+   are handled rather than merely survived. 209 columns makes X'X a 209x209 build over 15,478 rows
+   — about 340M multiply-adds, seconds in a browser — where an SVD of the full matrix is not.
+
+   ⚠ AND THE HOLDOUT IS NOT REACHABLE FROM ANY BUTTON. `m14Fit` takes train and validation only.
+   `m14Holdout` exists, is called by nothing, and is meant to be run ONCE when the pool completes.
+   That is deliberate: a holdout you can re-evaluate on a whim is a validation set with a grander
+   name, and the milestone closes on "one holdout decides the model, and the decision is recorded
+   either way". */
+function m14Chol(A, b, p){
+  const L = new Float64Array(p*p);
+  for(let i=0;i<p;i++){
+    for(let j=0;j<=i;j++){
+      let s = A[i*p+j];
+      for(let k=0;k<j;k++) s -= L[i*p+k]*L[j*p+k];
+      if(i===j){
+        /* NOT POSITIVE DEFINITE. With lambda > 0 and real data this cannot happen; with lambda = 0
+           and a duplicated column it certainly can. Returning null is the honest answer — a solver
+           that presses on returns numbers that look like weights and are not. */
+        if(!(s > 0)) return null;
+        L[i*p+j] = Math.sqrt(s);
+      } else L[i*p+j] = s / L[j*p+j];
+    }
+  }
+  const z = new Float64Array(p);
+  for(let i=0;i<p;i++){ let s=b[i]; for(let k=0;k<i;k++) s-=L[i*p+k]*z[k]; z[i]=s/L[i*p+i]; }
+  const x = new Float64Array(p);
+  for(let i=p-1;i>=0;i--){ let s=z[i]; for(let k=i+1;k<p;k++) s-=L[k*p+i]*x[k]; x[i]=s/L[i*p+i]; }
+  return x;
+}
+
+/* Columns are centred HERE as well as in m14Design, and on purpose. m14Design centres the value
+   columns on the training mean but the missingness indicators are 0/1 and are not centred at all;
+   penalising an uncentred column shrinks it toward zero rather than toward its own mean, which is a
+   different model from the one intended. Centring everything once, here, makes the intercept exactly
+   `ybar` in this parameterisation and leaves it unpenalised, which is what ridge regression means. */
+/* THE CROSS-PRODUCTS DO NOT DEPEND ON LAMBDA, so they are built once and the sweep only touches the
+   diagonal. The first draft rebuilt X'X inside the lambda loop: 209 columns over 15,478 rows is about
+   340 MILLION multiply-adds, and twelve lambdas would have made it four BILLION for a matrix that is
+   identical every time. Same arithmetic, one twelfth of the work, and the split is what makes the
+   sweep cheap enough to widen later without thinking about it. */
+function m14Gram(X, y){
+  const n = X.length; if(!n) return null;
+  const p = X[0].length;
+  const mu = new Float64Array(p);
+  for(let i=0;i<n;i++){ const r=X[i]; for(let j=0;j<p;j++) mu[j]+=r[j]; }
+  for(let j=0;j<p;j++) mu[j] /= n;
+  let ybar = 0; for(let i=0;i<n;i++) ybar += y[i]; ybar /= n;
+  const A0 = new Float64Array(p*p), b = new Float64Array(p), c = new Float64Array(p);
+  for(let i=0;i<n;i++){
+    const r = X[i], yc = y[i] - ybar;
+    for(let j=0;j<p;j++) c[j] = r[j] - mu[j];
+    for(let j=0;j<p;j++){ b[j] += c[j]*yc; for(let k=j;k<p;k++) A0[j*p+k] += c[j]*c[k]; }
+  }
+  for(let j=0;j<p;j++) for(let k=0;k<j;k++) A0[j*p+k] = A0[k*p+j];   // mirror once, here
+  return { A0, b, mu, ybar, n, p };
+}
+
+function m14Solve(g, lam){
+  if(!g) return null;
+  const p = g.p, A = Float64Array.from(g.A0);
+  for(let j=0;j<p;j++) A[j*p+j] += lam;
+  const beta = m14Chol(A, g.b, p);
+  return beta ? { beta, mu: g.mu, ybar: g.ybar, lam, n: g.n, p } : null;
+}
+
+function m14Ridge(X, y, lam){ return m14Solve(m14Gram(X, y), lam); }
+
+function m14Predict(model, x){
+  let v = model.ybar;
+  for(let j=0;j<x.length;j++) v += (x[j] - model.mu[j]) * model.beta[j];
+  return v;
+}
+
+/* R-SQUARED IS AGAINST THE MEAN OF THIS SET, which for a residual target means "did the correction
+   layer explain anything the engine had not already". A negative number is a real and possible
+   answer and is reported as one — it says the layer made predictions worse than saying nothing,
+   which is exactly the outcome the form boost produced at build 141 and the reason it did not ship. */
+function m14Eval(model, rows, encode){
+  if(!rows.length) return null;
+  let ybar = 0; for(const r of rows) ybar += r.y; ybar /= rows.length;
+  let sse = 0, sst = 0;
+  for(const r of rows){
+    const e = m14Predict(model, encode(r)) - r.y;
+    sse += e*e; sst += (r.y - ybar)*(r.y - ybar);
+  }
+  return { n: rows.length, rmse: Math.sqrt(sse/rows.length),
+           r2: sst > 0 ? 1 - sse/sst : null,
+           base: Math.sqrt(sst/rows.length) };
+}
+
+/* Lambda is chosen on VALIDATION and nowhere else. The grid is wide and logarithmic because the
+   right order of magnitude is not known in advance and pretending otherwise would be another
+   unmeasured constant; the chosen value is reported beside its neighbours so a flat optimum is
+   visible as a flat optimum rather than read as a precise one. */
+const M14_LAMBDAS = [0.1, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000];
+function m14Fit(train, valid, keys){
+  const dz = m14Design(train, keys);
+  const Xtr = train.map(dz.encode), ytr = Float64Array.from(train.map(r=>r.y));
+  const gram = m14Gram(Xtr, ytr);       // built ONCE for the whole sweep
+  const sweep = [];
+  let best = null;
+  for(const lam of M14_LAMBDAS){
+    const model = m14Solve(gram, lam);
+    if(!model) { sweep.push({ lam, failed: true }); continue; }
+    const ev = m14Eval(model, valid, dz.encode);
+    sweep.push({ lam, rmse: ev.rmse, r2: ev.r2 });
+    if(!best || ev.rmse < best.ev.rmse) best = { lam, model, ev };
+  }
+  return best ? { design: dz, sweep, lam: best.lam, model: best.model, valid: best.ev,
+                  train: m14Eval(best.model, train, dz.encode) } : null;
+}
+
+/* ══ BUILD 206 — THE FIT, ON DEMAND, WITH THE HOLDOUT OUT OF REACH ═══════════════
+   This panel calls `m14Fit`, which takes train and validation. It does NOT call `m14Holdout`, and a
+   regression check pins that `m14Holdout` has exactly one occurrence in the file — its own
+   definition. **The wall is structural, not a promise.** A holdout you can re-score whenever you feel
+   like it is a validation set with a grander name, and the milestone closes on "one holdout decides
+   the model, and the decision is recorded either way".
+
+   IT REFUSES TO RUN ON AN INCOMPLETE LEAGUE SET. Two smoke tests on 2026-08-25 returned 15,478 rows
+   and then 13,948, because one page load had fetched ten of eleven competitions and nothing in the
+   numbers said so. A fit is a claim about a population; this one states its population first.
+
+   AND IT REPORTS ITSELF AS PROVISIONAL, from a number rather than from a promise. The statistics
+   backlog fills season-DESCENDING, so the training seasons are the sparsest — the weights are learned
+   exactly where the provider data is thinnest. `xgDiffH` coverage across the training rows is the
+   honest gauge of that, so it is measured here and shown, and the verdict line reads "provisional"
+   until it is high. */
+function renderM14(){
+  const box = $('m14Out'); if(!box) return;
+  const inp = m14Inputs();
+  if(inp.missing.length || inp.noExtras.length){
+    box.innerHTML = '<div class="subnote"><b style="color:var(--gold)">Not all competitions are loaded.</b> '
+      + `Expected ${inp.expected}, have ${inp.loaded.length}`
+      + (inp.missing.length ? ` &mdash; missing league ${inp.missing.join(', ')}` : '')
+      + (inp.noExtras.length ? ` &mdash; no provider statistics for league ${inp.noExtras.join(', ')}` : '')
+      + '. A fit built on a different set of competitions is a different claim, and nothing in its numbers would say so. '
+      + 'Open the Analysis tab, let it finish loading, then run this again.</div>';
+    return;
+  }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building ' + inp.matches.toLocaleString()
+    + ' matches into features, then fitting&hellip; this takes about half a minute.</div>';
+  setTimeout(()=>{
+    try{
+      const rows = m14Rows();
+      if(rows.length < 2000){ box.innerHTML = `<div class="subnote">Only ${rows.length} rows carry both a prediction and a feature vector &mdash; too few to fit.</div>`; return; }
+      const sp = m14Split(rows);
+      if(!sp.train.length || !sp.valid.length){ box.innerHTML = '<div class="subnote">The seasons held do not span the training and validation split.</div>'; return; }
+      const keys = Object.keys(rows[0].F);
+      const fit = m14Fit(sp.train, sp.valid, keys);
+      if(!fit){ box.innerHTML = '<div class="subnote">Every lambda failed to factorise &mdash; the design matrix is degenerate.</div>'; return; }
+
+      /* How much of the TRAINING set carries provider statistics at all. This is the number that says
+         whether the answer below is worth reading yet, and it is measured rather than asserted. */
+      const provKey = 'xgDiffH';
+      const provCov = keys.includes(provKey)
+        ? sp.train.filter(r => r.F[provKey] != null).length / sp.train.length : null;
+
+      const pc = v => (100*v).toFixed(1) + '%';
+      const sign = v => (v >= 0 ? '+' : '') + v.toFixed(4);
+      let html = `<div class="frow"><span class="muted">Competitions</span><b>${inp.loaded.length} of ${inp.expected}</b></div>`
+        + `<div class="frow"><span class="muted">Fixtures with a feature vector</span><b>${rows.length.toLocaleString()}</b></div>`
+        + `<div class="frow"><span class="muted">Train &middot; validation &middot; holdout</span><b>${sp.train.length.toLocaleString()} &middot; ${sp.valid.length.toLocaleString()} &middot; ${sp.hold.length.toLocaleString()}</b></div>`
+        + `<div class="frow"><span class="muted">Design columns</span><b>${fit.design.cols.length}</b></div>`
+        + `<div class="frow"><span class="muted">Chosen strength (lambda)</span><b>${fit.lam.toLocaleString()}</b></div>`
+        + `<div class="frow"><span class="muted">Explained on data it trained on</span><b>${sign(fit.train.r2)}</b></div>`
+        + `<div class="frow"><span class="muted">Explained on data it did not</span><b style="color:${fit.valid.r2>0?'var(--green2)':'var(--gold)'}">${sign(fit.valid.r2)}</b></div>`;
+
+      /* THE VERDICT IS THE POINT OF THE PANEL, and it is allowed to say "no". */
+      html += fit.valid.r2 > 0
+        ? `<div class="subnote">The layer explains <b>${pc(fit.valid.r2)}</b> of what the engine got wrong on matches it never saw. That is the honest measure &mdash; the number above it, on data it trained on, is always flattering and is shown only so the gap between them is visible.</div>`
+        : `<div class="subnote"><b style="color:var(--gold)">The layer made predictions worse than saying nothing.</b> A negative figure here is a real answer, not an error, and it is the answer the form boost gave at build 141 &mdash; which is why that never shipped.</div>`;
+
+      /* MEASURED 2026-08-25 AND IT IS NOT A ROUNDING: ZERO of 7,458 fixtures in seasons 2022-23 carry
+         xG, against 76% in 2024 and 88% in 2025-26. The backlog fills newest-season-FIRST, so the two
+         seasons the weights are learned from are the very last to be filled. The consequence is
+         sharper than "provisional" and the panel now says the sharper thing: with no provider
+         statistics in training, every one of those variables is imputed and flagged missing on every
+         row, contributes nothing the fit can learn from, and the answer is coming from the Phase-0
+         features alone. The largest-weights list is the confirmation - not one xG variable is in it. */
+      if(provCov != null){
+        const none = provCov < 0.005;
+        const vCov = sp.valid.length ? sp.valid.filter(r=>r.F[provKey]!=null).length/sp.valid.length : 0;
+        html += `<div class="subnote">${provCov > 0.9 ? '' : `<b style="color:var(--gold)">${none ? 'Reading only half the layer.' : 'Provisional.'}</b> `}`
+              + `<b>${pc(provCov)}</b> of the training fixtures carry the provider's match statistics, against <b>${pc(vCov)}</b> of the validation ones. `
+              + (none
+                 ? `So every provider-derived variable &mdash; xG, shot quality, possession, passing, keeper &mdash; is missing on <b>every</b> training row, contributes nothing the fit can learn from, and the figure above comes from the older features alone: rest, congestion, absences and the league table. That is the collection backlog, not the model, and it clears when the pool fills.`
+                 : `The backlog fills newest-season-first, so the 2022&ndash;23 rows the weights are learned from are the last to be filled &mdash; until this is high, the answer above will keep moving.`)
+              + `</div>`;
+      }
+
+      html += `<div class="sec-label" style="margin-top:14px">Strength sweep</div>`;
+      for(const x of fit.sweep)
+        html += `<div class="frow"><span class="muted">${x.lam.toLocaleString()}${x.lam===fit.lam?' &larr; chosen':''}</span>`
+              + `<b>${x.failed ? 'did not factorise' : sign(x.r2)}</b></div>`;
+      html += `<div class="subnote">Low values overfit hard and score far below zero on unseen data, which is what a sweep is for. A flat run of near-identical values around the best one means the choice is not delicate.</div>`;
+
+      /* WEIGHTS ARE COMPARABLE because every column was standardised on the training set. Shown as
+         the largest few, with their missingness twins labelled, so a variable that only matters when
+         it is ABSENT is legible as exactly that rather than mistaken for the variable itself. */
+      const wts = fit.design.cols.map((c,j)=>[c, fit.model.beta[j]])
+                    .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,12);
+      html += `<div class="sec-label" style="margin-top:14px">Largest weights</div>`;
+      for(const [c,v] of wts)
+        html += `<div class="frow"><span class="muted">${escapeHtml(c.replace(/__miss$/,''))}`
+              + `${c.endsWith('__miss') ? ' <span style="font-size:.68rem">(was it missing)</span>' : ''}</span>`
+              + `<b>${sign(v)}</b></div>`;
+      html += `<div class="subnote">Comparable because every column was rescaled on the training set. A large weight is not evidence a variable matters &mdash; only the number on unseen data above is that, and only once the coverage line is high.</div>`;
+
+      html += `<div class="subnote" style="margin-top:12px"><b>The 2025&ndash;26 holdout was not touched.</b> `
+            + `${sp.hold.length.toLocaleString()} fixtures are held back and no button in this app scores them. They decide whether this ships, once, when the statistics pool is full &mdash; and the decision gets recorded either way.</div>`;
+      box.innerHTML = html;
+    }catch(e){
+      box.innerHTML = `<div class="subnote">The fit could not run &mdash; ${escapeHtml(String(e && e.message || e))}</div>`;
+    }
+  }, 30);
+}
+
+/* ══ WHAT THE MATRIX WAS ACTUALLY BUILT FROM ═══════════════════════════════════
+   🚨 FOUND BY A SMOKE TEST, 2026-08-25, AND IT WOULD HAVE CORRUPTED THE FIT SILENTLY. Two runs
+   minutes apart produced 15,478 rows and then 13,948. Nothing had changed in the code: the second
+   page load had fetched only TEN of the eleven competitions — the Premier League's 2,290 matches
+   were absent, which is exactly the 1,530-row gap — because `loadCloudLeagues` fills leagues
+   progressively and the fit ran before it finished.
+
+   A fit is a claim about a population. One built on ten competitions and one built on eleven are
+   different claims, and NOTHING in the numbers distinguishes them: both return a tidy R-squared,
+   both look complete. This is the same shape as the League Table pooling six seasons — arithmetic
+   that is correct over the wrong set.
+
+   So the matrix states its own inputs, and it compares them against `COMP_IDS` rather than a count.
+   A hard-coded 11 would have to be edited the next time Ken adds a competition, which the standing
+   constraint forbids; `COMP_IDS` is the one list that already moves when the coverage moves. */
+function m14Inputs(){
+  const loaded = [], missing = [], noExtras = [];
+  for(const id of COMP_IDS){
+    const L = afState.leagues ? afState.leagues[id] : null;
+    if(!L || !L.matches || !L.matches.length){ missing.push(id); continue; }
+    loaded.push(id);
+    if(!L.matches.some(m => m && m._x)) noExtras.push(id);
+  }
+  let matches = 0, withX = 0;
+  for(const id of loaded){
+    const ms = afState.leagues[id].matches;
+    matches += ms.length;
+    for(const m of ms) if(m && m._x) withX++;
+  }
+  return { expected: COMP_IDS.length, loaded, missing, noExtras, matches, withExtras: withX,
+           complete: missing.length === 0 && noExtras.length === 0 };
+}
+
+/* RUN ONCE, WHEN THE POOL IS COMPLETE. Nothing in this app calls it. */
+function m14Holdout(fit, hold){ return m14Eval(fit.model, hold, fit.design.encode); }
+
 function renderFeatureLayer(){
   const box = $('flOut'); if(!box) return;
   const ids = Object.keys(afState.leagues || {}).filter(id=>{
     const L = afState.leagues[id];
     return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
   });
-  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Analysis tab first so the competitions load.</div>'; return; }
+  /* 🚨 BUILD 204 — A CACHED BOOT HAS THE MATCHES AND NONE OF THE PROVIDER EXTRAS, AND THIS PANEL
+     COULD NOT TELL THAT FROM "THE COLLECTOR HAS NOTHING". Measured 2026-08-24: restored from
+     localStorage, the Premier League held 2,289 matches and **0** carried `_x`; the layer built
+     16,120 feature vectors and reported 0% coverage on all 110 variables. After one cloud load the
+     same competition read 2,290 of 2,290 with `_x`, seasons 2020-2026.
+     `providerExtras` is memory-only by design (build 163) — ~30 numbers across ~22,000 matches would
+     blow the localStorage quota — so `_x` exists only after `loadCloudLeagues`. Nothing was broken;
+     the panel simply had no way to say which zero it was looking at. THAT is the distinction this
+     project keeps paying for: afFetch's `{response:[]}` for every failure, `null` vs `''` in
+     inj_h, and now this. An absent input and a measured zero must never render the same. */
+  if(!ids.some(id => (afState.leagues[id].matches||[]).some(m => m && m._x))){
+    box.innerHTML = '<div class="subnote"><b style="color:var(--gold)">No provider data in memory.</b> '
+      + 'This device restored its matches from the offline cache, which deliberately does not keep '
+      + 'the per-match provider statistics — they are far too large to persist. Every variable below would '
+      + 'read 0%, and that would mean "not loaded", not "not collected". <b>Open the Analysis tab and let '
+      + 'it refresh from the cloud, then come back.</b></div>';
+    return;
+  }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building features…</div>';
   setTimeout(()=>{
     const idx = buildFixtureIndex();
@@ -7258,7 +7656,7 @@ function renderProviderCoverage(){
     const L = afState.leagues[id];
     return L && (L.sport||'football') === 'football' && L.matches && L.matches.length;
   });
-  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Analysis tab first so the competitions load.</div>'; return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading coverage…</div>';
   setTimeout(()=>{
     const KEYS = EXTRA_KEYS.concat(['coach_h','coach_a','xi_h','xi_a','ev','tid_h','tid_a']);
@@ -7436,7 +7834,7 @@ function renderVenuesSql(){
     const L = afState.leagues[id];
     return L && (L.sport||'football') === 'football' && L.matches && L.matches.length;
   });
-  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Predict tab first so the competitions load.</div>'; return; }
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Analysis tab first so the competitions load.</div>'; return; }
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building…</div>';
   setTimeout(()=>{
     const perTeam = {};
@@ -7457,7 +7855,7 @@ function renderVenuesSql(){
        rows. Pasting that into Supabase would run cleanly and populate nothing, and the obvious
        conclusion would be that the venues design does not work. Say which it is instead. */
     if(total && !withVid){
-      box.innerHTML = `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px"><b style="color:var(--text)">The competitions came from cache, so no fixture carries a <code>venue_id</code> and there is nothing to emit.</b> This is not a failure of the generator: <code>_x</code> is memory-only and is stripped before localStorage. <b>Open the Predict tab to trigger a cloud refresh, then run this again.</b> ${total.toLocaleString()} fixtures are loaded and 0 of them have provider detail attached.</div>`;
+      box.innerHTML = `<div class="subnote" style="border-left:3px solid var(--red);padding-left:9px"><b style="color:var(--text)">The competitions came from cache, so no fixture carries a <code>venue_id</code> and there is nothing to emit.</b> This is not a failure of the generator: <code>_x</code> is memory-only and is stripped before localStorage. <b>Open the Analysis tab to trigger a cloud refresh, then run this again.</b> ${total.toLocaleString()} fixtures are loaded and 0 of them have provider detail attached.</div>`;
       return;
     }
 
@@ -7675,7 +8073,7 @@ function renderRestDayTest(){
     return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
   });
   if(!ids.length){
-    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Predict tab, wait a few seconds, then run this again.</div>';
+    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Analysis tab, wait a few seconds, then run this again.</div>';
     return;
   }
   const groups = [], per = [];
@@ -8229,7 +8627,7 @@ function renderFormTest(){
     return L && (L.sport||'football') === 'football' && L.matches && L.matches.length >= 150;
   });
   if(!ids.length){
-    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Predict tab, wait a few seconds, then run this again.</div>';
+    box.innerHTML = '<div class="subnote">No competition has enough history yet. Open the Analysis tab, wait a few seconds, then run this again.</div>';
     return;
   }
   /* §54: 6 matches is primary (middle of Ken's 5-8); the rest are robustness. A result that shows
@@ -10056,7 +10454,7 @@ function renderFavLeagues(){
   man.innerHTML = (lgs.length || afState.favT.length)
     ? (lgs.length?`<div class="sec-label" style="margin:2px 4px 6px">Competitions</div><div class="sfilters" style="flex-wrap:wrap">${lgs.map(l=>`<button class="sfchip active" data-lid="${l.id}">✕ ${l.name}</button>`).join('')}</div>`:'')
       + (afState.favT.length?`<div class="sec-label" style="margin:10px 4px 6px">Teams</div><div class="sfilters" style="flex-wrap:wrap">${afState.favT.map(t=>`<button class="sfchip active" data-t="${t}">✕ ${t}</button>`).join('')}</div>`:'')
-    : '<div class="subnote">No favourite competitions or teams yet. Star a competition with ☆ on the Predict tab, or star a team from any match analysis.</div>';
+    : '<div class="subnote">No favourite competitions or teams yet. Star a competition with ☆ on the Analysis tab, or star a team from any match analysis.</div>';
   man.querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{ toggleFavLeague(+b.dataset.lid); renderFavLeagues(); }));
   man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0)afState.favT.splice(i,1); saveState(); renderFavLeagues(); }));
   const rows=[], smap=scoreMap();
@@ -12319,7 +12717,7 @@ function e2Run(box){
 
   if(!pool.length){
     box.innerHTML = '<div class="subnote">No competition has 150+ finished matches loaded yet. '
-      + 'Open the Predict tab, let the competitions finish loading, then run this again.</div>';
+      + 'Open the Analysis tab, let the competitions finish loading, then run this again.</div>';
     return;
   }
 
@@ -12890,6 +13288,7 @@ function renderNewcomerSweep(){
 { const b=$('formBtn'); if(b) b.addEventListener('click', renderFormTest); }
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
+{ const b=$('m14Btn'); if(b) b.addEventListener('click', renderM14); }
 { const b=$('pcBtn'); if(b) b.addEventListener('click', renderProviderCoverage); }
 { const b=$('vnBtn'); if(b) b.addEventListener('click', renderVenuesSql); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
