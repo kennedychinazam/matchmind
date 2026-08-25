@@ -651,6 +651,7 @@
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="ledgerBtn"></button><div id="ledgerOut"></div>
       <button id="m14Btn"></button><div id="m14Out"></div>
+      <button id="m14HoldBtn"></button><div id="m14HoldOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <button id="restBtn"></button><div id="restOut"></div>
       <button id="formBtn"></button><div id="formOut"></div>
@@ -696,7 +697,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 207;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 209;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7289,8 +7290,11 @@ function renderM14(){
               + `<b>${sign(v)}</b></div>`;
       html += `<div class="subnote">Comparable because every column was rescaled on the training set. A large weight is not evidence a variable matters &mdash; only the number on unseen data above is that, and only once the coverage line is high.</div>`;
 
-      html += `<div class="subnote" style="margin-top:12px"><b>The 2025&ndash;26 holdout was not touched.</b> `
-            + `${sp.hold.length.toLocaleString()} fixtures are held back and no button in this app scores them. They decide whether this ships, once, when the statistics pool is full &mdash; and the decision gets recorded either way.</div>`;
+      /* BUILD 209 — this sentence used to end "no button in this app scores them", which stopped
+         being true the moment the holdout gate shipped. Build 204 found seven strings still naming a
+         tab deleted four builds earlier; prose goes stale exactly like code and no check reads it. */
+      html += `<div class="subnote" style="margin-top:12px"><b>This fit did not touch the 2025&ndash;26 holdout.</b> `
+            + `${sp.hold.length.toLocaleString()} fixtures are held back. Scoring them is a separate, deliberate act in the panel below, it happens once, and the decision is recorded either way.</div>`;
       box.innerHTML = html;
     }catch(e){
       box.innerHTML = `<div class="subnote">The fit could not run &mdash; ${escapeHtml(String(e && e.message || e))}</div>`;
@@ -7331,8 +7335,158 @@ function m14Inputs(){
            complete: missing.length === 0 && noExtras.length === 0 };
 }
 
-/* RUN ONCE, WHEN THE POOL IS COMPLETE. Nothing in this app calls it. */
+/* RUN ONCE, WHEN THE POOL IS COMPLETE. `m14RunHoldout` is the only thing that calls it. */
 function m14Holdout(fit, hold){ return m14Eval(fit.model, hold, fit.design.encode); }
+
+/* ══ BUILD 209 — THE HOLDOUT GATE ═══════════════════════════════════════════════
+   Milestone 14 closes on one sentence: *"one holdout decides the model, and the decision is recorded
+   either way."* Builds 204-206 built everything except that, deliberately — `m14Holdout` existed,
+   was called by nothing, and a check pinned it at a single occurrence in the file.
+
+   THE GOVERNANCE IS THE POINT HERE, NOT THE ARITHMETIC. Scoring the holdout is one line and has
+   existed since build 205. What was missing is what stops the holdout being spent twenty times with
+   the best number kept, which is the only way a holdout ever actually dies. **Code cannot prevent a
+   re-run.** It can make every run permanent and visible, so a second one reads as a SECOND RUN
+   rather than as a correction:
+
+   - every run is appended to a log with NO delete path, and a check pins that this is the only write;
+   - every run records what makes it comparable — build, lambda, split sizes, design columns and the
+     training coverage it ran at — so a later run at different coverage is plainly a different
+     question, not a better answer;
+   - the FIRST run is labelled the decision and stays at the top whatever follows it;
+   - the verdict is stated either way. A negative R-squared is an answer, Milestone 6 already
+     measured that this engine is calibrated, and build 205 said plainly that near-zero is a live
+     outcome. The form boost failed exactly this test at build 141 and did not ship.
+
+   ⚠ THE RECORD IS DEVICE-LOCAL AND THE PANEL SAYS SO — Milestone 16's honesty constraint applied a
+   milestone early. Server-side would need a table, RLS and a migration Ken has to run, and none of
+   that is what gates M14.
+   ⚠ AND IT IS NOT A SECURITY BOUNDARY. Anyone can clear localStorage. It makes quiet laundering take
+   deliberate effort rather than being the path of least resistance, and that is the honest limit. */
+const M14_HOLD_KEY = 'mm_m14_holdout';
+function m14HoldLog(){
+  try{ const a = JSON.parse(localStorage.getItem(M14_HOLD_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+/* APPEND ONLY. There is deliberately no counterpart that removes, replaces or truncates. */
+function m14HoldAppend(entry){
+  const log = m14HoldLog();
+  log.push(entry);
+  try{ localStorage.setItem(M14_HOLD_KEY, JSON.stringify(log)); }
+  catch(e){ try{ toast('Could not record the holdout run — storage is full'); }catch(_){} }
+  return log;
+}
+
+/* Two clicks, because one click is how a holdout gets spent by accident. The arm state is not
+   persisted: coming back to this screen starts from disarmed. */
+let _m14HoldArmed = false;
+function m14RunHoldout(){
+  const box = $('m14HoldOut'); if(!box) return;
+  const inp = m14Inputs();
+  /* THE SAME REFUSAL AS THE FIT, AND FOR A STRONGER REASON. Build 205 measured two runs minutes
+     apart returning 15,478 and 13,948 rows because one page load had ten of eleven competitions.
+     A fit on the wrong population is a wasted afternoon; a HOLDOUT on the wrong population is a
+     spent holdout that answered a question nobody asked. */
+  if(!inp.complete){
+    _m14HoldArmed = false;
+    box.innerHTML = '<div class="subnote"><b style="color:var(--gold)">Not all competitions are loaded.</b> '
+      + `Expected ${inp.expected}, have ${inp.loaded.length}`
+      + (inp.missing.length ? ` &mdash; missing league ${inp.missing.join(', ')}` : '')
+      + (inp.noExtras.length ? ` &mdash; no provider statistics for league ${inp.noExtras.join(', ')}` : '')
+      + '. The holdout is scored once and cannot be un-scored, so it will not run on a partial set. '
+      + 'Open the Analysis tab, let it finish loading, then come back.</div>';
+    return;
+  }
+  if(!_m14HoldArmed){
+    _m14HoldArmed = true;
+    const prev = m14HoldLog().length;
+    box.innerHTML = '<div class="subnote"><b style="color:var(--red)">This spends the holdout.</b> '
+      + (prev ? `It has already been scored <b>${prev}</b> time${prev>1?'s':''}; another run will be recorded beneath the first, not instead of it. ` : 'It has never been scored. ')
+      + 'Click again to confirm.</div>' + m14HoldHistoryHtml();
+    return;
+  }
+  _m14HoldArmed = false;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Fitting on 2022&ndash;24, then scoring 2025&ndash;26 once&hellip;</div>';
+  setTimeout(()=>{
+    try{
+      const rows = m14Rows();
+      if(rows.length < 2000){ box.innerHTML = `<div class="subnote">Only ${rows.length} rows carry both a prediction and a feature vector &mdash; too few to decide anything.</div>`; return; }
+      const sp = m14Split(rows);
+      if(!sp.train.length || !sp.valid.length || !sp.hold.length){ box.innerHTML = '<div class="subnote">The seasons held do not span all three parts of the split.</div>'; return; }
+      const keys = Object.keys(rows[0].F);
+      const fit = m14Fit(sp.train, sp.valid, keys);   // lambda is chosen on VALIDATION, as always
+      if(!fit){ box.innerHTML = '<div class="subnote">Every lambda failed to factorise &mdash; the design matrix is degenerate.</div>'; return; }
+      const ev = m14Holdout(fit, sp.hold);            // ◄── the one and only scoring of the holdout
+      if(!ev){ box.innerHTML = '<div class="subnote">The holdout returned nothing to score.</div>'; return; }
+      const provKey = 'xgDiffH';
+      const provCov = keys.includes(provKey)
+        ? sp.train.filter(r => r.F[provKey] != null).length / sp.train.length : null;
+      m14HoldAppend({ at: new Date().toISOString(), build: APP_BUILD, lam: fit.lam,
+                      nTrain: sp.train.length, nValid: sp.valid.length, nHold: sp.hold.length,
+                      cols: fit.design.cols.length, provCov,
+                      valR2: fit.valid.r2, r2: ev.r2, rmse: ev.rmse, base: ev.base });
+      box.innerHTML = m14HoldHistoryHtml();
+    }catch(e){
+      box.innerHTML = `<div class="subnote">The holdout could not be scored &mdash; ${escapeHtml(String(e && e.message || e))}. Nothing was recorded.</div>`;
+    }
+  }, 30);
+}
+
+/* 🚨 A RUN AT LOW COVERAGE IS A REHEARSAL, NOT A DECISION — AND THE FIRST VERSION OF THIS PANEL GOT
+   THAT WRONG. It labelled whichever run came first "the decision". Verifying build 209 spent one on
+   a live device at **12.0% training coverage**, and the record permanently called that the milestone's
+   answer. It was found by running the thing rather than by reading it, which is the only way this
+   class of mistake ever shows up.
+
+   THE THRESHOLD IS TAKEN FROM A MEASUREMENT, NOT PICKED. Build 206 measured provider coverage inside
+   the seasons that ARE filled: 76.0% in 2024 and 87.7% in 2025-26. So a completed pool puts the
+   training seasons in that band, while a partial pool produces what today produced — 12%. 70% sits
+   below the lowest coverage ever observed on a filled season and an order of magnitude above a
+   partial one, so it separates the two cases rather than splitting a judgement call.
+   Every row shows its own coverage regardless, so the reader is never asked to trust this line. */
+const M14_DECIDE_COV = 0.70;
+
+/* Every run ever made, oldest first. The DECISION is the first run made at full coverage; anything
+   below that is shown as a rehearsal and explicitly decides nothing. A run that is not shown is a
+   run that can be quietly forgotten, which is the whole failure this panel exists to prevent — so
+   nothing here filters, sorts by result, or hides an entry. */
+function m14HoldHistoryHtml(){
+  const log = m14HoldLog();
+  if(!log.length) return '<div class="subnote">The holdout has never been scored on this device.</div>';
+  const sign = v => (v == null ? 'n/a' : (v >= 0 ? '+' : '') + v.toFixed(4));
+  const decisive = e => e.provCov != null && e.provCov >= M14_DECIDE_COV;
+  const firstDecisive = log.findIndex(decisive);
+  let html = '';
+  log.forEach((e, i) => {
+    const rehearsal = !decisive(e);
+    const decides = !rehearsal && i === firstDecisive;
+    const good = e.r2 != null && e.r2 > 0;
+    html += `<div class="sec-label" style="margin-top:${i?14:4}px">`
+          + (rehearsal ? `Rehearsal #${i+1} &mdash; decides nothing`
+             : decides ? 'The decision &mdash; first scoring at full coverage'
+             : `Later run #${i+1} &mdash; recorded, does not replace the decision`)
+          + `</div>`
+          + `<div class="frow"><span class="muted">When &middot; build</span><b>${escapeHtml((e.at||'').slice(0,16).replace('T',' '))} &middot; ${e.build}</b></div>`
+          + `<div class="frow"><span class="muted">Explained on the holdout</span><b style="color:${good?'var(--green2)':'var(--gold)'}">${sign(e.r2)}</b></div>`
+          + `<div class="frow"><span class="muted">Error vs saying nothing</span><b>${e.rmse!=null?e.rmse.toFixed(4):'n/a'} vs ${e.base!=null?e.base.toFixed(4):'n/a'}</b></div>`
+          + `<div class="frow"><span class="muted">Chosen on validation</span><b>lambda ${e.lam!=null?e.lam.toLocaleString():'n/a'} &middot; ${sign(e.valR2)}</b></div>`
+          + `<div class="frow"><span class="muted">Train &middot; validation &middot; holdout</span><b>${(e.nTrain||0).toLocaleString()} &middot; ${(e.nValid||0).toLocaleString()} &middot; ${(e.nHold||0).toLocaleString()}</b></div>`
+          + `<div class="frow"><span class="muted">Design columns &middot; training coverage</span><b>${e.cols} &middot; ${e.provCov==null?'n/a':(100*e.provCov).toFixed(1)+'%'}</b></div>`
+          + `<div class="subnote">${rehearsal
+              ? `<b style="color:var(--gold)">Training coverage was ${e.provCov==null?'unknown':(100*e.provCov).toFixed(1)+'%'} when this ran.</b> `
+                + `The weights were learned where the provider data is thinnest, so this answers a much thinner question than the same run at a full pool. `
+                + `<b>It decides nothing</b> and is kept only so that it cannot be run, disliked and forgotten.`
+              : decides
+              ? (good
+                 ? '<b>The model explains variance the engine misses on data it has never seen.</b> That is the condition for shipping it &mdash; behind a flag, ON only because this number says so.'
+                 : '<b>It does not beat saying nothing.</b> That is a real answer and it is the one that was recorded. The model stays OFF, exactly as the form boost did at build 141.')
+              : 'Kept for the record. The decision above was made first and is not revised by this.'}</div>`;
+  });
+  html += '<div class="subnote" style="margin-top:12px"><b>This record lives on this device only.</b> '
+        + 'It is not synced and it is not proof to anyone else &mdash; Milestone 16 is where a ledger becomes shared. '
+        + 'It exists so that re-running this takes a deliberate act that leaves a mark.</div>';
+  return html;
+}
 
 function renderFeatureLayer(){
   const box = $('flOut'); if(!box) return;
@@ -11019,8 +11173,18 @@ const PAGE = 1000;
 async function fetchLeagueFixtures(id){
   let out = [], from = 0, pages = 0;
   for(;;){
+    /* BUILD 208 — `.order('date')` ALONE IS NOT A STABLE PAGE ORDER. `date` is not unique: the row
+       sitting on this league's 1000-row boundary shares its date with another fixture, and Postgres
+       gives no guarantee about how ties are ordered between two separate queries. The collector
+       rewrites every row in its window every ten minutes, so the two pages are not even reading the
+       same table state. A tie that resolves differently across the boundary duplicates one fixture
+       and drops another — silently, and only on leagues big enough to page.
+       MEASURED BEFORE CHANGING IT, twice on both paged paths: 0 duplicates, 0 missing, identical
+       row sets. **So this is latent, not a live defect** — and it stays latent only by luck.
+       `fxid` is the primary key (SQL ledger, build 199), so it is a total order, and it costs
+       nothing measurable. */
     const { data, error } = await supa.from('fixtures').select('*').eq('lid', id)
-      .order('date').range(from, from + PAGE - 1);
+      .order('date').order('fxid').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
     pages++;
@@ -11034,11 +11198,21 @@ async function fetchLeagueFixtures(id){
 /* Same cap, same shape, different table. The archive covers a month and the results sweep covers
    ~5 weeks, so neither is at 1000 rows today — but both grow with the number of competitions
    carried, and neither would say a word when it crossed. Paged for the same reason. */
-async function fetchAllRows(table, cols, apply){
+/* BUILD 208 — `orderCol` exists because this function had NO ordering at all, and it pages.
+   The archive is 2,689 rows over three pages today, so it has been reading page 2 and page 3 of a
+   result set whose order Postgres never promised to keep — against a table being rewritten under it.
+   It has not gone wrong (measured twice: 0 duplicates, 0 missing, identical sets) and there was no
+   reason it had to.
+   The default is `fxid`, which is the PRIMARY KEY of both tables this is called on — `fixtures` and
+   `predictions` (SQL ledger, build 199) — so it is a total order rather than a tiebreak that might
+   still tie. A future caller pointed at a table with no `fxid` gets a loud PostgREST error rather
+   than quietly unstable pages, which is the right way round. */
+async function fetchAllRows(table, cols, apply, orderCol){
   let out = [], from = 0;
   for(;;){
     let q = supa.from(table).select(cols);
     q = apply ? apply(q) : q;
+    q = q.order(orderCol || 'fxid');
     const { data, error } = await q.range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
@@ -11071,7 +11245,9 @@ async function loadArchive(){
 
 async function loadCloudLeagues(force){
   if(!supa) return;
-  if(!afState.archive) await loadArchive();
+  /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
+     `await loadArchive()`, so a call that was about to decline still paid for three or four
+     `predictions` pages first. */
   if(!force && Date.now()-_leaguesLoadedAt < 5*60*1000) return;   // throttle
   try{
     const today = todayStrLocal();
@@ -11086,7 +11262,26 @@ async function loadCloudLeagues(force){
        counted as missing (a transient blip usually survives a second attempt). If it still fails
        AND it was present in the last successful load — so this is a competition disappearing, not
        one that was never there — it is named on the Predict feed instead of just being gone. */
-    const results = await Promise.all(COMP_IDS.map(id => fetchLeagueFixtures(id)));
+    /* BUILD 208 — THE ARCHIVE NO LONGER BLOCKS THE LEAGUE READS.
+       `await loadArchive()` used to sit at the top of this function, so three or four SEQUENTIAL
+       `predictions` pages had to finish before the FIRST of eleven league requests was sent. The
+       request trace showed it exactly: archive 1.6s -> 4.0s, first league at 4.0s. The two have no
+       dependency AT FETCH TIME — the archive is applied in the display loop below, not in the fetch —
+       so they start together and both are awaited before that loop runs.
+       🚨 THE FREEZE RULE (M5) IS UNCHANGED, AND THIS IS THE LINE THAT KEEPS IT: nothing between here
+       and the await reads `afState.archive`, and the loop that applies it cannot begin until the
+       archive promise has resolved. Moving the fetch is safe; moving the APPLICATION would not be.
+       ⚠ AND WHAT WAS TRIED AND REJECTED, because it looked like the obvious win: paging each league
+       in parallel. Measured on the live database — 2.6x FASTER for one league alone (1,119ms vs
+       2,948ms) and 2.5x SLOWER for all eleven (16,420ms vs 6,553ms). The leagues are ALREADY
+       concurrent, so the extra fan-out only saturates the connection. `count:'exact'` to size the
+       pages first was measured too and costs a whole round trip (1,333ms) to save one. Round trips
+       were never the bottleneck here, and an "optimisation" would have shipped a regression. */
+    const archiveReady = afState.archive ? Promise.resolve(null) : loadArchive();
+    const [, results] = await Promise.all([
+      archiveReady,
+      Promise.all(COMP_IDS.map(id => fetchLeagueFixtures(id)))
+    ]);
     const bad = (r) => !!(r.error || !r.data || !r.data.length);
     const retryIdx = results.map((r,i)=> bad(r) ? i : -1).filter(i=>i>=0);
     if(retryIdx.length){
@@ -13331,6 +13526,7 @@ function renderNewcomerSweep(){
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
 { const b=$('m14Btn'); if(b) b.addEventListener('click', renderM14); }
+{ const b=$('m14HoldBtn'); if(b) b.addEventListener('click', m14RunHoldout); }
 { const b=$('pcBtn'); if(b) b.addEventListener('click', renderProviderCoverage); }
 { const b=$('vnBtn'); if(b) b.addEventListener('click', renderVenuesSql); }
 { const b=$('lsBtn'); if(b) b.addEventListener('click', renderLongShot); }
