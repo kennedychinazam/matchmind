@@ -696,7 +696,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 206;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 207;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11393,6 +11393,48 @@ function scoresDayList(){
   return out;
 }
 
+/* BUILD 207 — THE EIGHTEEN COLUMNS THIS PATH ACTUALLY USES, MEASURED.
+   `select('*')` pulled all 82. On the live database, 255 rows over the browsable window cost
+   **712 KB** with `*` and **109 KB** with this list — 6.5x — and 8.19 s against 3.08 s on desktop
+   broadband. The waste was three jsonb blobs nothing on this path touches: `events` 180 KB,
+   `lineup_h` 61 KB, `lineup_a` 60 KB. Those are read by `providerExtras`, which runs inside
+   `loadCloudLeagues` off its own query, so nothing here ever wanted them.
+   **This read repeats every 120 s while the Scores tab is open**, so it was 20.8 MB an hour and is
+   now 3.2 — and it scales with the competition count, which the standing constraint says is going up.
+   ⚠ `provider` LOOKS unused here and is not: `dedupeProviders` reads it to drop the free twin of a
+   competition the Pro collector also writes. Every current row is 'af', so dropping it would have
+   disabled that filter and changed nothing visible until the day it mattered.
+   `loadCloudResults` has named its five columns since build 160. This path never did. */
+const SCORES_COLS = 'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,home_logo,away_logo,updated_at,provider';
+
+/* BUILD 207 — A FAILED READ IS NOT DATA, AND MUST NEVER BE SAVED AS THOUGH IT WERE.
+   Both failure paths below used to write `{at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}`
+   and `saveState()` it — a failure wearing the exact shape of a success: fresh timestamp, current
+   cache version, cloud-sourced. The error STRING was the only part not persisted. So the next boot
+   painted **"No matches on this date." on a day that had matches**, and the boot freshness guard —
+   present, seconds old, right version, cloud-sourced — declined to refetch for TEN MINUTES.
+   Ken hit this on 2026-08-19 and it sat recorded as "not diagnosed" for six days, because it clears
+   itself: after ten minutes the timestamp ages out, or after two if you stay on the tab.
+   Now: keep whatever was last known good, say plainly that the refresh failed AND how old the figures
+   on screen are, and do not touch localStorage at all. Showing stale scores that admit their age is
+   what build 83 already does with "Updated 14 min ago"; showing nothing while claiming there is
+   nothing to show is the one thing Milestone 8 forbids. */
+function scoresReadFailed(msg){
+  const have = !!(afState.scores && afState.scores.list && afState.scores.list.length);
+  renderScores();                     // repaint the last good list — or clear, if there never was one
+  const el = $('scoresMeta');
+  if(have){
+    const src = afState.scores.dataAt || afState.scores.at;
+    const mins = Math.max(0, Math.round((Date.now() - src)/60000));
+    const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
+              : mins < 60 ? mins + ' min ago' : Math.floor(mins/60) + 'h ago';
+    el.innerHTML = `<b style="color:var(--red)">Refresh failed</b> · showing scores from ${ago}`;
+  } else {
+    el.textContent = 'Scores unavailable: ' + msg;
+  }
+  return true;
+}
+
 // read the scores window from the shared cloud collector (fixtures table); returns true if it rendered
 async function afScoresFromCloud(){
   if(!supa) return false;
@@ -11400,8 +11442,8 @@ async function afScoresFromCloud(){
     // pull the whole browsable window (+1 day of UTC slack each side so local-date grouping is exact)
     const dm = new Date(Date.now()-(SCORES_PAST_DAYS+1)*86400000).toISOString().slice(0,10);
     const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
-    const { data, error } = await fetchAllRows('fixtures','*', q => q.gte('date', dm).lte('date', dp));
-    if(error){ afState.scores={at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(error.message||error.code||'error'); return true; }
+    const { data, error } = await fetchAllRows('fixtures', SCORES_COLS, q => q.gte('date', dm).lte('date', dp));
+    if(error) return scoresReadFailed(error.message||error.code||'error');
     // freshRows drops orphaned rows from a RETIRED collector; dedupeProviders drops the free twin
     // of a competition the Pro collector is also writing RIGHT NOW. Two different problems — the
     // staleness fence cannot see this one, because both collectors are live and both look fresh.
@@ -11417,7 +11459,7 @@ async function afScoresFromCloud(){
     gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
     return true;
-  }catch(e){ try{ afState.scores={at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}; saveState(); renderScores(); $('scoresMeta').textContent='Scores unavailable: '+(e.message||e); }catch(_){}; return true; }
+  }catch(e){ try{ return scoresReadFailed(e.message||e); }catch(_){ return true; } }
 }
 async function afScores(silent){
   if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading matches…';
@@ -13421,7 +13463,16 @@ setTimeout(()=>{
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
   // force one refresh when the cache was written by an older build (different list shape / fence)
   const _thinCache = afState.scores && afState.scores.v !== SCORES_CACHE_V;
-  if((k || supa) && (!afState.scores || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
+  /* BUILD 207 — AN EMPTY CACHED LIST IS NEVER "FRESH", whatever its timestamp says. This is the
+     second half of the Scores defect. `scoresReadFailed` now stops a failed read being SAVED as an
+     empty list; this stops any OTHER route to one costing ten minutes of blank screen — a genuinely
+     empty response, or a cache left by an older build. A window of eleven competitions across fifteen
+     days is never legitimately empty, and refetching when there is nothing on screen to lose is
+     always the right move. Deliberately NOT written as "keep the old list if the new one is empty":
+     that would make a genuinely empty window unrepresentable, and this guard already removes the
+     ten-minute blindness that was the actual harm. */
+  const _emptyCache = afState.scores && !(afState.scores.list && afState.scores.list.length);
+  if((k || supa) && (!afState.scores || _emptyCache || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
   if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (API-Football Pro since build 158)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);
