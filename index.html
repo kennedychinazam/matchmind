@@ -29,8 +29,6 @@
     --navbg:rgba(255,255,255,.97); --topfade:rgba(238,241,248,.9); --overlay:rgba(238,241,248,.98);
     --themecolor:#eef1f8;
   }
-  html[data-theme="light"] .nav-btn .nic{ filter:grayscale(1) brightness(.7); }
-  html[data-theme="light"] .nav-btn.active .nic{ filter:none; }
   html[data-theme="light"] .pro{ color:#1a1405; }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
   html,body{background:var(--bg);}
@@ -147,12 +145,25 @@
   .dpill.seemore{border-style:dashed;opacity:.9}
 /* The competition name is the useful half of this line, so it is never the thing that gets cut —
    the section label shrinks first (build 83). */
+/* BUILD 213 — 26px tall, the smallest control in the app, and it opens the competition filter.
+   It is NOT grown to 44px: it sits inside a dense section-label row beside the competition name, and
+   a 44px chip there would push every list heading apart and cost a line of fixtures on a phone
+   screen. The HIT AREA is extended instead, which is the whole point — a touch target is about the
+   thumb, not the paint. `inset` is negative so the box grows outward without moving anything. */
 .compchip{flex:0 1 auto; padding:5px 10px; border-radius:9px; border:1px solid var(--gold);
           background:transparent; color:var(--gold); font-size:.68rem; font-weight:700; cursor:pointer;
-          text-transform:none; letter-spacing:0; text-align:right; line-height:1.25;}
+          text-transform:none; letter-spacing:0; text-align:right; line-height:1.25;
+          position:relative;}
+/* ⚠ -11px, not the -9px that the arithmetic suggests. `inset` on an absolutely positioned child
+   resolves against the PADDING box, so the chip's 1px border is already outside it, and sub-pixel
+   rounding of a 26.4px box costs another. Written as -9px it measured **41px** of effective hit
+   height, not 44 — found by hit-testing `elementFromPoint` upward until it stopped answering, which
+   is the only way to see this. The CSS looked correct and was three pixels short. */
+.compchip::after{content:''; position:absolute; inset:-11px -8px;}
 .sec-label > span:first-child{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .datenav{display:flex; align-items:center; gap:8px; padding:2px 0;}
-  .dnav{flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:38px; height:38px;
+  /* BUILD 213 — 38px -> 44px, the touch-target floor. */
+  .dnav{flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:44px; height:44px;
         border-radius:11px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer;}
   .dnav:active{transform:scale(.94)}
   .dnav svg{width:19px; height:19px; display:block}
@@ -204,8 +215,14 @@
   .scscore.final{color:var(--text);}
   .scscore.liven{color:var(--green2);}
   .sfilters{display:flex; gap:6px; margin:4px 0 8px;}
-  .sfchip{flex:1; padding:8px 0; border-radius:10px; border:1px solid var(--border); background:var(--card2); color:var(--muted); font-size:.72rem; font-weight:700; cursor:pointer;}
+  /* BUILD 213 — 32px -> 44px. Full-width segmented control; the row was already there. */
+  .sfchip{flex:1; padding:8px 0; min-height:44px; border-radius:10px; border:1px solid var(--border); background:var(--card2); color:var(--muted); font-size:.72rem; font-weight:700; cursor:pointer;}
   .sfchip.active{background:var(--card3); color:var(--gold); border-color:var(--gold);}
+  /* BUILD 216 — the Tips horizon tiles read as the FILLED gold of an `.htab.active`, which is what
+     Ken meant by "yellow ... just like the Winner tile". Scoped to #tipHorizon deliberately: the same
+     `.sfchip.active` styles the theme picker, the AI providers and the favourites tabs, and none of
+     those asked to change. */
+  #tipHorizon .sfchip.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
 
   /* ---------- slip summary ---------- */
   .slipsum{background:linear-gradient(160deg,#14532d,#166534); border:1px solid #22c55e55; border-radius:16px; padding:16px; text-align:center; margin:12px 0;}
@@ -218,14 +235,24 @@
 
   /* ---------- bottom nav ---------- */
   .bottomnav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:var(--navbg); backdrop-filter:blur(10px); border-top:1px solid var(--border); display:flex; padding:10px 0 14px; z-index:50;}
-  .nav-btn{flex:1; background:none; border:none; color:var(--muted2); font-size:.7rem; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:4px;}
-  .nav-btn .nic{font-size:1.25rem; line-height:1; filter:grayscale(1) brightness(1.4); opacity:.55;}
+  /* BUILD 213 — 36px tall until now. This is the app's primary navigation, pressed more than any
+     other control, and 36 is below both platform guidelines (Apple 44pt, Google 48dp). It owns a
+     fixed bar of its own, so height costs nothing but the bar — no list density is lost. */
+  .nav-btn{flex:1; background:none; border:none; color:var(--muted2); font-size:.7rem; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:44px;}
+  /* BUILD 217 — WAS AN EMOJI BEHIND `filter:grayscale(1)`. Ken: "the icons in the app should all be
+     svg". The filter trick was the tell: a colour emoji had to be drained of colour to look like an
+     icon, and it renders as a different glyph on every platform — Android, iOS and Windows each ship
+     their own ⚽ and ⚙️. An inline SVG inherits `currentColor`, so the muted and gold states are the
+     same two lines that already style the label, and there is nothing left to filter. */
+  .nav-btn .nic{width:22px; height:22px; display:block; opacity:.6;}
+  .nav-btn .nic svg{width:100%; height:100%; display:block;}
   .nav-btn.active{color:var(--gold);}
-  .nav-btn.active .nic{filter:none; opacity:1;}
+  .nav-btn.active .nic{opacity:1;}
 
   /* ---------- v0.8 additions ---------- */
   /* top-bar search */
-  .iconbtn{background:var(--card); border:1px solid var(--border); color:var(--muted); width:36px; height:36px; border-radius:11px; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  /* BUILD 213 — 36px -> 44px. */
+  .iconbtn{background:var(--card); border:1px solid var(--border); color:var(--muted); width:44px; height:44px; border-radius:11px; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .topright{display:flex; align-items:center; gap:8px;}
   .searchOverlay{position:fixed; inset:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:var(--overlay); backdrop-filter:blur(14px); z-index:120; padding:14px; overflow-y:auto;}
   .searchBar{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
@@ -238,6 +265,9 @@
   /* horizontal scrollable market tabs */
   .htabs{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 12px; scrollbar-width:none; position:sticky; top:0; z-index:30; background:linear-gradient(180deg,var(--bg2),var(--topfade)); backdrop-filter:blur(10px);}
   .htabs::-webkit-scrollbar{display:none;}
+  /* BUILD 217 — an icon that sits inside an h2, sized in the heading's own em so it scales with it. */
+  .h2ico{display:inline-block; width:1.05em; height:1.05em; vertical-align:-2px; margin-right:7px;}
+  .h2ico svg{width:100%; height:100%; display:block;}
   .htab{flex:0 0 auto; padding:10px 15px; border-radius:13px; border:1px solid var(--border); background:var(--card); color:var(--muted); font-size:.86rem; font-weight:800; cursor:pointer; white-space:nowrap;}
   .htab.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
 
@@ -391,14 +421,17 @@
 
     <!-- Smart Bet also shows the accuracy record + strong picks -->
     <div id="strongCard" class="hidden">
-      <div class="sec-label">AI strong picks</div>
+      <!-- BUILD 217 — "AI STRONG PICKS" IS REMOVED, AND KEN'S READING OF IT WAS EXACTLY RIGHT:
+           "AI strong pick still looks like the winner tab in multiple days". It listed `f.pick` at
+           `prob >= 0.55` over every upcoming date, which IS the Winner tab with no horizon applied.
+           Build 85 added it when the Tips tab had no horizon control; build 216 gave the Winner tab
+           working Today / Next 3 / Next 7 tiles, so the same list is now two taps away and this card
+           was a third set of numbers on one screen explaining why it was not the other two.
+           THE ACCURACY RECORD STAYS. It is the one thing here that was not a duplicate, and it is
+           what Milestone 5 exists to make credible, so it keeps its own card and its own heading. -->
+      <div class="sec-label">Engine record</div>
       <div class="card">
-        <h2>🔥 AI Strong Picks</h2>
-        <!-- build 85: this card lives under the Smart Bet tab but does NOT rank by Smart Bet — it
-             lists headline calls at 55%+. Third set of numbers on one screen; now labelled. -->
-        <div class="subnote" style="margin:-2px 0 8px">These are <b style="color:var(--text)">headline calls</b> — the winner market only, at 55% confidence or better. They are ranked differently from the Smart Bet list above, which searches every market. A fixture can appear in one and not the other.</div>
-        <div class="muted" id="recordLine" style="margin-bottom:8px; line-height:1.5;"></div>
-        <div id="strongPicks"></div>
+        <div class="muted" id="recordLine" style="line-height:1.5;"></div>
       </div>
     </div>
 
@@ -406,8 +439,14 @@
     <div id="slipCard" class="hidden">
       <div class="sec-label">Slip generator</div>
       <div class="card">
-        <h2>🎰 Bet Slip Generator</h2>
-        <div class="field"><label>Number of games</label><div class="sfilters" id="slipN"></div></div>
+        <h2><span class="h2ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4.5h11l4 4v11h-15z"/><path d="M15.5 4.5v4h4"/><path d="M8 12h8M8 15.5h5"/></svg></span>Bet Slip Generator</h2>
+        <div class="field"><label>Number of games</label><div class="sfilters" id="slipN"></div>
+          <div class="subnote" id="slipNNote" style="margin-top:5px"></div></div>
+        <!-- BUILD 218 — Ken: "i want an odd generator there as well ... one can add the total odds
+             he wants the slip to generate. lets say 50odds". Empty is the old behaviour exactly. -->
+        <div class="field"><label>Target total odds — optional</label>
+          <input type="number" id="slipOdds" inputmode="decimal" min="1.2" max="100000" step="1" placeholder="e.g. 50">
+        </div>
         <div class="field"><label>Target risk</label>
           <div class="rlabel" id="riskLabel"></div>
           <input type="range" min="1" max="99" value="30" class="rslider" id="riskSlider">
@@ -677,11 +716,11 @@
 
   <!-- ================= BOTTOM NAV ================= -->
   <div class="bottomnav">
-    <button class="nav-btn active" data-view="scores"><span class="nic">⚽</span><span data-i18n="Scores">Scores</span></button>
-    <button class="nav-btn" data-view="predict"><span class="nic">📊</span><span data-i18n="Analysis">Analysis</span></button>
-    <button class="nav-btn" data-view="tips"><span class="nic">🔥</span><span data-i18n="Tips">Tips</span></button>
-    <button class="nav-btn" data-view="favs"><span class="nic">⭐</span><span data-i18n="Favs">Favs</span></button>
-    <button class="nav-btn" data-view="data"><span class="nic">⚙️</span><span data-i18n="More">More</span></button>
+    <button class="nav-btn active" data-view="scores"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.6l3.4 2.5-1.3 4h-4.2l-1.3-4z"/><path d="M12 3.2v4.4M20.6 10.1l-4.5 0M18.1 19.4l-3.9-5.3M5.9 19.4l3.9-5.3M3.4 10.1l4.5 0"/></svg></span><span data-i18n="Scores">Scores</span></button>
+    <button class="nav-btn" data-view="predict"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></span><span data-i18n="Analysis">Analysis</span></button>
+    <button class="nav-btn" data-view="tips"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M12 2.7s5.4 3.9 5.4 8.8a5.4 5.4 0 0 1-10.8 0C6.6 6.6 12 2.7 12 2.7z"/><path d="M12 21.3a3.1 3.1 0 0 0 3.1-3.1c0-2.2-3.1-4.5-3.1-4.5s-3.1 2.3-3.1 4.5a3.1 3.1 0 0 0 3.1 3.1z"/></svg></span><span data-i18n="Tips">Tips</span></button>
+    <button class="nav-btn" data-view="favs"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M12 3.4l2.7 5.5 6.1.9-4.4 4.3 1 6-5.4-2.8-5.4 2.8 1-6L3.2 9.8l6.1-.9z"/></svg></span><span data-i18n="Favs">Favs</span></button>
+    <button class="nav-btn" data-view="data"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-3-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.3-3l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 3 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg></span><span data-i18n="More">More</span></button>
   </div>
 
 </div>
@@ -697,7 +736,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 211;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 218;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2318,6 +2357,56 @@ function loadScorers(text, isSample){
 
 function setDataChip(text){ $('dataChip').innerHTML = '● <b>'+text+'</b>'; }
 
+/* ══ BUILD 214 — THE HEADER BADGE SAID "Sample data" ON TOP OF 23,033 REAL MATCHES ═══════════════
+   Read from a live device on 2026-08-26: the chip in the global header read **"● Sample data"**
+   while `afState.leagues` held **11 competitions, 23,033 matches**, and the Scores tab was rendering
+   200 fixtures with `source: 'cloud'`.
+
+   It was not lying about nothing — it describes the CSV ENGINE behind the Data tab, which really did
+   hold 90 sample rows. That engine is a Milestone-1 concept and it is not what any screen shows any
+   more. The badge sits above live scores on every tab, and a stranger reads it as "this app is
+   showing sample data". **For an app being prepared to sell, it is the first thing they see.**
+   Milestone 8's rule is that everything on screen is measured or absent; a status badge that is
+   accurate about a subsystem nobody is looking at, and wrong about the screen it sits on, is neither.
+
+   An EXPLICIT choice by the user still wins — loading a CSV or resetting to the samples is a
+   deliberate act and the badge keeps saying so. This only replaces the DEFAULT. */
+let _dataSourceExplicit = false;
+function refreshDataChip(){
+  if(_dataSourceExplicit) return;                       // the user said what they wanted
+  if(afState.activeLeagueId && afState.leagues && afState.leagues[afState.activeLeagueId]) return;   // activateLeague owns the label
+  const n = Object.keys(afState.leagues || {}).length;
+  if(!n) return;                                        // nothing loaded: the default is honest
+  /* ⚠ COMPARED AGAINST COMP_IDS, NOT REPORTED BARE — and this was found by watching the badge
+     rather than by reasoning. The first version printed `Object.keys(afState.leagues).length`, and
+     on a live reload it read **"Live · 10 competitions"** while eleven were configured.
+     `loadCloudLeagues` fills PROGRESSIVELY, so any count taken from it is a count taken mid-load.
+     That is build 205's finding exactly — two fits minutes apart returned 15,478 and 13,948 rows
+     because one page load had ten of eleven — and a badge is no more entitled to quote a partial
+     number than a fit is. A short load now SAYS it is short instead of quietly under-reporting.
+     Never a hard-coded 11: the standing constraint is that adding a competition touches COMP_IDS
+     and nothing else. */
+  const want = (typeof COMP_IDS !== 'undefined' && COMP_IDS.length) ? COMP_IDS.length : n;
+  /* The short form is deliberate: "Live · 10 of 11 competitions" WRAPPED TO TWO LINES in the
+     header at 412px and pushed the search button around — seen on screen, not predicted. `10/11`
+     says the same thing in a header that has room for it. */
+  /* ⚠ THE NOUN IS DROPPED BECAUSE IT DOES NOT FIT, MEASURED — not because it was not wanted.
+     The header affords **132px** beside the search button and "● Live · 11 competitions" needs
+     **143px**, so it wrapped to THREE lines at 412px whatever the count. "leagues" fits at 116px and
+     was rejected: the Champions League and Libertadores are cups, and this app does not trade a
+     correct word for a short one. The count is the informative half and it survives; the full phrase
+     goes in `title` for anywhere that can show it. `nowrap` makes the wrap unreachable rather than
+     merely unlikely. */
+  setDataChip(n < want ? 'Live · ' + n + '/' + want : 'Live · ' + n);
+  const el = $('dataChip');
+  if(el){
+    el.style.whiteSpace = 'nowrap';
+    el.title = n < want
+      ? n + ' of ' + want + ' competitions loaded'
+      : n + ' competition' + (n === 1 ? '' : 's') + ' loaded';
+  }
+}
+
 function syncSportChips(){
   document.querySelectorAll('#sportChips .chip').forEach(c=>
     c.classList.toggle('active', c.dataset.sport===currentSport));
@@ -3361,6 +3450,17 @@ function pickPhrase(code, home, away){
        : code==='1D' ? home+' to win, stake back on a draw'
        : code==='2D' ? away+' to win, stake back on a draw' : 'the pick';
 }
+/* BUILD 216 — Ken: "put the name of the country before the league. eg Spain ; La Liga".
+   One helper rather than the same concatenation at each call site, because there are already two
+   competitions called "Serie A" (71 Brazil, 135 Italy) and the country is what tells them apart —
+   the oldest standing trap in the roadmap. Degrades to the bare name when the country is absent or
+   reads "World", which is what the Champions League and Libertadores carry. */
+function leagueTitle(L){
+  const c = L && L.country ? String(L.country).trim() : '';
+  const n = L && L.name ? String(L.name) : '';
+  return (c && c.toLowerCase() !== 'world') ? c + ' · ' + n : n;
+}
+
 function pickLabel(code, home, away){
   return code==='1'?home+' to win' : code==='X'?'Draw' : code==='2'?away+' to win'
        : code==='1X'?home+' or Draw' : code==='X2'?'Draw or '+away
@@ -3777,7 +3877,12 @@ const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['sm
 function renderTipHorizon(){
   const box=$('tipHorizon'); if(!box) return;
   box.innerHTML = TIP_HORIZONS().map(([v,l])=>
-    `<button class="sfchip${tipState.days===v?' on':''}" data-th="${v}">${l}</button>`).join('');
+    /* BUILD 216 — WAS `' on'`, AND `.sfchip.on` MATCHES NO RULE IN THE STYLESHEET. Every other chip
+       row in the app uses `active`; this one has been writing a dead class since it was added, so the
+       Today / Next 3 / Next 7 tiles never showed which was selected. Ken reported it as "the Today
+       tile should be yellow when tapped" — it was not a styling preference, the selected state did
+       not exist. */
+    `<button class="sfchip${tipState.days===v?' active':''}" data-th="${v}">${l}</button>`).join('');
   box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
     tipState.days = +b.dataset.th; renderTips(); }));
 }
@@ -3849,15 +3954,12 @@ function renderBanker(){
   const mk = f.market || pickMarket(f.pick) || 'Winner';
   box.innerHTML = `<div class="card" style="border:1px solid var(--gold)">
       <h2>\u26A1 ${escapeHtml(label)} \u2014 strongest read</h2>
-      <div class="frow"><span class="muted">${escapeHtml(L.name)}</span>
+      <div class="frow"><span class="muted">${escapeHtml(leagueTitle(L))}</span>
         <span class="muted">${escapeHtml((f.date||'').slice(5).replace('-','/'))} ${escapeHtml(localHM(f.date,f.time))}</span></div>
       <div style="font-weight:700;margin:4px 0">${crest(f.home)}${escapeHtml(f.home)} v ${crest(f.away)}${escapeHtml(f.away)}</div>
-      <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(pickLabel(f.pick,f.home,f.away))}</b></span>
+      <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(chipCode(f.pick))}</b></span>
         <span><span class="predchip sm">${(100*f.prob).toFixed(0)}%</span>
               <span class="predchip sm">@ ${fairOdds(f.prob)}</span></span></div>
-      <div class="subnote" style="margin-top:6px">Fair odds are what this probability is worth, before any
-        bookmaker margin \u2014 a high probability pays short. This is the strongest read in the window,
-        not a guarantee.</div>
       <button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>
     </div>`;
   const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));
@@ -4025,12 +4127,14 @@ function renderSmartBet(L, f, P, played, hp){
    and sort by probability; Smart Bet roams every market and sorts by departure from an average
    match. Without this, the Smart Bet column looks like the same number as everywhere else, only
    bigger — which is exactly how it was being read. */
-const TIP_TAB_NOTES = {
-  winner:'Ranked by probability. This is the same call the match page leads with — a straight win where one side is clear enough, otherwise Double Chance covering the draw.',
-  ou:'Ranked by probability, over or under 2.5 goals — whichever side of the line the engine favours.',
-  btts:'Ranked by probability that both teams score.',
-  smart:'<b style="color:var(--text)">Not the same question as the Winner tab.</b> This searches every market and ranks by how far a fixture departs from an average match in its competition — "+18 vs avg" means 18 points above what that same bet pays in a typical game. So the percentages here are usually higher than the match page\'s headline, and are not more confident, just a different bet. Open a match to see the comparison in full.'
-};
+/* BUILD 217 — THE TAB NOTES ARE GONE. Ken: "the writings in the smart betting tab ... remove them,
+   the soo much explanation is not necessary" and "all the writings are not necessary".
+   They were added because the Smart Bet column looked like the same number as everywhere else only
+   bigger, and that reasoning was sound — but it belongs in the source, where it now is, rather than
+   in a paragraph above every list. The distinction the Smart Bet note was defending is still carried
+   on screen by the "+18 vs avg" figure on each row, which is the thing that actually says "this is
+   measured against an average match, not against the other tabs". */
+const TIP_TAB_NOTES = {};
 function renderTipList(market){
   { const n=$('tipTabNote');
     if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
@@ -4848,6 +4952,40 @@ function kickoffPassed(f){
   if(!d) return daysPast(f.date) > 0;            // no usable time: started once the date is behind us
   return Date.now() >= d.getTime();
 }
+
+/* ══ BUILD 212 — THE LOWER BOUND ON PUBLICATION, WHICH `archivePrediction` NEVER HAD ═══════════
+   Build 199 made a pick permanent on FIRST PUBLICATION instead of at kick-off, which closed the
+   window where a reader sees a tip and the pick is silently rewritten underneath them. That is
+   right. What it lacked was a floor: a pick published the first time anyone opens the app on the
+   fixture, with `loadCloudLeagues` putting EVERY future fixture of every competition in the feed.
+
+   MEASURED 2026-08-25 on the 93 rows archived since the table was repaired: **median 111 days
+   before kick-off**, 72 of 93 beyond 30 days, maximum 273. Coventry v Chelsea, kicking off
+   2026-12-26, was frozen on 2026-08-23 at `2D` 0.782 and the app renders it `frozen: true`. On
+   Boxing Day it would still show August's answer.
+
+   WHY SEVEN DAYS, STATED AS THE PRODUCT DECISION IT IS RATHER THAN DRESSED UP AS A MEASUREMENT:
+     - it is the horizon the app already presents — `SCORES_AHEAD_DAYS` is 7;
+     - it sits inside the collector's own rolling refresh window (10 back, 9 ahead), so beyond it
+       the underlying row is not being kept current anyway;
+     - it covers a full fixture round and a weekend accumulator, which is what a reader plans on.
+
+   ⚠ AND THE ALTERNATIVE THAT WAS RECOMMENDED FIRST AND THEN REJECTED BY READING THE CODE:
+   "publish when the market first prices the fixture." It is elegant — publication would coincide
+   exactly with when a bet is placeable, and closing-line value would be measurable by construction.
+   It is also wrong twice. `upcoming` rows carry no odds fields at all, so it needs odds added to the
+   payload that is ALREADY the next localStorage compaction candidate at 0.710MB; and it makes
+   publishing depend on the odds pass being healthy, so the 54-hour outage of 2026-08-20 would have
+   published NOTHING for two days and left a hole in the record. A product rule must not fail
+   because a collection pass did. */
+const PUBLISH_AHEAD_DAYS = 7;
+function tooFarAheadToPublish(f){
+  if(!f || !f.date) return false;
+  const d = kickoffUTC(f.date, f.time);
+  const ms = d ? d.getTime() : Date.parse(f.date + 'T00:00:00Z');
+  if(!ms || isNaN(ms)) return false;             // unparseable: fall back to publishing, as before
+  return (ms - Date.now()) > PUBLISH_AHEAD_DAYS * 86400000;
+}
 /* BUILD 142 — THE ARCHIVE WAS STORING A DIFFERENT PICK FROM THE ONE THE APP PUBLISHED.
 
    Ken: "why didn't the prediction remain and why did the prediction after the result change?"
@@ -4908,6 +5046,10 @@ function archivePrediction(L, f, p){
      build 62 and is unchanged. What build 199 changes is the window BEFORE kick-off, which used to
      be freely rewritable and now is not. */
   if(kickoffPassed(f)) return;
+  /* BUILD 212 — and the matching floor. Freezing a pick a season early does not narrow the window
+     build 199 was protecting, it deletes every improvement the model makes before the match. The
+     fixture is still priced, shown and re-priced on every load; it simply is not PUBLISHED yet. */
+  if(tooFarAheadToPublish(f)) return;
   if(afState.archive && afState.archive[f.fxid]) return;   // already published — never rewritten
   archiveQueue.set(f.fxid, {
     fxid: f.fxid, lid: L.id, lname: L.name, kickoff: f.date, ktime: f.time || null,
@@ -10206,7 +10348,11 @@ async function renderArchiveDay(){
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading what the app predicted that day…</div>';
   try{
     const { data: preds, error } = await supa.from('predictions')
-      .select('fxid,lid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build')
+      /* build 212 — `made_at` joins the select so the panel can say how far ahead of kick-off each
+         pick was frozen. Nothing new is stored: the distance is `kickoff` minus `made_at`, both of
+         which were already here, which is the same "derive it, do not store it" call as builds 168
+         and 188. */
+      .select('fxid,lid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build,made_at')
       .eq('kickoff', d).order('ktime');
     if(error) throw error;
     if(!preds || !preds.length){
@@ -10247,6 +10393,26 @@ async function renderArchiveDay(){
     if(archiveFailed)
       html += `<div class="frow"><span class="muted">⚠ Archive write</span><b style="color:var(--gold)">failing — ${escapeHtml(archiveFailed.op)}</b></div>`
             + `<div class="subnote">Published picks are not reaching the shared record. What you see is still correct; the stored history is not being added to. <span class="muted">${escapeHtml(archiveFailed.msg)}</span></div>`;
+
+    /* 🚨 BUILD 212 — HOW FAR AHEAD THESE WERE FROZEN, BECAUSE SOME OF THEM WERE FROZEN ABSURDLY
+       EARLY AND NOTHING SAID SO. Until this build `archivePrediction` had no lower bound, so a pick
+       was published the first time anyone opened the app on the fixture — median 111 days before
+       kick-off, maximum 273, measured on 2026-08-25.
+       Those rows are NOT deleted and never will be. Deleting from the audit table is the one thing
+       the ledger promises never happens, and the 32 pre-migration rows are kept on exactly that
+       principle. **They are labelled instead**, so a reader can see that a pick was frozen before
+       the model had four months of football it later saw. Derived from two stored columns; no
+       schema change, nothing new written. */
+    const aheadDays = preds.map(p => p.made_at
+        ? (Date.parse(d + 'T' + ((p.ktime||'00:00')) + ':00Z') - Date.parse(p.made_at)) / 86400000
+        : null).filter(v => v != null && !isNaN(v));
+    const early = aheadDays.filter(v => v > PUBLISH_AHEAD_DAYS);
+    if(early.length){
+      const med = early.slice().sort((a,b)=>a-b)[Math.floor((early.length-1)/2)];
+      html += `<div class="frow"><span class="muted">⚠ Frozen before the ${PUBLISH_AHEAD_DAYS}-day window</span>`
+            + `<b style="color:var(--gold)">${early.length} of ${preds.length} · median ${Math.round(med)} days early</b></div>`
+            + `<div class="subnote">Published under the pre-build-212 rule, which had no floor &mdash; a pick froze the first time anyone opened the app on the fixture. These are kept, not deleted: the archive records what was published. <b>Read them as predictions made ${Math.round(med)} days out</b>, not as pre-match ones.</div>`;
+    }
 
 
     /* The country is shown only when it is needed to tell two headings apart — Milestone 2's
@@ -10703,11 +10869,74 @@ async function matchDetail(s){
    ================================================================ */
 // DNB by default: same survival as Double Chance (a draw voids instead of killing the slip) but
 // materially better odds in tight leagues — the premium scales with drawProb x lossProb (build 44)
-const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','DNB','DC']) };
+/* BUILD 218 — with a target, the LEG COUNT IS AN OUTPUT, so it needs a ceiling of its own. 12 is a
+   deliberate cap: at the default 30% risk the best any single leg can pay is 1/0.70 = 1.43, so
+   twelve legs reach about 79.0 and a target above that is arithmetically unreachable at that setting.
+   The generator says so in those words rather than quietly returning a shorter slip. */
+const SLIP_MAX_LEGS = 12;
+const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','DNB','DC']), targetOdds:null };
+
+/* ══ BUILD 218 — BUILD A SLIP TO A TARGET, IN LOG SPACE ═══════════════════════════════════════
+   Combined odds MULTIPLY, so "get me to 50" is a sum once you take logs: every leg contributes
+   `ln(1/p)` and the job is to land on `ln(target)`. Working in logs is what keeps this a simple
+   greedy instead of a product-of-fractions that drifts.
+   Largest-contribution-that-still-fits, then one final leg that overshoots by the least. It is not
+   optimal — an exact subset sum would be — and it does not need to be: the pool is one selection per
+   fixture and the legs are fine-grained, so greedy lands within a few percent, and a slip that is
+   0.3 odds off target is not a different bet. What matters is that the number reported is the number
+   ACHIEVED, never the number asked for. */
+function slipToTarget(pool, target, maxLegs){
+  const items = pool.map(c => ({ c, lg: Math.log(1 / c.prob) }))
+                    .filter(x => x.lg > 1e-6)
+                    .sort((a, b) => b.lg - a.lg);
+  /* The ceiling is what makes an unreachable target explainable instead of just disappointing:
+     the best `maxLegs` legs available under the current risk setting, multiplied out. */
+  let ceilLog = 0;
+  for(const x of items.slice(0, maxLegs)) ceilLog += x.lg;
+  const want = Math.log(target), used = new Set(), legs = [];
+  let acc = 0;
+  while(legs.length < maxLegs && acc < want - 1e-9){
+    const remain = want - acc;
+    let pick = items.find(x => !used.has(x) && x.lg <= remain + 1e-9);
+    if(!pick){
+      const rest = items.filter(x => !used.has(x));
+      if(!rest.length) break;
+      pick = rest[rest.length - 1];       // smallest available — overshoots by the least
+      /* ⚠ AND IT IS ONLY TAKEN IF IT LANDS CLOSER THAN STOPPING DOES. Legs are coarse near the end:
+         at a 30% risk ceiling the smallest available leg can still pay 1.43, so a target of 1.50
+         would have been "met" with 2.04 — a 36% overshoot reported as the answer. Both distances are
+         measured multiplicatively, which is the only fair comparison when the quantity multiplies:
+         falling short by a factor of 1.05 and overshooting by 1.05 are the same size of miss. */
+      const shortBy = Math.exp(remain);            // factor still needed if we stop here
+      const overBy  = Math.exp(pick.lg - remain);  // factor we would exceed the target by
+      if(overBy < shortBy){ used.add(pick); legs.push(pick); acc += pick.lg; }
+      break;
+    }
+    used.add(pick); legs.push(pick); acc += pick.lg;
+  }
+  return { legs: legs.map(x => x.c), reached: Math.exp(acc), ceiling: Math.exp(ceilLog),
+           pool: items.length };
+}
 function renderSlipUI(){
   // number of games
   $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
   $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
+  /* BUILD 218 — with a target set the leg count is DERIVED, so the chips above stop meaning what
+     their label says. Rather than leave two controls silently fighting, the one that is not in
+     charge says so. */
+  { const oi=$('slipOdds'), nn=$('slipNNote');
+    if(oi){
+      if(document.activeElement !== oi) oi.value = slipState.targetOdds || '';
+      oi.oninput = ()=>{
+        const v = parseFloat(oi.value);
+        slipState.targetOdds = (isFinite(v) && v > 1) ? v : null;
+        if(nn) nn.textContent = slipState.targetOdds
+          ? `Not used while a target is set — the slip takes as many legs as ${slipState.targetOdds} odds needs, up to ${SLIP_MAX_LEGS}.` : '';
+      };
+    }
+    if(nn) nn.textContent = slipState.targetOdds
+      ? `Not used while a target is set — the slip takes as many legs as ${slipState.targetOdds} odds needs, up to ${SLIP_MAX_LEGS}.` : '';
+  }
   // risk slider (target risk = 100 − win probability)
   const sl=$('riskSlider'); sl.value=slipState.riskPct;
   const upd=()=>{ $('riskLabel').textContent=`Max risk ${slipState.riskPct}% per match — every leg must win at least ${100-slipState.riskPct}%`; };
@@ -10783,10 +11012,22 @@ function genSlip(){
     if(c.prob < minProb) continue;                                   // riskier than the ceiling — never offer it
     if(!byFx[c.key] || c.prob < byFx[c.key].prob) byFx[c.key]=c;     // among those allowed, lowest prob pays most
   }
-  let legs=Object.values(byFx).sort((a,b)=>a.prob-b.prob).slice(0, slipState.n);
-  if(legs.length < slipState.n){
-    $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} match(es) sit inside a ${slipState.riskPct}% risk limit. Raise the risk slider to allow less certain picks, add bet types or leagues, or load more competitions (Predict → Discover).</div>`;
-    return;
+  /* BUILD 218 — a target, when set, decides the legs; otherwise this is build 47 untouched. */
+  const _target = slipState.targetOdds;
+  let legs, _aim = null;
+  if(_target){
+    _aim = slipToTarget(Object.values(byFx), _target, SLIP_MAX_LEGS);
+    legs = _aim.legs;
+    if(!legs.length){
+      $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">No match sits inside a ${slipState.riskPct}% risk limit, so there is nothing to build a slip from. Raise the risk slider, add bet types or leagues, or load more competitions (Analysis → Discover).</div>`;
+      return;
+    }
+  } else {
+    legs=Object.values(byFx).sort((a,b)=>a.prob-b.prob).slice(0, slipState.n);
+    if(legs.length < slipState.n){
+      $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} match(es) sit inside a ${slipState.riskPct}% risk limit. Raise the risk slider to allow less certain picks, add bet types or leagues, or load more competitions (Predict → Discover).</div>`;
+      return;
+    }
   }
   let comb=1, odds=1;
   for(const l of legs){ comb*=l.prob; odds*=1/l.prob; }
@@ -10812,6 +11053,19 @@ function genSlip(){
     rangeNote = `<div class="muted" style="font-size:.68rem;margin-top:6px">${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
       <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</div>`;
   }
+  /* 🚨 BUILD 218 — THE NUMBER ON SCREEN IS THE ONE ACHIEVED, AND WHEN IT IS NOT THE ONE ASKED FOR
+     THE GAP IS STATED. A generator that silently returns 12.4 when you typed 50 is the same class of
+     dishonesty as a confidence gate that invents a pick — Milestone 8's rule, applied to a control
+     rather than a prediction. The ceiling is quoted because it is the actionable half: it says the
+     risk setting is the binding constraint, not the fixture list. */
+  let targetNote = '';
+  if(_aim){
+    const short = odds < _target * 0.995;
+    const reachable = _aim.ceiling;
+    targetNote = short && _target > reachable * 1.005
+      ? `<div class="muted" style="font-size:.68rem;margin-top:6px"><b style="color:var(--gold)">Target ${_target.toFixed(2)} is out of reach at ${slipState.riskPct}% risk.</b> The ${Math.min(SLIP_MAX_LEGS, _aim.pool)} best legs available multiply to <b>${reachable.toFixed(2)}</b>. Raise the risk slider, add bet types or leagues, or load more competitions.</div>`
+      : `<div class="muted" style="font-size:.68rem;margin-top:6px">Target <b>${_target.toFixed(2)}</b> · built <b style="color:var(--gold)">${odds.toFixed(2)}</b> from ${legs.length} leg${legs.length===1?'':'s'}.</div>`;
+  }
   $('slipOut').innerHTML = `
     <div class="slipsum">
       <div class="ssrow">
@@ -10820,6 +11074,7 @@ function genSlip(){
       </div>
       <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
       <div class="ssbadge">${badge}</div>
+      ${targetNote}
       <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% setting caps the risk of each match on its own — combining them is what makes the slip riskier than any single leg.</div>
       ${rangeNote}
       <div class="muted" style="font-size:.68rem;margin-top:4px">Fair odds from engine probabilities. Bookmaker odds will differ.</div>
@@ -10971,6 +11226,7 @@ function dedupeProviders(rows){
 }
 let _leaguesLoadedAt = 0;
 let _loadIssues = [];   // build 123 — competitions that failed to load even after a retry
+let _loadShort = 0;     // build 215 — how many of COMP_IDS are simply not here, whatever the reason
 let _truncated = [];    // build 123 — anything that came back at the row cap and had to be paged
 
 /* ── BUILD 123 — THE 1000-ROW CAP ──────────────────────────────────────────────
@@ -11304,10 +11560,31 @@ async function loadCloudLeagues(force){
       const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(COMP_IDS[i])));
       retryIdx.forEach((i,k)=>{ results[i] = retried[k]; });
     }
-    // still missing after the retry, and it was there last time — that combination is what makes
-    // this a LOAD FAILURE rather than a competition with nothing to show
+    /* ══ BUILD 215 — A COMPETITION COULD VANISH SILENTLY ON A COLD START ═════════════════════════
+       Build 123's promise is "a competition that fails to load must never vanish silently", and it
+       was only half-kept. The old line required `afState.leagues[id]` — meaning "it was there last
+       time" — so on a COLD START (cleared cache, new install, first run) `afState.leagues` is empty
+       and EVERY failure was filtered out. It caught a competition disappearing and was blind to one
+       that never arrived.
+       FOUND 2026-08-26 by build 214's badge, which read `Live · 10/11` and stayed there: Eredivisie
+       was absent, `_loadIssues` was `[]`, and nothing on any screen said so.
+
+       THE REPAIR IS TO STOP CONFLATING TWO THINGS. `bad()` is true both for a fetch that ERRORED and
+       for one that legitimately returned no rows, and those deserve different answers:
+         - an ERROR is a failure. Say so always, cold start or not — there is nothing to compare against
+           and nothing ambiguous about it.
+         - an EMPTY result is "this competition has nothing to show", which is only newsworthy if it
+           HAD something last time. That is the disappearance build 123 was written for, and its
+           caution is kept exactly as it was.
+       So a first-run fetch failure is now named, and a genuinely empty competition still is not. */
     _loadIssues = COMP_IDS
-      .map((id,i)=> (bad(results[i]) && afState.leagues[id]) ? (afState.leagues[id].name || `competition ${id}`) : null)
+      .map((id,i)=>{
+        const r = results[i], prev = afState.leagues[id];
+        const named = (prev && prev.name) ? prev.name : `competition ${id}`;
+        if(r && r.error) return named;                                  // a real failure, always
+        if((!r || !r.data || !r.data.length) && prev) return named;     // it was there and now is not
+        return null;
+      })
       .filter(Boolean);
     /* build 123 — which competitions needed more than one page. Kept so the About screen can show
        it: this is the fingerprint of the bug that hid Brasileirão, and if it ever silently returns
@@ -11444,6 +11721,11 @@ async function loadCloudLeagues(force){
       if(L.upcoming.length || L.matches.length){ leagues[L.id]=L; order.push(L.id); }
     }
     if(order.length){
+      /* BUILD 215 — THE BACKSTOP, and it is the half that cannot be argued with. `_loadIssues`
+         reasons about WHY a competition is absent and can still be wrong about a failure mode nobody
+         has met yet. This just counts: eleven were asked for, how many are here? Any shortfall is
+         reported even when nothing above could name it, so silence is no longer a possible outcome. */
+      _loadShort = Math.max(0, COMP_IDS.length - Object.keys(leagues).length);
       afState.leagues = leagues; afState.leagueOrder = order; afState.cloudFix = cf;
       // ONE-TIME cleanup: drop favourites orphaned by the data-source switch, then never touch favourites again
       try{ if(!localStorage.getItem('mm_fdmig')){
@@ -11453,6 +11735,7 @@ async function loadCloudLeagues(force){
         localStorage.setItem('mm_fdmig','1');
       } }catch(e){}
       _leaguesLoadedAt = Date.now();
+      refreshDataChip();         // build 214 — the badge now describes what the app is SHOWING
       renderBacktestLeagues();   // competitions just arrived — refresh the backtest picker (build 42)
       refreshSkills();           // measure each competition in the background (build 65)
       gradeFromHistory(); saveState();
@@ -11979,7 +12262,13 @@ function renderMoreRecord(){
 
 /* ---------- AI strong picks (Analysis tab) ---------- */
 function renderStrongPicks(){
-  const box = $('strongPicks'); if(!box) return;
+  /* BUILD 217 — THE ORDER HERE IS THE WHOLE FIX. This used to open with
+     a lookup of the picks-list element followed by an early return, so removing that list would
+     have silently taken the accuracy record with it — the record is written further down the same
+     function. The record is computed and rendered first; the list is gone and nothing waits on it.
+     ⚠ The element name is deliberately NOT written as a `$(...)` call above: `build-deploy.py`
+     scans for element references WITHOUT stripping comments, so naming a removed id in prose makes
+     it refuse the build. Same blind spot as `fn_body` in the regression suite, found the same way. */
   const stats = recordStats();
   const legacyNote = stats && stats.legacy
     ? `<div class="subnote" style="margin-top:4px">${stats.legacy} older result${stats.legacy===1?'':'s'} ${stats.legacy===1?'is':'are'} not counted. Until build 62 the app re-priced past matches every time it loaded, so those picks changed after the final whistle and the tally stopped describing anything real. <a href="#" id="recordReset" style="color:var(--gold)">Clear them</a>.</div>`
@@ -11989,27 +12278,6 @@ function renderStrongPicks(){
       + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out of the count rather than called a loss.` : '')
     : 'Every prediction is frozen at kick-off and graded once its match finishes — your accuracy record builds here.') + legacyNote;
   { const rr=$('recordReset'); if(rr) rr.onclick = e=>{ e.preventDefault(); clearLegacyRecord(); }; }
-  const picks = [];
-  for(const id of afState.leagueOrder){
-    const L = afState.leagues[id];
-    if(!L || (L.sport||'football')!=='football') continue;
-    // build 118 — a withheld pick never reaches Strong Picks either; the gate is stricter than the
-    // old 0.55 floor, so that floor is now redundant but harmless and left in place deliberately.
-    for(const f of L.upcoming) if(f.pick && !f.gated && f.prob>=0.55 && f.date>=todayStrLocal() && !f.provisional) picks.push({L, f});
-  }
-  picks.sort((a,b)=> (skillProven(b.L)?1:0)-(skillProven(a.L)?1:0) || b.f.prob-a.f.prob);
-  if(!picks.length){ box.innerHTML = '<div class="subnote">No high-confidence picks right now — load competitions or open fixtures so the engine can price them. Picks appear here when confidence reaches 55%+.</div>'; return; }
-  let html=''; const refs=[];
-  for(const {L,f} of picks.slice(0,15)){
-    const i=refs.length; refs.push({L,f});
-    const on=isFavMatch(f.fxid);
-    html += `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${f.date.slice(5).replace('-','/')}<br>${localHM(f.date, f.time)}</span>
-      <span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>
-      <span class="favright"><span class="predchip sm"${skillProven(L)?' style="border-color:var(--green2);color:var(--green2)"':''}>${f.pick} · ${(100*f.prob).toFixed(0)}%</span><span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
-  }
-  box.innerHTML = html;
-  box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const {L,f}=refs[+row.dataset.i]; openFixture(L.id,f); }));
-  box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const {L,f}=refs[+st.dataset.star]; toggleFavMatch(f,{lid:L.id,lname:L.name}); renderStrongPicks(); }));
 }
 
 /* One competition setting for both tabs (build 82).
@@ -12228,6 +12496,12 @@ function renderFixtures(){
     const names = _loadIssues.map(escapeHtml);
     const list = names.length===1 ? names[0] : names.slice(0,-1).join(', ') + ' and ' + names[names.length-1];
     html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${list}</b> did not load this time — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
+  }
+  /* BUILD 215 — the backstop speaks when nothing above could name a competition. Before this, a
+     shortfall that `_loadIssues` could not explain produced NOTHING on screen: ten competitions
+     rendered, one absent, no message. */
+  else if(_loadShort > 0){
+    html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${_loadShort} competition${_loadShort===1?'':'s'} did not load</b> — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
   }
   $('fixtureList').innerHTML = html;
   { const rh = $('reloadHint');
@@ -13598,6 +13872,7 @@ $('loadCsvBtn').addEventListener('click', ()=>{
     eng.load(rows);
     if(!eng.matches.length){ alert('No valid rows found — check the column names.'); return; }
     refreshTeams();
+    _dataSourceExplicit = true;   // build 214 — a deliberate choice is never overwritten
     setDataChip('Custom CSV');
     saveState();
     alert(`Loaded ${eng.matches.length} matches.`);
@@ -13611,6 +13886,7 @@ $('resetBtn').addEventListener('click', ()=>{
   loadScorers(SAMPLE_SCORERS, true);
   $('scorerData').value = SAMPLE_SCORERS;
   refreshTeams();
+  _dataSourceExplicit = true;   // build 214 — a deliberate choice is never overwritten
   setDataChip('Sample data');
 });
 $('saveScorersBtn').addEventListener('click', ()=>{
@@ -13659,6 +13935,10 @@ $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
 if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
+/* BUILD 214 — the badge is corrected the moment the restored state is on screen. Without this a
+   cached boot showed "Sample data" over eleven restored competitions for the whole ~30 seconds the
+   cloud refresh takes, which is the same wrong-badge bug in a smaller window. */
+try{ refreshDataChip(); }catch(e){}
 /* AFTER restoreState, not before — these two controls display saved preferences, and painting them
    first showed the defaults while the feed already honoured the saved values. */
 try{ renderLangSetting(); applyStaticI18n(); renderTzSetting(); }catch(e){}
