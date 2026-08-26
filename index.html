@@ -697,7 +697,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 209;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 211;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7368,13 +7368,22 @@ function m14HoldLog(){
   try{ const a = JSON.parse(localStorage.getItem(M14_HOLD_KEY) || '[]'); return Array.isArray(a) ? a : []; }
   catch(e){ return []; }
 }
-/* APPEND ONLY. There is deliberately no counterpart that removes, replaces or truncates. */
+/* APPEND ONLY. There is deliberately no counterpart that removes, replaces or truncates.
+   🚨 BUILD 211 — IT NOW REPORTS WHETHER THE WRITE ACTUALLY LANDED, AND THE CALLER RENDERS FROM THE
+   RETURNED LOG RATHER THAN RE-READING STORAGE. Found by the full-project audit, not by a failure.
+   The old version caught the quota error, raised a toast and returned — and the caller then rebuilt
+   the panel with `m14HoldHistoryHtml()`, which re-reads localStorage. On a device that could not
+   save, **the holdout was spent and the panel showed no trace of the run that spent it** — the exact
+   outcome this panel exists to make impossible, reachable through its own error path.
+   It is the build-202 lesson one more time: an unread result. There the write was refused by RLS and
+   nothing looked at the reply; here it was refused by the quota and nothing looked at the catch. */
 function m14HoldAppend(entry){
   const log = m14HoldLog();
   log.push(entry);
+  let saved = true;
   try{ localStorage.setItem(M14_HOLD_KEY, JSON.stringify(log)); }
-  catch(e){ try{ toast('Could not record the holdout run — storage is full'); }catch(_){} }
-  return log;
+  catch(e){ saved = false; try{ toast('Could not record the holdout run — storage is full'); }catch(_){} }
+  return { log, saved };
 }
 
 /* Two clicks, because one click is how a holdout gets spent by accident. The arm state is not
@@ -7421,11 +7430,17 @@ function m14RunHoldout(){
       const provKey = 'xgDiffH';
       const provCov = keys.includes(provKey)
         ? sp.train.filter(r => r.F[provKey] != null).length / sp.train.length : null;
-      m14HoldAppend({ at: new Date().toISOString(), build: APP_BUILD, lam: fit.lam,
+      const rec = m14HoldAppend({ at: new Date().toISOString(), build: APP_BUILD, lam: fit.lam,
                       nTrain: sp.train.length, nValid: sp.valid.length, nHold: sp.hold.length,
                       cols: fit.design.cols.length, provCov,
                       valR2: fit.valid.r2, r2: ev.r2, rmse: ev.rmse, base: ev.base });
-      box.innerHTML = m14HoldHistoryHtml();
+      /* BUILD 211 — rendered from the log IN MEMORY, so a run that could not be saved is still shown,
+         and is shown as unsaved. Re-reading storage here would have hidden it completely. */
+      box.innerHTML = (rec.saved ? '' :
+          '<div class="subnote"><b style="color:var(--red)">This run was NOT saved &mdash; storage is full.</b> '
+        + 'The holdout has still been spent. Free some space and score it again, or copy the numbers '
+        + 'below now: once this screen is left they are gone.</div>')
+        + m14HoldHistoryHtml(rec.log);
     }catch(e){
       box.innerHTML = `<div class="subnote">The holdout could not be scored &mdash; ${escapeHtml(String(e && e.message || e))}. Nothing was recorded.</div>`;
     }
@@ -7450,8 +7465,9 @@ const M14_DECIDE_COV = 0.70;
    below that is shown as a rehearsal and explicitly decides nothing. A run that is not shown is a
    run that can be quietly forgotten, which is the whole failure this panel exists to prevent — so
    nothing here filters, sorts by result, or hides an entry. */
-function m14HoldHistoryHtml(){
-  const log = m14HoldLog();
+function m14HoldHistoryHtml(fromLog){
+  /* BUILD 211 — takes the log when the caller has one that storage may not hold. */
+  const log = fromLog || m14HoldLog();
   if(!log.length) return '<div class="subnote">The holdout has never been scored on this device.</div>';
   const sign = v => (v == null ? 'n/a' : (v >= 0 ? '+' : '') + v.toFixed(4));
   const decisive = e => e.provCov != null && e.provCov >= M14_DECIDE_COV;
