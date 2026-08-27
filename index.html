@@ -690,6 +690,7 @@
       <button id="archBtn"></button><button id="archFillBtn"></button><div id="archOut"></div>
       <button id="ledgerBtn"></button><div id="ledgerOut"></div>
       <button id="m14Btn"></button><div id="m14Out"></div>
+      <button id="eloBtn"></button><div id="eloOut"></div>
       <button id="m14HoldBtn"></button><div id="m14HoldOut"></div>
       <button id="dispBtn"></button><div id="dispOut"></div>
       <button id="restBtn"></button><div id="restOut"></div>
@@ -736,7 +737,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 220;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 221;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11108,6 +11109,232 @@ function genSlipWithSpinner(){
   }, 30);
 }
 
+/* ══ BUILD 221 — ONE RATING SCALE ACROSS EVERY COMPETITION ═══════════════════════════════════
+   Ken, 2026-08-26, after AEK Athens 4-0 Levski Sofia went out as "draw or Levski at 75.4%":
+   "Every club in the world is assigned a numerical Elo rating ... winning a match in the Gibraltar
+   National League yields very few Elo points because the opponent's rating is low."
+
+   WHY THE ENGINE NEEDED THIS. Engine 2 rates a team against ITS OWN COMPETITION'S average, and it is
+   rebuilt per competition. That is correct inside a domestic league and meaningless across one:
+   measured on the Champions League pool, 218 clubs share a median of eight appearances each, and a
+   side that went unbeaten through qualifying against Borac Banja Luka and Universitatea Craiova
+   outranks one whose few appearances came against Dinamo Zagreb and Antwerp. Nothing in that pool
+   knows Greece is a stronger league than Bulgaria.
+
+   ELO HAS NO SUCH FRAME. There is one number per club, every match moves it, and the size of the
+   move depends on who the opponent was. Beating a 1300 side earns almost nothing; losing narrowly to
+   an 1900 side costs almost nothing. **The bridges are already in this database** — continental
+   fixtures are matches where clubs from different domestic leagues actually played, which is the
+   same information a UEFA coefficient encodes, and they force the pools onto a common scale.
+
+   ⚠ AND THE LIMIT, STATED UP FRONT: two clubs can only be compared if a chain of matches connects
+   them. South America reaches Europe through no fixture in this dataset, so Brazilian and European
+   ratings share a number but not a meaning. `eloComparable()` answers that question honestly rather
+   than letting a number imply a comparison it cannot support. */
+const ELO_BASE = 1500;      // every club starts here; the scale is relative, the origin is arbitrary
+const ELO_K    = 20;        // standard for club football — moves ~20 points on an even-money result
+const ELO_HOME = 65;        // home advantage in rating points, applied to the expectation only
+
+/* Margin of victory, on the FiveThirtyEight/ClubElo shape. A 4-0 says more than a 1-0, but not four
+   times as much, and a rout by a heavy favourite says less than the same rout by an underdog — the
+   denominator damps exactly that. Without it a single thrashing rewrites a rating. */
+function eloMov(gd, ratingGap){
+  return Math.log(Math.abs(gd) + 1) * (2.2 / (ratingGap * 0.001 + 2.2));
+}
+
+/* One pass over every finished match in every loaded competition, in date order. Returns the rating
+   per club, how many matches each has, and the GRAPH of which clubs have met — which is what decides
+   whether two ratings may be compared at all. */
+function eloRun(){
+  const rows = [];
+  for(const L of footballLeagues()){
+    for(const m of (L.matches || [])){
+      if(m.hg == null || m.ag == null || !m.home || !m.away) continue;
+      rows.push({ d: m.date, h: m.home, a: m.away, hg: m.hg, ag: m.ag, lid: L.id, lname: L.name, country: L.country || '' });
+    }
+  }
+  rows.sort((x, y) => x.d < y.d ? -1 : x.d > y.d ? 1 : 0);
+
+  const R = {}, n = {}, lastLeague = {}, adj = {};
+  const get = t => (R[t] === undefined ? (R[t] = ELO_BASE) : R[t]);
+  const link = (x, y) => { (adj[x] = adj[x] || new Set()).add(y); (adj[y] = adj[y] || new Set()).add(x); };
+
+  for(const r of rows){
+    const rh = get(r.h), ra = get(r.a);
+    const exp = 1 / (1 + Math.pow(10, ((ra - (rh + ELO_HOME)) / 400)));
+    const score = r.hg > r.ag ? 1 : r.hg === r.ag ? 0.5 : 0;
+    const gd = r.hg - r.ag;
+    const gap = Math.abs((rh + ELO_HOME) - ra);
+    const mult = gd === 0 ? 1 : eloMov(gd, gap);
+    const delta = ELO_K * mult * (score - exp);
+    R[r.h] = rh + delta;
+    R[r.a] = ra - delta;
+    n[r.h] = (n[r.h] || 0) + 1;
+    n[r.a] = (n[r.a] || 0) + 1;
+    lastLeague[r.h] = r.lname; lastLeague[r.a] = r.lname;
+    link(r.h, r.a);
+  }
+  return { rating: R, played: n, league: lastLeague, adj, matches: rows.length };
+}
+
+/* 🚨 TWO RATINGS ARE ONLY COMPARABLE IF A CHAIN OF MATCHES JOINS THEM. Elo produces a number for
+   every club whether or not that is true, and a number that cannot be compared is worse than no
+   number — it is the "wrong at full coverage" failure this project keeps catching. This walks the
+   opponent graph and answers plainly. */
+function eloComparable(elo, a, b, maxHops){
+  if(!elo || !elo.adj || !elo.adj[a] || !elo.adj[b]) return { ok:false, hops:null };
+  const cap = maxHops || 6;
+  let front = new Set([a]); const seen = new Set([a]);
+  for(let h = 1; h <= cap; h++){
+    const next = new Set();
+    for(const x of front) for(const y of (elo.adj[x] || [])){
+      if(y === b) return { ok:true, hops:h };
+      if(!seen.has(y)){ seen.add(y); next.add(y); }
+    }
+    if(!next.size) break;
+    front = next;
+  }
+  return { ok:false, hops:null };
+}
+
+/* ══ UEFA-SHAPE COEFFICIENTS ══════════════════════════════════════════════════════════════════
+   Ken: "Points are awarded for victories and progression in European knockout stages. Matches in
+   domestic leagues do not count toward this total, preventing small-league dominance from inflating
+   European status."
+   That last clause is the whole point, and it is why this is computed separately from Elo rather than
+   folded into it: the coefficient deliberately IGNORES domestic results. Win 2, draw 1, continental
+   fixtures only, over a rolling window of seasons. The country figure is the mean over that country's
+   participating clubs, which is how UEFA does it and why one dominant club cannot carry a league. */
+const COEF_SEASONS = 5;
+function uefaCoefficients(){
+  const CONTINENTAL = new Set(['2', '13']);          // Champions League, Libertadores — by ID, never by name
+  const club = {}, byCountry = {}, homeCountry = {};
+  for(const L of footballLeagues())
+    if(!CONTINENTAL.has(String(L.id)))
+      for(const m of (L.matches || [])){ homeCountry[m.home] = L.country || ''; homeCountry[m.away] = L.country || ''; }
+
+  let newest = 0;
+  for(const L of footballLeagues())
+    if(CONTINENTAL.has(String(L.id)))
+      for(const m of (L.matches || [])) if(m._x && m._x.season > newest) newest = m._x.season;
+  const floor = newest ? newest - COEF_SEASONS + 1 : 0;
+
+  for(const L of footballLeagues()){
+    if(!CONTINENTAL.has(String(L.id))) continue;
+    for(const m of (L.matches || [])){
+      if(m.hg == null || m.ag == null) continue;
+      if(floor && m._x && m._x.season != null && m._x.season < floor) continue;
+      const hp = m.hg > m.ag ? 2 : m.hg === m.ag ? 1 : 0;
+      const ap = m.ag > m.hg ? 2 : m.hg === m.ag ? 1 : 0;
+      club[m.home] = (club[m.home] || 0) + hp;
+      club[m.away] = (club[m.away] || 0) + ap;
+    }
+  }
+  for(const t in club){
+    const c = homeCountry[t];
+    if(!c) continue;                                  // no domestic league held for this club
+    (byCountry[c] = byCountry[c] || { pts:0, clubs:0 });
+    byCountry[c].pts += club[t];
+    byCountry[c].clubs += 1;
+  }
+  const country = {};
+  for(const c in byCountry) country[c] = +(byCountry[c].pts / byCountry[c].clubs).toFixed(3);
+  return { club, country, seasonsFrom: floor || null, seasonsTo: newest || null };
+}
+
+/* BUILD 221 — the panel. It does not just print ratings: printing 500 numbers proves nothing.
+   The question that matters is whether Elo beats the live engine ON THE FIXTURES THE ENGINE IS
+   WORST AT, so the validation replays every continental match walk-forward and scores both. */
+function renderElo(){
+  const box = $('eloOut'); if(!box) return;
+  const ids = Object.keys(afState.leagues || {});
+  if(!ids.length){ box.innerHTML = '<div class="subnote">Open the Analysis tab first so the competitions load.</div>'; return; }
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Rating every club across every competition&hellip;</div>';
+  setTimeout(()=>{
+   try{
+    const elo = eloRun();
+    const coef = uefaCoefficients();
+    const rated = Object.keys(elo.rating);
+
+    /* 🚨 THE VALIDATION. Walk-forward over the continental competitions only — those are the
+       fixtures where the per-competition engine has no common frame — scoring Elo's pick against
+       the engine's on the SAME matches. Elo's ratings are rebuilt as at each match, so nothing
+       here has seen its own result. */
+    const CONT = ['2', '13'];
+    let eHit = 0, gHit = 0, n = 0, both = 0;
+    for(const lid of CONT){
+      const L = (afState.leagues || {})[lid]; if(!L || !L.matches) continue;
+      const ms = L.matches.slice().sort((x, y) => x.date < y.date ? -1 : 1);
+      const tmp = Object.create(footballEngine); tmp.matches = ms;
+      const R = {}, seen = {};
+      const get = t => (R[t] === undefined ? (R[t] = ELO_BASE) : R[t]);
+      const start = Math.max(60, Math.floor(ms.length * 0.3));
+      for(let i = 0; i < ms.length; i++){
+        const m = ms[i];
+        if(i >= start && m.hg != null && m.ag != null && (seen[m.home] || 0) >= 1 && (seen[m.away] || 0) >= 1){
+          const act = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
+          /* Elo's call: the side with the higher rating once home advantage is added. It never
+             names the draw, so it is compared only on matches that did not end level — otherwise
+             it would be marked wrong for a market it does not enter. */
+          if(act !== 'X'){
+            const ePick = (get(m.home) + ELO_HOME) >= get(m.away) ? '1' : '2';
+            const p = tmp.predict(m.home, m.away, i);
+            if(p){
+              const gPick = p.pW >= p.pL ? '1' : '2';
+              n++;
+              if(ePick === act) eHit++;
+              if(gPick === act) gHit++;
+              if(ePick === gPick) both++;
+            }
+          }
+        }
+        // advance Elo past this match
+        if(m.hg != null && m.ag != null){
+          const rh = get(m.home), ra = get(m.away);
+          const exp = 1 / (1 + Math.pow(10, ((ra - (rh + ELO_HOME)) / 400)));
+          const sc = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+          const gd = m.hg - m.ag;
+          const mult = gd === 0 ? 1 : eloMov(gd, Math.abs((rh + ELO_HOME) - ra));
+          const d = ELO_K * mult * (sc - exp);
+          R[m.home] = rh + d; R[m.away] = ra - d;
+          seen[m.home] = (seen[m.home] || 0) + 1; seen[m.away] = (seen[m.away] || 0) + 1;
+        }
+      }
+    }
+
+    const top = rated.filter(t => (elo.played[t] || 0) >= 20)
+                     .sort((x, y) => elo.rating[y] - elo.rating[x]);
+    const row = (t) => `<div class="frow"><span class="muted">${escapeHtml(t)} <span style="opacity:.6">${escapeHtml(elo.league[t] || '')}</span></span><b>${Math.round(elo.rating[t])}</b></div>`;
+    const aek = 'AEK Athens FC', lev = 'Levski Sofia';
+    const cmp = eloComparable(elo, aek, lev, 6);
+
+    const coefRows = Object.entries(coef.country).sort((x, y) => y[1] - x[1])
+      .map(([c, v]) => `<div class="frow"><span class="muted">${escapeHtml(c)}</span><b>${v.toFixed(2)}</b></div>`).join('');
+
+    box.innerHTML =
+      `<div class="frow"><span class="muted">Clubs rated · matches used</span><b>${rated.length} · ${elo.matches.toLocaleString()}</b></div>`
+    + `<div class="sec-label" style="margin-top:14px">Does it beat the engine where the engine is weakest?</div>`
+    + (n ? `<div class="frow"><span class="muted">Continental matches scored</span><b>${n}</b></div>`
+         + `<div class="frow"><span class="muted">Engine 2 correct</span><b>${(100*gHit/n).toFixed(1)}%</b></div>`
+         + `<div class="frow"><span class="muted">Global Elo correct</span><b style="color:${eHit>gHit?'var(--green2)':'var(--gold)'}">${(100*eHit/n).toFixed(1)}%</b></div>`
+         + `<div class="frow"><span class="muted">They agreed</span><b>${(100*both/n).toFixed(0)}%</b></div>`
+         + `<div class="subnote">Walk-forward, decided matches only — Elo never names a draw, so scoring it on drawn games would mark it wrong for a market it does not enter. <b>${eHit>gHit ? 'Elo is ahead here, which is the case for wiring it into continental fixtures.' : 'Elo is NOT ahead, and that is a real answer — it does not get wired in on a hunch.'}</b></div>`
+         : `<div class="subnote">Not enough continental history loaded to score.</div>`)
+    + `<div class="sec-label" style="margin-top:14px">The fixture that started this</div>`
+    + `<div class="frow"><span class="muted">${escapeHtml(aek)}</span><b>${elo.rating[aek] != null ? Math.round(elo.rating[aek]) : 'n/a'}</b></div>`
+    + `<div class="frow"><span class="muted">${escapeHtml(lev)}</span><b>${elo.rating[lev] != null ? Math.round(elo.rating[lev]) : 'n/a'}</b></div>`
+    + `<div class="subnote">${cmp.ok ? `Connected by a chain of ${cmp.hops} match${cmp.hops === 1 ? '' : 'es'}, so these two numbers may be compared.` : '<b style="color:var(--gold)">No chain of matches connects these clubs</b>, so the two numbers share a scale but not a meaning. Neither has a domestic league in this dataset.'}</div>`
+    + `<div class="sec-label" style="margin-top:14px">Highest rated (20+ matches)</div>` + top.slice(0, 12).map(row).join('')
+    + `<div class="sec-label" style="margin-top:14px">Lowest rated (20+ matches)</div>` + top.slice(-6).map(row).join('')
+    + `<div class="sec-label" style="margin-top:14px">Country coefficient — continental results only, ${coef.seasonsFrom || '?'}&ndash;${coef.seasonsTo || '?'}</div>`
+    + (coefRows || '<div class="subnote">No continental matches with a season stamp are loaded.</div>')
+    + `<div class="subnote" style="margin-top:10px"><b>Wired to nothing.</b> These ratings do not touch a single published price. Milestone 14b decides that, and only on the number above.</div>`;
+   }catch(e){
+    box.innerHTML = `<div class="subnote">Could not rate &mdash; ${escapeHtml(String(e && e.message || e))}</div>`;
+   }
+  }, 30);
+}
+
 /* ---------- prediction record (self-grading) ---------- */
 function recordPick(leagueName, f){
   if(!f || !f.fxid || !f.pick) return;
@@ -13891,6 +14118,7 @@ syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
 $('shareCardBtn').addEventListener('click', shareCard);
 $('genSlipBtn').addEventListener('click', genSlipWithSpinner);
+$('eloBtn').addEventListener('click', renderElo);   // build 221
 $('lineupsHead').addEventListener('click', async ()=>{
   if(!curDetail || $('luBox').dataset.loaded===String(curDetail.fxid)) return;
   $('luBox').innerHTML='<div class="subnote">Loading lineups…</div>';
