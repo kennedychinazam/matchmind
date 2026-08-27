@@ -737,7 +737,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 221;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 225;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11338,12 +11338,33 @@ function renderElo(){
 /* ---------- prediction record (self-grading) ---------- */
 function recordPick(leagueName, f){
   if(!f || !f.fxid || !f.pick) return;
+  /* ══ BUILD 225 — THE RECORD MAY NOT HOLD A PICK THE APP WOULD REFUSE TO PUBLISH ═══════════════
+     Build 212 gave publication a floor: a pick freezes only inside `PUBLISH_AHEAD_DAYS` of kick-off,
+     because it was freezing a median of 111 days early and the app would have shown August's answer
+     on Boxing Day. **The accuracy record was never given the same bound**, and it is the artefact
+     Milestone 5 exists to make credible.
+
+     FOUND WHILE TESTING BUILD 218: a 50-odds slip drew legs from October, November, February and
+     May, and `genSlip` ends by recording every 1X2-shaped leg. So the record was gaining selections
+     up to nine months out, which grade later as though they had been pre-match calls. That
+     understates the engine — it is being marked on predictions no one would publish.
+
+     🚨 THE GUARD GOES HERE, NOT IN THE SLIP. `recordPick` has FIVE callers; fixing the slip alone
+     would have left four open, and the next caller added would have reopened it anyway. One rule,
+     one place: **the record mirrors what the app publishes, so it obeys the same window.**
+     Past and near fixtures are untouched — this only refuses the far future. */
+  if(tooFarAheadToPublish(f)) return;
   if(afState.record.some(r=>r.fxid===f.fxid)) return;
   /* build 120 — `market` is stamped at publication, Ken's call: one record, each entry tagged, so
      the overall hit rate stays a single honest number AND can be broken down. Deriving the market
      later from the code would work today and break the first time a code is reused or renamed. */
+  /* `at` is build 225. The record carried a kick-off date and no record-time, so "how far ahead was
+     this taken?" could not be asked of the existing rows — which is precisely why the 111-day drift
+     went unseen for so long. One ISO string per entry, capped at 500 entries, makes the window
+     above auditable instead of merely asserted. */
   afState.record.push({fxid:f.fxid, date:f.date, home:f.home, away:f.away, pick:f.pick, prob:f.prob,
-                       market:pickMarket(f.pick), league:leagueName, result:null, build:APP_BUILD});
+                       market:pickMarket(f.pick), league:leagueName, result:null, build:APP_BUILD,
+                       at:new Date().toISOString()});
   if(afState.record.length > 500) afState.record = afState.record.slice(-500);
 }
 function gradeRecord(scoreList){
@@ -11472,6 +11493,7 @@ function dedupeProviders(rows){
 let _leaguesLoadedAt = 0;
 let _loadIssues = [];   // build 123 — competitions that failed to load even after a retry
 let _loadShort = 0;     // build 215 — how many of COMP_IDS are simply not here, whatever the reason
+let _loadKept  = 0;     // build 222 — how many were carried over from the previous load rather than refetched
 let _truncated = [];    // build 123 — anything that came back at the row cap and had to be paged
 
 /* ── BUILD 123 — THE 1000-ROW CAP ──────────────────────────────────────────────
@@ -12001,8 +12023,45 @@ async function loadCloudLeagues(force){
          reasons about WHY a competition is absent and can still be wrong about a failure mode nobody
          has met yet. This just counts: eleven were asked for, how many are here? Any shortfall is
          reported even when nothing above could name it, so silence is no longer a possible outcome. */
-      _loadShort = Math.max(0, COMP_IDS.length - Object.keys(leagues).length);
-      afState.leagues = leagues; afState.leagueOrder = order; afState.cloudFix = cf;
+      /* ══ BUILD 222 — A WORSE LOAD MUST NOT DESTROY A BETTER ONE ═══════════════════════════════
+         This line was `afState.leagues = leagues` — a WHOLESALE REPLACEMENT. Watched live on
+         2026-08-26 while testing build 221: `afState.leagues` went **11 -> 10 -> 7**. Competitions
+         were not disappearing because they failed; they were disappearing because a later, smaller
+         refresh succeeded and overwrote the state that already held them.
+
+         That is the mechanism behind what Ken reported — *"No predictions for Wednesday, August 26 ...
+         Premier League, La Liga, Serie A, Bundesliga ... did not load this time"*. Build 220 removed
+         the timeouts that caused partial fetches; **this is why a partial fetch was destructive
+         rather than merely incomplete.** It also explains build 215's backstop reading `_loadShort: 0`
+         with ten of eleven present: the count was computed on a run that had all eleven, and a later,
+         smaller run replaced the state without recomputing anything the user could see.
+
+         MERGE, DON'T REPLACE — which is what build 123's rule already said should happen: a
+         competition that fails this time keeps whatever it had last time.
+         ⚠ AND IT IS BOUNDED BY `COMP_IDS`, not by history. Without that filter a competition removed
+         from the list would live on in state forever, which is the opposite failure and just as
+         silent. The standing constraint is that adding or removing a competition touches `COMP_IDS`
+         and nothing else, so `COMP_IDS` is what decides membership here too. */
+      const keptIds = [];
+      const merged = {};
+      for(const id of COMP_IDS){
+        if(leagues[id]) { merged[id] = leagues[id]; }
+        else if(afState.leagues && afState.leagues[id]) { merged[id] = afState.leagues[id]; keptIds.push(id); }
+      }
+      /* The order follows this run where it can and falls back to what was displayed before, so a
+         kept competition does not silently drop off the bottom of the feed. */
+      const mergedOrder = order.slice();
+      for(const id of (afState.leagueOrder || [])) if(merged[id] && !mergedOrder.includes(id)) mergedOrder.push(id);
+
+      /* `_loadShort` is measured on the MERGED set, because that is what the user is looking at.
+         Counting the fetch alone would report a shortfall the screen does not have. */
+      _loadShort = Math.max(0, COMP_IDS.length - Object.keys(merged).length);
+      _loadKept = keptIds.length;
+
+      afState.leagues = merged; afState.leagueOrder = mergedOrder;
+      /* Scores merge the same way: `cf` is this run's finished scores, and a competition that was
+         kept from the previous load must keep its scores with it. */
+      afState.cloudFix = Object.assign({}, afState.cloudFix || {}, cf);
       // ONE-TIME cleanup: drop favourites orphaned by the data-source switch, then never touch favourites again
       try{ if(!localStorage.getItem('mm_fdmig')){
         const validFx = new Set(); for(const id of order){ for(const f of leagues[id].upcoming) validFx.add(f.fxid); } for(const fx in cf) validFx.add(+fx);
@@ -12776,6 +12835,12 @@ function renderFixtures(){
   /* BUILD 215 — the backstop speaks when nothing above could name a competition. Before this, a
      shortfall that `_loadIssues` could not explain produced NOTHING on screen: ten competitions
      rendered, one absent, no message. */
+  else if(_loadKept > 0){
+    /* BUILD 222 — carried-over data is not fresh data, and the difference is the user's to know.
+       Silence here would be the same fault as the wholesale replace: correct on screen, wrong about
+       where it came from. */
+    html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--gold)">${_loadKept} competition${_loadKept===1?'':'s'} kept from the last load</b> &mdash; ${_loadKept===1?'it':'they'} did not refresh this time, so ${_loadKept===1?'its':'their'} fixtures may be behind. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Refresh</span></div>`;
+  }
   else if(_loadShort > 0){
     html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${_loadShort} competition${_loadShort===1?'':'s'} did not load</b> — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
   }
