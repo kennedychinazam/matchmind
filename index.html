@@ -736,7 +736,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 218;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 220;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -10902,14 +10902,15 @@ function slipToTarget(pool, target, maxLegs){
       const rest = items.filter(x => !used.has(x));
       if(!rest.length) break;
       pick = rest[rest.length - 1];       // smallest available — overshoots by the least
-      /* ⚠ AND IT IS ONLY TAKEN IF IT LANDS CLOSER THAN STOPPING DOES. Legs are coarse near the end:
-         at a 30% risk ceiling the smallest available leg can still pay 1.43, so a target of 1.50
-         would have been "met" with 2.04 — a 36% overshoot reported as the answer. Both distances are
-         measured multiplicatively, which is the only fair comparison when the quantity multiplies:
-         falling short by a factor of 1.05 and overshooting by 1.05 are the same size of miss. */
-      const shortBy = Math.exp(remain);            // factor still needed if we stop here
-      const overBy  = Math.exp(pick.lg - remain);  // factor we would exceed the target by
-      if(overBy < shortBy){ used.add(pick); legs.push(pick); acc += pick.lg; }
+      /* 🚨 BUILD 219 — ALWAYS TAKEN. THE TARGET IS A FLOOR, NOT A MIDPOINT.
+         Build 218 took this leg only when it landed CLOSER than stopping, treating "0.95x the target"
+         and "1.05x the target" as equally good misses. Ken: "total odds should be the exact target
+         odd or more, not less." He is right and the reasoning is not merely preference: a punter who
+         asks for 50 odds is stating a MINIMUM return, so 49.2 fails the request in a way 52.6 does
+         not. A symmetric distance is the wrong measure of a one-sided requirement.
+         The only case that still comes up short is a target no combination can reach, and that is
+         reported as out of reach rather than dressed up as a result. */
+      used.add(pick); legs.push(pick); acc += pick.lg;
       break;
     }
     used.add(pick); legs.push(pick); acc += pick.lg;
@@ -11084,10 +11085,27 @@ function genSlip(){
       <span class="lname">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
       <span class="favright"><span class="predchip sm">${(100*l.prob).toFixed(0)}%</span></span></div>`).join('') +
     `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
-  $('reGen').addEventListener('click', genSlip);
+  $('reGen').addEventListener('click', genSlipWithSpinner);   // build 219 — same wait, same message
   $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
   for(const l of legs) if(['1','X','2','1X','X2'].includes(l.code)) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
   saveState();
+}
+
+/* BUILD 219 — Ken: "the time it takes before loading the slip should display something like
+   'loading...' before it loads up". `genSlip` is synchronous and walks every upcoming fixture in
+   every selected competition, pricing each one, so on a full eleven-competition load it holds the
+   thread long enough to look like a dead button. The message is painted FIRST and the work is
+   deferred one frame — without that hop the browser never renders it, because the same tick that
+   sets the text also blocks on the search. */
+function genSlipWithSpinner(){
+  const out = $('slipOut');
+  if(out) out.innerHTML = '<div class="subnote" style="padding-top:12px"><span class="spinner"></span>Building your slip&hellip;</div>';
+  const btn = $('genSlipBtn');
+  if(btn) btn.disabled = true;
+  setTimeout(()=>{
+    try{ genSlip(); }
+    finally{ const b2 = $('genSlipBtn'); if(b2) b2.disabled = false; }
+  }, 30);
 }
 
 /* ---------- prediction record (self-grading) ---------- */
@@ -11442,21 +11460,39 @@ function providerExtras(r){
 }
 
 const PAGE = 1000;
+/* BUILD 220 — how many competitions may be in flight at once. See loadCloudLeagues: all eleven
+   together is what tripped the server's statement timeout. */
+const LEAGUE_FETCH_BATCH = 4;
 async function fetchLeagueFixtures(id){
   let out = [], from = 0, pages = 0;
   for(;;){
-    /* BUILD 208 — `.order('date')` ALONE IS NOT A STABLE PAGE ORDER. `date` is not unique: the row
-       sitting on this league's 1000-row boundary shares its date with another fixture, and Postgres
-       gives no guarantee about how ties are ordered between two separate queries. The collector
-       rewrites every row in its window every ten minutes, so the two pages are not even reading the
-       same table state. A tie that resolves differently across the boundary duplicates one fixture
-       and drops another — silently, and only on leagues big enough to page.
-       MEASURED BEFORE CHANGING IT, twice on both paged paths: 0 duplicates, 0 missing, identical
-       row sets. **So this is latent, not a live defect** — and it stays latent only by luck.
-       `fxid` is the primary key (SQL ledger, build 199), so it is a total order, and it costs
-       nothing measurable. */
+    /* 🚨 BUILD 220 — THE `.order('fxid')` TIEBREAK BUILD 208 ADDED HERE IS REVERTED, AND IT WAS MY
+       DEFECT. Ken, 2026-08-26: eight of eleven competitions failing to load, "too often now".
+       My own queries were returning `canceling statement due to statement timeout` at the same time.
+
+       MEASURED across nine different leagues with the variant order rotated, so position could not
+       masquerade as cost: `order(date)` **577ms** mean · `order(date).order(fxid)` **934ms** ·
+       `order(fxid)` alone **1139ms**. The second sort key cannot use the `date` index and forces a
+       sort of the whole filtered set — and this query is `select('*')` over 82 columns including
+       three jsonb blobs, so that sort is expensive. Eleven of them fired concurrently is what tripped
+       the server's statement timeout.
+
+       ⚠ **AND MY FIRST MEASUREMENT OF THIS WAS WRONG IN MY OWN FAVOUR.** Run back-to-back on ONE
+       league it showed 2,135ms vs 988ms — a 2.2x gap that was mostly cold cache, because the variant
+       under suspicion happened to run first every time. Reversing the order flipped the result. The
+       rotated nine-league run is the one that survives.
+
+       WHAT BUILD 208 WAS GUARDING IS REAL BUT LATENT: `date` is not unique, so two page queries can
+       in principle resolve a boundary tie differently and duplicate one fixture while dropping
+       another. Measured twice at the time: **0 duplicates, 0 missing.** **Trading a frequent,
+       user-visible failure for a theoretical one is the wrong way round**, so the order goes back to
+       what it was for two hundred builds.
+       THE DURABLE FIX IS AN INDEX, NOT AN ORDER: `create index on fixtures(lid, fxid)` would make
+       `order('fxid')` both stable AND fast. That is one statement and it needs Ken, so it is written
+       up rather than assumed. `fetchAllRows` keeps its `fxid` ordering — those reads are small and
+       it measurably HELPED there (archive 1.8s ordered vs 3.3s unordered). */
     const { data, error } = await supa.from('fixtures').select('*').eq('lid', id)
-      .order('date').order('fxid').range(from, from + PAGE - 1);
+      .order('date').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
     pages++;
@@ -11550,9 +11586,22 @@ async function loadCloudLeagues(force){
        pages first was measured too and costs a whole round trip (1,333ms) to save one. Round trips
        were never the bottleneck here, and an "optimisation" would have shipped a regression. */
     const archiveReady = afState.archive ? Promise.resolve(null) : loadArchive();
+    /* 🚨 BUILD 220 — FETCHED IN BATCHES, NOT ALL AT ONCE. Eleven leagues x up to three pages of
+       `select('*')` over a table with three jsonb columns, all in flight together, is what put the
+       server over its statement timeout — Ken saw eight of eleven competitions fail to load, and
+       repeatedly. Concurrency here was never a decision; `COMP_IDS.map` simply fires everything.
+       Four at a time keeps the pipe busy without stacking eleven heavy sorts on one connection.
+       It costs wall-clock on a good connection and it is the right trade: a load that takes longer
+       and SUCCEEDS beats one that is faster and drops most of the competitions. */
+    const runBatched = async (ids, size) => {
+      const out = [];
+      for(let i = 0; i < ids.length; i += size)
+        out.push(...await Promise.all(ids.slice(i, i + size).map(id => fetchLeagueFixtures(id))));
+      return out;
+    };
     const [, results] = await Promise.all([
       archiveReady,
-      Promise.all(COMP_IDS.map(id => fetchLeagueFixtures(id)))
+      runBatched(COMP_IDS, LEAGUE_FETCH_BATCH)
     ]);
     const bad = (r) => !!(r.error || !r.data || !r.data.length);
     const retryIdx = results.map((r,i)=> bad(r) ? i : -1).filter(i=>i>=0);
@@ -13841,7 +13890,7 @@ $('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('h
 syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
 $('shareCardBtn').addEventListener('click', shareCard);
-$('genSlipBtn').addEventListener('click', genSlip);
+$('genSlipBtn').addEventListener('click', genSlipWithSpinner);
 $('lineupsHead').addEventListener('click', async ()=>{
   if(!curDetail || $('luBox').dataset.loaded===String(curDetail.fxid)) return;
   $('luBox').innerHTML='<div class="subnote">Loading lineups…</div>';
