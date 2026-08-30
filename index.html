@@ -79,7 +79,8 @@
   /* ---------- accordions (market sections) ---------- */
   .acc{background:var(--card); border:1px solid var(--border); border-radius:16px; margin-bottom:10px; overflow:hidden;}
   .acc-head{display:flex; align-items:center; gap:10px; padding:15px 16px; cursor:pointer; user-select:none;}
-  .acc-head .ic{font-size:1.05rem;}
+  .acc-head .ic{font-size:1.05rem; color:var(--gold); display:inline-flex; align-items:center;}
+  .acc-head .ic svg{width:18px; height:18px; display:block;}
   .acc-head .t{flex:1; font-weight:700; font-size:.97rem;}
   .acc-head .side{font-size:.8rem; color:var(--muted); font-weight:600;}
   .acc-head .chev{color:var(--muted); transition:transform .25s; font-size:.8rem;}
@@ -343,6 +344,41 @@
 </style>
 </head>
 <body>
+<!-- ══ BUILD 226 — THE ACCORDION ICON SPRITE ═══════════════════════════════════════════════════
+     Ken's principle: every icon in this app should be SVG. Build 217 did the bottom nav and the two
+     bet-slip headings and recorded the rest as a dedicated pass; these are the fifteen match-detail
+     accordion heads, which are one structural slot (.acc-head > .ic) rather than fifteen ad-hoc spots.
+
+     A SPRITE, NOT FIFTEEN INLINE COPIES. Two glyphs appear twice - the bar chart on both Match Result
+     Predictions and Match Stats, the stopwatch on both Half-time/Full-time and Timeline - and a second
+     copy of a drawing goes stale exactly the way a second copy of a constant does. Build 183's rule:
+     an index is not a copy. One <symbol>, referenced by <use>.
+
+     COLOUR LIVES IN CSS, NOT IN THE MARKUP. Every symbol strokes currentColor and .acc-head .ic sets
+     that colour once, so all fifteen move together with the theme. A colour written into each drawing
+     is fifteen places to edit and fourteen chances to miss one.
+
+     THIS PASS CONVERTS, IT DOES NOT REDESIGN. League Table keeps a trophy because it had a trophy;
+     changing what an icon MEANS is a product decision and does not ride along inside a format change.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><defs>
+ <g id="icbase" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</defs>
+ <symbol id="ic-chart"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M6.5 21v-6.5"/><path d="M12 21V5.5"/><path d="M17.5 21v-10"/></symbol>
+ <symbol id="ic-bulb"   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 18.5h5"/><path d="M10.5 21.5h3"/><path d="M12 2.5a6.5 6.5 0 0 0-3.9 11.7c.7.5 1.1 1.3 1.1 2.1h5.6c0-.8.4-1.6 1.1-2.1A6.5 6.5 0 0 0 12 2.5z"/></symbol>
+ <symbol id="ic-goal"   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18v9.5H3z"/><path d="M7.5 8v9.5M12 8v9.5M16.5 8v9.5"/><path d="M3 12.8h18"/></symbol>
+ <symbol id="ic-combo"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5.2"/><circle cx="15" cy="12" r="5.2"/></symbol>
+ <symbol id="ic-news"   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h12.5v15H4z"/><path d="M16.5 9h3.5v8.5a2 2 0 0 1-2 2h-1.5"/><path d="M7 8.5h6.5M7 12h6.5M7 15.5h4"/></symbol>
+ <symbol id="ic-clock"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.2"/><path d="M12 9.8v3.7l2.6 1.6"/><path d="M9.8 2.8h4.4"/></symbol>
+ <symbol id="ic-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+ <symbol id="ic-boot"   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5v10.5H4a1 1 0 0 0-1 1v3.5h18v-1.8c0-1.7-1.1-3.1-2.8-3.6l-4.4-1.3V3.5z"/><path d="M5.5 9.5h8.3"/></symbol>
+ <symbol id="ic-trend"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17.5l5.5-5.5 3.5 3.5L21 6.5"/><path d="M15 6.5h6v6"/></symbol>
+ <symbol id="ic-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5h8v5.2a4 4 0 0 1-8 0z"/><path d="M8 5h-2.6a2.6 2.6 0 0 0 2.6 4.2"/><path d="M16 5h2.6a2.6 2.6 0 0 1-2.6 4.2"/><path d="M12 12.7v3.4"/><path d="M9.6 20.5l.5-4.4h3.8l.5 4.4z"/></symbol>
+ <symbol id="ic-med"    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v8.4M7.8 12h8.4"/></symbol>
+ <symbol id="ic-flame"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8s5.2 4.4 5.2 8.9a5.2 5.2 0 0 1-10.4 0c0-2.2 1.8-4.2 1.8-4.2s.6 2 1.6 2.6c.6-2.2 1.8-5 1.8-7.3z"/></symbol>
+ <symbol id="ic-people" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="8.4" r="3.1"/><path d="M3.4 19.2c0-3.1 2.6-5.2 5.8-5.2s5.8 2.1 5.8 5.2"/><circle cx="17.4" cy="9.4" r="2.4"/><path d="M16.4 14.1c2.7-.3 4.7 1.6 4.7 5"/></symbol>
+</svg>
+
 <div class="app">
 
   <div class="topbar">
@@ -502,7 +538,7 @@
       </div>
 
       <div class="acc open" id="acc-result">
-        <div class="acc-head"><span class="ic">📊</span><span class="t">Match Result Predictions</span><span class="side" id="resultSide"></span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-chart"/></svg></span><span class="t">Match Result Predictions</span><span class="side" id="resultSide"></span><span class="chev">▼</span></div>
         <div class="acc-body">
           <div id="outcomeRows"></div>
           <div class="subnote" id="xgInfo"></div>
@@ -513,42 +549,42 @@
       <!-- build 85: the Smart Bet line, shown HERE so this page and the Tips tab stop disagreeing
            silently. They answer different questions, and the card now says which is which. -->
       <div class="acc hidden" id="acc-smart">
-        <div class="acc-head"><span class="ic">💡</span><span class="t">Smart Bet</span><span class="side" id="smartSide"></span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-bulb"/></svg></span><span class="t">Smart Bet</span><span class="side" id="smartSide"></span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="smartRows"></div></div>
       </div>
 
       <div class="acc" id="acc-goals">
-        <div class="acc-head"><span class="ic">🥅</span><span class="t">Goals Markets</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-goal"/></svg></span><span class="t">Goals Markets</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="goalsRows"></div></div>
       </div>
 
       <div class="acc hidden" id="acc-combo">
-        <div class="acc-head"><span class="ic">🧩</span><span class="t">Combos</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-combo"/></svg></span><span class="t">Combos</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="comboRows"></div></div>
       </div>
 
       <div class="acc hidden" id="acc-context">
-        <div class="acc-head"><span class="ic">📰</span><span class="t">Team news &amp; adjusted odds</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-news"/></svg></span><span class="t">Team news &amp; adjusted odds</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="ctxOut"></div></div>
       </div>
 
       <div class="acc hidden" id="acc-htft">
-        <div class="acc-head"><span class="ic">⏱️</span><span class="t">Half-time / Full-time</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-clock"/></svg></span><span class="t">Half-time / Full-time</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="htftBox"></div></div>
       </div>
 
       <div class="acc" id="acc-score">
-        <div class="acc-head"><span class="ic">🎯</span><span class="t">Correct Score</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-target"/></svg></span><span class="t">Correct Score</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="scoreRows"></div></div>
       </div>
 
       <div class="acc" id="acc-scorers">
-        <div class="acc-head"><span class="ic">👟</span><span class="t">Likely Scorers (anytime)</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-boot"/></svg></span><span class="t">Likely Scorers (anytime)</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="scorerRows"></div></div>
       </div>
 
       <div class="acc" id="acc-form">
-        <div class="acc-head"><span class="ic">📈</span><span class="t">Form & Head to Head</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-trend"/></svg></span><span class="t">Form & Head to Head</span><span class="chev">▼</span></div>
         <div class="acc-body">
           <div id="formBox" style="padding-top:10px;"></div>
           <div class="sec-label" style="margin:14px 0 6px;">Head to head</div>
@@ -557,17 +593,17 @@
       </div>
 
       <div class="acc" id="acc-standings">
-        <div class="acc-head"><span class="ic">🏆</span><span class="t">League Table</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-trophy"/></svg></span><span class="t">League Table</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="standingsBox"></div></div>
       </div>
 
       <div class="acc" id="acc-injuries">
-        <div class="acc-head"><span class="ic">🚑</span><span class="t">Injury News</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-med"/></svg></span><span class="t">Injury News</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="injuryBox" class="muted" style="padding-top:10px; line-height:1.7;"></div></div>
       </div>
 
       <div class="acc open" id="acc-analysis">
-        <div class="acc-head"><span class="ic">🔥</span><span class="t">Professional AI Write-up</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-flame"/></svg></span><span class="t">Professional AI Write-up</span><span class="chev">▼</span></div>
         <div class="acc-body">
           <div id="aiStatus" class="muted hidden" style="padding-top:10px;"><span class="spinner"></span>Asking Claude for the full write-up…</div>
           <div id="analysisText" class="analysis"></div>
@@ -576,15 +612,15 @@
       </div>
 
       <div class="acc open hidden" id="acc-timeline">
-        <div class="acc-head"><span class="ic">⏱️</span><span class="t">Timeline</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-clock"/></svg></span><span class="t">Timeline</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="tlBox"></div></div>
       </div>
       <div class="acc open hidden" id="acc-stats">
-        <div class="acc-head"><span class="ic">📊</span><span class="t">Match Stats</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-chart"/></svg></span><span class="t">Match Stats</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="msBox"></div></div>
       </div>
       <div class="acc hidden" id="acc-lineups">
-        <div class="acc-head" id="lineupsHead"><span class="ic">👥</span><span class="t">Lineups</span><span class="chev">▼</span></div>
+        <div class="acc-head" id="lineupsHead"><span class="ic"><svg aria-hidden="true"><use href="#ic-people"/></svg></span><span class="t">Lineups</span><span class="chev">▼</span></div>
         <div class="acc-body"><div id="luBox"></div></div>
       </div>
 
@@ -737,7 +773,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 225;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 228;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7378,9 +7414,11 @@ function renderM14(){
 
       /* How much of the TRAINING set carries provider statistics at all. This is the number that says
          whether the answer below is worth reading yet, and it is measured rather than asserted. */
-      const provKey = 'xgDiffH';
+      const provKey = M14_COV_KEY;
       const provCov = keys.includes(provKey)
         ? sp.train.filter(r => r.F[provKey] != null).length / sp.train.length : null;
+      const xgCov = keys.includes(M14_XG_KEY)
+        ? sp.train.filter(r => r.F[M14_XG_KEY] != null).length / sp.train.length : null;
 
       const pc = v => (100*v).toFixed(1) + '%';
       const sign = v => (v >= 0 ? '+' : '') + v.toFixed(4);
@@ -7409,6 +7447,7 @@ function renderM14(){
         const vCov = sp.valid.length ? sp.valid.filter(r=>r.F[provKey]!=null).length/sp.valid.length : 0;
         html += `<div class="subnote">${provCov > 0.9 ? '' : `<b style="color:var(--gold)">${none ? 'Reading only half the layer.' : 'Provisional.'}</b> `}`
               + `<b>${pc(provCov)}</b> of the training fixtures carry the provider's match statistics, against <b>${pc(vCov)}</b> of the validation ones. `
+              + (xgCov != null ? `xG specifically reaches <b>${pc(xgCov)}</b> of training &mdash; lower because whole competition-seasons in 2022&ndash;23 carry no xG at all, which is a fact about the provider rather than an unfinished backlog. ` : '')
               + (none
                  ? `So every provider-derived variable &mdash; xG, shot quality, possession, passing, keeper &mdash; is missing on <b>every</b> training row, contributes nothing the fit can learn from, and the figure above comes from the older features alone: rest, congestion, absences and the league table. That is the collection backlog, not the model, and it clears when the pool fills.`
                  : `The backlog fills newest-season-first, so the 2022&ndash;23 rows the weights are learned from are the last to be filled &mdash; until this is high, the answer above will keep moving.`)
@@ -7570,12 +7609,14 @@ function m14RunHoldout(){
       if(!fit){ box.innerHTML = '<div class="subnote">Every lambda failed to factorise &mdash; the design matrix is degenerate.</div>'; return; }
       const ev = m14Holdout(fit, sp.hold);            // ◄── the one and only scoring of the holdout
       if(!ev){ box.innerHTML = '<div class="subnote">The holdout returned nothing to score.</div>'; return; }
-      const provKey = 'xgDiffH';
+      const provKey = M14_COV_KEY;
       const provCov = keys.includes(provKey)
         ? sp.train.filter(r => r.F[provKey] != null).length / sp.train.length : null;
+      const xgCov = keys.includes(M14_XG_KEY)
+        ? sp.train.filter(r => r.F[M14_XG_KEY] != null).length / sp.train.length : null;
       const rec = m14HoldAppend({ at: new Date().toISOString(), build: APP_BUILD, lam: fit.lam,
                       nTrain: sp.train.length, nValid: sp.valid.length, nHold: sp.hold.length,
-                      cols: fit.design.cols.length, provCov,
+                      cols: fit.design.cols.length, provCov, xgCov, covKey: M14_COV_KEY,
                       valR2: fit.valid.r2, r2: ev.r2, rmse: ev.rmse, base: ev.base });
       /* BUILD 211 — rendered from the log IN MEMORY, so a run that could not be saved is still shown,
          and is shown as unsaved. Re-reading storage here would have hidden it completely. */
@@ -7602,6 +7643,38 @@ function m14RunHoldout(){
    below the lowest coverage ever observed on a filled season and an order of magnitude above a
    partial one, so it separates the two cases rather than splitting a judgement call.
    Every row shows its own coverage regardless, so the reader is never asked to trust this line. */
+/* BUILD 228 - THE READINESS SENTINEL IS STATISTICS, NOT xG
+   THIS IS BUILD 179'S SENTINEL BUG FOR THE THIRD TIME, AND THE THIRD PLACE IS THIS GATE.
+
+     - build 179: the collector queue asked `xg_h is null` and read the answer as "does this fixture
+       still need fetching". For 7,185 pre-2022 rows those are different questions forever, and the
+       queue deadlocked for seventeen builds.
+     - build 186: the feature layer's window admitted a match only if it carried xG, so those same
+       7,185 fixtures, holding sixteen perfectly good statistics, contributed to nothing.
+     - here: the readiness gate asked how many TRAINING rows carry `xgDiffH` and read the answer as
+       "is the collection backlog complete". Measured 2026-08-30 with the pool at its floor
+       (m14_missing 284 of 15,592; training rows 98.6% filled in the database):
+
+         xG-derived sentinel   train 52.3%  /  validation 90.2%                    -> 37.9 pts apart
+         statistics sentinel   train 91.4%  /  validation 90.9%  /  holdout 88.0%  ->  0.5 pts apart
+
+   The 37.9 points are NOT an unfinished backlog. They are the per-competition xG frontier measured
+   on 2026-08-29 - Championship 2022, Eredivisie 2022 and Primeira Liga 2022 carry no xG at all while
+   Bundesliga 2022 does - and no amount of waiting moves them.
+
+   THE THRESHOLD BELOW IS UNCHANGED AT 0.70, DELIBERATELY. Build 209 set it on the premise that a
+   completed pool puts training in the same band as the already-filled seasons. THAT PREMISE IS
+   CORRECT and is confirmed above; only the instrument was wrong. Lowering the bar to fit the number
+   would have been a constant nobody measured - build 183's whole build, and build 201's rejected
+   "85% certainty". Fixing WHICH QUANTITY is measured is the correction this project has already
+   made twice, and this is the third.
+
+   AND IT IS DEFINED ONCE. It was two identical `const provKey = 'xgDiffH'` literals in two separate
+   functions that had to change together - the drift that broke travel and derby for thirteen
+   builds, sitting inside the milestone's own decision gate. */
+const M14_COV_KEY = 'possMeanH';   // "do we have ANY match statistics" - the collector's own poss_h sentinel
+const M14_XG_KEY  = 'xgDiffH';     // still REPORTED beside it: the xG gap is real and changes how a result reads
+
 const M14_DECIDE_COV = 0.70;
 
 /* Every run ever made, oldest first. The DECISION is the first run made at full coverage; anything
@@ -11920,8 +11993,36 @@ async function loadCloudLeagues(force){
              precisely when a league table full of zeros is the only correct thing to show.
              One integer per upcoming fixture, and `upcoming` is a few hundred rows rather than
              ~22,000, so this one is nowhere near the localStorage quota that governs `_x`. */
+          /* 🚨 BUILD 227 — THE PROVIDER EXTRAS RIDE ALONG HERE TOO, AND THIS LINE IS WHY SEVEN
+             FEATURES WERE NULL ON EVERY FIXTURE THE APP PUBLISHES.
+
+             Measured 2026-08-29 against the live database, 272 upcoming feature vectors against 275
+             historical ones: `absNH`, `absNA`, `absDoubtH`, `absDoubtA`, `keyRustH` and `keyRustA`
+             read 100% on finished matches and **0% on upcoming fixtures** — and `absNA` is the
+             LARGEST WEIGHT in build 206's fit. The cause was not the feature layer and not the
+             collector. It was this projection: `upcoming` rows carried twelve fields and no `_x` at
+             all, 0 of 3,153, so `inj_h`/`inj_a` were sitting in `r` and being dropped one line from
+             where they were needed.
+
+             THAT IS BUILD 169's TRAP INSIDE THE FEATURES WRITTEN TO ESCAPE IT. Build 185 recorded
+             these as "the FIRST features in this project that describe the fixture being predicted",
+             on the strength of the provider sweep finding injury rows two and three days ahead. The
+             sweep measured the ENDPOINT. Nobody measured what reaches the browser, and a feature
+             that fits across six seasons and is null on every published fixture is exactly what
+             build 169 spent a whole build learning to avoid.
+
+             `providerExtras(r)` rather than a hand-picked subset, deliberately: it copies only
+             non-null values, so an unplayed fixture naturally yields the few fields that exist
+             before kick-off and nothing else — and the day the collector makes another column
+             available pre-match, this picks it up with no edit here. A named subset would be a
+             second list to keep in step, which is the drift that broke travel and derby.
+
+             AND IT COSTS NOTHING IN STORAGE. `dropExtras` is a JSON.stringify replacer keyed on the
+             property NAME, so it strips `_x` anywhere in the tree, `upcoming` included. The first
+             estimate of this change put it at ~213 KB against the quota; that assumed the extras
+             persist, and they do not. Zero bytes. */
           display.push({fxid:r.fxid, date:r.date, time:r.time, home:r.home, away:r.away,
-                        season:r.season, _fin:fin});
+                        season:r.season, _fin:fin, _x:providerExtras(r)});
         }
       }
       L.matches.sort((a,b)=> a.date<b.date?-1:1);
