@@ -483,9 +483,18 @@
          of fixtures at once. See renderBanker() for the measurement that forced this. -->
     <div class="sfilters" id="tipHorizon" style="margin:2px 0 8px"></div>
     <div id="bankerCard"></div>
+    <div class="htabs" id="tipTabs"></div>
+    <!-- BUILD 243 — the slips sit BELOW the tab row, because they are that tab's CONTENT.
+         Build 241 inserted them above it, so on the Smart Bet tab the row of tabs appeared
+         underneath the cards and read as a second, stray set of buttons at the bottom of the
+         screen. Ken: "i noticed you added them again in the smartbet tab, under. making them
+         appear top and bottom." There was only ever one tab row; it was in the wrong place.
+         🚨 BUILD 242 MISREAD THAT AS "DELETE THE MARKET TABS" AND REMOVED Winner, O/U 2.5 and
+         BTTS. Wrong fix to a real complaint — the markets are restored and the LAYOUT is what
+         actually changes. A misplaced element and an unwanted element look identical in a
+         screenshot, and only one of them is fixed by deleting something. */ -->
     <div id="dailySlips"></div>
     <div id="dailyTracker"></div>
-    <div class="htabs" id="tipTabs"></div>
 
     <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
     <div id="tipListWrap">
@@ -820,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 242;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 244;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3974,13 +3983,16 @@ function openTeam(name){
    should open on today every time, not on whatever window the user last browsed. */
 const tipState={ tab:'winner', fair:false, days:0 };
 const TIP_HORIZONS = () => [[0, t('Today')], [3, t('Next 3 days')], [7, t('Next 7 days')]];
-/* BUILD 242 — Ken: "remove the bet option tabs under there." The three per-market lists are gone;
-   Smart Bet (now the daily slips) and the Slip Generator remain, because those are the two things
-   the tab exists to do — take a recommendation, or build your own. `renderTipList` and its markets
-   are untouched and still reachable from the match page; only this row of tabs is shorter.
-   ⚠ READ AS THE BET-OPTION TABS, NOT ALL FIVE. Removing the Slip Generator would delete the
-   odds-target builder of builds 218-219, which he asked for directly. */
-const TIP_TABS=()=>[['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
+/* BUILD 243 — ALL FIVE TABS ARE BACK, AND THE ROUND TRIP IS THE POINT.
+   Build 242 removed Winner, O/U 2.5 and BTTS on Ken's "remove the bet option tabs under there". That
+   reading was flagged at the time as a reading — "the bet-option tabs, not all five" — and it was the
+   wrong one: he wanted the row tidied, not the markets taken away. They return unchanged.
+
+   ⚠ THE DEFAULT TAB IS UNCHANGED at 'winner'. An earlier draft of this comment claimed it had been
+   moved to 'smart'; it had not, and the claim was removed rather than the code changed to match it —
+   a comment that describes something the file does not do is the drift build 199 spent a whole build
+   undoing. If the tab should open on the slips, that is a one-word change and Ken's call. */
+const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
 function renderTipHorizon(){
   const box=$('tipHorizon'); if(!box) return;
   box.innerHTML = TIP_HORIZONS().map(([v,l])=>
