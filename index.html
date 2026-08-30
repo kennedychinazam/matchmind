@@ -748,6 +748,10 @@
       <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
       <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
     </div>
+    <div id="devStubAuto" hidden aria-hidden="true">
+      <div id="m15Btn"></div>
+      <div id="m15Out"></div>
+    </div>
 
     </div>
 
@@ -773,7 +777,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 228;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 230;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7388,6 +7392,210 @@ function m14Fit(train, valid, keys){
    exactly where the provider data is thinnest. `xgDiffH` coverage across the training rows is the
    honest gauge of that, so it is measured here and shown, and the verdict line reads "provisional"
    until it is high. */
+/* MILESTONE 15 - THE VALUE AUDIT (build 230)
+   The milestone's plan was "compare model probability against the bookmaker's implied probability;
+   flag mispriced fixtures". This measures whether that rule works BEFORE anything flags anything,
+   which is what builds 204-209 did for Milestone 14: build the instrument, let it decide.
+
+   THE TRAP THAT MAKES THIS WORTH ITS OWN CONSTANT. A selection's implied probability is 1/price and
+   that includes the bookmaker's margin, so comparing our probability against it manufactures an edge
+   out of the vig. Every market must be normalised against its own complement. AND DOUBLE CHANCE DOES
+   NOT SUM TO 1: 1X, 12 and X2 each cover TWO of the three outcomes, so its selections sum to 2.
+   Normalising DC like a normal market halves every probability, and on the first run of this
+   measurement it produced a +38.8 POINT EDGE THAT WAS POSITIVE ON 39 OF 39 PICKS - in the market
+   that is the largest share of what this app publishes. It was caught only because a 2.1212
+   overround is impossible for a real book. That is what SPAN is for, and why it is written down
+   rather than assumed. */
+const M15_SEL = {
+  '1':  ['h',    ['h','d','a'],         1], 'X':  ['d',    ['h','d','a'],         1],
+  '2':  ['a',    ['h','d','a'],         1],
+  '1D': ['dnbh', ['dnbh','dnba'],       1], '2D': ['dnba', ['dnbh','dnba'],       1],
+  '1X': ['dc1x', ['dc1x','dc12','dcx2'],2], 'X2': ['dcx2', ['dc1x','dc12','dcx2'],2],
+  'O25':['o25',  ['o25','u25'],         1], 'U25':['u25',  ['o25','u25'],         1],
+  'U35':['u35',  ['o35','u35'],         1],
+  'BTS':['bttsy',['bttsy','bttsn'],     1], 'NBT':['bttsn',['bttsy','bttsn'],     1]
+};
+/* The collector writes a CLOSING price only inside the final thirty minutes (build 162), so a
+   capture outside that window is a "latest" and not a close. Using the collector's own rule rather
+   than a second number chosen here. */
+const M15_CLOSE_MIN = 30;
+
+/* De-vigged market probability for one selection, or null when the market is not fully quoted.
+   The margin is returned too, because a margin that is not near 1.0 after dividing by its span is
+   the tell that the normalisation is wrong - which is exactly how the Double Chance fault surfaced. */
+function m15Fair(snap, code){
+  const spec = M15_SEL[code]; if(!spec) return null;
+  const col = spec[0], fam = spec[1], span = spec[2];
+  const own = snap[col]; if(own == null || !(own > 1)) return null;
+  let sum = 0;
+  for(const k of fam){ const v = snap[k]; if(v == null || !(v > 1)) return null; sum += 1/v; }
+  const margin = sum / span;
+  return { p: (1/own) / margin, price: own, margin: margin };
+}
+
+/* Every published pick, every odds capture, and the results. Paged explicitly, because PostgREST
+   caps a select at 1000 rows and the archive is larger than that - build 123, and the trap this
+   very measurement fell into on its first reconnaissance run. */
+async function m15Fetch(){
+  const page = async (table, cols) => {
+    let out = [], from = 0;
+    for(;;){
+      const q = await supa.from(table).select(cols).order('fxid', { ascending: true }).range(from, from + 999);
+      if(q.error) throw new Error(table + ': ' + q.error.message);
+      out = out.concat(q.data);
+      if(q.data.length < 1000) break;
+      from += 1000;
+    }
+    return out;
+  };
+  const preds = await page('predictions', 'fxid,lid,kickoff,pick,pick_prob,market,made_at,withheld_at');
+  const snaps = await page('odds_snapshots',
+    'fxid,captured_at,mins_to_kick,books,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba');
+  const ids = [];
+  for(const p of preds) if(ids.indexOf(p.fxid) < 0) ids.push(p.fxid);
+  const fx = [];
+  for(let i = 0; i < ids.length; i += 150){
+    const q = await supa.from('fixtures').select('fxid,status,gh,ga').in('fxid', ids.slice(i, i + 150));
+    if(q.error) throw new Error('fixtures: ' + q.error.message);
+    for(const r of q.data) fx.push(r);
+  }
+  return { preds: preds, snaps: snaps, fx: fx };
+}
+
+function m15Build(preds, snaps, fx){
+  const byFx = {}; for(const s of snaps) (byFx[s.fxid] = byFx[s.fxid] || []).push(s);
+  const res = {}; for(const f of fx) res[f.fxid] = f;
+  const rows = [], skip = { noSnap:0, noClose:0, noPrice:0, notFinished:0, voided:0 };
+  for(const p of preds){
+    const f = res[p.fxid];
+    if(!f || !isFin(f.status) || f.gh == null || f.ga == null){ skip.notFinished++; continue; }
+    const list = (byFx[p.fxid] || []).filter(s => s.mins_to_kick != null && s.mins_to_kick >= 0);
+    if(!list.length){ skip.noSnap++; continue; }
+    list.sort((a, b) => a.mins_to_kick - b.mins_to_kick);
+    const close = list[0];
+    if(close.mins_to_kick > M15_CLOSE_MIN){ skip.noClose++; continue; }
+    const fair = m15Fair(close, p.pick);
+    if(!fair){ skip.noPrice++; continue; }
+    /* THE PRICE AT PUBLICATION, for true closing-line value: the last capture at or before the
+       moment the pick was frozen. `odds_at_pick` was deliberately never stored (build 199) because
+       odds_snapshots keeps every capture with captured_at - this is that decision being cashed. */
+    let pub = null;
+    if(p.made_at){
+      const t = Date.parse(p.made_at);
+      const before = list.filter(s => Date.parse(s.captured_at) <= t)
+                         .sort((a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at));
+      if(before.length){ const g = m15Fair(before[0], p.pick); if(g) pub = g; }
+    }
+    const actual = f.gh > f.ga ? '1' : f.gh === f.ga ? 'X' : '2';
+    const grade = gradePick(p.pick, actual, f.gh, f.ga);   // THE APP'S OWN GRADER, never a second copy
+    if(grade === 'void'){ skip.voided++; continue; }
+    if(grade !== 'hit' && grade !== 'miss'){ skip.notFinished++; continue; }
+    rows.push({ fxid: p.fxid, pick: p.pick, market: pickMarket(p.pick), ourP: p.pick_prob,
+                mktP: fair.p, price: fair.price, margin: fair.margin,
+                edge: p.pick_prob - fair.p, hit: grade === 'hit',
+                clv: pub ? (pub.price / fair.price - 1) : null, mtk: close.mins_to_kick });
+  }
+  return { rows: rows, skip: skip };
+}
+
+/* A rate carries the sample it rests on. The standard error sits beside every percentage
+   deliberately: this is the one milestone that can produce a claim about money, and the difference
+   between 61% and 75% on eighteen picks is not a finding. */
+function m15Rate(rs, get){
+  const n = rs.length; if(!n) return null;
+  const k = rs.filter(get).length, p = k / n;
+  return { n: n, k: k, pct: 100 * p, se: 100 * Math.sqrt(p * (1 - p) / n) };
+}
+
+function renderM15Audit(){
+  const box = $('m15Out'); if(!box) return;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading the archive and every odds capture&hellip;</div>';
+  (async function(){
+    let data;
+    try { data = await m15Fetch(); }
+    catch(e){ box.innerHTML = '<div class="subnote">Could not read: ' + escapeHtml(e.message) + '</div>'; return; }
+    const built = m15Build(data.preds, data.snaps, data.fx);
+    const rows = built.rows, skip = built.skip;
+    if(rows.length < 20){
+      box.innerHTML = '<div class="subnote">Only ' + rows.length + ' published picks carry a closing price yet. '
+        + 'Odds collection began 2026-08-15; this needs time, not a build.</div>';
+      return;
+    }
+    const mean = (rs, g) => rs.reduce((s, r) => s + g(r), 0) / rs.length;
+    const markets = [];
+    for(const r of rows) if(markets.indexOf(r.market) < 0) markets.push(r.market);
+    markets.sort((a, b) => rows.filter(r => r.market === b).length - rows.filter(r => r.market === a).length);
+
+    const edgeRows = rows.filter(r => r.edge > 0);
+    const antiRows = rows.filter(r => r.edge <= 0);
+    const A = m15Rate(edgeRows, r => r.hit), B = m15Rate(antiRows, r => r.hit);
+
+    const head = (label) => '<div class="frow" style="margin-top:10px;font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">'
+      + '<span style="flex:1">' + label + '</span><span style="width:14%;text-align:right">n</span>'
+      + '<span style="width:20%;text-align:right">We said</span><span style="width:20%;text-align:right">Market</span>'
+      + '<span style="width:24%;text-align:right">Actual</span></div>';
+    const line = (label, rs, rate) => !rate ? '' : '<div class="frow"><span style="flex:1">' + label + '</span>'
+      + '<span style="width:14%;text-align:right">' + rate.n + '</span>'
+      + '<span style="width:20%;text-align:right">' + (100 * mean(rs, r => r.ourP)).toFixed(1) + '%</span>'
+      + '<span style="width:20%;text-align:right">' + (100 * mean(rs, r => r.mktP)).toFixed(1) + '%</span>'
+      + '<span style="width:24%;text-align:right"><b>' + rate.pct.toFixed(1) + '%</b> <span class="muted">&plusmn;'
+      + rate.se.toFixed(1) + '</span></span></div>';
+
+    let html = '<div class="frow"><span class="muted">Published picks priced at the close</span><b>' + rows.length + '</b></div>'
+      + '<div class="frow"><span class="muted">Skipped &mdash; no capture inside ' + M15_CLOSE_MIN
+      + ' min &middot; unfinished &middot; void &middot; unquoted</span><b>' + skip.noClose + ' &middot; '
+      + skip.notFinished + ' &middot; ' + skip.voided + ' &middot; ' + (skip.noPrice + skip.noSnap) + '</b></div>'
+      + '<div class="frow"><span class="muted">Mean book margin (should sit near 1.05&ndash;1.10)</span><b>'
+      + mean(rows, r => r.margin).toFixed(4) + '</b></div>';
+
+    html += head('Model against market') + line('Model above market', edgeRows, A) + line('Market above model', antiRows, B);
+    html += head('By market, edge picks only');
+    for(const m of markets){
+      const rs = edgeRows.filter(r => r.market === m);
+      html += line(escapeHtml(m), rs, m15Rate(rs, r => r.hit));
+    }
+
+    const withClv = rows.filter(r => r.clv != null);
+    html += '<div class="frow" style="margin-top:10px"><span class="muted">Closing-line value &mdash; picks with a price at publication</span><b>'
+      + withClv.length + '</b></div>';
+    if(withClv.length >= 20){
+      const cr = m15Rate(withClv, r => r.clv > 0);
+      const mv = 100 * mean(withClv, r => r.clv);
+      html += '<div class="frow"><span class="muted">Mean CLV &middot; share that beat the close</span><b>'
+        + (mv >= 0 ? '+' : '') + mv.toFixed(2) + '% &middot; ' + cr.pct.toFixed(1) + '% &plusmn;' + cr.se.toFixed(1) + '</b></div>'
+        + '<div class="subnote">Positive means the price shortened after we published &mdash; the market moving toward the pick, '
+        + 'which is the honest evidence of an edge. It is not profit, and it is not a recommendation.</div>';
+    } else {
+      html += '<div class="subnote">Too few picks have a capture at publication AND at the close to measure CLV yet. '
+        + 'This is the roadmap&rsquo;s named honest measure and it accrues with time, not with builds.</div>';
+    }
+
+    /* THE VERDICT IS A COMPARISON, NEVER A RECOMMENDATION. The milestone's done-when explicitly
+       allows "says nothing", and a panel with a verdict slot that must be filled is the bluff
+       Milestone 8 exists to forbid, wearing a rosette. */
+    if(A && A.n >= 30){
+      const claimed = 100 * mean(edgeRows, r => r.ourP);
+      const implied = 100 * mean(edgeRows, r => r.mktP);
+      const over = claimed - A.pct, mktErr = Math.abs(implied - A.pct);
+      html += '<div class="subnote" style="margin-top:10px">Where the model reads higher than the market we claimed <b>'
+        + claimed.toFixed(1) + '%</b>, the market implied <b>' + implied.toFixed(1) + '%</b>, and <b>'
+        + A.pct.toFixed(1) + '%</b> landed. '
+        + (over > 2 * A.se
+            ? 'The overclaim of ' + over.toFixed(1) + ' points is more than two standard errors, and the market is out by only '
+              + mktErr.toFixed(1) + ' &mdash; so on this sample the disagreement is <b style="color:var(--red)">error, not edge</b>.'
+            : 'The overclaim of ' + over.toFixed(1) + ' points is inside two standard errors (&plusmn;'
+              + (2 * A.se).toFixed(1) + '), so this sample <b>cannot yet separate edge from noise</b>.')
+        + '</div>';
+    } else {
+      html += '<div class="subnote" style="margin-top:10px">Fewer than 30 edge picks. <b>This says nothing yet</b> &mdash; '
+        + 'read the count before the percentage.</div>';
+    }
+    html += '<div class="subnote">This panel compares and reports. It flags nothing as worth backing: Milestone 15 closes '
+      + 'when a measurement says the app can say that honestly, or that it cannot.</div>';
+    box.innerHTML = html;
+  })();
+}
+
 function renderM14(){
   const box = $('m14Out'); if(!box) return;
   const inp = m14Inputs();
@@ -12674,24 +12882,41 @@ function renderMoreRecord(){
 
   const box = $('moreRecordBreak'); if(!box) return;
   const graded = (afState.record||[]).filter(r=>r.result && (r.build||0) >= FROZEN_FROM_BUILD);
+  /* BUILD 229 - THIS TABLE COUNTED EVERY PICK AS CORRECT, AND KEN FOUND IT ON HIS PHONE.
+     It read Double Chance 14/14, Draw No Bet 9/9, Winner 3/3, Goals 3/3 - 100% in every market -
+     while the headline above it admitted 20 of 28. Eight losses were invisible, on the one panel
+     whose entire job is to be believed.
+
+     THE CAUSE IS A TRUTHY STRING. `gradePick` returns 'hit', 'miss', 'void' or null, and this block
+     tested `if(g) o.h++` - and 'miss' is a truthy string, so every graded pick incremented the hit
+     count. The guard above it had the same fault: `if(g == null) continue` skips null but NOT the
+     string 'void', so the void sat in the denominator too and the columns summed to 29 against the
+     headline's 28. Two bugs, adjacent, from the same misreading of the same return type.
+
+     THE FIX IS NOT A CORRECTED COMPARISON, IT IS DELETING THE FOURTH COPY OF THE TALLY. Build 164
+     extracted `tallyPicks` precisely so "the headline, yesterday and the last seven days count one
+     population by one rule", and wrote down why: three copies of "count the hits, drop the voids"
+     are three chances for two figures on the same screen to disagree about the same picks. This
+     panel was added later and brought its own counting with it. Grouping the rows and calling
+     `tallyPicks` per market makes disagreement with the headline structurally impossible rather
+     than merely fixed - and the market rows now sum to the headline's denominator by construction. */
   const by = {};
   for(const r of graded){
-    const g = gradePick(r.pick, r.result, r.gh, r.ga);
-    if(g == null) continue;                       // voids sit out of the denominator, as above
     const m = r.market || pickMarket(r.pick) || 'Other';
-    const o = by[m] || (by[m] = { n:0, h:0 });
-    o.n++; if(g) o.h++;
+    (by[m] = by[m] || []).push(r);
   }
-  const rows = Object.keys(by).sort((a,b)=>by[b].n - by[a].n);
+  const tal = {};
+  for(const m in by) tal[m] = tallyPicks(by[m]);          // ONE rule, shared with the headline
+  const rows = Object.keys(by).filter(m => tal[m].n > 0).sort((a,b)=>tal[b].n - tal[a].n);
   if(!rows.length){ box.innerHTML = ''; return; }
   box.innerHTML = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
       <span style="flex:1">Market</span><span style="width:24%;text-align:right">Picks</span>
       <span style="width:28%;text-align:right">Correct</span></div>`
     + rows.map(m=>{
-        const o = by[m], pct = Math.round(100*o.h/o.n);
+        const t = tal[m], pct = Number(t.pct);
         return `<div class="frow"><span style="flex:1">${escapeHtml(m)}</span>
-          <span style="width:24%;text-align:right">${o.n}</span>
-          <span style="width:28%;text-align:right;color:${pct>=50?'var(--green2)':'var(--red)'}"><b>${o.h} · ${pct}%</b></span></div>`;
+          <span style="width:24%;text-align:right">${t.n}</span>
+          <span style="width:28%;text-align:right;color:${pct>=50?'var(--green2)':'var(--red)'}"><b>${t.hits} · ${t.pct}%</b></span></div>`;
       }).join('')
     + `<div class="subnote">A market with only a handful of picks says nothing yet — read the count before the percentage.</div>`;
 }
@@ -14258,6 +14483,7 @@ function renderNewcomerSweep(){
 { const b=$('faBtn'); if(b) b.addEventListener('click', formAdjSweep); }
 { const b=$('flBtn'); if(b) b.addEventListener('click', renderFeatureLayer); }
 { const b=$('m14Btn'); if(b) b.addEventListener('click', renderM14); }
+{ const b=$('m15Btn'); if(b) b.addEventListener('click', renderM15Audit); }
 { const b=$('m14HoldBtn'); if(b) b.addEventListener('click', m14RunHoldout); }
 { const b=$('pcBtn'); if(b) b.addEventListener('click', renderProviderCoverage); }
 { const b=$('vnBtn'); if(b) b.addEventListener('click', renderVenuesSql); }
