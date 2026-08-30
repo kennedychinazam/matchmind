@@ -341,6 +341,47 @@
   .setleft{display:flex; align-items:center; gap:11px; min-width:0;}
   .setico{width:32px; height:32px; border-radius:9px; background:var(--card3); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .setico svg{width:18px; height:18px; display:block;}
+
+  /* ══ BUILD 233 — THE SLIP, AS STACKED CARDS UNDER A SLIM STRIP ═══════════════════════════════
+     Ken: "stacked cards per leg AND a slimmer header strip", and of the three paragraphs that sat
+     under the totals — "i don't need all those writings there, should be simple in a one line
+     summary". The information is not deleted: the number that stops the slip flattering itself
+     (the chance it loses) is ON the one line, and the reasoning moves behind a tap. Milestone 8
+     requires the app to state what it knows; it does not require it to shout. */
+  .sliphead{display:flex; align-items:stretch; gap:1px; background:var(--line);
+            border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:10px;}
+  .shcell{flex:1; background:var(--card2,var(--card)); padding:9px 6px; text-align:center; min-width:0;}
+  .shcell .k{display:block; font-size:.55rem; letter-spacing:.09em; color:var(--muted);
+             text-transform:uppercase; margin-bottom:2px;}
+  .shcell .v{display:block; font-size:1.06rem; font-weight:800; line-height:1.15;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .slipline{display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+            font-size:.72rem; color:var(--muted); margin:0 2px 10px;}
+  .whybtn{background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px;
+          font:inherit; font-size:.66rem; padding:3px 10px; min-height:28px; cursor:pointer;}
+  .whybtn:hover{color:var(--text); border-color:var(--gold);}
+  .slipwhy{font-size:.68rem; color:var(--muted); line-height:1.5; margin:-4px 2px 10px;
+           padding:9px 11px; border-left:2px solid var(--gold); background:rgba(246,195,68,.05);
+           border-radius:0 8px 8px 0;}
+  .slipwhy p{margin:0 0 6px;} .slipwhy p:last-child{margin:0;}
+  .slipleg{display:block; width:100%; text-align:left; background:var(--card2,var(--card));
+           border:1px solid var(--line); border-radius:12px; padding:11px 12px; margin-bottom:8px;
+           cursor:pointer; font:inherit; color:inherit;}
+  .slipleg:hover{border-color:var(--gold);}
+  .slipleg .lgtop{display:flex; align-items:center; gap:6px; font-size:.62rem; color:var(--muted);
+                  margin-bottom:7px; min-width:0;}
+  .slipleg .lgcomp{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .slipleg .lgno{flex:none; width:18px; height:18px; border-radius:5px; background:var(--line);
+                 color:var(--muted); font-size:.6rem; font-weight:700; display:flex;
+                 align-items:center; justify-content:center;}
+  .slipleg .lgteams{font-size:.9rem; font-weight:700; line-height:1.35; margin-bottom:9px;}
+  .slipleg .lgv{color:var(--muted); font-weight:600; font-size:.74rem; padding:0 5px;}
+  .slipleg .lgpick{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .slipleg .lgsel{font-weight:800; color:var(--gold); font-size:.82rem;}
+  .slipleg .lgodds{margin-left:auto; font-weight:800; font-size:.86rem;}
+  .slipleg .lgmkt{font-size:.64rem; color:var(--muted); font-weight:600;
+                  border:1px solid var(--line); border-radius:999px; padding:2px 7px;}
+  .slipleg .lgprob{font-size:.66rem; color:var(--muted); font-weight:700;}
 </style>
 </head>
 <body>
@@ -442,6 +483,8 @@
          of fixtures at once. See renderBanker() for the measurement that forced this. -->
     <div class="sfilters" id="tipHorizon" style="margin:2px 0 8px"></div>
     <div id="bankerCard"></div>
+    <div id="dailySlips"></div>
+    <div id="dailyTracker"></div>
     <div class="htabs" id="tipTabs"></div>
 
     <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
@@ -777,7 +820,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 231;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 242;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2762,7 +2805,12 @@ function halfEngine(L, which, upTo){
   if(!L || !L.matches) return null;
   const key = which==='ht' ? '_engHT' : '_engH2';
   const full = upTo==null;
-  if(full && L[key] && L[key]._n === L.matches.length) return L[key];
+  /* BUILD 233 — the cache is only usable if it is still an ENGINE. Stripping these on save (see
+     `dropExtras`) stops new ones being written, but every install already carrying a build-232
+     cache has a prototype-less copy sitting here, and `_n` alone cannot tell it from the real
+     thing. Checking for the method is what makes an old cache heal instead of crash. */
+  if(full && L[key] && L[key]._n === L.matches.length && typeof L[key].predict === 'function') return L[key];
+  if(full && L[key] && typeof L[key].predict !== 'function') L[key] = null;   // a restored corpse
   /* Slice to the cut-off FIRST, then drop matches without a half-time score. Doing it the other way
      round would leave `upTo` indexing a differently-sized array, which silently leaks future results
      into a walk-forward test — the exact mistake a backtest exists to avoid. */
@@ -3601,7 +3649,15 @@ function allSelections(P,f,L){
   if(L){ const H = htftFor(L, f);
     if(H) for(const d of H.doubles) add('HT/FT', d.code+'  '+d.text, d.prob, d.code, 'HTFT-'+d.code); }
   add('Winner', f.home+' to win', P.pW,'1','W-H'); add('Winner','Draw',P.pD,'X','W-D'); add('Winner', f.away+' to win', P.pL,'2','W-A');
-  add('Double Chance', f.home+' or Draw', P.pW+P.pD, null,'DC-1X'); add('Double Chance','Draw or '+f.away, P.pD+P.pL, null,'DC-X2');
+  /* BUILD 237 — Double Chance carries '1X'/'X2' now. Build 234 deliberately left these NULL, and
+     its reasoning was right at the time: `recordPick`'s slip filter keyed on code shape, so giving
+     DC a code would have silently started writing DC legs into the published accuracy record — a
+     change to what the app CLAIMS arriving inside a change to how a word is spelled.
+     THAT HAZARD IS REMOVED RATHER THAN ACCEPTED: the filter is now `SLIP_RECORD_MARKETS`, which
+     names Winner and nothing else, so the code vocabulary and the ledger are no longer coupled.
+     Codes are what let a selection be priced against a real bookmaker line at all — without one
+     there is no column to look up, which is why the goals markets could never be valued. */
+  add('Double Chance', f.home+' or Draw', P.pW+P.pD, '1X','DC-1X'); add('Double Chance','Draw or '+f.away, P.pD+P.pL, 'X2','DC-X2');
   /* '12' (Home or Away) was removed in build 62. Its probability is exactly 1 − pD, so backing it is
      nothing more than betting against a draw — it inherits none of the engine's skill, only the
      league's draw rate. And the draw is the one outcome this engine prices well. In Brasileirão,
@@ -3610,11 +3666,15 @@ function allSelections(P,f,L){
      It is also the wrong rung: the ladder straight win → DNB → 1X/X2 trades odds for a draw that
      either wins or voids. '12' does the opposite — it removes that protection while still charging
      short odds for it. */
-  const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb, null,'DNB-H'); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb, null,'DNB-A'); }
-  add('Goals','Over 2.5',P.over[2.5],null,'O25'); add('Goals','Under 2.5',1-P.over[2.5],null,'U25');
-  add('Goals','Over 1.5',P.over[1.5],null,'O15'); add('Goals','Under 1.5',1-P.over[1.5],null,'U15');
-  add('Goals','Over 3.5',P.over[3.5],null,'O35'); add('Goals','Under 3.5',1-P.over[3.5],null,'U35');
-  add('BTTS','BTTS Yes',P.btts,null,'BTTS-Y'); add('BTTS','BTTS No',1-P.btts,null,'BTTS-N');
+  /* BUILD 234 — '1D'/'2D' are the ladder's own codes and `chipCode` already renders them "1 DNB" /
+     "2 DNB", which is the short form Ken asked for on the slip card. Safe to pass because neither
+     appears in `recordPick`'s list — see the Double Chance note above for why that distinction is
+     load-bearing rather than incidental. */
+  const dnb=P.pW+P.pL; if(dnb>0){ add('Draw No Bet', f.home+' (DNB)', P.pW/dnb, '1D','DNB-H'); add('Draw No Bet', f.away+' (DNB)', P.pL/dnb, '2D','DNB-A'); }
+  add('Goals','Over 2.5',P.over[2.5],'O25','O25'); add('Goals','Under 2.5',1-P.over[2.5],'U25','U25');
+  add('Goals','Over 1.5',P.over[1.5],'O15','O15'); add('Goals','Under 1.5',1-P.over[1.5],'U15','U15');
+  add('Goals','Over 3.5',P.over[3.5],'O35','O35'); add('Goals','Under 3.5',1-P.over[3.5],'U35','U35');
+  add('BTTS','BTTS Yes',P.btts,'BTS','BTTS-Y'); add('BTTS','BTTS No',1-P.btts,'NBT','BTTS-N');
   if(P.hcap){ add('Handicap', f.home+' -1.5',P.hcap.h,null,'HC-H-15'); add('Handicap', f.away+' -1.5',P.hcap.a,null,'HC-A-15'); add('Handicap', f.home+' +1.5',1-P.hcap.a,null,'HC-H+15'); add('Handicap', f.away+' +1.5',1-P.hcap.h,null,'HC-A+15'); }
   if(P.team){ add('Team total', f.home+' Over 1.5',P.team.h15,null,'TT-H-O15'); add('Team total', f.away+' Over 1.5',P.team.a15,null,'TT-A-O15'); add('Team total', f.home+' Under 1.5',1-P.team.h15,null,'TT-H-U15'); add('Team total', f.away+' Under 1.5',1-P.team.a15,null,'TT-A-U15'); }
   if(P.topScores&&P.topScores[0]) add('Correct score', P.topScores[0].score, P.topScores[0].p);   // key = the scoreline, see above
@@ -3914,7 +3974,13 @@ function openTeam(name){
    should open on today every time, not on whatever window the user last browsed. */
 const tipState={ tab:'winner', fair:false, days:0 };
 const TIP_HORIZONS = () => [[0, t('Today')], [3, t('Next 3 days')], [7, t('Next 7 days')]];
-const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
+/* BUILD 242 — Ken: "remove the bet option tabs under there." The three per-market lists are gone;
+   Smart Bet (now the daily slips) and the Slip Generator remain, because those are the two things
+   the tab exists to do — take a recommendation, or build your own. `renderTipList` and its markets
+   are untouched and still reachable from the match page; only this row of tabs is shorter.
+   ⚠ READ AS THE BET-OPTION TABS, NOT ALL FIVE. Removing the Slip Generator would delete the
+   odds-target builder of builds 218-219, which he asked for directly. */
+const TIP_TABS=()=>[['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
 function renderTipHorizon(){
   const box=$('tipHorizon'); if(!box) return;
   box.innerHTML = TIP_HORIZONS().map(([v,l])=>
@@ -3970,11 +4036,420 @@ function nextMatchday(){
   return { date: soonest, n };
 }
 
+/* ══ BUILD 235 — TODAY'S SLIPS ══════════════════════════════════════════════════════════════════
+   Ken: "i need a place in this tips where we recommend bets, a user don't need to go about looking
+   for games themselves. maybe a 5 to 10 odds, daily with daily matches. maximum of 4 matches for
+   the 5 odds, risk level from low risk to balanced."
+
+   BUILT ON TARGETS, NOT ON THE RISK SLIDER, and build 234 is why. The slider is a CEILING: it says
+   what may go in, and since 234 the generator takes the safest legs inside it — so it cannot reach
+   for a number. `slipToTarget` can, and it already exists, is walked through logs so the search is
+   a sum rather than a drifting product, and reports what it ACHIEVED. Three tiers are three targets.
+
+   ⚠ THE NUMBERS BELOW ARE KEN'S PRODUCT SPEC, NOT A FITTED RESULT, and they are labelled that way
+   on purpose. The middle tier is his words exactly — 5 odds, at most 4 matches. Nothing here was
+   measured into existence, so nothing here may be quoted as measurement. That is the distinction
+   build 201 drew when it refused an invented "85% certainty" bar and used the fitted confidence
+   gate instead: the gate stays in force underneath all of this, because every candidate still comes
+   from the same published pool.
+
+   TODAY ONLY. "Daily with daily matches" is the whole point — a recommendation that quietly reaches
+   into next month is build 201's defect, where the Tips tab ranked 2,964 fixtures across 135 dates
+   and showed nothing kicking off that day. */
+/* 🚨 BUILD 236 — THE DAILY SLIPS OWN THEIR MARKETS, AND THE GOALS MARKETS ARE IN THEM.
+
+   Ken: "the ceiling should not be only for win. if BTTS and over 2.5 is up to 65% and BTTS is 61%,
+   like Bayer Leverkusen yesterday, i will prefer them to the DNB of 82.7% for that fixture, because
+   we saw 2DNB ending as 3:2. This happens too often."
+
+   HE COULD NOT HAVE HAD THEM. `slipState.markets` defaults to Set(['1X2','DNB','DC']) — BTTS and
+   Over/Under are not in it, so no slip could ever offer one. His Leverkusen legs were structurally
+   unreachable, not out-ranked.
+
+   AND BUILD 235 MADE IT WORSE BY INHERITING THAT SET. renderDailySlips passed slipState.markets, so
+   a RECOMMENDATION changed silently with the market toggles on the Slip Generator tab — a panel
+   whose whole promise is "you do not have to go looking" was taking hidden input from another tab.
+   The tiers carry their own explicit set now. That is the same rule as build 206's fit refusing a
+   partial competition set: a claim about a population must state the population.
+
+   ⚠ WHAT THE MEASUREMENT SAYS, AND WHAT IT DOES NOT. Build 230's value audit, on the picks where the
+   engine claims an edge over the closing line:
+
+       Double Chance  n=18   claimed 75.0%   actual 61.1%    over-claims by 13.9
+       Draw No Bet    n=21   claimed 76.9%   actual 66.7%    over-claims by 10.2
+       Goals          n= 8   claimed 77.1%   actual 87.5%    UNDER-claims by 10.4
+       Winner         n= 9   claimed 74.7%   actual 77.8%    under-claims by  3.1
+
+   The direction is exactly Ken's complaint: the engine over-promises on DNB and DC and under-
+   promises on goals. **It is not established** — Goals is eight picks, about one standard error, and
+   across ALL graded picks (not just the edge subset) DNB reads 76.5% against 78.3% claimed, which is
+   close to calibrated. So this build ADMITS the goals markets and does NOT reorder the ladder to
+   prefer them. Re-ranking markets on n=8 would be fitting to noise, which is what the holdout caught
+   at M14 and the standard errors caught at M15. The M15 audit is the instrument that settles it and
+   it needs sample, not a build. */
+const DAILY_MARKETS = new Set(['1X2','DNB','DC','OU25','OU35','BTTS']);
+
+/* ══ BUILD 239 — TRUE ACCUMULATOR TARGETS, PER-MARKET FLOORS, AND AN EXACT BAND SEARCH ══════════
+   Ken: "You set the tier targets as single-leg odds limits rather than combined slip multiplier
+   targets... build true 2.00, 5.00 and 10.00 odds slips using these exact confidence floors."
+
+   He is right about the effect. Build 238 did multiply legs into a combined total, but its Value
+   BAND was 1.85-2.50 — taken from an odds range in his earlier message — when his original brief
+   was 5 to 10 odds. The totals were set far too low, so a "Value" slip stopped at 2.54.
+
+   THREE THINGS CHANGE HERE.
+
+   1. TOTALS ARE THE ACCUMULATOR, AND THE BANDS ARE HIS: 2.00 (1.80-2.20), 5.00 (4.50-5.50),
+      10.00 (9.00-11.50), with his leg counts.
+
+   2. CONFIDENCE FLOORS ARE PER MARKET, not one ceiling across all of them. This is the rule that
+      kills the "40% win pick" — a straight Winner leg must clear 75%, while BTTS and the goals
+      lines need only 60%, because those are the markets his instinct and build 230's audit both
+      favour. The floors also CAP what a leg can pay, which is the arithmetic that decides whether a
+      target is reachable at all: Winner ≥75% is ≤1.33, DC ≥76% is ≤1.32, DNB ≥65% is ≤1.54,
+      goals/BTTS ≥60% is ≤1.67.
+
+      ⚠ MEASURED BEFORE BUILDING, on 2026-08-30: 33 selections cleared these floors across 14
+      fixtures, and the best product per leg count was 2 → 2.50, 3 → 3.73, 4 → 5.52, 5 → 8.07,
+      6 → 11.73. So 2.00 and 5.00 are comfortable, and **10.00 is only reachable with SIX legs** —
+      inside his 4-6 range, but with no slack. On a thinner card Bold will not be buildable, and the
+      panel says so rather than quietly loosening a floor.
+
+   3. THE SEARCH LOOKS FOR A BAND, NOT A FLOOR. `slipToTarget` stops the moment it clears its target
+      (build 219, at Ken's direction — "the exact target odd or more, not less"), which is right for
+      the user's own generator and wrong for a band: it is why Safe overshot to 1.99 against a
+      1.50-1.80 roof. With at most six legs drawn from ~14 fixtures the exhaustive search is a few
+      thousand combinations, so the daily tiers now find the combination CLOSEST TO THE TARGET that
+      also lands inside the band. `slipToTarget` is untouched and still serves the Slip Generator. */
+const DAILY_FLOORS = { 'Winner':0.75, 'Double Chance':0.76, 'Draw No Bet':0.65, 'BTTS':0.60, 'Goals':0.60 };
+
+/* ══ BUILD 241 — UNDER GOALS GET THEIR OWN FLOOR, BECAUSE 60% IS NOT THE SAME BAR TWICE ══════════
+   Ken: "set the DAILY_FLOORS for Under markets to 78% so passive Under markets don't clear the bar
+   by default unless the confidence is exceptionally high."
+
+   This is the recommendation build 240 made and did not take on its own, now taken on his word. The
+   measurement behind it, over 2,888 upcoming fixtures: Under 3.5 has a MEDIAN of 0.710 and clears a
+   60% bar on 91% of fixtures, while BTTS medians 0.531 and clears it on 6.6%. One number applied to
+   both is not one standard — it admits nearly all of a market that is easy by construction and
+   almost none of a market that is not.
+
+   ⚠ THE FLOOR IS PER CODE, NOT PER MARKET, and that distinction is the whole change. Over and Under
+   share the market name 'Goals', so raising `DAILY_FLOORS['Goals']` would have lifted Over 2.5 to
+   78% as well — and Over 2.5 reaches 60% on only 12% of fixtures and peaks at 0.764, so a 78% bar
+   would have silently deleted the market Ken most wants promoted. The floors table stays per market
+   and the Under codes take an override. */
+const DAILY_UNDER_CODES = new Set(['U15','U25','U35']);
+const DAILY_UNDER_FLOOR = 0.78;
+function dailyFloorFor(c){
+  return DAILY_UNDER_CODES.has(c.code) ? DAILY_UNDER_FLOOR : DAILY_FLOORS[c.market];
+}
+
+const DAILY_TIERS = [
+  { key:'safe',  name:'Safe',  target:2,  band:[1.80,  2.20], minLegs:2, maxLegs:3,
+    blurb:'About 2.00 from two or three legs, each clearing its market\u2019s floor.' },
+  { key:'value', name:'Value', target:5,  band:[4.50,  5.50], minLegs:3, maxLegs:4,
+    blurb:'About 5.00 \u2014 three or four legs around 1.45\u20131.70 apiece.' },
+  { key:'bold',  name:'Bold',  target:10, band:[9.00, 11.50], minLegs:4, maxLegs:6,
+    blurb:'About 10.00. Needs the longest qualifying legs the day offers.' }
+];
+
+/* ══ BUILD 240 — A STRICT MARKET HIERARCHY, AND THE MEASUREMENT THAT SAYS WHAT IT CAN FIX ═══════
+   Ken: "the slips are defaulting heavily to Under 3.5... rank BTTS first, then Over Goals, and use
+   Under Goals only as a last resort. If a match reaches ≥60% BTTS the engine MUST select BTTS over
+   any Under/Over market even if that market carries higher confidence."
+
+   The rule is implemented exactly as written. What it CANNOT do on its own is the part worth
+   recording, because it was measured across 2,888 upcoming fixtures before this build:
+
+       market      median   max     reaches 60%
+       BTTS        0.531    0.668       6.6%
+       Over 2.5    0.515    0.764      12.0%
+       Under 3.5   0.710    0.841      91.0%
+
+   🚨 THE UNDER-3.5 FLOODING IS THE FLOOR, NOT THE RANKING. A single 60% bar is not a level playing
+   field: Under 3.5 has a median of 0.71 so it clears almost every fixture, while BTTS medians 0.53
+   and clears one in fifteen — and never exceeds 0.668 anywhere in the dataset. On today's card the
+   BTTS override could not fire once, because NO fixture reached 60% BTTS; 26 of 28 eligible fixtures
+   were Under-only. So the hierarchy moves the cards where an alternative exists and cannot invent
+   one where it does not.
+
+   ⚠ THE FIX THAT WOULD ACTUALLY LEVEL IT IS A HIGHER FLOOR FOR UNDER MARKETS — 60% means something
+   quite different for a market whose median is 0.71 than for one whose median is 0.53. That is a
+   change to Ken's own stated floors, so it is recommended rather than taken: `DAILY_FLOORS` is where
+   it would go, and nothing here presumes it.
+
+   WHERE THE 1X2 FAMILY SITS IS AN INTERPRETATION, and it is flagged as one. His order names BTTS,
+   Over, then Under as "last resort"; it does not say where Winner / Double Chance / Draw No Bet
+   belong. "Last resort" is read literally — Under sits below everything, including the 1X2 family —
+   because the whole complaint is passive Under legs crowding out active ones. */
+const DAILY_MARKET_RANK = (c) => {
+  if(c.market === 'BTTS') return 0;                                   // top priority, his rule
+  if(c.code === 'O15' || c.code === 'O25' || c.code === 'O35') return 1;   // over goals
+  if(c.code === 'U15' || c.code === 'U25' || c.code === 'U35') return 3;   // last resort
+  return 2;                                                          // Winner / DC / DNB
+};
+
+function dailyEligible(cands){
+  const byFx = {};
+  for(const c of cands){
+    if(!c.code) continue;                                  // unpriceable without a code (build 237)
+    const floor = dailyFloorFor(c);
+    if(floor == null || c.prob < floor) continue;
+    (byFx[c.key] = byFx[c.key] || []).push(c);
+  }
+  const out = [];
+  for(const k in byFx){
+    /* Rank first, THEN best-paying inside the rank. Sorting by pay alone is what let a passive
+       Under leg beat an active one — and ranking without the second key would pick an arbitrary
+       member of the winning tier. Both are needed. */
+    const list = byFx[k].slice().sort((a, b) => {
+      const r = DAILY_MARKET_RANK(a) - DAILY_MARKET_RANK(b);
+      return r !== 0 ? r : a.prob - b.prob;
+    });
+    const top = list[0];
+    out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top) }));
+  }
+  return out;
+}
+
+/* Exhaustive over combinations up to maxLegs, keeping the product nearest the target that lands
+   inside the band. Bounded deliberately: the pool is capped so the search cannot blow up if the
+   fixture list grows, and the cap is reported rather than silent. */
+function dailyBandSearch(pool, tier){
+  const items = pool.slice().sort((a, b) => a.prob - b.prob).slice(0, 18);   // longest-paying first
+  const lo = tier.band[0], hi = tier.band[1];
+  let best = null, ceiling = 1;
+  for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= 1 / items[n].prob;
+  const pick = [];
+  (function walk(start, prod){
+    if(pick.length >= tier.minLegs){
+      if(prod >= lo && prod <= hi){
+        const d = Math.abs(prod - tier.target);
+        if(!best || d < best.d) best = { d: d, legs: pick.slice(), reached: prod };
+      }
+    }
+    if(pick.length >= tier.maxLegs) return;
+    for(let i = start; i < items.length; i++){
+      const p = prod / items[i].prob;
+      if(p > hi + 1e-9) continue;                    // already past the roof; longer legs only worsen it
+      pick.push(items[i]); walk(i + 1, p); pick.pop();
+      if(best && best.d < 1e-9) return;
+    }
+  })(0, 1);
+  return { legs: best ? best.legs : [], reached: best ? best.reached : 1,
+           ceiling: ceiling, pool: items.length };
+}
+
+/* ══ BUILD 242 — THE DAILY SLIP LEDGER AND THE $10 TRACKER ══════════════════════════════════════
+   Ken's spec: win rate, net profit and ROI at a flat $10 per slip per day, filtered over 7 / 30 /
+   all days, with a toggle between Safe, Value and Bold.
+
+   🚨 IT RECORDS FORWARD. IT DOES NOT RECONSTRUCT THE PAST, AND THAT IS THE WHOLE DESIGN DECISION.
+   The daily slips were created today; the selection rules changed six times in one session. Nothing
+   ever recorded what Safe/Value/Bold picked on a past day, so every timeframe would return zero —
+   and rebuilding those cards now would backtest a strategy over the very window it was tuned on,
+   which is what the M14 holdout (+0.0019) and the M15 error bars (±12.1) exist to catch. A
+   flattering number produced that way is worse than no number. So the card ships EMPTY and says so.
+
+   ⚠ THE ODDS ARE THE ENGINE'S FAIR PRICE, AND THE CARD SAYS SO IN THOSE WORDS. Milestone 6 measured
+   that a calibrated model breaks even at fair odds, so an ROI computed on them tends toward zero by
+   construction — it measures whether the slips LAND at the rate claimed, not whether they would make
+   money at a bookmaker. Real prices exist only from 2026-08-15 and only near kick-off; pricing the
+   ledger against them is Milestone 15's job and is not smuggled in here.
+
+   ⚠ DEVICE-LOCAL, and labelled. Milestone 16's honesty constraint — "until the ledger is server-side
+   it is device-local and must be labelled so" — arriving one milestone early, for the same reason. */
+const DAILY_LOG_KEY = 'mm_dailyslips';
+const DAILY_STAKE = 10;
+
+function dailyLogRead(){
+  try { const r = JSON.parse(localStorage.getItem(DAILY_LOG_KEY) || '[]'); return Array.isArray(r) ? r : []; }
+  catch(_) { return []; }
+}
+function dailyLogWrite(rows){
+  try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(rows.slice(-400))); return true; }
+  catch(e){ return false; }          // quota — build 196's rule: never throw out of a save
+}
+
+/* One entry per tier per day, written the first time that day's card is built and NEVER rewritten.
+   That is build 199's insert-once rule applied here: if the pool shifts later in the day the ledger
+   must still hold what was actually shown, or it stops describing anything. */
+function dailyLogRecord(tier, legs, reached){
+  if(!legs || !legs.length) return;
+  const day = todayStrLocal(), rows = dailyLogRead();
+  if(rows.some(r => r.day === day && r.tier === tier.key)) return;      // already recorded today
+  rows.push({ day: day, tier: tier.key, odds: +reached.toFixed(4), build: APP_BUILD,
+              at: new Date().toISOString(),
+              /* 🚨 THE LEG STORES date/home/away, NOT JUST fxid. Loaded matches carry no `fxid`
+                 at all — build 196 packs them positionally as date, time, home, away, hg, ag, hth,
+                 hta — so a grader keyed on fxid finds nothing and the tracker reads "awaiting
+                 results" forever while looking perfectly healthy. Found by checking a real match
+                 object rather than assuming the id was there. fxid is kept because `scoreMap` uses
+                 it, but the fixture is IDENTIFIED by the three fields the match rows actually hold. */
+              legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
+                                     code: l.code, market: l.market, p: +l.prob.toFixed(4) })) });
+  dailyLogWrite(rows);
+}
+
+/* Grade every leg from fixtures the app already holds. A slip counts only when EVERY leg has a
+   result — a partially-settled slip is neither a win nor a loss and must not be counted as either,
+   which is the same distinction `tallyPicks` draws for voids. */
+function dailyLogGrade(rows){
+  /* Keyed on date|home|away, because that is what a stored match actually carries. */
+  const res = {};
+  for(const L of footballLeagues())
+    for(const m of (L.matches || []))
+      if(m.hg != null && m.ag != null) res[m.date + '|' + m.home + '|' + m.away] = m;
+  return rows.map(r => {
+    let settled = 0, won = 0;
+    for(const l of r.legs){
+      const m = res[l.d + '|' + l.h + '|' + l.a];
+      if(!m) continue;
+      const actual = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
+      const g = gradePick(l.code, actual, m.hg, m.ag);
+      if(g === 'hit'){ settled++; won++; }
+      else if(g === 'miss'){ settled++; }
+      else if(g === 'void'){ settled++; won++; }     // stake returned on that leg; slip survives it
+    }
+    const complete = settled === r.legs.length;
+    return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length });
+  });
+}
+
+function dailyTrackerState(){
+  window.__dt = window.__dt || { tier: 'value', days: 30 };
+  return window.__dt;
+}
+
+function renderDailyTracker(){
+  const box = $('dailyTracker'); if(!box) return;
+  const st = dailyTrackerState();
+  const graded = dailyLogGrade(dailyLogRead());
+  const cut = (() => { const d = new Date(); d.setDate(d.getDate() - st.days); return d.toISOString().slice(0,10); })();
+  const rows = graded.filter(r => r.tier === st.tier && (st.days === 0 || r.day >= cut));
+  const done = rows.filter(r => r.complete);
+
+  const chip = (label, on, attr) => '<button class="sfchip' + (on ? ' active' : '') + '" ' + attr + '>' + label + '</button>';
+  const tierRow = DAILY_TIERS.map(t => chip(escapeHtml(t.name), st.tier === t.key, 'data-dt-tier="' + t.key + '"')).join('');
+  const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,'All time']]
+                    .map(([d,l]) => chip(l, st.days === d, 'data-dt-days="' + d + '"')).join('');
+
+  let metrics;
+  if(!done.length){
+    metrics = '<div class="subnote"><b style="color:var(--gold)">No settled slips yet'
+      + (rows.length ? ' — ' + rows.length + ' recorded and still awaiting results.' : '.')
+      + '</b> This ledger starts the day it was built and is never back-filled: reconstructing past '
+      + 'cards would score today’s rules against the very fixtures they were designed on. '
+      + 'It becomes a real number as the days accumulate.</div>';
+  } else {
+    /* Ken's formulae, exactly. Staked counts SETTLED days only - charging for a day whose result is
+       not in yet would report a loss that has not happened. */
+    const staked = done.length * DAILY_STAKE;
+    const wonRows = done.filter(r => r.hit);
+    const payout = wonRows.reduce((s, r) => s + r.odds * DAILY_STAKE, 0);
+    const profit = payout - staked;
+    const roi = staked ? (profit / staked) * 100 : 0;
+    const col = profit >= 0 ? 'var(--green2)' : 'var(--red)';
+    const cell = (k, v, c) => '<div class="shcell"><span class="shk">' + k + '</span>'
+      + '<span class="shv"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</span></div>';
+    metrics = '<div class="sliphead">'
+      + cell('Win rate', wonRows.length + ' / ' + done.length + ' · ' + Math.round(100 * wonRows.length / done.length) + '%')
+      + cell('Net profit', (profit >= 0 ? '+' : '−') + '$' + Math.abs(profit).toFixed(2), col)
+      + cell('ROI', (roi >= 0 ? '+' : '−') + Math.abs(roi).toFixed(1) + '%', col)
+      + '</div>'
+      + '<div class="subnote">$' + DAILY_STAKE + ' flat on every settled day — $' + staked.toFixed(2)
+      + ' staked, $' + payout.toFixed(2) + ' returned'
+      + (rows.length > done.length ? '. ' + (rows.length - done.length) + ' slip(s) still awaiting results and not counted.' : '.')
+      + '</div>';
+  }
+
+  box.innerHTML = '<div class="card"><h2>📈 Performance &amp; profit tracker</h2>'
+    + '<div class="sfilters" style="margin-bottom:6px">' + tierRow + '</div>'
+    + '<div class="sfilters" style="margin-bottom:10px">' + dayRow + '</div>'
+    + metrics
+    + '<div class="subnote">Odds are the engine’s fair price, so this measures whether the slips '
+    + 'LAND at the rate claimed — not what a bookmaker would have paid. Kept on this device only.</div>'
+    + '</div>';
+
+  box.querySelectorAll('[data-dt-tier]').forEach(b =>
+    b.addEventListener('click', () => { st.tier = b.getAttribute('data-dt-tier'); renderDailyTracker(); }));
+  box.querySelectorAll('[data-dt-days]').forEach(b =>
+    b.addEventListener('click', () => { st.days = +b.getAttribute('data-dt-days'); renderDailyTracker(); }));
+}
+
+function renderDailySlips(){
+  const box = $('dailySlips'); if(!box) return;
+  const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
+  if(!cands.length){
+    const nx = (typeof nextMatchday === 'function') ? nextMatchday() : null;
+    box.innerHTML = '<div class="card"><h2>\uD83D\uDCC5 Today\u2019s slips</h2><div class="subnote">'
+      + 'No fixtures kick off today in the competitions the engine covers'
+      + (nx && nx.date ? ', so there is nothing to recommend. Next matchday is <b>' + escapeHtml(String(nx.date)) + '</b>.' : '.')
+      + '</div></div>';
+    return;
+  }
+  let cards = '';
+  const eligible = dailyEligible(cands);
+  for(const tier of DAILY_TIERS){
+    const aim  = dailyBandSearch(eligible, tier);
+    const legs = aim.legs || [];
+    let comb = 1; for(const l of legs) comb *= l.prob;
+    const reached = aim.reached || 1;
+    /* A window has a roof as well as a floor, so "reached" is no longer just "cleared the target".
+       Overshooting is reported rather than silently accepted — the point of the band is that a slip
+       paying 6.00 is not a Safe slip even though it beat 1.50. */
+    const hit  = legs.length && reached >= tier.band[0] - 1e-9 && reached <= tier.band[1] + 1e-9;
+    const over = false;   // the search only ever returns a product inside the band, or nothing
+
+    let body;
+    if(!legs.length){
+      /* NOTHING INSIDE THE BAND IS A REAL ANSWER AND IS PRINTED AS ONE. The floors are not
+         loosened to manufacture a slip — that is the bluff Milestone 8 forbids, and it is exactly
+         what Ken's "do NOT report no target met by holding an arbitrary threshold" asks us to avoid
+         WITHOUT dropping the floors he set in the same message. So the card names the ceiling the
+         day actually offers. */
+      const bd = tier.band[0].toFixed(2) + '\u2013' + tier.band[1].toFixed(2);
+      body = '<div class="subnote"><b style="color:var(--gold)">No combination lands in ' + bd + ' today.</b> '
+           + 'The ' + tier.maxLegs + ' longest legs clearing their market floors multiply to '
+           + aim.ceiling.toFixed(2) + ', from ' + aim.pool + ' qualifying fixtures. '
+           + 'Floors are not lowered to fill the card.</div>';
+    } else {
+      /* THE NUMBER SHOWN IS THE NUMBER ACHIEVED (build 218). A tier that cannot reach its target
+         says so and prints what it did reach, rather than presenting a shortfall as the offer. */
+      const band = tier.band[0].toFixed(2) + '\u2013' + tier.band[1].toFixed(2);
+      const miss = hit ? '' : '';
+      body = '<div class="sliphead">'
+           + '<div class="shcell"><span class="shk">Odds</span><span class="shv">' + reached.toFixed(2) + '</span></div>'
+           + '<div class="shcell"><span class="shk">To land</span><span class="shv">' + (100 * comb).toFixed(1) + '%</span></div>'
+           + '<div class="shcell"><span class="shk">$10 returns</span><span class="shv">$' + (10 * reached).toFixed(2) + '</span></div>'
+           + '</div>'
+           + legs.map(l => '<div class="slipleg">'
+               + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.f.home + ' v ' + l.f.away)) + '</span>'
+               + '<span class="lgko">' + escapeHtml(String(l.f.ktime || l.f.time || '')) + '</span></div>'
+               + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.sel || '')) + '</span>'
+               + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
+               + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
+               + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></div>').join('')
+           + miss
+           + '<div class="subnote">' + legs.length + ' leg' + (legs.length === 1 ? '' : 's')
+           + ' \u00b7 every one must win \u2014 <b>' + (100 * (1 - comb)).toFixed(0) + '% chance this loses</b>. '
+           + 'Fair odds from engine probabilities; a bookmaker\u2019s will differ.</div>';
+    }
+    if(legs.length) dailyLogRecord(tier, legs, reached);   // insert-once, build 199's rule
+    cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
+           + '<div class="subnote" style="margin-top:-4px">' + tier.blurb + '</div>' + body + '</div>';
+  }
+  box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + cards
+    + '<div class="subnote">Targets 2.00 / 5.00 / 10.00, with a confidence floor per market (Winner 75%, DC 76%, DNB 65%, goals &amp; BTTS 60%, Under goals 78%). BTTS and Over rank ahead of Under. Tiers are a product choice, not a measured result.</div>';
+  try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
+}
+
 function renderBanker(){
   const box=$('bankerCard'); if(!box) return;
   const label = tipState.days===0 ? t('Today') : (tipState.days===3 ? t('Next 3 days') : t('Next 7 days'));
   const inWindow = collectUpcoming(tipState.days).length;
   const b = bankerOf();
+  /* build 241 — the slips are the Smart Bet tab's content now and render from the tab dispatch. */
 
   if(!inWindow){
     const nx = nextMatchday();
@@ -4013,13 +4488,31 @@ function renderTips(){
   renderTipHorizon();
   renderBanker();
   renderTipTabs();
-  const t=tipState.tab, isList=['winner','ou','btts','smart'].includes(t);
+  /* ══ BUILD 241 — SMART BET SHOWS TODAY'S DAILY SLIPS ════════════════════════════════════════
+     Ken: "Replace the current Smart Bet tab content entirely with our new Today's Daily Slips
+     component." So the tab is the slips now, and the per-selection edge list it used to show is no
+     longer rendered.
+
+     🚨 `renderStrongPicks` IS STILL CALLED, AND THAT IS NOT AN OVERSIGHT. It computes and renders
+     the ACCURACY RECORD (`recordLine`) as well as the picks list, and build 217 deliberately
+     reordered it so that removing the list could not take the record with it — its own comment says
+     so. It is also the ONLY caller on this path, so simply not calling it on the tab that used to
+     own it would freeze the record instead of updating it. The function runs; only its list is
+     hidden.
+
+     ⚠ THE TRADE-OFF, STATED: the slips were previously above the tabs and visible without choosing
+     anything, which was the point of "a user doesn't need to go looking". They now live behind a
+     tab because that is what was asked for. */
+  const t=tipState.tab, isList=['winner','ou','btts'].includes(t);
   $('tipListWrap').classList.toggle('hidden', !isList);
   $('slipCard').classList.toggle('hidden', t!=='slip');
-  $('strongCard').classList.toggle('hidden', t!=='smart');
+  $('strongCard').classList.add('hidden');                  // its list is replaced by the slips
+  $('dailySlips').classList.toggle('hidden', t!=='smart');
+  $('dailyTracker').classList.toggle('hidden', t!=='smart');
   $('tipFairToggle').textContent = tipState.fair?'Show %':'Show fair odds';
   if(t==='slip'){ renderSlipUI(); return; }
-  if(t==='smart') renderStrongPicks();
+  renderStrongPicks();                                      // the accuracy record, always
+  if(t==='smart') renderDailySlips();
   if(isList) renderTipList(t);
 }
 /* Local calendar date, `n` days from today. Local rather than UTC for the reason `localHM` exists:
@@ -11155,7 +11648,14 @@ async function matchDetail(s){
    deliberate cap: at the default 30% risk the best any single leg can pay is 1/0.70 = 1.43, so
    twelve legs reach about 79.0 and a target above that is arithmetically unreachable at that setting.
    The generator says so in those words rather than quietly returning a shorter slip. */
-const SLIP_MAX_LEGS = 12;
+/* BUILD 232 - Ken: "the number of games on the betslip should not be limited to 7, it should be
+   able to be increased." The manual chips stopped at 7 while the target-odds path already reached
+   12, which is two different ceilings for one control. One constant now governs both, and the chips
+   run to it. 20 legs at the 70% floor is a combined probability under 0.1% - the slip says so
+   rather than refusing, because build 218's rule is that the number reported is the number
+   ACHIEVED, and Milestone 8's is that the app states what it knows instead of hiding it. */
+const SLIP_MAX_LEGS = 20;
+const SLIP_CHIPS = (() => { const a = []; for(let i = 2; i <= 12; i++) a.push(i); return a; })();
 const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null, slipPanelOpen:false, markets:new Set(['1X2','DNB','DC']), targetOdds:null };
 
 /* ══ BUILD 218 — BUILD A SLIP TO A TARGET, IN LOG SPACE ═══════════════════════════════════════
@@ -11202,7 +11702,7 @@ function slipToTarget(pool, target, maxLegs){
 }
 function renderSlipUI(){
   // number of games
-  $('slipN').innerHTML = [2,3,4,5,6,7].map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
+  $('slipN').innerHTML = SLIP_CHIPS.map(g=>`<button class="sfchip${slipState.n===g?' active':''}" data-g="${g}">${g}</button>`).join('');
   $('slipN').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ slipState.n=+b.dataset.g; renderSlipUI(); }));
   /* BUILD 218 — with a target set the leg count is DERIVED, so the chips above stop meaning what
      their label says. Rather than leave two controls silently fighting, the one that is not in
@@ -11261,40 +11761,76 @@ function renderSlipUI(){
     renderSlipUI();
   }));
 }
-function genSlip(){
-  const today=todayStrLocal(), smap=scoreMap(), cands=[];
+/* ══ BUILD 235 — THE SELECTION IS EXTRACTED SO TWO CALLERS CANNOT DRIFT ══════════════════════════
+   The daily slips need exactly what genSlip needs: every priceable selection on the fixtures in
+   scope, then the risk ceiling applied. Copying that loop would put the market ladder, the
+   already-played guard and the ceiling filter in two places that must change together — the drift
+   that broke travel distance and derby flags for thirteen builds, and the reason build 172 refused
+   to duplicate the VENUE table into the collector. One implementation, two callers. */
+function slipCandidates(opt){
+  const today = todayStrLocal(), smap = scoreMap(), cands = [];
+  const leagues = opt.leagues || null, markets = opt.markets;
   for(const L of footballLeagues()){
-    if(slipState.leagues && !slipState.leagues.has(L.id)) continue;
-    let tmp=null;
-    if(L.matches.length>=15){ tmp=Object.create(footballEngine); tmp.matches=L.matches; }
+    if(leagues && !leagues.has(L.id)) continue;
+    let tmp = null;
+    if(L.matches.length >= 15){ tmp = Object.create(footballEngine); tmp.matches = L.matches; }
     for(const f of L.upcoming){
       if(f.date < today) continue;
-      if(slipState.today && f.date!==today) continue;
-      const s=f.fxid!=null?smap[f.fxid]:null; if(isFinishedScore(s)) continue;   // skip already-played
-      const key = f.fxid || (f.home+f.away+f.date);
+      if(opt.todayOnly && f.date !== today) continue;
+      const s = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(s)) continue;   // skip already-played
+      const key = f.fxid || (f.home + f.away + f.date);
       if(tmp){
-        const P=tmp.predict(f.home,f.away); if(!P) continue;
-        const sels=allSelections(P,f,L);
-        for(const mKey of slipState.markets)
-          for(const sel of sels) if(slipMarketMatch(mKey,sel))
-            cands.push({key,L,f,market:sel.m,sel:sel.sel,code:sel.code,prob:sel.prob,pDraw:P.pD});
-      } else if(f.pick && slipState.markets.has('1X2')){
+        const P = tmp.predict(f.home, f.away); if(!P) continue;
+        const sels = allSelections(P, f, L);
+        for(const mKey of markets)
+          for(const sel of sels) if(slipMarketMatch(mKey, sel))
+            cands.push({key, L, f, market:sel.m, sel:sel.sel, code:sel.code, prob:sel.prob, pDraw:P.pD});
+      } else if(f.pick && markets.has('1X2')){
         const lbl = pickLabel(f.pick, f.home, f.away);
-        cands.push({key,L,f,market:'Winner',sel:lbl,code:f.pick,prob:f.prob});
+        cands.push({key, L, f, market:'Winner', sel:lbl, code:f.pick, prob:f.prob});
       }
     }
   }
-  /* The risk slider is a CEILING, not a target (build 47). "30%" means nothing riskier than 30%
-     goes in — every leg must win at least 70% of the time. Ken asked for this directly, and it also
-     gives his market ladder for free: within the limit we take the BEST-PAYING selection, and since
-     probability rises and odds fall along straight win → Draw No Bet → Double Chance, the first
-     rung that clears the bar is exactly what gets picked. Highest odds meeting your standard. */
-  const maxRisk=(slipState.riskPct||30)/100, minProb=1-maxRisk, byFx={};
+  return cands;
+}
+/* The risk slider is a CEILING, not a target (build 47). "30%" means nothing riskier than 30% goes
+   in — every leg must win at least 70% of the time. Ken asked for this directly, and it also gives
+   his market ladder for free: within the limit we take the BEST-PAYING selection, and since
+   probability rises and odds fall along straight win → Draw No Bet → Double Chance, the first rung
+   that clears the bar is exactly what gets picked. Highest odds meeting your standard.
+   ⚠ ONE SELECTION PER FIXTURE is not tidiness — it is what makes the slip's combined probability a
+   product at all. Two legs from one match are not independent and multiplying them would be wrong. */
+function slipPool(cands, riskPct){
+  const minProb = 1 - ((riskPct || 30) / 100), byFx = {};
   for(const c of cands){
-    if(c.prob<=0.02 || c.prob>=0.995) continue;
+    if(c.prob <= 0.02 || c.prob >= 0.995) continue;
     if(c.prob < minProb) continue;                                   // riskier than the ceiling — never offer it
-    if(!byFx[c.key] || c.prob < byFx[c.key].prob) byFx[c.key]=c;     // among those allowed, lowest prob pays most
+    if(!byFx[c.key] || c.prob < byFx[c.key].prob) byFx[c.key] = c;   // among those allowed, lowest prob pays most
   }
+  return byFx;
+}
+
+/* 🚨 BUILD 237 — WHAT A SLIP MAY WRITE INTO THE ACCURACY RECORD, NAMED BY MARKET.
+
+   This filter used to read `['1','X','2','1X','X2'].includes(l.code)`. That worked only because
+   every market except Winner and Draw No Bet had a NULL code, so code shape was an accidental proxy
+   for "this is a straight 1X2 pick". Build 237 gives every market a code, and the proxy dies the
+   moment it does: Double Chance would have started writing into the published record because its
+   codes are literally '1X' and 'X2'.
+
+   Ken, approving this build: "ensure Double Chance codes stay isolated from the accuracy ledger."
+   So the rule is stated in the vocabulary it is actually about. **Only Winner legs are recorded from
+   a slip, which is exactly what happened before this build** — DNB was already excluded ('1D'/'2D'
+   were never in that list) and DC was excluded by having no code at all. Nothing about the record
+   changes here; what changes is that the reason is now written down instead of emergent.
+
+   If DC or goals legs should ever count toward the published record, that is its own decision with
+   its own measurement — build 234's note, kept. */
+const SLIP_RECORD_MARKETS = new Set(['Winner']);
+
+function genSlip(){
+  const cands = slipCandidates({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });
+  const byFx  = slipPool(cands, slipState.riskPct);
   /* BUILD 218 — a target, when set, decides the legs; otherwise this is build 47 untouched. */
   const _target = slipState.targetOdds;
   let legs, _aim = null;
@@ -11306,7 +11842,29 @@ function genSlip(){
       return;
     }
   } else {
-    legs=Object.values(byFx).sort((a,b)=>a.prob-b.prob).slice(0, slipState.n);
+    /* 🚨 BUILD 234 — SAFEST FIRST. THE SLIDER IS A CEILING AND NOW BEHAVES LIKE ONE.
+       Ken: "'Max risk 30% per match' should literally mean matches from 0 risk to 30% risk. 50%
+       risk should mean 0% to 50% risk."
+
+       This sorted ASCENDING by probability, so it took the N RISKIEST legs the limit still allowed
+       — every leg landed exactly on the floor. Measured 2026-08-30: at 30% it returned three legs
+       at 70/70/70 (0.70^3 = 34.3% to land, which is Ken's screenshot to the decimal); at 12% it
+       returned 88/88/88. The floor moved and the slip pinned to it every time, so the control was
+       a TARGET wearing a ceiling's label — raising it did not admit riskier bets when needed, it
+       made every leg riskier.
+
+       The comment above `byFx` has said "the risk slider is a CEILING, not a target" since build
+       47. The sort is what disagreed with it. Descending now: within the limit the app hands back
+       the SAFEST matches it has, and the limit only decides what is eligible. Verified that safer
+       legs really were available and being passed over — a 12% run built 88% legs from the same
+       fixture list.
+
+       ⚠ THE PER-FIXTURE LADDER IS DELIBERATELY UNTOUCHED. Within one match the app still takes the
+       best-paying rung that clears the bar (straight win → DNB → Double Chance) because Ken asked
+       for that directly at build 47. Inverting that too would make every leg a Double Chance and
+       collapse the odds to nothing. Chasing a number is what the TARGET ODDS field is for, and it
+       still uses the full spread through `slipToTarget`. */
+    legs=Object.values(byFx).sort((a,b)=>b.prob-a.prob).slice(0, slipState.n);
     if(legs.length < slipState.n){
       $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">Only ${legs.length} match(es) sit inside a ${slipState.riskPct}% risk limit. Raise the risk slider to allow less certain picks, add bet types or leagues, or load more competitions (Predict → Discover).</div>`;
       return;
@@ -11321,7 +11879,7 @@ function genSlip(){
      For each DNB leg we know P(win) and P(draw) from the engine, so we can state the worst case
      (every DNB leg drawn) and the expected return across every combination. */
   const dnbLegs = legs.filter(l=>l.market==='Draw No Bet' && l.pDraw!=null);
-  let rangeNote = '';
+  let dnbRange = '';
   if(dnbLegs.length){
     let minOdds = 1;
     for(const l of legs) if(!(l.market==='Draw No Bet' && l.pDraw!=null)) minOdds *= 1/l.prob;
@@ -11333,8 +11891,8 @@ function genSlip(){
         ev *= pw*(1/l.prob) + pv*1;
       } else ev *= l.prob*(1/l.prob);
     }
-    rangeNote = `<div class="muted" style="font-size:.68rem;margin-top:6px">${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
-      <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</div>`;
+    dnbRange = `<p>${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
+      <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</p>`;
   }
   /* 🚨 BUILD 218 — THE NUMBER ON SCREEN IS THE ONE ACHIEVED, AND WHEN IT IS NOT THE ONE ASKED FOR
      THE GAP IS STATED. A generator that silently returns 12.4 when you typed 50 is the same class of
@@ -11349,27 +11907,51 @@ function genSlip(){
       ? `<div class="muted" style="font-size:.68rem;margin-top:6px"><b style="color:var(--gold)">Target ${_target.toFixed(2)} is out of reach at ${slipState.riskPct}% risk.</b> The ${Math.min(SLIP_MAX_LEGS, _aim.pool)} best legs available multiply to <b>${reachable.toFixed(2)}</b>. Raise the risk slider, add bet types or leagues, or load more competitions.</div>`
       : `<div class="muted" style="font-size:.68rem;margin-top:6px">Target <b>${_target.toFixed(2)}</b> · built <b style="color:var(--gold)">${odds.toFixed(2)}</b> from ${legs.length} leg${legs.length===1?'':'s'}.</div>`;
   }
-  $('slipOut').innerHTML = `
-    <div class="slipsum">
-      <div class="ssrow">
-        <div><div class="sslbl">TOTAL ODDS</div><div class="ssval">${odds.toFixed(2)}</div></div>
-        <div><div class="sslbl">SLIP WIN %</div><div class="ssval" style="color:var(--green2)">${(100*comb).toFixed(1)}%</div></div>
-      </div>
-      <div class="ssret">$10 bet returns $${(10*odds).toFixed(2)}</div>
-      <div class="ssbadge">${badge}</div>
-      ${targetNote}
-      <div class="muted" style="font-size:.68rem;margin-top:6px">Every leg must win: <b>${(100*(1-comb)).toFixed(0)}% chance this slip loses</b>. The ${slipState.riskPct}% setting caps the risk of each match on its own — combining them is what makes the slip riskier than any single leg.</div>
-      ${rangeNote}
-      <div class="muted" style="font-size:.68rem;margin-top:4px">Fair odds from engine probabilities. Bookmaker odds will differ.</div>
-    </div>` +
-    legs.map((l,i)=>`<div class="fxrow favrow" data-leg="${i}"><span class="fxtime">${l.f.date.slice(5).replace('-','/')}<br>${localHM(l.f.date, l.f.time)}</span>
-      <span class="fxteams"><span class="tline">${crest(l.f.home)}${l.f.home}</span><span class="tline">${crest(l.f.away)}${l.f.away}</span>
-      <span class="lname">${l.market}: <b style="color:var(--gold)">${l.sel}</b></span></span>
-      <span class="favright"><span class="predchip sm">${(100*l.prob).toFixed(0)}%</span></span></div>`).join('') +
-    `<button class="btn" id="reGen" style="margin-top:10px">↻ Regenerate</button>`;
+  /* BUILD 233 — ONE LINE, AND THE REASONING BEHIND A TAP.
+     What was here: three stacked paragraphs of body copy under the totals. Ken read them and said
+     they did not make sense and were not wanted. He is right that it was a wall; he is not asking
+     to be lied to, so the load-bearing number — the chance the slip LOSES — stays on the visible
+     line and everything that explains it moves into "Why?". That is build 217's Tips decision
+     applied here: the reasoning stays in the product, it just stops being the first thing read. */
+  const loseNote = `Every leg must win — <b style="color:var(--text)">${(100*(1-comb)).toFixed(0)}% chance this loses</b>`;
+  const whyBits = [
+    `<p>The <b>${slipState.riskPct}%</b> risk setting caps each match on its own. Combining them is what makes the slip riskier than any single leg.</p>`
+  ];
+  if(dnbRange) whyBits.push(dnbRange);
+  whyBits.push(`<p>Fair odds come from the engine's own probabilities. A bookmaker's price will differ.</p>`);
+
+  $('slipOut').innerHTML =
+    `<div class="sliphead">
+       <div class="shcell"><span class="k">Odds</span><span class="v">${odds.toFixed(2)}</span></div>
+       <div class="shcell"><span class="k">To land</span><span class="v" style="color:${comb>=0.3?'var(--green2)':'var(--gold)'}">${(100*comb).toFixed(1)}%</span></div>
+       <div class="shcell"><span class="k">$10 returns</span><span class="v">$${(10*odds).toFixed(2)}</span></div>
+     </div>
+     <div class="slipline">${badge} &middot; ${legs.length} leg${legs.length>1?'s':''} &middot; ${loseNote}
+       <button class="whybtn" id="slipWhy" aria-expanded="false">Why?</button></div>
+     <div class="slipwhy" id="slipWhyBox" hidden>${whyBits.join('')}</div>
+     ${targetNote}` +
+    legs.map((l,i)=>`<button class="slipleg" data-leg="${i}">
+        <div class="lgtop"><span class="lgno">${i+1}</span><span class="lgcomp">${escapeHtml(leagueTitle(l.L))}</span>
+          <span>${localHM(l.f.date, l.f.time)} &middot; ${l.f.date.slice(5).replace('-','/')}</span></div>
+        <div class="lgteams">${escapeHtml(l.f.home)}<span class="lgv">v</span>${escapeHtml(l.f.away)}</div>
+        <div class="lgpick"><span class="lgsel">${escapeHtml(String((l.code && chipCode(l.code)) || l.sel || ''))}</span>
+          <span class="lgmkt">${escapeHtml(String(l.market || ''))}</span>
+          <span class="lgprob">${(100*l.prob).toFixed(0)}%</span>
+          <span class="lgodds">${(1/l.prob).toFixed(2)}</span></div>
+      </button>`).join('') +
+    `<button class="btn" id="reGen" style="margin-top:10px">&#8635; Regenerate</button>`;
+  {
+    const w = $('slipWhy'), box = $('slipWhyBox');
+    if(w && box) w.addEventListener('click', () => {
+      const open = box.hasAttribute('hidden');
+      if(open) box.removeAttribute('hidden'); else box.setAttribute('hidden','');
+      w.setAttribute('aria-expanded', String(open));
+      w.textContent = open ? 'Hide' : 'Why?';
+    });
+  }
   $('reGen').addEventListener('click', genSlipWithSpinner);   // build 219 — same wait, same message
   $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
-  for(const l of legs) if(['1','X','2','1X','X2'].includes(l.code)) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
+  for(const l of legs) if(SLIP_RECORD_MARKETS.has(l.market)) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
   saveState();
 }
 
@@ -13465,7 +14047,81 @@ function unpackLeagues(p){
    was never explained. Milestone 8's rule applies to the app's own health, not only to its numbers. */
 let saveFailed = null;
 
-const dropExtras = (k, v) => k === '_x' ? undefined : v;
+/* 🚨 BUILD 233 — `_engHT` / `_engH2` MUST NEVER BE PERSISTED, AND UNTIL NOW THEY WERE.
+
+   `halfEngine` caches a built engine on the league object via `Object.create(footballEngine)`, so
+   its methods live on the PROTOTYPE. JSON keeps data and throws prototypes away, so a cached engine
+   that goes through localStorage comes back as a plain object with `_n` intact and no `predict`.
+   `halfEngine`'s cache-hit test is `L[key] && L[key]._n === L.matches.length` — which that corpse
+   PASSES — so it is handed straight back and `htftFor` calls `.predict` on it:
+
+       TypeError: e1.predict is not a function        (reproduced 2026-08-30, leagues 71 and 88)
+
+   That kills the whole slip generation, because `allSelections` reaches `htftFor` for the HT/FT
+   market. Found by running genSlip while a cloud load was still in flight, then reading the objects
+   rather than the error.
+
+   ⚠ BUILD 192 MEASURED THIS EXACT RISK AND CLEARED IT: "the concern was that halfEngine's cached
+   engines hang off the league object and carry their own match lists. Measured: they are never
+   created on any path the app currently takes." That was true then. The slip's HT/FT path creates
+   them now, and **a measurement about what the code happens to do expires the moment the code
+   changes** — which is why this is stripped by NAME here rather than left to a future audit.
+
+   It is also a storage fix: each cached engine carries its own filtered match list, so they were
+   inflating the very payload that produced Ken's "Storage full" toast. Derived, rebuilt in
+   milliseconds, and never worth a byte of quota. */
+const dropExtras = (k, v) => (k === '_x' || k === '_engHT' || k === '_engH2') ? undefined : v;
+/* BUILD 232 - THE CACHE KEEPS RECENT HISTORY, NOT ALL OF IT.
+
+   KEN'S PHONE SHOWED "Storage full - favourites and results may not be saved" while generating a
+   slip. The slip was not the cause: `genSlip` records picks, which calls `saveState`, which is
+   simply the write that lands last. THE CAUSE IS THE SIZE OF THE PAYLOAD, and the reason it shows
+   on a phone and not on a desktop is the unit it is billed in.
+
+   MEASURED 2026-08-30: `mm_state` is 2,090,221 CHARACTERS. localStorage stores UTF-16, so browsers
+   count that as ~4,082 KB against a mobile cap of about 5,120 KB - 80% full, with the scores cache
+   still growing through the day. On this desktop the same origin reports ~29 MB of headroom, which
+   is exactly why the fault was invisible here and constant for Ken. Build 196 packed the payload
+   from 3.142 MB to 1.731 MB and bought "about 23 competitions" of headroom; that estimate was in
+   characters, so it was really ~3.5 MB of quota, and the app has been near the line ever since.
+
+   WHAT IS DROPPED AND WHY IT COSTS NOTHING. `loadCloudLeagues` re-fetches every season on every
+   boot regardless - the cache exists only to paint something before the network answers. So the
+   cache keeps the last CACHE_MONTHS of finished matches and lets the rest arrive from the cloud
+   seconds later. Measured: 23,091 matches -> 7,491 kept, and the payload falls from ~4,082 KB to
+   ~3,000 KB of UTF-16, clear of the cap with room for more competitions.
+
+   BOUNDED BY DATE, NOT BY SEASON, deliberately. `season` rides in `_x`, which is memory-only and
+   absent on a cached boot (build 204) - 8,175 of the loaded matches read `unknown` at the moment
+   this was measured. `date` is on every row always. Build 188's lesson in the other direction: a
+   date rule is wrong for deriving a SEASON because calendars differ per country, but "is this
+   match recent" needs no calendar at all.
+
+   UPCOMING FIXTURES ARE KEPT WHOLE. They carry a published pick and are what the app DISPLAYS on a
+   cold start - build 196 refused to compact them for that reason and the reason still holds. */
+const CACHE_MONTHS = 24;
+function cacheCutoff(){
+  const d = new Date(); d.setMonth(d.getMonth() - CACHE_MONTHS);
+  return d.toISOString().slice(0, 10);
+}
+function trimForCache(leagues){
+  const cut = cacheCutoff(), out = {};
+  for(const id in (leagues || {})){
+    const L = leagues[id];
+    out[id] = Object.assign({}, L, { matches: (L.matches || []).filter(m => !m.date || m.date >= cut) });
+  }
+  return out;
+}
+/* What the cache actually costs, in the unit the browser bills. Reported so this never has to be
+   diagnosed by surprise again - build 165's lesson is an instrument that exists and is never read,
+   and the adjacent one is a limit nobody can see until it fires. */
+function storageReport(){
+  const raw = localStorage.getItem('mm_state') || '';
+  const chars = raw.length;
+  return { chars: chars, utf16KB: Math.round(chars * 2 / 1024), capKB: 5120,
+           pct: Math.round(100 * (chars * 2 / 1024) / 5120) };
+}
+
 function saveState(){
   try{
     localStorage.setItem('mm_state', JSON.stringify({
@@ -13474,7 +14130,7 @@ function saveState(){
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
-      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(afState.leagues), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
     }, dropExtras));
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
