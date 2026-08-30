@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 244;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 245;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4135,25 +4135,91 @@ const DAILY_MARKETS = new Set(['1X2','DNB','DC','OU25','OU35','BTTS']);
       also lands inside the band. `slipToTarget` is untouched and still serves the Slip Generator. */
 const DAILY_FLOORS = { 'Winner':0.75, 'Double Chance':0.76, 'Draw No Bet':0.65, 'BTTS':0.60, 'Goals':0.60 };
 
-/* ══ BUILD 241 — UNDER GOALS GET THEIR OWN FLOOR, BECAUSE 60% IS NOT THE SAME BAR TWICE ══════════
-   Ken: "set the DAILY_FLOORS for Under markets to 78% so passive Under markets don't clear the bar
-   by default unless the confidence is exceptionally high."
+/* ══ BUILD 245 — THE FLOORS ARE NOW MEASURED AGAINST OUTCOMES, NOT AGAINST MODEL OUTPUT ══════════
+   Ken: "our market confidence floors are set by intuition rather than empirical data... run a
+   backtesting & accuracy calibration script... determine the true empirical hit rates per market."
 
-   This is the recommendation build 240 made and did not take on its own, now taken on his word. The
-   measurement behind it, over 2,888 upcoming fixtures: Under 3.5 has a MEDIAN of 0.710 and clears a
-   60% bar on 91% of fixtures, while BTTS medians 0.531 and clears it on 6.6%. One number applied to
-   both is not one standard — it admits nearly all of a market that is easy by construction and
-   almost none of a market that is not.
+   ⚠ HALF OF THAT PREMISE WAS WRONG AND THE CORRECTION IS THE POINT. The floors were NOT intuition:
+   builds 240 and 241 measured them over 2,888 fixtures. But they measured the DISTRIBUTION OF MODEL
+   OUTPUT — "Under 3.5 medians 0.710, BTTS medians 0.531" — and never once asked whether a leg the
+   model calls 60% actually lands 60% of the time. A floor set from what the model SAYS cannot tell a
+   well-priced market from an overconfident one. This build asks the outcome question.
 
-   ⚠ THE FLOOR IS PER CODE, NOT PER MARKET, and that distinction is the whole change. Over and Under
-   share the market name 'Goals', so raising `DAILY_FLOORS['Goals']` would have lifted Over 2.5 to
-   78% as well — and Over 2.5 reaches 60% on only 12% of fixtures and peaks at 0.764, so a 78% bar
-   would have silently deleted the market Ken most wants promoted. The floors table stays per market
-   and the Under codes take an override. */
-const DAILY_UNDER_CODES = new Set(['U15','U25','U35']);
-const DAILY_UNDER_FLOOR = 0.78;
-function dailyFloorFor(c){
-  return DAILY_UNDER_CODES.has(c.code) ? DAILY_UNDER_FLOOR : DAILY_FLOORS[c.market];
+   THE MEASUREMENT (walk-forward, 11 competitions, 15,022 fixtures, 217,804 resolved legs, run
+   2026-08-30 against the live database through the app's own engine — same fitted constants, same
+   `predict(h,a,upTo)`, dampen resolved per league id). Gap = actual minus claimed:
+
+       code  floor  n@floor   says   really    gap        verdict
+       BTS   0.60      755   62.0%   62.0%    +0.0        calibrated
+       NBT   0.60      203   62.3%   52.7%    -9.6        OVERCONFIDENT, significant
+       O15   0.60    14960   75.2%   76.2%    +1.0        calibrated
+       O25   0.60     1526   63.6%   66.2%    +2.6        calibrated, under-claims
+       U35   0.78     3310   80.1%   78.3%    -1.9        marginal
+       1     0.75      650   81.1%   80.6%    -0.4        calibrated
+       1X    0.76     5354   84.0%   84.6%    +0.6        calibrated
+       X2    0.76     1850   82.9%   80.9%    -2.0        marginal
+       1D    0.65     4528   78.2%   79.1%    +0.9        calibrated
+       2D    0.65     1626   76.3%   74.5%    -1.9        within noise
+
+   🚨 THREE SELECTIONS COULD NEVER CLEAR THEIR FLOOR AT ALL, and nothing said so. Across 15,022
+   fixtures: the DRAW peaks at 43.5% against a 75% floor, UNDER 1.5 peaks at 52.5% against 78%, and
+   **UNDER 2.5 peaks at 77.7% against build 241's 78% — it missed by three tenths of a point.**
+   Over 3.5 cleared its floor twice in 15,022 fixtures. Build 241 deleted Under 2.5 from the daily
+   card by choosing a round number, and the card reported nothing unusual because a market that never
+   qualifies looks exactly like a market that never happens to be strong.
+
+   🚨 AND THE ENGINE IS ASYMMETRIC BY SIDE, which no per-market floor can express. Everything built
+   on the HOME side is calibrated or under-claims (1 +1.5, 1X +0.7, 1D +1.3 pooled); everything on the
+   AWAY side over-claims (X2 -2.0 across 8,541 legs with a ±1.0 error bar — significant at every
+   threshold from 55% to 82%). `DAILY_FLOORS` was keyed on MARKET, so '1X' and 'X2' were forced to
+   share one number while their calibration differs by nearly three points. The floor is therefore
+   per CODE now. Build 241 discovered this for Over/Under and fixed that one case with an override;
+   this is the same fault two markets over, and it is fixed generally rather than case by case.
+
+   BTTS NO IS EXCLUDED OUTRIGHT. It is the only selection with no honest threshold anywhere: -2.4 at
+   55%, -5.2 at 58%, -10.6 at 61%. It gets WORSE as the model grows more confident, which is the
+   signature of a broken price rather than a thin sample. It was live, admitted by the 60% BTTS floor,
+   and claiming 62.3% while landing 52.7%. */
+const DAILY_FLOOR_PRIMARY = {
+  '1':0.75, 'X':0.75, '2':0.75,          // draw: peaks at 43.5%, so never eligible — recorded, not hidden
+  '1X':0.76, 'X2':0.85,                  // X2 raised: -2.0 ±1.8 at 0.76; clean (-0.5 ±2.6) from 0.85
+  '1D':0.65, '2D':0.65,
+  'BTS':0.60, 'NBT':null,                // null = never eligible. No calibrated threshold exists.
+  'O15':0.60, 'O25':0.60, 'O35':0.60,
+  'U15':0.78, 'U25':0.78, 'U35':0.80     // U35 raised to where calibration holds (-1.6 ±2.1)
+};
+
+/* ══ THE FALLBACK STEP — LOWER, AND STILL HONEST ═════════════════════════════════════════════════
+   Ken: "if a daily card does not produce enough legs... automatically lower the market floors by up
+   to 5% to pull in the next best qualifying legs. Never output an empty slip card."
+
+   ⚠ A BLANKET 5-POINT DROP WAS TESTED AND IT IS WORSE THAN DOING NOTHING ON THE SAFE TIER. Measured
+   over 1,207 days: Safe falls from 88.2% buildable to 72.3%. Lowering a floor lengthens every leg,
+   and two long legs OVERSHOOT the 1.80-2.20 band from below — a tier can fail because its legs pay
+   too much. The relationship is not monotonic and the naive version breaks the tier that works.
+
+   So the fallback is not "current minus five". Each entry is the LOWEST threshold at which that
+   selection is still calibrated on the 15,022-fixture backtest — gap + 2·SE >= 0 at that threshold
+   and at every threshold above it, so one lucky bucket cannot open a floor beneath a bad region.
+   **Nothing here is a relaxation of standards: both steps are honestly priced, they differ in the
+   price range they select.** The Under codes and the draw are deliberately NOT lowered — they are the
+   weakest-calibrated group and Ken's build-241 rule that Unders must not clear by default still holds. */
+const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, {
+  '1':0.55, '1X':0.55, '1D':0.55,        // home side: calibrated at every threshold measured
+  'BTS':0.55, 'O15':0.55, 'O25':0.55, 'O35':0.55,
+  '2':0.64, '2D':0.79                    // away side: only honest above these
+});
+
+const DAILY_FLOOR_STEPS = [
+  { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
+  { key:'fallback', floors:DAILY_FLOOR_FALLBACK, note:'Built from the wider calibrated range \u2014 longer legs, each still priced honestly.' }
+];
+
+/* Kept as the single lookup so a floor is applied per SELECTION, never per market name. */
+function dailyFloorFor(c, floors){
+  const F = floors || DAILY_FLOOR_PRIMARY;
+  const v = F[c.code];
+  return (v === undefined) ? null : v;      // unknown code -> not eligible, rather than undefined
 }
 
 const DAILY_TIERS = [
@@ -4201,12 +4267,12 @@ const DAILY_MARKET_RANK = (c) => {
   return 2;                                                          // Winner / DC / DNB
 };
 
-function dailyEligible(cands){
+function dailyEligible(cands, floors){
   const byFx = {};
   for(const c of cands){
     if(!c.code) continue;                                  // unpriceable without a code (build 237)
-    const floor = dailyFloorFor(c);
-    if(floor == null || c.prob < floor) continue;
+    const floor = dailyFloorFor(c, floors);
+    if(floor == null || c.prob < floor) continue;    // null floor = excluded outright (BTTS No)
     (byFx[c.key] = byFx[c.key] || []).push(c);
   }
   const out = [];
@@ -4222,6 +4288,35 @@ function dailyEligible(cands){
     out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top) }));
   }
   return out;
+}
+
+/* ══ BUILD 245 — WHEN NO BAND IS REACHABLE AT ANY HONEST FLOOR ═══════════════════════════════════
+   Returns the combination whose product is CLOSEST to the tier target, with no band requirement.
+
+   🚨 THIS IS THE ONE PLACE THE CARD CAN SHOW A NUMBER THAT IS NOT THE TIER'S TARGET, SO IT IS THE
+   ONE PLACE THE LABEL MATTERS MOST. Ken: "never output an empty slip card." Measured over 1,207
+   days, this is what makes that possible — Bold goes from 39.9% of days to 76.9%. What it CANNOT do
+   is invent legs: on 23.1% of days there are fewer than four fixtures in the whole eleven-competition
+   set, and no rule reaches a four-leg accumulator from three matches. The card says so on those days
+   rather than pretending, which is build 235's rule unchanged.
+
+   The median best-effort Bold slip reaches 5.86, not 10.00. Printing that under a heading promising
+   "about 10.00" would be the bluff Milestone 8 forbids, so `renderDailySlips` prints the achieved
+   figure and names it as short of target. */
+function dailyBestEffort(pool, tier){
+  const items = pool.slice().sort((a, b) => a.prob - b.prob).slice(0, 18);
+  let best = null; const pick = [];
+  (function walk(start, prod){
+    if(pick.length >= tier.minLegs){
+      const d = Math.abs(prod - tier.target);
+      if(!best || d < best.d) best = { d: d, legs: pick.slice(), reached: prod };
+    }
+    if(pick.length >= tier.maxLegs) return;
+    for(let i = start; i < items.length; i++){
+      pick.push(items[i]); walk(i + 1, prod / items[i].prob); pick.pop();
+    }
+  })(0, 1);
+  return { legs: best ? best.legs : [], reached: best ? best.reached : 1, pool: items.length };
 }
 
 /* Exhaustive over combinations up to maxLegs, keeping the product nearest the target that lands
@@ -4286,11 +4381,15 @@ function dailyLogWrite(rows){
 /* One entry per tier per day, written the first time that day's card is built and NEVER rewritten.
    That is build 199's insert-once rule applied here: if the pool shifts later in the day the ledger
    must still hold what was actually shown, or it stops describing anything. */
-function dailyLogRecord(tier, legs, reached){
+/* BUILD 245 - `floorStep` and `effort` are recorded because the ledger now spans slips built
+   under two different floor sets. Without them a future reader cannot tell a primary-floor slip
+   from a wider-range one, and would pool two populations into one rate - build 229's fault. */
+function dailyLogRecord(tier, legs, reached, floorStep, effort){
   if(!legs || !legs.length) return;
   const day = todayStrLocal(), rows = dailyLogRead();
   if(rows.some(r => r.day === day && r.tier === tier.key)) return;      // already recorded today
   rows.push({ day: day, tier: tier.key, odds: +reached.toFixed(4), build: APP_BUILD,
+              step: floorStep || 'primary', effort: !!effort,
               at: new Date().toISOString(),
               /* 🚨 THE LEG STORES date/home/away, NOT JUST fxid. Loaded matches carry no `fxid`
                  at all — build 196 packs them positionally as date, time, home, away, hg, ag, hth,
@@ -4401,9 +4500,23 @@ function renderDailySlips(){
     return;
   }
   let cards = '';
-  const eligible = dailyEligible(cands);
+  /* BUILD 245 - one eligible pool PER FLOOR STEP, built once and reused across all three tiers.
+     dailyEligible takes one selection per fixture, so the pools genuinely differ between steps. */
+  const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, st.floors));
   for(const tier of DAILY_TIERS){
-    const aim  = dailyBandSearch(eligible, tier);
+    /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
+       answered is carried through to the card, because a slip built from the wider range is a
+       different claim from one built at the primary floors and must not read identically. */
+    let aim = null, step = null, effort = false;
+    for(let i = 0; i < DAILY_FLOOR_STEPS.length; i++){
+      const a = dailyBandSearch(pools[i], tier);
+      if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; break; }
+    }
+    if(!aim){
+      const be = dailyBestEffort(pools[pools.length - 1], tier);
+      if(be.legs.length){ aim = be; step = DAILY_FLOOR_STEPS[DAILY_FLOOR_STEPS.length - 1]; effort = true; }
+    }
+    if(!aim) aim = dailyBandSearch(pools[0], tier);      // nothing at all - keeps pool for the notice
     const legs = aim.legs || [];
     let comb = 1; for(const l of legs) comb *= l.prob;
     const reached = aim.reached || 1;
@@ -4421,15 +4534,24 @@ function renderDailySlips(){
          WITHOUT dropping the floors he set in the same message. So the card names the ceiling the
          day actually offers. */
       const bd = tier.band[0].toFixed(2) + '\u2013' + tier.band[1].toFixed(2);
-      body = '<div class="subnote"><b style="color:var(--gold)">No combination lands in ' + bd + ' today.</b> '
-           + 'The ' + tier.maxLegs + ' longest legs clearing their market floors multiply to '
-           + aim.ceiling.toFixed(2) + ', from ' + aim.pool + ' qualifying fixtures. '
-           + 'Floors are not lowered to fill the card.</div>';
+      body = '<div class="subnote"><b style="color:var(--gold)">Not enough fixtures today to build '
+           + tier.minLegs + ' legs.</b> '
+           + 'Both the primary and the wider calibrated floors were tried, and the day offers '
+           + (aim.pool || 0) + ' qualifying fixture' + ((aim.pool === 1) ? '' : 's') + ', '
+           + 'short of the ' + tier.minLegs + ' this tier needs. No combination lands in ' + bd + '. '
+           + 'Legs are never invented to fill the card.</div>';
     } else {
       /* THE NUMBER SHOWN IS THE NUMBER ACHIEVED (build 218). A tier that cannot reach its target
          says so and prints what it did reach, rather than presenting a shortfall as the offer. */
       const band = tier.band[0].toFixed(2) + '\u2013' + tier.band[1].toFixed(2);
-      const miss = hit ? '' : '';
+      /* THE SHORTFALL IS STATED, NOT ABSORBED. A best-effort Bold slip reaches a median 5.86;
+         printing that under a heading promising 'About 10.00' with no word about it would be
+         exactly the bluff Milestone 8 forbids. The heading is always the number achieved (218). */
+      const miss = effort
+        ? '<div class=\u0022subnote\u0022><b style=\u0022color:var(--gold)\u0022>Short of this tier\u2019s ' + band + ' band.</b> '
+          + 'Today\u2019s calibrated legs multiply to ' + reached.toFixed(2) + ' at best, so this is the '
+          + 'closest honest slip to ' + tier.target.toFixed(2) + ' rather than a slip at it.</div>'
+        : (step && step.note ? '<div class=\u0022subnote\u0022>' + step.note + '</div>' : '');
       body = '<div class="sliphead">'
            + '<div class="shcell"><span class="shk">Odds</span><span class="shv">' + reached.toFixed(2) + '</span></div>'
            + '<div class="shcell"><span class="shk">To land</span><span class="shv">' + (100 * comb).toFixed(1) + '%</span></div>'
@@ -4447,12 +4569,12 @@ function renderDailySlips(){
            + ' \u00b7 every one must win \u2014 <b>' + (100 * (1 - comb)).toFixed(0) + '% chance this loses</b>. '
            + 'Fair odds from engine probabilities; a bookmaker\u2019s will differ.</div>';
     }
-    if(legs.length) dailyLogRecord(tier, legs, reached);   // insert-once, build 199's rule
+    if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', effort);   // insert-once, build 199's rule
     cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
            + '<div class="subnote" style="margin-top:-4px">' + tier.blurb + '</div>' + body + '</div>';
   }
   box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + cards
-    + '<div class="subnote">Targets 2.00 / 5.00 / 10.00, with a confidence floor per market (Winner 75%, DC 76%, DNB 65%, goals &amp; BTTS 60%, Under goals 78%). BTTS and Over rank ahead of Under. Tiers are a product choice, not a measured result.</div>';
+    + '<div class="subnote">Targets 2.00 / 5.00 / 10.00. <b>Floors are per selection and measured</b> - each is the lowest confidence at which that selection still lands as often as it claims, over 15,022 walk-forward fixtures. If the primary floors cannot fill a tier, the wider calibrated range is tried and the card says so. BTTS No is excluded: it has no honest threshold at any confidence. BTTS and Over rank ahead of Under. Tiers are a product choice, not a measured result.</div>';
   try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
 }
 
