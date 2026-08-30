@@ -777,7 +777,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 230;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 231;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11526,6 +11526,104 @@ function uefaCoefficients(){
 /* BUILD 221 — the panel. It does not just print ratings: printing 500 numbers proves nothing.
    The question that matters is whether Elo beats the live engine ON THE FIXTURES THE ENGINE IS
    WORST AT, so the validation replays every continental match walk-forward and scores both. */
+/* BUILD 231 - THE VALIDATION BUILD 221 MEANT TO RUN, AND THE TEST IT NEEDED.
+
+   TWO FAULTS, AND THE FIRST ONE PUBLISHED A NUMBER THAT WAS NOT ABOUT THIS MILESTONE.
+
+   1. IT WAS NOT THE GLOBAL ELO. Build 221's loop created `const R = {}` INSIDE `for(const lid of
+      CONT)`, so ratings were seeded at ELO_BASE per competition and advanced only by that
+      competition's own matches. It used no cross-league bridges at all - and the bridges are the
+      whole of Milestone 14b. It scored a within-competition Elo, which is the per-competition frame
+      the milestone exists to remove, one level over.
+
+   2. IT REPORTED A PARTIAL SET AS THE WHOLE. The recorded headline - 525 matches, Elo 72.2%, engine
+      70.9%, agreed 92% - is LIBERTADORES ALONE, reproduced exactly on 2026-08-30 as league 13's own
+      row. The Champions League contributed nothing to it, and the Champions League is the reason
+      this milestone was raised: 218 clubs, a median of eight matches each, and Ken's AEK v Levski.
+      Scored on the full continental set the within-competition Elo LOSES, 67.4% against 68.5%.
+      That is build 205's partial-set trap in a panel that never got build 206's guard.
+
+   MEASURED ONCE BOTH WERE FIXED (2026-08-30, eleven competitions, 23,090 matches):
+
+     within-competition Elo   67.4%  against the engine's 68.5%   <- build 221's construction
+     GLOBAL Elo, bridged      68.9%  against the engine's 68.0%
+       Champions League       67.4%  against 66.9%  (64.1% when built per-competition)
+
+   The bridges are worth about THREE POINTS on the Champions League, which is the milestone's thesis
+   measured for the first time. But the margin over the engine is not significant - see below.
+
+   AND THE TEST IS McNEMAR, NOT TWO PERCENTAGES. Both predictors see the SAME fixtures, so their
+   errors are correlated and comparing two independent-looking rates overstates the evidence. Only
+   the matches where they DISAGREE carry information. Elo right / engine wrong = b, the reverse = c;
+   everything else cancels. chi-square = (|b-c|-1)^2 / (b+c), one degree of freedom, so 3.84 is the
+   5% bar. This is Milestone 6's discipline applied to a rating instead of a market. */
+function eloValidate(){
+  const CONT = ['2', '13'];
+  const leagues = {}, engines = {};
+  for(const L of footballLeagues()){
+    const ms = (L.matches || []).slice().sort((x, y) => x.date < y.date ? -1 : 1);
+    leagues[L.id] = ms;
+    if(CONT.indexOf(String(L.id)) >= 0){ const e = Object.create(footballEngine); e.matches = ms; engines[L.id] = e; }
+  }
+  /* ONE rating, advanced in GLOBAL date order across every competition. A continental fixture is
+     scored only once both clubs already carry a history from anywhere - that history, earned in
+     their domestic leagues, IS the bridge. */
+  const all = [];
+  for(const lid in leagues)
+    leagues[lid].forEach((m, i) => { if(m.hg != null && m.ag != null) all.push({ m: m, lid: lid, i: i }); });
+  all.sort((x, y) => x.m.date < y.m.date ? -1 : x.m.date > y.m.date ? 1 : 0);
+
+  const R = {}, seen = {};
+  const tot = { n:0, e:0, g:0, agree:0, b:0, c:0 }, per = {};
+  let unrated = 0;
+  for(const rec of all){
+    const m = rec.m;
+    if(CONT.indexOf(String(rec.lid)) >= 0){
+      const act = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
+      if(act !== 'X'){
+        if((seen[m.home] || 0) >= ELO_MIN_SEEN && (seen[m.away] || 0) >= ELO_MIN_SEEN){
+          const rh = (R[m.home] === undefined ? ELO_BASE : R[m.home]);
+          const ra = (R[m.away] === undefined ? ELO_BASE : R[m.away]);
+          const eP = (rh + ELO_HOME) >= ra ? '1' : '2';
+          const p = engines[rec.lid].predict(m.home, m.away, rec.i);
+          if(p){
+            const gP = p.pW >= p.pL ? '1' : '2';
+            const o = per[rec.lid] = per[rec.lid] || { n:0, e:0, g:0, agree:0, b:0, c:0, name:'' };
+            o.name = (afState.leagues[rec.lid] || {}).name || rec.lid;
+            for(const t of [tot, o]){
+              t.n++; if(eP === act) t.e++; if(gP === act) t.g++;
+              if(eP === gP) t.agree++; else if(eP === act) t.b++; else t.c++;
+            }
+          }
+        } else unrated++;
+      }
+    }
+    // advance the one global rating past this match, whatever competition it belongs to
+    const get = t => (R[t] === undefined ? (R[t] = ELO_BASE) : R[t]);
+    const rh = get(m.home), ra = get(m.away);
+    const exp = 1 / (1 + Math.pow(10, ((ra - (rh + ELO_HOME)) / 400)));
+    const sc = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+    const gd = m.hg - m.ag;
+    const mult = gd === 0 ? 1 : eloMov(gd, Math.abs((rh + ELO_HOME) - ra));
+    const d = ELO_K * mult * (sc - exp);
+    R[m.home] = rh + d; R[m.away] = ra - d;
+    seen[m.home] = (seen[m.home] || 0) + 1; seen[m.away] = (seen[m.away] || 0) + 1;
+  }
+  return { tot: tot, per: per, unrated: unrated };
+}
+/* A club needs this many matches ANYWHERE before its rating is allowed to price a fixture. It is
+   not a fitted constant and is not presented as one: below it a rating is still essentially
+   ELO_BASE, which would make the comparison a coin toss dressed as a measurement. */
+const ELO_MIN_SEEN = 5;
+
+/* chi-square with Yates' correction on the discordant pairs. 3.84 is the 5% bar at 1 d.f. */
+function eloMcNemar(b, c){
+  const t = b + c;
+  if(!t) return { chi: null, sig: false };
+  const chi = Math.pow(Math.abs(b - c) - 1, 2) / t;
+  return { chi: chi, sig: chi >= 3.84 };
+}
+
 function renderElo(){
   const box = $('eloOut'); if(!box) return;
   const ids = Object.keys(afState.leagues || {});
@@ -11537,52 +11635,13 @@ function renderElo(){
     const coef = uefaCoefficients();
     const rated = Object.keys(elo.rating);
 
-    /* 🚨 THE VALIDATION. Walk-forward over the continental competitions only — those are the
-       fixtures where the per-competition engine has no common frame — scoring Elo's pick against
-       the engine's on the SAME matches. Elo's ratings are rebuilt as at each match, so nothing
-       here has seen its own result. */
-    const CONT = ['2', '13'];
-    let eHit = 0, gHit = 0, n = 0, both = 0;
-    for(const lid of CONT){
-      const L = (afState.leagues || {})[lid]; if(!L || !L.matches) continue;
-      const ms = L.matches.slice().sort((x, y) => x.date < y.date ? -1 : 1);
-      const tmp = Object.create(footballEngine); tmp.matches = ms;
-      const R = {}, seen = {};
-      const get = t => (R[t] === undefined ? (R[t] = ELO_BASE) : R[t]);
-      const start = Math.max(60, Math.floor(ms.length * 0.3));
-      for(let i = 0; i < ms.length; i++){
-        const m = ms[i];
-        if(i >= start && m.hg != null && m.ag != null && (seen[m.home] || 0) >= 1 && (seen[m.away] || 0) >= 1){
-          const act = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
-          /* Elo's call: the side with the higher rating once home advantage is added. It never
-             names the draw, so it is compared only on matches that did not end level — otherwise
-             it would be marked wrong for a market it does not enter. */
-          if(act !== 'X'){
-            const ePick = (get(m.home) + ELO_HOME) >= get(m.away) ? '1' : '2';
-            const p = tmp.predict(m.home, m.away, i);
-            if(p){
-              const gPick = p.pW >= p.pL ? '1' : '2';
-              n++;
-              if(ePick === act) eHit++;
-              if(gPick === act) gHit++;
-              if(ePick === gPick) both++;
-            }
-          }
-        }
-        // advance Elo past this match
-        if(m.hg != null && m.ag != null){
-          const rh = get(m.home), ra = get(m.away);
-          const exp = 1 / (1 + Math.pow(10, ((ra - (rh + ELO_HOME)) / 400)));
-          const sc = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
-          const gd = m.hg - m.ag;
-          const mult = gd === 0 ? 1 : eloMov(gd, Math.abs((rh + ELO_HOME) - ra));
-          const d = ELO_K * mult * (sc - exp);
-          R[m.home] = rh + d; R[m.away] = ra - d;
-          seen[m.home] = (seen[m.home] || 0) + 1; seen[m.away] = (seen[m.away] || 0) + 1;
-        }
-      }
-    }
-
+    /* THE VALIDATION - see eloValidate() above for what build 221 got wrong and how.
+       IT REFUSES ON A PARTIAL COMPETITION SET, which is the guard build 221 lacked and the reason
+       its headline was Libertadores alone. Compared against COMP_IDS, never a hard-coded 11. */
+    const _have = Object.keys(afState.leagues || {}).filter(id => ((afState.leagues[id] || {}).matches || []).length);
+    const _missing = COMP_IDS.filter(id => _have.indexOf(String(id)) < 0);
+    let V = null;
+    if(!_missing.length) V = eloValidate();
     const top = rated.filter(t => (elo.played[t] || 0) >= 20)
                      .sort((x, y) => elo.rating[y] - elo.rating[x]);
     const row = (t) => `<div class="frow"><span class="muted">${escapeHtml(t)} <span style="opacity:.6">${escapeHtml(elo.league[t] || '')}</span></span><b>${Math.round(elo.rating[t])}</b></div>`;
@@ -11595,12 +11654,28 @@ function renderElo(){
     box.innerHTML =
       `<div class="frow"><span class="muted">Clubs rated · matches used</span><b>${rated.length} · ${elo.matches.toLocaleString()}</b></div>`
     + `<div class="sec-label" style="margin-top:14px">Does it beat the engine where the engine is weakest?</div>`
-    + (n ? `<div class="frow"><span class="muted">Continental matches scored</span><b>${n}</b></div>`
-         + `<div class="frow"><span class="muted">Engine 2 correct</span><b>${(100*gHit/n).toFixed(1)}%</b></div>`
-         + `<div class="frow"><span class="muted">Global Elo correct</span><b style="color:${eHit>gHit?'var(--green2)':'var(--gold)'}">${(100*eHit/n).toFixed(1)}%</b></div>`
-         + `<div class="frow"><span class="muted">They agreed</span><b>${(100*both/n).toFixed(0)}%</b></div>`
-         + `<div class="subnote">Walk-forward, decided matches only — Elo never names a draw, so scoring it on drawn games would mark it wrong for a market it does not enter. <b>${eHit>gHit ? 'Elo is ahead here, which is the case for wiring it into continental fixtures.' : 'Elo is NOT ahead, and that is a real answer — it does not get wired in on a hunch.'}</b></div>`
-         : `<div class="subnote">Not enough continental history loaded to score.</div>`)
+    + (!V
+        ? `<div class="subnote"><b style="color:var(--gold)">Refusing to score.</b> ${_missing.length} of ${COMP_IDS.length} competitions have not loaded (${_missing.join(', ')}). Build 221 published a figure that was Libertadores alone because nothing stopped it.</div>`
+        : !V.tot.n
+          ? `<div class="subnote">Not enough continental history loaded to score.</div>`
+          : (() => {
+              const T = V.tot, mc = eloMcNemar(T.b, T.c);
+              const row = (label, o) => { const m2 = eloMcNemar(o.b, o.c);
+                return `<div class="frow"><span style="flex:1">${escapeHtml(label)}</span>`
+                  + `<span style="width:16%;text-align:right">${o.n}</span>`
+                  + `<span style="width:20%;text-align:right">${(100*o.g/o.n).toFixed(1)}%</span>`
+                  + `<span style="width:20%;text-align:right"><b>${(100*o.e/o.n).toFixed(1)}%</b></span>`
+                  + `<span style="width:26%;text-align:right" class="muted">${o.b}/${o.c} &middot; ${m2.chi==null?'-':m2.chi.toFixed(2)}</span></div>`; };
+              return `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase"><span style="flex:1">Scored</span><span style="width:16%;text-align:right">n</span><span style="width:20%;text-align:right">Engine</span><span style="width:20%;text-align:right">Elo</span><span style="width:26%;text-align:right">b/c &middot; &chi;&sup2;</span></div>`
+                + Object.keys(V.per).map(k => row(V.per[k].name, V.per[k])).join('')
+                + row('All continental', T)
+                + `<div class="frow"><span class="muted">Clubs too thin to rate (under ${ELO_MIN_SEEN} matches anywhere)</span><b>${V.unrated}</b></div>`
+                + `<div class="subnote"><b>The test is McNemar, not two percentages.</b> Both see the same fixtures, so only the matches where they DISAGREE carry information: <b>b</b> is Elo right and the engine wrong, <b>c</b> the reverse. &chi;&sup2; = (|b&minus;c|&minus;1)&sup2;/(b+c), and <b>3.84</b> is the 5% bar.</div>`
+                + `<div class="subnote">${mc.sig
+                     ? `<b style="color:var(--green2)">Elo's margin survives the test</b> (&chi;&sup2; ${mc.chi.toFixed(2)}). It still ships OFF until a holdout says otherwise.`
+                     : `<b style="color:var(--gold)">Not significant</b> &mdash; &chi;&sup2; ${mc.chi==null?'-':mc.chi.toFixed(2)} against a 5% bar of 3.84, on ${T.b+T.c} disagreements. The construction is sound and the margin is inside the noise, so <b>nothing is wired.</b>`}</div>`
+                + `<div class="subnote">Walk-forward, decided matches only &mdash; Elo never names a draw, so scoring it on drawn games would mark it wrong for a market it does not enter.</div>`;
+            })())
     + `<div class="sec-label" style="margin-top:14px">The fixture that started this</div>`
     + `<div class="frow"><span class="muted">${escapeHtml(aek)}</span><b>${elo.rating[aek] != null ? Math.round(elo.rating[aek]) : 'n/a'}</b></div>`
     + `<div class="frow"><span class="muted">${escapeHtml(lev)}</span><b>${elo.rating[lev] != null ? Math.round(elo.rating[lev]) : 'n/a'}</b></div>`
