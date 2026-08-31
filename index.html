@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 245;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 247;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8235,7 +8235,7 @@ function renderM14(){
       + 'Open the Analysis tab, let it finish loading, then run this again.</div>';
     return;
   }
-  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building ' + inp.matches.toLocaleString()
+  box.innerHTML = leagueBlobNotice() + '<div class="subnote"><span class="spinner"></span>Building ' + inp.matches.toLocaleString()
     + ' matches into features, then fitting&hellip; this takes about half a minute.</div>';
   setTimeout(()=>{
     try{
@@ -8426,7 +8426,7 @@ function m14RunHoldout(){
   if(!_m14HoldArmed){
     _m14HoldArmed = true;
     const prev = m14HoldLog().length;
-    box.innerHTML = '<div class="subnote"><b style="color:var(--red)">This spends the holdout.</b> '
+    box.innerHTML = leagueBlobNotice() + '<div class="subnote"><b style="color:var(--red)">This spends the holdout.</b> '
       + (prev ? `It has already been scored <b>${prev}</b> time${prev>1?'s':''}; another run will be recorded beneath the first, not instead of it. ` : 'It has never been scored. ')
       + 'Click again to confirm.</div>' + m14HoldHistoryHtml();
     return;
@@ -8580,7 +8580,7 @@ function renderFeatureLayer(){
       + 'it refresh from the cloud, then come back.</b></div>';
     return;
   }
-  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Building features…</div>';
+  box.innerHTML = leagueBlobNotice() + '<div class="subnote"><span class="spinner"></span>Building features…</div>';
   setTimeout(()=>{
     const idx = buildFixtureIndex();
     const rows = [];
@@ -12780,6 +12780,63 @@ function providerExtras(r){
   return x;
 }
 
+/* ══ BUILD 247 — THE LEAGUE READ NAMES ITS COLUMNS, AND DROPS THE THREE BLOBS ═══════════════════
+   `select('*')` pulled all 87 columns. MEASURED on the live database, one league, one 1,000-row
+   page: **4.04 MB** with `*` against **150 KB** for ten named columns, and 41.8 s against 1.0 s on
+   this connection. Broken down per row, three jsonb columns are **85.1% of the bytes**:
+
+       events    2,063 chars/row   51.3%
+       lineup_h    681 chars/row   16.9%
+       lineup_a    680 chars/row   16.9%
+
+   Across ~23,000 fixtures that is up to **~93 MB per cold boot** on fully-detailed rows, against
+   roughly ~14 MB without them — and it scales with the competition count, which the standing
+   constraint says is going up.
+
+   🚨 AND NOTHING THE APP DISPLAYS READS THEM. Traced rather than assumed: `providerExtras` turns the
+   blobs into `_x.ev`, the starting XI and the coach ids, and every consumer of those is reached only
+   from a dev panel — `renderFeatureLayer` (button `flBtn`), `renderM14`, `m14RunHoldout`. The
+   `_x` fields the SHIPPED path actually reads are `season` (the League Table, ten sites) and `round`
+   (via `isLeaguePhase`), and both are cheap scalar columns kept below.
+   **This is build 207's fix, one path over.** That build did exactly this for the Scores read and
+   named these same three blobs as the waste; the league read never got the same treatment.
+
+   ⚠ THE LIST IS EXPLICIT BECAUSE PostgREST HAS NO 'ALL EXCEPT'. It is all 87 columns minus the
+   three, so nothing else changes. A column added to the table later will NOT appear here — the same
+   drift `SCORES_COLS` carries, and the reason `EXTRA_KEYS` is compared against the collector by the
+   lock rather than trusted.
+
+   ⚠ AND THE RESEARCH PANELS MUST NOT SILENTLY READ 0%. A feature that is null because its input was
+   never fetched looks exactly like a feature the collector is failing to write — which is the
+   confusion builds 174, 181 and 227 each lost time to. `?blobs=1` restores `select('*')` for a
+   research run, and the panels say which mode they are in rather than reporting a coverage number
+   that would be an artefact of this optimisation. */
+const LEAGUE_BLOBS = /[?&]blobs=1/.test(location.search);
+const LEAGUE_COLS =
+  'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,home_logo,' +
+  'away_logo,updated_at,ht_h,ht_a,provider,venue_id,venue_name,venue_city,surface,attendance,' +
+  'referee,xg_h,xg_a,poss_h,poss_a,shots_h,shots_a,sot_h,sot_a,corners_h,corners_a,fouls_h,' +
+  'fouls_a,yellows_h,yellows_a,reds_h,reds_a,saves_h,saves_a,passacc_h,passacc_a,formation_h,' +
+  'formation_a,odds_open_h,odds_open_d,odds_open_a,odds_close_h,odds_close_d,odds_close_a,' +
+  'odds_book,wx_temp,wx_rain,wx_wind,gprev_h,gprev_a,sib_h,sib_a,sob_h,sob_a,blocked_h,' +
+  'blocked_a,offsides_h,offsides_a,odds_open_at,odds_last_h,odds_last_d,odds_last_a,' +
+  'odds_last_at,odds_books,odds_close_at,odds_try_at,odds_tries,odds_snaps,detail_tried_at,' +
+  'inj_h,inj_a,passes_h,passes_a,round';
+
+/* The banner the research panels show when the blobs were not fetched. It exists because build
+   247 created a THIRD way for a feature to read zero — not collected, not in memory, and now not
+   requested — and `renderFeatureLayer` already carries the rule that an absent input and a measured
+   zero must never render the same. */
+function leagueBlobNotice(){
+  return LEAGUE_BLOBS ? '' :
+    '<div class="subnote"><b style="color:var(--gold)">Event and lineup blobs are not loaded.</b> '
+    + 'Build 247 dropped <code>events</code>, <code>lineup_h</code> and <code>lineup_a</code> from the '
+    + 'league read — they were 85.1% of its bytes and nothing the app displays reads them. So the '
+    + 'features built on them (set-piece and early-goal items, the starting XI, coach change, and the '
+    + 'referee event string) will read 0% here, and that means <b>not requested</b>, not not-collected. '
+    + '<b>Reload with <code>?blobs=1</code> for a research run.</b></div>';
+}
+
 const PAGE = 1000;
 /* BUILD 220 — how many competitions may be in flight at once. See loadCloudLeagues: all eleven
    together is what tripped the server's statement timeout. */
@@ -12810,10 +12867,24 @@ async function fetchLeagueFixtures(id){
        what it was for two hundred builds.
        THE DURABLE FIX IS AN INDEX, NOT AN ORDER: `create index on fixtures(lid, fxid)` would make
        `order('fxid')` both stable AND fast. That is one statement and it needs Ken, so it is written
-       up rather than assumed. `fetchAllRows` keeps its `fxid` ordering — those reads are small and
+       up rather than assumed.
+
+       ✅ BUILD 246 — THE INDEX WAS RUN ON 2026-08-31 AND THE TIEBREAK IS BACK. Re-measured under
+       build 220's OWN conditions before restoring it, because the reason for the revert was a
+       number and only a number can undo it:
+
+           select('*'), variant order rotated       date 444ms  ·  date+fxid 447ms  ·  fxid 399ms
+           (build 220 measured                      date 577ms  ·  date+fxid 934ms  ·  fxid 1139ms)
+
+       The tiebreak's 1.6x is now 0.7% — three milliseconds. AND THE FAILURE MODE WAS TESTED IN THE
+       SHAPE THAT ACTUALLY BROKE IT: eleven leagues fired CONCURRENTLY, three passes, order rotated,
+       66 requests — **zero failures**, and date+fxid came back FASTER than date alone warm (230ms
+       against 331ms), because `(lid, fxid)` serves that sort directly. A sequential measurement
+       would not have earned this: build 220's failure was concurrency tripping the statement
+       timeout, and its own first reading was wrong for measuring the wrong thing. `fetchAllRows` keeps its `fxid` ordering — those reads are small and
        it measurably HELPED there (archive 1.8s ordered vs 3.3s unordered). */
-    const { data, error } = await supa.from('fixtures').select('*').eq('lid', id)
-      .order('date').range(from, from + PAGE - 1);
+    const { data, error } = await supa.from('fixtures').select(LEAGUE_BLOBS ? '*' : LEAGUE_COLS).eq('lid', id)
+      .order('date').order('fxid').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
     pages++;
