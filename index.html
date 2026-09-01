@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 254;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 256;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4735,6 +4735,27 @@ function dailyPastCards(day){
 
 /* The back/forward bar. Only days the ledger actually holds are reachable, so the control cannot
    offer a day it has nothing to show for. */
+/* ══ BUILD 256 — WHY TODAY IS EMPTY, WHICH IS TWO DIFFERENT ANSWERS ═══════════════════════════
+   `slipCandidates` drops a fixture once it has finished, so an evening on which every match has
+   been played produces the same empty list as a day with no football at all. Those are not the
+   same fact and the card must not state one when the other is true — build 164's rule, where a
+   played match with no frozen pick says so rather than showing a blank.
+
+   Counted here rather than inside `slipCandidates`, because that function answers "what can I
+   build a slip from" and this one answers "was there anything today at all". Widening the shared
+   selector with a flag would have put a second meaning inside the one implementation both tabs
+   depend on. */
+function dailyTodayCensus(){
+  const today = todayStrLocal(), smap = scoreMap();
+  let total = 0, done = 0;
+  for(const L of footballLeagues()) for(const f of (L.upcoming || [])){
+    if(f.date !== today) continue;
+    total++;
+    const s = f.fxid != null ? smap[f.fxid] : null;
+    if(isFinishedScore(s) || kickoffPassed(f)) done++;
+  }
+  return { total: total, done: done };
+}
 function dailyNavBar(days, idx){
   const label = idx === 0 ? 'Today' : days[idx];
   const btn = (dir, txt, on) => '<button class="sfchip"' + (on ? '' : ' disabled style="opacity:.4"')
@@ -4773,11 +4794,46 @@ function renderDailySlips(){
   }
   const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
   if(!cands.length){
-    const nx = (typeof nextMatchday === 'function') ? nextMatchday() : null;
-    box.innerHTML = '<div class="card"><h2>\uD83D\uDCC5 Today\u2019s slips</h2><div class="subnote">'
-      + 'No fixtures kick off today in the competitions the engine covers'
-      + (nx && nx.date ? ', so there is nothing to recommend. Next matchday is <b>' + escapeHtml(String(nx.date)) + '</b>.' : '.')
-      + '</div></div>';
+    /* \u2550\u2550 BUILD 256 \u2014 THIS BRANCH USED TO DELETE THE LOOK-BACK \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+       Ken, 2026-09-01: "there were predictions there today and the buttons to see previous bets
+       were there, suddenly, this evening has none of that."
+
+       THREE `box.innerHTML` WRITES IN THIS FUNCTION AND ONLY THIS ONE OMITTED `navBar`, then
+       returned. `slipCandidates` drops a fixture once it has finished, so every evening, as the
+       day's last match ends, the candidate list empties and the whole card collapsed to a single
+       sentence \u2014 taking the past-slips navigation with it, even though the ledger still held every
+       day. **Past slips have nothing to do with whether today has fixtures.** One data source
+       being empty removed the way into a different one, which is the same shape as build 247's
+       third way for a feature to read zero.
+
+       AND THE LEDGER ALREADY HOLDS THE ANSWER KEN WAS LOOKING FOR. `mm_dailyslips` is insert-once
+       per tier per day and stores what was actually SHOWN, so on an evening like this the honest
+       card is not "nothing to recommend" \u2014 it is today's slips as they were published this
+       morning, graded as results arrive. Replayed through `dailyPastCards`, the same function the
+       Earlier view uses, never rebuilt with tonight's data. */
+    const today = todayStrLocal();
+    const heldToday = dailyLogRead().some(r => r.day === today);
+    const head = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + navBar;
+    if(heldToday){
+      box.innerHTML = head + dailyPastCards(today)
+        + '<div class="subnote">Every fixture today has kicked off, so nothing further can be '
+        + 'recommended. These are the slips exactly as they were shown this morning, graded as '
+        + 'results arrive \u2014 read back from the ledger, never rebuilt.</div>';
+    } else {
+      /* The two answers kept apart. `done === total` on a non-empty day means the football
+         happened and is over; a total of zero means there was none. */
+      const census = dailyTodayCensus();
+      const nx = (typeof nextMatchday === 'function') ? nextMatchday() : null;
+      box.innerHTML = head + '<div class="card"><h2>\uD83D\uDCC5 Today\u2019s slips</h2><div class="subnote">'
+        + (census.total > 0 && census.done === census.total
+            ? 'All ' + census.total + ' of today\u2019s fixtures have kicked off, so there is nothing '
+              + 'left to recommend today.'
+            : 'No fixtures kick off today in the competitions the engine covers.')
+        + (nx && nx.date ? ' Next matchday is <b>' + escapeHtml(String(nx.date)) + '</b>.' : '')
+        + '</div></div>';
+    }
+    wire();
+    try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
     return;
   }
   let cards = '';
@@ -5942,7 +5998,36 @@ function kickoffPassed(f){
    publishing depend on the odds pass being healthy, so the 54-hour outage of 2026-08-20 would have
    published NOTHING for two days and left a hole in the record. A product rule must not fail
    because a collection pass did. */
-const PUBLISH_AHEAD_DAYS = 7;
+/* ══ BUILD 255 — SEVEN BECOMES FOUR, AND THIS TIME IT IS A MEASUREMENT ════════════════════════
+   Build 212 chose 7 as a product decision and said so honestly. What nobody had put beside it was
+   the collector's own window: `ODDS_LOOKAHEAD_H` is 96 hours (refresh-af.ts). A pick frozen 5-7
+   days out therefore CANNOT carry a price, ever — and 99.5% of the archive (2,631 of 2,645,
+   measured 2026-09-01) has no odds capture at or before `made_at`. That is not a gap in the data,
+   it is two constants that were never read in the same sentence.
+
+   AND THE FREEZE POINT IS THIS CONSTANT, not a spread beneath it. `archivePrediction` returns early
+   on `afState.archive[f.fxid]` — first eligible view wins — so a fixture freezes the moment it
+   crosses the window. Measured on the post-212 rows: every one of them froze at 5, 6 or 7 days.
+   Moving the constant moves the freeze point wholesale, which is why it must land inside 96h and
+   not on it.
+
+   WHY 4 AND NOT 3 OR 2 — measured 2026-09-01 over 279 priced fixtures, how far ahead of kick-off
+   the collector's FIRST capture actually lands:
+
+       freeze at 4 days (96h)   216 / 279 = 77.4% already carry a price
+       freeze at 3 days (72h)   220 / 279 = 78.9%
+       freeze at 2 days (48h)   247 / 279 = 88.5%
+
+   The median first capture is 96.0h — the collector prices a fixture within minutes of it crossing
+   its own window — so 3 days buys 1.5 points for a whole day of freeze distance and is not worth
+   it. The 23% that miss are fixtures the collector priced late, which is a collector question and
+   not a publication one; they now stamp null and are COUNTED rather than assumed.
+
+   ⚠ AND THE RACE AT THE BOUNDARY IS REAL BUT LOSES. Both this and the collector trigger at 96h. The
+   collector fires on a 10-minute cron and the app fires when a human opens it, so the capture is
+   almost always first. When it is not, the stamp is null — never a later price wearing the name
+   `odds_at_pick`, which is the fault build 165 was corrected for. */
+const PUBLISH_AHEAD_DAYS = 4;
 function tooFarAheadToPublish(f){
   if(!f || !f.date) return false;
   const d = kickoffUTC(f.date, f.time);
@@ -6245,6 +6330,79 @@ const _withheldStamped = new Set();
    gets only its `final_*` columns updated, so the first pick is untouchable while the model's
    current view is still recorded — which is what makes "does late re-pricing actually improve
    accuracy?" a question this project can answer instead of assume. */
+/* ══ BUILD 255 — THE PRICE AT PUBLICATION, STAMPED BECAUSE IT IS NOT RECOVERABLE ═══════════════
+   Build 199 refused `odds_at_pick` as "a second copy of a derivable fact — recoverable by joining
+   `odds_snapshots` on `made_at`". The reasoning was sound and the fact underneath it was never
+   measured: on 2026-09-01, 2,631 of 2,645 rows (99.5%) have NO capture at or before `made_at`, so
+   for all but ten pairs there is nothing to join to. `m15Build` has been doing that join since
+   build 230 and getting ten answers. This is that rejection revisited against the measurement, not
+   overturned on taste.
+
+   WHAT IS STORED, AND WHY IT IS NOT A SECOND COPY:
+     · `odds_snap_id`    — the capture this came from. The whole market is still one join away, so
+                           the de-vig stays in `m15Fair` and is never reimplemented here. Build
+                           203's rule: grade at read time and the two cannot disagree.
+     · `odds_at_pick_at` — that capture's `captured_at`. Staleness is RECORDED, never inferred.
+     · `odds_at_pick`    — the published selection's own decimal price, so the row can be read
+                           without a join and a mismatch against the snapshot is detectable.
+
+   THREE STATES, DELIBERATELY DISTINGUISHABLE — build 185's `inj_h` rule, that an empty answer and
+   an unasked question must not collapse into the same null:
+     all three null          no capture existed when we published
+     id + at, price null     a capture existed and did not quote THIS selection
+     all three set           the price a reader could have taken when we said it
+
+   ⚠ IT NEVER BLOCKS PUBLICATION. Build 212 rejected "publish when the market first prices the
+   fixture" because it makes the record depend on the odds pass being healthy, and the 54-hour
+   outage would have published nothing for two days. The same rule applies to its own stamp: this
+   is best effort, wrapped, and a failure here costs a price and never a pick.
+
+   ⚠ AND IT IS NEVER BACK-FILLED. A price captured after publication is not the price at
+   publication, and writing one into a column named `at_pick` is build 165's fault exactly — a
+   wrong number wearing a right one's name. Null means null.
+
+   `M15_SEL` is declared further down the file. That is safe because this runs on a user action long
+   after parse, and it is deliberate: one selection-to-column map in this app, shared with the audit
+   that reads these columns back. */
+const PUB_PRICE_LOOKBACK_H = 36;
+async function stampPublicationPrices(rows){
+  if(!supa || !rows || !rows.length) return;
+  /* One request for the whole batch, bounded three ways because PostgREST caps a select at 1000
+     rows (build 123): to these fixtures, to captures inside the lookback, and NEWEST FIRST — so if
+     the cap is ever reached it discards the oldest, which are the ones this would not have chosen
+     anyway. At a 4-day freeze the collector's cadence is one capture a day, so a 40-fixture first
+     load is well inside it. */
+  const since = new Date(Date.now() - PUB_PRICE_LOOKBACK_H * 3600000).toISOString();
+  const q = await supa.from('odds_snapshots')
+    .select('id,fxid,captured_at,mins_to_kick,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba')
+    .in('fxid', rows.map(r => r.fxid))
+    .gte('captured_at', since)
+    .order('captured_at', { ascending:false })
+    .limit(1000);
+  /* NOT `archiveFailure`. That flag says published picks are not reaching the shared record, which
+     would be false here and is the class of fault build 92 shipped — a field carrying a meaning its
+     name does not have. The pick publishes; only its price is missing. */
+  if(q.error){
+    try{ console.warn('MatchMind: no price stamped at publication —', q.error.message); }catch(_){}
+    return;
+  }
+  const byFx = {};
+  for(const s of (q.data || [])) (byFx[s.fxid] = byFx[s.fxid] || []).push(s);
+  for(const r of rows){
+    const at = Date.parse(r.made_at);
+    const list = (byFx[r.fxid] || []).filter(s =>
+      s.mins_to_kick != null && s.mins_to_kick >= 0 && Date.parse(s.captured_at) <= at);
+    if(!list.length) continue;                       // no capture existed — all three stay null
+    list.sort((a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at));
+    const snap = list[0];
+    r.odds_snap_id = snap.id;
+    r.odds_at_pick_at = snap.captured_at;
+    const spec = M15_SEL[r.pick];
+    if(!spec) continue;                              // a code with no price column — id and at stand
+    const price = snap[spec[0]];
+    if(price != null && price > 1) r.odds_at_pick = price;   // 1.0 or less is not a price
+  }
+}
 async function flushPredictionArchive(){
   if(!supa || (!archiveQueue.size && !driftQueue.size)) return;
   const fresh = [...archiveQueue.values()];
@@ -6252,6 +6410,11 @@ async function flushPredictionArchive(){
   archiveQueue.clear(); driftQueue.clear();
   try{
     if(fresh.length){
+      /* BUILD 255 — the price is attached HERE rather than in `archivePrediction` because this is
+         where the batch already exists: one odds request for forty picks instead of forty. Wrapped
+         so that a thrown error costs a price and never a publication. */
+      try{ await stampPublicationPrices(fresh); }
+      catch(e){ try{ console.warn('MatchMind: no price stamped at publication —', (e && e.message) || e); }catch(_){} }
       /* ignoreDuplicates is the whole mechanism. Two devices racing on the same fixture both send
          an insert; the first lands, the second is discarded by the primary key rather than
          overwriting it. `onConflict` names the key that decides. */
@@ -8433,9 +8596,12 @@ async function m15Fetch(){
     }
     return out;
   };
-  const preds = await page('predictions', 'fxid,lid,kickoff,pick,pick_prob,market,made_at,withheld_at');
+  /* build 255 — the three publication-price columns join the read. Without them this panel would
+     keep computing CLV from the `made_at` join alone, which is the thing that returns ten answers. */
+  const preds = await page('predictions',
+    'fxid,lid,kickoff,pick,pick_prob,market,made_at,withheld_at,odds_at_pick,odds_at_pick_at,odds_snap_id');
   const snaps = await page('odds_snapshots',
-    'fxid,captured_at,mins_to_kick,books,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba');
+    'id,fxid,captured_at,mins_to_kick,books,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba');
   const ids = [];
   for(const p of preds) if(ids.indexOf(p.fxid) < 0) ids.push(p.fxid);
   const fx = [];
@@ -8451,6 +8617,9 @@ function m15Build(preds, snaps, fx){
   const byFx = {}; for(const s of snaps) (byFx[s.fxid] = byFx[s.fxid] || []).push(s);
   const res = {}; for(const f of fx) res[f.fxid] = f;
   const rows = [], skip = { noSnap:0, noClose:0, noPrice:0, notFinished:0, voided:0 };
+  /* build 255 — where each usable CLV pair came from. Reported, not assumed: until the stamped
+     count starts moving, every CLV number this panel shows still rests on the ten the join finds. */
+  const pubSrc = { stamped:0, joined:0, none:0 };
   for(const p of preds){
     const f = res[p.fxid];
     if(!f || !isFin(f.status) || f.gh == null || f.ga == null){ skip.notFinished++; continue; }
@@ -8464,23 +8633,40 @@ function m15Build(preds, snaps, fx){
     /* THE PRICE AT PUBLICATION, for true closing-line value: the last capture at or before the
        moment the pick was frozen. `odds_at_pick` was deliberately never stored (build 199) because
        odds_snapshots keeps every capture with captured_at - this is that decision being cashed. */
-    let pub = null;
-    if(p.made_at){
+    /* BUILD 255 — THE STAMP IS PREFERRED OVER THE JOIN, and the two are counted separately.
+       `odds_snap_id` names the exact capture the app read at publication, so there is no window to
+       choose and no ambiguity about which side of `made_at` a capture fell. The join below remains
+       for every row published before build 255 — it is the only thing those rows have, and it is
+       right for the ten it finds. Counting the sources apart is the point: a CLV figure built from
+       both must be able to say how much of it rests on which. */
+    let pub = null, pubVia = null;
+    if(p.odds_snap_id != null){
+      const s = list.filter(x => x.id === p.odds_snap_id)[0];
+      if(s){ const g = m15Fair(s, p.pick); if(g){ pub = g; pubVia = 'stamped'; } }
+      /* The capture is stamped but no longer readable here, or did not quote this selection. The
+         stored price still answers "what could have been taken", without a de-vig. */
+      if(!pub && p.odds_at_pick != null && p.odds_at_pick > 1){
+        pub = { p:null, price:p.odds_at_pick, margin:null }; pubVia = 'stamped';
+      }
+    }
+    if(!pub && p.made_at){
       const t = Date.parse(p.made_at);
       const before = list.filter(s => Date.parse(s.captured_at) <= t)
                          .sort((a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at));
-      if(before.length){ const g = m15Fair(before[0], p.pick); if(g) pub = g; }
+      if(before.length){ const g = m15Fair(before[0], p.pick); if(g){ pub = g; pubVia = 'joined'; } }
     }
     const actual = f.gh > f.ga ? '1' : f.gh === f.ga ? 'X' : '2';
     const grade = gradePick(p.pick, actual, f.gh, f.ga);   // THE APP'S OWN GRADER, never a second copy
     if(grade === 'void'){ skip.voided++; continue; }
     if(grade !== 'hit' && grade !== 'miss'){ skip.notFinished++; continue; }
+    pubSrc[pubVia || 'none']++;
     rows.push({ fxid: p.fxid, pick: p.pick, market: pickMarket(p.pick), ourP: p.pick_prob,
                 mktP: fair.p, price: fair.price, margin: fair.margin,
                 edge: p.pick_prob - fair.p, hit: grade === 'hit',
-                clv: pub ? (pub.price / fair.price - 1) : null, mtk: close.mins_to_kick });
+                clv: pub ? (pub.price / fair.price - 1) : null, clvVia: pubVia,
+                mtk: close.mins_to_kick });
   }
-  return { rows: rows, skip: skip };
+  return { rows: rows, skip: skip, pubSrc: pubSrc };
 }
 
 /* A rate carries the sample it rests on. The standard error sits beside every percentage
@@ -8543,6 +8729,18 @@ function renderM15Audit(){
     const withClv = rows.filter(r => r.clv != null);
     html += '<div class="frow" style="margin-top:10px"><span class="muted">Closing-line value &mdash; picks with a price at publication</span><b>'
       + withClv.length + '</b></div>';
+    /* BUILD 255 — WHERE EACH PAIR CAME FROM, ON SCREEN. The stamped column is written from this
+       build onward and the join is all that older rows have, so a single CLV count would hide which
+       mechanism is actually feeding it. While `stamped` reads 0 this panel is still reporting the
+       ten pairs build 230 found, and it now says so rather than leaving that to be remembered. */
+    html += '<div class="frow"><span class="muted">&mdash; stamped at publication (build 255+) &middot; recovered by join</span><b>'
+      + built.pubSrc.stamped + ' &middot; ' + built.pubSrc.joined + '</b></div>';
+    if(!built.pubSrc.stamped){
+      html += '<div class="subnote">No pick has been published by a build that stamps its own price yet. '
+        + 'Every CLV figure below still rests on the <code>made_at</code> join, which finds a capture for '
+        + '0.5% of the archive &mdash; that is the measurement build 255 exists to end, and it only '
+        + 'improves for picks published from here on.</div>';
+    }
     if(withClv.length >= 20){
       const cr = m15Rate(withClv, r => r.clv > 0);
       const mv = 100 * mean(withClv, r => r.clv);
