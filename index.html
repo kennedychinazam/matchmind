@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 252;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 253;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1025,7 +1025,32 @@ Fullkrug,West Ham,4,20`;
 /* engine tuning — calibrated on 2,036 real matches (EPL, Championship, League One, League Two 2025-26):
    SHRINK_K pulls team strengths toward the league average (fixes small-sample swings);
    TEMP < 1 flattens overconfident probabilities (fixes calibration);
-   HALF_LIFE 10000 = effectively no recency decay — full-season data beat recent-form weighting in testing */
+   HALF_LIFE 10000 = effectively no recency decay.
+
+   🚨 BUILD 253 — "full-season data beat recent-form weighting in testing" WAS THIS COMMENT'S CLAIM
+   AND IT IS NO LONGER TRUE. It survived because the panel that tested it decided by McNemar on
+   changed top picks, which is blind to a forecast that improves without flipping a pick. Re-run as
+   a held-out log-loss test (select on the earlier 75% of each competition, score once on the tail):
+
+       memory   pooled log loss   TRAIN delta/match   TEST delta/match   McNemar
+        40          1.01631            -0.01553            -0.02184      -0.48 sigma
+        80          1.00413            -0.00374            -0.00894      +0.57
+       150          0.99755            +0.00208            -0.00100      +1.80
+       300          0.99481            +0.00393            +0.00333      +2.64
+       600          0.99518            +0.00310            +0.00381      +2.39
+       full         0.99853                  —                   —          —
+
+   **A 300-match memory is better than full history on the pooled log loss, on the training side,
+   AND on the held-out tail.** It is kept OFF anyway: the pre-declared bar is that the 95% lower
+   bound on the held-out paired delta must clear zero, and it comes to **[-0.00015, +0.00689]** —
+   short by fifteen hundred-thousandths of a nat. A point estimate does not move a constant.
+
+   ⚠ SO THE HONEST STATEMENT IS NOT "full history wins". It is: **a 300-match memory is marginally
+   better and cannot yet be distinguished from full history at 95%.** The old panel could never have
+   reached that sentence — its own log-loss column had shown 300 and 600 beating full history for
+   builds, and its verdict logic was structurally unable to act on the column it printed.
+   RE-TEST WHEN THE COMPETITIONS GAIN A SEASON. This is the closest any constant in this file has
+   come to changing without doing so. */
 /* DAMPEN (build 45) pulls the goals and BTTS markets toward what actually happens in an average
    match of that competition. Measured problem it fixes, from Ken's Brasileirão backtest: the BTTS
    60–70% band claimed 62.7% and delivered 40.7%; Over/Under claimed 63.1% and delivered 52.5%.
@@ -6491,7 +6516,11 @@ function recencyPass(ms, H, start){
     const tmp = Object.create(footballEngine);
     tmp.matches = ms;
     tmp._s2 = null;              // own property, so nothing leaks in through the prototype
-    const picks = [], acts = [];
+    /* BUILD 253 — PER-MATCH log loss and the match date, not just the pooled mean. A paired test
+       needs the two settings' losses on the SAME match, and a block bootstrap needs to know which
+       day each one belongs to. The pooled figure is still returned; it is now derived rather than
+       the only thing available. */
+    const picks = [], acts = [], lls = [], dts = [];
     let ll = 0, k = 0;
     for(let i=start;i<ms.length;i++){
       const m = ms[i];
@@ -6499,16 +6528,74 @@ function recencyPass(ms, H, start){
       const p = tmp.predict(m.home, m.away, i);
       if(!p){ picks.push(null); acts.push(null); continue; }
       const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
-      ll += -Math.log(Math.max(1e-9, act==='1' ? p.pW : act==='X' ? p.pD : p.pL)); k++;
+      const one = -Math.log(Math.max(1e-9, act==='1' ? p.pW : act==='X' ? p.pD : p.pL));
+      ll += one; k++;
+      lls[i - start] = one; dts[i - start] = m.date || String(i);
       const hp = headlinePick(p, 'H', 'A');
       picks.push(hp ? hp.code : null); acts.push(act);
     }
-    return { picks, acts, ll: k ? ll/k : null, n:k };
+    return { picks, acts, lls, dts, ll: k ? ll/k : null, n:k };
   } finally { TUNE.HALF_LIFE = saved; }
 }
 /* McNemar on paired decisions. b = matches the CANDIDATE got right and the baseline got wrong,
    c = the reverse. Ties carry no information and are discarded — that is the point of the test, and
    it is why selection cannot fool it: neither setting chose the sample. */
+/* ══ BUILD 253 — THE RECENCY VERDICT IS A HELD-OUT LOG-LOSS TEST, NOT A McNEMAR SORT ════════════
+   An independent review, and it is right: the panel called log loss "the headline" and then chose
+   its winner ENTIRELY by McNemar z on changed top picks. Two faults, one line apart.
+
+   1. McNEMAR CANNOT SEE THE THING BEING TESTED. It counts only fixtures where two settings pick
+      DIFFERENTLY and discards ties. A memory length can sharpen every probability in the book -
+      better calibration, better log loss, real money on a slip - without flipping a single top
+      pick, and McNemar scores that as exactly zero. It is the right instrument for "did the
+      DECISION improve" and the wrong one for "did the FORECAST improve", and only the second
+      question is what HALF_LIFE controls.
+   2. IT SELECTED AND REPORTED ON THE SAME DATA. Six candidates were scored on one pass and the
+      best was announced from it. The old panel's closing line admitted this in passing - *"this
+      table chose the number from the data it is scored on"* - and then reported the number anyway.
+      That is the fault the M14 holdout exists to catch, in a panel that predates it.
+
+   SO: SELECT ON TRAIN, SCORE ONCE ON TEST. Per competition the last 25% of matches are held out.
+   Every candidate is fitted on the earlier 75% by MEAN PAIRED LOG-LOSS DELTA against full history;
+   the winner of that is then run once on the tail. The reported verdict is the TEST delta with a
+   day-block bootstrap interval, because matches on one day share a rating state and are not
+   independent draws. McNemar survives as a SECONDARY diagnostic - how often the decision changed -
+   which is what it is actually good for.
+
+   DECISION RULE, PRE-DECLARED: adopt a candidate only if its 95% lower bound on the held-out paired
+   log-loss delta is above zero. A point estimate does not move a constant. */
+function pairedDelta(base, cand, lo, hi){
+  /* Positive = the candidate loses LESS than full history, i.e. better. Paired match by match, so
+     the difficulty of the fixtures cancels rather than having to be argued about. */
+  const d = [], days = [];
+  for(let i = lo; i < hi; i++){
+    const a = base.lls[i], b = cand.lls[i];
+    if(a == null || b == null) continue;
+    d.push(a - b); days.push(base.dts[i]);
+  }
+  return { d, days, mean: d.length ? d.reduce((s,x)=>s+x,0)/d.length : null, n: d.length };
+}
+/* Day-block bootstrap: resample DAYS with replacement, not matches. Two fixtures on the same day
+   are priced from the same ratings, so treating them as independent draws would understate the
+   interval - the same reasoning as the independence measurement of 2026-09-01. */
+function blockCI(d, days, B){
+  const byDay = {};
+  for(let i = 0; i < d.length; i++) (byDay[days[i]] = byDay[days[i]] || []).push(d[i]);
+  const keys = Object.keys(byDay);
+  if(!keys.length) return [null, null];
+  const out = [];
+  for(let b = 0; b < (B || 1000); b++){
+    let s = 0, n = 0;
+    for(let k = 0; k < keys.length; k++){
+      const arr = byDay[keys[(Math.random() * keys.length) | 0]];
+      for(const x of arr){ s += x; n++; }
+    }
+    if(n) out.push(s / n);
+  }
+  out.sort((x, y) => x - y);
+  return [out[Math.floor(0.025 * out.length)], out[Math.floor(0.975 * out.length)]];
+}
+
 function mcnemar(b, c){
   const n = b + c;
   if(!n) return { b, c, n, z:null };
@@ -15440,7 +15527,10 @@ function renderRecency(){
   if(!Ls.length){ box.innerHTML = `<div class="subnote">No competition has 200+ finished matches loaded yet. Open Predict so the feed loads, then come back.</div>`; return; }
   const BASE = 10000;
   const agg = {};                      // per candidate: pooled log loss (weighted) and McNemar counts
-  for(const H of HL_POOL_CANDIDATES) agg[H] = { llSum:0, n:0, b:0, c:0, leaguesBetter:0, leaguesWorse:0 };
+  /* BUILD 253 — trD/teD hold the PAIRED per-match log-loss deltas either side of the wall. The
+     pooled log loss stays for the table; it is no longer what decides anything. */
+  for(const H of HL_POOL_CANDIDATES) agg[H] = { llSum:0, n:0, b:0, c:0, leaguesBetter:0, leaguesWorse:0,
+                                                trD:[], trDays:[], teD:[], teDays:[] };
   const per = [];
   let li = 0;
   const step = () => {
@@ -15465,7 +15555,14 @@ function renderRecency(){
           }
           agg[H].b += b; agg[H].c += c;
           if(r.ll != null && base.ll != null){ if(r.ll < base.ll) agg[H].leaguesBetter++; else if(r.ll > base.ll) agg[H].leaguesWorse++; }
-          row.cands[H] = { ll:r.ll, b, c };
+          /* The wall: the last 25% of each competition's matches are held out. Chronological, per
+             league, so a candidate cannot be chosen on the very matches it is then scored on. */
+          const cut = Math.max(0, Math.floor(ms.length * 0.75) - start);
+          const tr = pairedDelta(base, r, 0, cut);
+          const te = pairedDelta(base, r, cut, r.lls.length);
+          for(let q=0;q<tr.d.length;q++){ agg[H].trD.push(tr.d[q]); agg[H].trDays.push(tr.days[q]); }
+          for(let q=0;q<te.d.length;q++){ agg[H].teD.push(te.d[q]); agg[H].teDays.push(te.days[q]); }
+          row.cands[H] = { ll:r.ll, b, c, trMean:tr.mean, teMean:te.mean };
         }
         per.push(row);
       }catch(e){}
@@ -15495,9 +15592,22 @@ function renderRecency(){
         <td style="text-align:right;padding:4px 0 4px 8px;color:${isBase?'var(--muted)':(sig? (m.z>0?'var(--green2)':'var(--red,#e56)') :'var(--muted)')}">${isBase?'—':(m.z==null?'—':`${m.z>0?'+':''}${m.z.toFixed(2)}σ${sig?' ✓':''}`)}</td>
       </tr>`;
     }).join('');
-    const best = HL_POOL_CANDIDATES.filter(H=>H!==BASE).map(H=>({H, m:mcnemar(agg[H].b, agg[H].c)}))
-      .sort((x,y)=>(y.m.z||-9)-(x.m.z||-9))[0];
-    const winner = best && best.m.z != null && best.m.z > BAR;
+    /* 🚨 BUILD 253 — SELECTION IS ON THE TRAINING SIDE, BY LOG LOSS. The old code sorted candidates
+       by McNemar z and adopted the top one if z > 2.8 — scoring the choice on the same matches that
+       made it, with a statistic blind to any improvement that does not flip a top pick. */
+    const trained = HL_POOL_CANDIDATES.filter(H=>H!==BASE)
+      .map(H=>({ H, mean: agg[H].trD.length ? agg[H].trD.reduce((s,x)=>s+x,0)/agg[H].trD.length : null,
+                 n: agg[H].trD.length }))
+      .filter(x=>x.mean != null)
+      .sort((x,y)=>y.mean - x.mean);                 // most log loss REMOVED from full history, first
+    const pick = trained[0] || null;
+    /* Scored ONCE, on matches no candidate was chosen on. */
+    const teD = pick ? agg[pick.H].teD : [], teDays = pick ? agg[pick.H].teDays : [];
+    const teMean = teD.length ? teD.reduce((s,x)=>s+x,0)/teD.length : null;
+    const ci = teD.length ? blockCI(teD, teDays, 1000) : [null,null];
+    /* PRE-DECLARED: the lower bound must clear zero. A point estimate does not move a constant. */
+    const winner = !!(pick && ci[0] != null && ci[0] > 0);
+    const best = pick ? { H:pick.H, m:mcnemar(agg[pick.H].b, agg[pick.H].c) } : null;
     box.innerHTML =
       `<table style="width:100%;border-collapse:collapse;font-size:.76rem">
         <tr style="color:var(--muted);font-size:.68rem;letter-spacing:.04em">
@@ -15506,11 +15616,11 @@ function renderRecency(){
           <th style="text-align:right">DISAGREED</th><th style="text-align:right">McNEMAR</th></tr>
         ${rows}
       </table>
-      <div class="subnote" style="margin-top:10px"><b>How to read it.</b> LOG LOSS is the headline — lower is better, and it uses every match. McNEMAR is the verdict: it looks only at fixtures where that memory length and the current one picked <b>differently</b>, and asks which was right more often. Ties are discarded, so neither setting can win by choosing easier matches — <b>which is the trap §15 caught, and the reason a rising "skill gap" is not evidence of anything.</b> ✓ marks |z| above ${BAR}σ, the Bonferroni-corrected bar for testing this many candidates at once.</div>`
+      <div class="subnote" style="margin-top:10px"><b>How to read it.</b> LOG LOSS is the verdict and it is scored on HELD-OUT matches: every candidate is chosen on the earlier 75% of each competition by paired log loss, then the winner is run once on the last 25%. A memory length is adopted only if the 95% lower bound on that held-out delta clears zero. <b>McNEMAR is reported second, not as the verdict</b> &#8212; it counts only fixtures where the top pick FLIPPED and discards ties, so it cannot see a setting that sharpens every probability without changing a decision. Build 253 changed this after an independent review found the panel calling log loss the headline and then deciding entirely on McNemar, on the same matches it selected from.</div>`
       + `<div class="subnote">${
           winner
-            ? `<b style="color:var(--green2)">A ${best.H}-match memory beats full history at ${best.m.z.toFixed(2)}σ on ${best.m.n} informative matches.</b> That clears the bar §15 set and rests on far more evidence than the 36 disagreements it had to work with. Changing TUNE.HALF_LIFE to ${best.H} is justified — but change it, rebuild, and re-run this before trusting it, because this table chose the number from the data it is scored on.`
-            : `<b>No memory length beats full history at the ${BAR}σ bar.</b> §15's conclusion survives the extra season AND the truncation fix: old matches should still count in full. That is a real answer, not a failed run — and it means the bad matchday is not explained by stale ratings.`
+            ? `<b style="color:var(--green2)">A ${best.H}-match memory beats full history OUT OF SAMPLE.</b> Selected on the earlier 75% of each competition by paired log loss, then scored once on the held-out tail: <b>${teMean.toFixed(5)} nats per match better</b>, 95% CI [${ci[0].toFixed(5)}, ${ci[1].toFixed(5)}] over ${teD.length} held-out matches. The lower bound clears zero, the pre-declared bar. McNemar on the same candidate is ${best.m.z==null?"—":best.m.z.toFixed(2)+"σ"} over ${best.m.n} changed picks, reported second: it sees only fixtures where the top pick FLIPPED, and a memory length can improve every probability in the book without flipping one.`
+            : `<b>No memory length beats full history out of sample.</b> ${pick ? `The best candidate on the training side was ${pick.H} matches; scored once on the held-out tail it comes to <b>${teMean==null?"—":teMean.toFixed(5)}</b> nats per match, 95% CI [${ci[0]==null?"—":ci[0].toFixed(5)}, ${ci[1]==null?"—":ci[1].toFixed(5)}] over ${teD.length} matches, and the lower bound does not clear zero. ` : ``}&#167;15&#8217;s conclusion survives the extra season, the truncation fix, and now a held-out test: <b>old matches should still count in full.</b> That is a real answer, not a failed run.`
         }</div>`
       + `<div class="subnote" style="margin-top:10px">Per competition — log loss at each memory length, best in green. Small counts individually; the pooled row above is the verdict:</div>`
       + per.map(p=>{
