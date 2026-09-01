@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 247;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 248;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3320,6 +3320,27 @@ function gateEdgeFor(L){
   return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
 }
 
+/* ══ BUILD 248 — DID THIS COMPETITION ACTUALLY REACH THE TARGET? ════════════════════════════════
+   `autoGate` has computed `met` since build 129 and NOTHING HAS EVER READ IT — one occurrence in the
+   whole file, its own definition, for 119 builds. It matters because of the fallback two lines above
+   it: when no threshold/edge cell reaches GATE_TARGET, the search still returns `ready:true` with the
+   BEST OBSERVED cell, and the app applies that bar.
+
+   🚨 THE BAR WAS FINE. THE SENTENCE WAS NOT. `gateBarFor` clamps with `Math.max(MIN_PROB, bar)`, so
+   an unmet gate is never LOOSER than the global default and no pick was published that should not
+   have been. What was wrong is that the app told the user this bar "is the lowest level at which
+   this league's own past predictions actually delivered 75%" — which, when `met` is false, is a
+   claim about a thing that did not happen. Milestone 8's rule is that every number on screen is
+   measured or absent, and that sentence was neither.
+
+   PUBLISHING BEHAVIOUR IS DELIBERATELY UNCHANGED. Making an unmet gate fall back to the global bar
+   would alter WHAT PUBLISHES, and that is a separate change needing its own measurement. This build
+   fixes what the app SAYS, and nothing else. */
+function gateMetFor(L){
+  const g = (L && afState.gate) ? afState.gate[L.id] : null;
+  return !!(g && g.met);
+}
+
 /* One walk-forward pass, every threshold scored from it. The rungs for a match do not depend on the
    bar — only WHICH rung gets published does — so the expensive part (predicting) happens once and
    the candidates are swept over the stored rungs for free. */
@@ -3387,7 +3408,14 @@ const GATE_TEXT = {
   unpriced:'Not priced'
 };
 const GATE_WHY = {
-  low:    (p, bar) => `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. That bar is not a guess — it is the lowest level at which this league's own past predictions actually delivered ${pct(GATE_TARGET)}, measured match by match. Below it, calls like this one land about two times in three, which is not often enough to put in front of you as a tip.`,
+  /* BUILD 248 — TWO SENTENCES, BECAUSE ONLY ONE OF THEM IS TRUE AT A TIME. The original claimed the
+     bar is where this league "actually delivered" the target. That holds only when `met` is true;
+     when the search found no cell reaching it, the bar is the best level OBSERVED and the target was
+     not reached here at all. Saying so is not a weaker claim, it is the honest one — and a
+     competition that cannot reach the target is exactly the competition a user should be told about. */
+  low:    (p, bar, met) => met
+    ? `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. That bar is not a guess — it is the lowest level at which this league's own past predictions actually delivered ${pct(GATE_TARGET)}, measured match by match. Below it, calls like this one land about two times in three, which is not often enough to put in front of you as a tip.`
+    : `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. ⚠ In this league the engine has never reached ${pct(GATE_TARGET)} at any threshold tested — that bar is the best level its own past predictions managed, not a level they delivered. So calls here are withheld more readily, and this competition carries no measured edge.`,
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`
 };
@@ -4099,7 +4127,29 @@ function nextMatchday(){
    prefer them. Re-ranking markets on n=8 would be fitting to noise, which is what the holdout caught
    at M14 and the standard errors caught at M15. The M15 audit is the instrument that settles it and
    it needs sample, not a build. */
-const DAILY_MARKETS = new Set(['1X2','DNB','DC','OU25','OU35','BTTS']);
+/* ══ BUILD 248 — DRAW NO BET LEAVES THE DAILY TIERS, BECAUSE A TIER IS A PROMISE ABOUT ONE NUMBER
+   An independent review found the defect and it is real. A DNB probability is CONDITIONAL on the
+   match not drawing (`pW/(pW+pL)`), and a drawn DNB leg VOIDS: the stake comes back, the slip
+   survives, and the accumulator pays LESS than the price on the card. So on any DNB-containing
+   slip there is no single event for which both of these are true at once:
+       - P(all legs land) equals the product of the displayed probabilities, and
+       - the return equals the product of 1/p.
+   The card asserted both. It multiplied conditional probabilities, printed one fixed return, said
+   'every one must win', and called the complement 'the chance this loses' — when a void is not a
+   loss. `dailyLogGrade` then counted the void as a won leg and the tracker paid the FULL stored
+   odds, overstating profit and ROI on exactly those slips.
+
+   🚨 WHY REMOVAL RATHER THAN A RANGE. The Slip Generator already shows a return RANGE for DNB and
+   that is correct there. It cannot work here: `dailyBandSearch` selects a combination whose product
+   lands inside a BAND, and the three tiers are sold as ~2.00 / ~5.00 / ~10.00. A leg whose payout
+   is not known until kick-off makes the tier's own number indeterminate — a 'Value 5.00' slip could
+   return 3.80. Removing DNB keeps a tier a promise about ONE number; the alternative is to keep the
+   leg and give up the promise. DNB is unaffected in the Slip Generator, where the range is shown.
+
+   ⚠ REMOVED IN TWO PLACES ON PURPOSE. The market is dropped from the candidate set (cheaper — the
+   selections are never built) AND the two codes are floored to null below (the semantic statement).
+   Either alone would work; both means a future edit cannot re-admit DNB by touching one list. */
+const DAILY_MARKETS = new Set(['1X2','DC','OU25','OU35','BTTS']);
 
 /* ══ BUILD 239 — TRUE ACCUMULATOR TARGETS, PER-MARKET FLOORS, AND AN EXACT BAND SEARCH ══════════
    Ken: "You set the tier targets as single-leg odds limits rather than combined slip multiplier
@@ -4183,7 +4233,9 @@ const DAILY_FLOORS = { 'Winner':0.75, 'Double Chance':0.76, 'Draw No Bet':0.65, 
 const DAILY_FLOOR_PRIMARY = {
   '1':0.75, 'X':0.75, '2':0.75,          // draw: peaks at 43.5%, so never eligible — recorded, not hidden
   '1X':0.76, 'X2':0.85,                  // X2 raised: -2.0 ±1.8 at 0.76; clean (-0.5 ±2.6) from 0.85
-  '1D':0.65, '2D':0.65,
+  /* BUILD 248 — null, not a number: Draw No Bet cannot be priced as one fixed slip return.
+     See DAILY_MARKETS above. `null` is the same 'never offered' mechanism BTTS No uses. */
+  '1D':null, '2D':null,
   'BTS':0.60, 'NBT':null,                // null = never eligible. No calibrated threshold exists.
   'O15':0.60, 'O25':0.60, 'O35':0.60,
   'U15':0.78, 'U25':0.78, 'U35':0.80     // U35 raised to where calibration holds (-1.6 ±2.1)
@@ -4205,9 +4257,9 @@ const DAILY_FLOOR_PRIMARY = {
    price range they select.** The Under codes and the draw are deliberately NOT lowered — they are the
    weakest-calibrated group and Ken's build-241 rule that Unders must not clear by default still holds. */
 const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, {
-  '1':0.55, '1X':0.55, '1D':0.55,        // home side: calibrated at every threshold measured
+  '1':0.55, '1X':0.55,                   // home side: calibrated at every threshold measured
   'BTS':0.55, 'O15':0.55, 'O25':0.55, 'O35':0.55,
-  '2':0.64, '2D':0.79                    // away side: only honest above these
+  '2':0.64                               // away side: only honest above this
 });
 
 const DAILY_FLOOR_STEPS = [
@@ -4412,7 +4464,7 @@ function dailyLogGrade(rows){
     for(const m of (L.matches || []))
       if(m.hg != null && m.ag != null) res[m.date + '|' + m.home + '|' + m.away] = m;
   return rows.map(r => {
-    let settled = 0, won = 0;
+    let settled = 0, won = 0, voidOdds = 1;
     for(const l of r.legs){
       const m = res[l.d + '|' + l.h + '|' + l.a];
       if(!m) continue;
@@ -4420,10 +4472,21 @@ function dailyLogGrade(rows){
       const g = gradePick(l.code, actual, m.hg, m.ag);
       if(g === 'hit'){ settled++; won++; }
       else if(g === 'miss'){ settled++; }
-      else if(g === 'void'){ settled++; won++; }     // stake returned on that leg; slip survives it
+      else if(g === 'void'){
+        /* 🚨 BUILD 248 — A VOID IS NOT A WON LEG AT THE PRICE ON THE CARD. The slip survives it, so
+           `won++` was right about survival and wrong about money: the tracker then paid `r.odds`,
+           the product that still contained this leg's price. The realised accumulator drops that
+           leg to 1.00, which is exactly multiplying the stored odds by this leg's probability.
+           New daily slips cannot contain DNB at all (see DAILY_MARKETS); this path exists because
+           rows written BEFORE build 248 can, and a ledger that silently re-prices its own history
+           would be worse than the bug. */
+        settled++; won++; voidOdds *= (l.p != null ? l.p : 1);
+      }
     }
     const complete = settled === r.legs.length;
-    return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length });
+    const realised = +(r.odds * voidOdds).toFixed(4);
+    return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length,
+                                  realisedOdds: realised, hadVoid: voidOdds !== 1 });
   });
 }
 
@@ -4457,7 +4520,9 @@ function renderDailyTracker(){
        not in yet would report a loss that has not happened. */
     const staked = done.length * DAILY_STAKE;
     const wonRows = done.filter(r => r.hit);
-    const payout = wonRows.reduce((s, r) => s + r.odds * DAILY_STAKE, 0);
+    /* BUILD 248 — the REALISED price, not the price on the card. Identical for every slip
+       without a void, which is every slip written from build 248 onward. */
+    const payout = wonRows.reduce((s, r) => s + (r.realisedOdds != null ? r.realisedOdds : r.odds) * DAILY_STAKE, 0);
     const profit = payout - staked;
     const roi = staked ? (profit / staked) * 100 : 0;
     const col = profit >= 0 ? 'var(--green2)' : 'var(--red)';
@@ -4973,7 +5038,7 @@ async function analyze(){
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
-        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL));
+        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL));
       } else {
         const baseLine = hp.solo
           ? "The engine's headline call for this match"
