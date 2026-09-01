@@ -829,7 +829,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 248;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 252;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3261,8 +3261,12 @@ const GATE_MIN_N      = 120;                               // picks that must cl
    league", and by build 128 three of them had their own copy of the same chain. Every time this
    project has kept two copies of one idea they have drifted (§34, §38, §43, and the rung list in
    §46). One function. */
-function pickBaseline(L, code){
-  const NP = fxNeutral(L); if(!NP) return null;
+/* ══ BUILD 249 — THE BASELINE IS PURE NOW, BECAUSE ONE CALLER NEEDS IT AS AT A CUTOFF ══════════
+   Split out of `pickBaseline` unchanged: same arithmetic, same codes. What changes is that a caller
+   can hand in a neutral fixture built to any point in history instead of always the whole league.
+   See `autoGate` for why that mattered. */
+function baselineFrom(NP, code){
+  if(!NP) return null;
   const gm = GOAL_MARKETS[code], nd = NP.pW + NP.pL;
   return gm ? gm.base(NP)
        : code==='1'  ? NP.pW : code==='X' ? NP.pD : code==='2' ? NP.pL
@@ -3270,6 +3274,10 @@ function pickBaseline(L, code){
        : code==='2D' ? (nd>0 ? NP.pL/nd : 0)
        : code==='1X' ? NP.pW + NP.pD : NP.pD + NP.pL;
 }
+/* THE LIVE PATH IS UNCHANGED AND IS CORRECT AS IT STANDS. For a fixture that has not kicked off,
+   every loaded match IS the past, so the whole-league neutral is the right baseline. The leak was
+   only ever in the historical loop. */
+function pickBaseline(L, code){ return baselineFrom(fxNeutral(L), code); }
 /* BUILD 141 — form margin for a fixture that has NOT been played yet.
    The test panels walked history and could read each team's prior results as they went. The live
    feed cannot: it needs the last N results for two named teams as of today. Same definition —
@@ -3355,10 +3363,27 @@ function autoGate(L){
      off the same walk-forward pass, so the joint search is free. */
   const cells = [];
   for(const T of GATE_CANDIDATES) for(const E of GATE_EDGE_FLOORS) cells.push({T, E, n:0, hit:0, voids:0});
+  /* 🚨 BUILD 249 — THE EDGE BASELINE WAS NOT WALK-FORWARD, AND THIS GATE DECIDES WHAT PUBLISHES.
+     Found by an independent review, verified, and it is real. The PREDICTION at match i was always
+     walk-forward — `tmp.predict(home, away, i)` sees only earlier matches. The EDGE FILTER was not:
+     it called `pickEdge(L, ...)` -> `pickBaseline(L, ...)` -> `fxNeutral(L)`, which builds the
+     league-average fixture from `L.matches` ENTIRE — including match i and every match after it.
+
+     So each historical pick was filtered against a baseline that knew the rest of the season. That
+     baseline is what decides whether a pick has "edge over an average match here", and the surviving
+     picks are what the bar is fitted to. **A gate chosen with future information is not a measured
+     gate**, and the app quotes it to users as one.
+
+     The correct pattern already existed 3,000 lines away, in the dispersion study: `tmp.neutral(i)`,
+     refreshed periodically rather than per match because a league average moves slowly and rebuilding
+     it 2,000 times would dominate the run. Same cadence here — every `NEUTRAL_EVERY` matches. */
+  const NEUTRAL_EVERY = 25;
+  let nAsAt = null, nAt = -1e9;
   for(let i=start;i<ms.length;i++){
     const m = ms[i];
     if(m.hg == null || m.ag == null) continue;
     const p = tmp.predict(m.home, m.away, i); if(!p) continue;
+    if(i - nAt >= NEUTRAL_EVERY){ try{ nAsAt = tmp.neutral(i); }catch(e){ nAsAt = null; } nAt = i; }
     const rungs = rungsFor(p);
     const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
     for(const c of cells){
@@ -3366,7 +3391,8 @@ function autoGate(L){
       if(!r) continue;                                  // nothing clears this bar — nothing published
       /* The edge condition is part of the live gate, so it is part of the measurement too, or the
          bar would be fitted to a policy the app does not actually run. */
-      const e = pickEdge(L, r.code, r.prob);
+      const b = baselineFrom(nAsAt, r.code);          // build 249 — as at match i, never the whole league
+      const e = (b == null || r.prob == null) ? null : r.prob - b;
       if(e != null && e <= c.E) continue;
       const g = gradePick(r.code, act, m.hg, m.ag);
       if(g === 'void'){ c.voids++; continue; }           // a drawn DNB returns the stake — not a loss
@@ -4256,11 +4282,39 @@ const DAILY_FLOOR_PRIMARY = {
    **Nothing here is a relaxation of standards: both steps are honestly priced, they differ in the
    price range they select.** The Under codes and the draw are deliberately NOT lowered — they are the
    weakest-calibrated group and Ken's build-241 rule that Unders must not clear by default still holds. */
-const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, {
-  '1':0.55, '1X':0.55,                   // home side: calibrated at every threshold measured
-  'BTS':0.55, 'O15':0.55, 'O25':0.55, 'O35':0.55,
-  '2':0.64                               // away side: only honest above this
-});
+/* 🚨 BUILD 251 — THE FALLBACK FLOOR SET IS RETIRED. IT WAS NEVER SUPPORTED.
+   Build 245 derived it with `gap + 2*SE >= 0`, which asks whether zero sits below the UPPER end of
+   the interval. That accepts "harm not proven" rather than showing calibration, and it gets EASIER
+   to pass as the sample shrinks — backwards. An independent review killed the criterion and it was
+   right to.
+
+   RE-DERIVED UNDER A PRE-REGISTERED ONE-SIDED TEST — `gap - 1.645*SE >= -0.01`, required at the
+   floor and every threshold above it, n >= 300 — on the earliest 70% of days ONLY (2022-04-26 to
+   2025-04-24), then scored once on the latest 30% (2025-04-25 to 2026-08-30):
+
+       code   honest floor   what the fallback used   lowering justified?
+       1          0.75                0.55                   NO
+       2          0.75                0.64                   NO
+       1X         0.76                0.55                   NO
+       O25        0.60                0.55                   NO
+       O35        0.60                0.55                   NO
+       BTS        0.60                0.55                   NO
+
+   **Every code the fallback lowered, the honest criterion says must not be lowered.** The derived
+   set came back IDENTICAL to the primary floors on all twelve reachable codes.
+
+   🚨 AND IT WAS COSTING A CLAIM, NOT JUST RIGOUR. Scored on the held-out 30%, the shipped fallback
+   gave Bold **9.3% observed against 11.1% claimed** — the card was over-stating its own win chance,
+   the one thing Milestone 8 forbids. The honest floors on the same held-out days: Safe +3.4, Value
+   +2.6, Bold +3.5, all ABOVE fair, none of them clearing its 95% interval.
+
+   COST, STATED PLAINLY: buildability falls from about 90/83/75% of days to 79/65/53%. That is a
+   product loss taken deliberately, because the alternative is a number on screen that is wrong.
+   `dailyBestEffort` still fills what it can and still says when it fell short.
+
+   The ladder keeps its SHAPE — one step today, and a second is a one-line change the day a floor
+   set earns one on a fresh holdout. */
+const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY);
 
 const DAILY_FLOOR_STEPS = [
   { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
@@ -4425,8 +4479,20 @@ function dailyLogRead(){
   try { const r = JSON.parse(localStorage.getItem(DAILY_LOG_KEY) || '[]'); return Array.isArray(r) ? r : []; }
   catch(_) { return []; }
 }
+/* ══ BUILD 252 — THE CAP GETS A NAME AND THE UI STOPS CALLING A WINDOW "ALL TIME" ══════════════
+   An independent review: the log keeps the last 400 rows, so at three tiers a day "All time"
+   becomes the last ~133 days and quietly stops being all time. It is a plausible label over a
+   number that no longer matches it — the same shape as the gate telling users a bar "actually
+   delivered 75%" when it had not (build 248), and as `mm_state` sizes counted in characters while
+   the browser billed UTF-16 (build 232).
+
+   Two changes, both small. The magic 400 becomes `DAILY_LOG_MAX`, so the number the UI quotes and
+   the number the writer enforces cannot drift apart. And the filter is labelled FROM THE DATA —
+   the earliest day actually held — instead of asserting a span nobody checked. A label derived
+   from what is there cannot go stale; a label typed once always can. */
+const DAILY_LOG_MAX = 400;
 function dailyLogWrite(rows){
-  try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(rows.slice(-400))); return true; }
+  try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(rows.slice(-DAILY_LOG_MAX))); return true; }
   catch(e){ return false; }          // quota — build 196's rule: never throw out of a save
 }
 
@@ -4465,11 +4531,13 @@ function dailyLogGrade(rows){
       if(m.hg != null && m.ag != null) res[m.date + '|' + m.home + '|' + m.away] = m;
   return rows.map(r => {
     let settled = 0, won = 0, voidOdds = 1;
+    const legGrades = r.legs.map(()=>null);
     for(const l of r.legs){
       const m = res[l.d + '|' + l.h + '|' + l.a];
       if(!m) continue;
       const actual = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
       const g = gradePick(l.code, actual, m.hg, m.ag);
+      legGrades[r.legs.indexOf(l)] = g;              // build 250 — a past card shows what each leg did
       if(g === 'hit'){ settled++; won++; }
       else if(g === 'miss'){ settled++; }
       else if(g === 'void'){
@@ -4486,8 +4554,29 @@ function dailyLogGrade(rows){
     const complete = settled === r.legs.length;
     const realised = +(r.odds * voidOdds).toFixed(4);
     return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length,
-                                  realisedOdds: realised, hadVoid: voidOdds !== 1 });
+                                  realisedOdds: realised, hadVoid: voidOdds !== 1,
+                                  legGrades: legGrades, settledLegs: settled });
   });
+}
+
+/* ══ BUILD 250 — LOOKING BACK AT PAST SLIPS ═════════════════════════════════════════════════════
+   Ken: "i need to be able to see previous results of the smart bet, maybe a back button to show the
+   previous smart bets, should store for at least up to a month."
+
+   🚨 A PAST DAY IS READ FROM THE LEDGER, NEVER RECOMPUTED. Rebuilding yesterday's card with today's
+   floors would show a slip that was never offered, and the selection rules have changed six times
+   in a fortnight. `mm_dailyslips` already stores what was actually shown, insert-once, so the back
+   button reads it. That is the same rule that keeps the tracker forward-only (build 242).
+
+   Retention: the log keeps the last 400 rows, which at three tiers a day is about 133 days — well
+   past the month asked for. The cap is stated on screen rather than left to be discovered. */
+function dailySlipView(){ window.__dsv = window.__dsv || { back: 0 }; return window.__dsv; }
+
+/* Distinct recorded days, newest first. Today is always index 0 whether or not it has rows yet. */
+function dailyLogDays(){
+  const days = {}; for(const r of dailyLogRead()) days[r.day] = 1;
+  const today = todayStrLocal(); days[today] = 1;
+  return Object.keys(days).sort().reverse();
 }
 
 function dailyTrackerState(){
@@ -4505,8 +4594,22 @@ function renderDailyTracker(){
 
   const chip = (label, on, attr) => '<button class="sfchip' + (on ? ' active' : '') + '" ' + attr + '>' + label + '</button>';
   const tierRow = DAILY_TIERS.map(t => chip(escapeHtml(t.name), st.tier === t.key, 'data-dt-tier="' + t.key + '"')).join('');
-  const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,'All time']]
-                    .map(([d,l]) => chip(l, st.days === d, 'data-dt-days="' + d + '"')).join('');
+  /* BUILD 252 — the all-days chip names the earliest day the log actually holds. When the log is
+     at its cap it has already dropped older entries, and saying "All time" over that is a claim
+     the data does not support. `allLog` is every tier, not the selected one, because the CAP is
+     shared: 400 rows is ~133 days at three tiers, and filtering first would overstate the span. */
+  const allLog  = dailyLogRead();
+  const earliest = allLog.length ? allLog.map(r => r.day).sort()[0] : null;
+  const capped  = allLog.length >= DAILY_LOG_MAX;
+  const allLabel = earliest ? (capped ? 'Since ' + earliest : 'All recorded') : 'All recorded';
+  /* When the cap has bitten, say so where the rate is read rather than only in the chip label. A
+     span that silently shortened is how a long-run figure quietly becomes a short-run one. */
+  const capNote = capped
+    ? '<div class="subnote">The log is at its ' + DAILY_LOG_MAX + '-entry limit, so days before '
+      + escapeHtml(String(earliest)) + ' have been dropped. This is not a lifetime record.</div>'
+    : '';
+  const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,allLabel]]
+                    .map(([d,l]) => chip(escapeHtml(l), st.days === d, 'data-dt-days="' + d + '"')).join('');
 
   let metrics;
   if(!done.length){
@@ -4526,8 +4629,13 @@ function renderDailyTracker(){
     const profit = payout - staked;
     const roi = staked ? (profit / staked) * 100 : 0;
     const col = profit >= 0 ? 'var(--green2)' : 'var(--red)';
-    const cell = (k, v, c) => '<div class="shcell"><span class="shk">' + k + '</span>'
-      + '<span class="shv"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</span></div>';
+    /* 🚨 BUILD 252 — THE SAME DEAD STYLESHEET HOOK, IN A SECOND PLACE. Build 250 found that the
+       slip card emitted `shk`/`shv`, which the stylesheet does not define, and fixed the card. It
+       did not look next door: this tracker had the identical fault, so Win rate / Net profit / ROI
+       have been rendering unstyled the whole time. Fixing one instance of a class of bug and not
+       sweeping for the class is what build 155's League Table did, and build 110 before it. */
+    const cell = (k, v, c) => '<div class="shcell"><span class="k">' + k + '</span>'
+      + '<span class="v"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</span></div>';
     metrics = '<div class="sliphead">'
       + cell('Win rate', wonRows.length + ' / ' + done.length + ' · ' + Math.round(100 * wonRows.length / done.length) + '%')
       + cell('Net profit', (profit >= 0 ? '+' : '−') + '$' + Math.abs(profit).toFixed(2), col)
@@ -4542,7 +4650,7 @@ function renderDailyTracker(){
   box.innerHTML = '<div class="card"><h2>📈 Performance &amp; profit tracker</h2>'
     + '<div class="sfilters" style="margin-bottom:6px">' + tierRow + '</div>'
     + '<div class="sfilters" style="margin-bottom:10px">' + dayRow + '</div>'
-    + metrics
+    + metrics + capNote
     + '<div class="subnote">Odds are the engine’s fair price, so this measures whether the slips '
     + 'LAND at the rate claimed — not what a bookmaker would have paid. Kept on this device only.</div>'
     + '</div>';
@@ -4553,8 +4661,91 @@ function renderDailyTracker(){
     b.addEventListener('click', () => { st.days = +b.getAttribute('data-dt-days'); renderDailyTracker(); }));
 }
 
+/* ══ BUILD 250 — A RECORDED DAY, REPLAYED FROM THE LEDGER ═══════════════════════════════════════
+   🚨 NEVER RECOMPUTED. Rebuilding a past card with today's floors would display a slip that was
+   never offered — and the selection rules changed six times in the fortnight before this was
+   written. `mm_dailyslips` holds what was actually shown, insert-once, so this reads it back and
+   grades it. Same rule that keeps the tracker forward-only (build 242). */
+function dailyPastCards(day){
+  const rows = dailyLogGrade(dailyLogRead()).filter(r => r.day === day);
+  if(!rows.length) return '<div class="card"><div class="subnote">No slips were recorded on this day.</div></div>';
+  const byTier = {}; for(const r of rows) byTier[r.tier] = r;
+  let out = '';
+  for(const tier of DAILY_TIERS){
+    const r = byTier[tier.key];
+    if(!r){ out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
+          + '<div class="subnote">Not buildable that day.</div></div>'; continue; }
+    const paid = (r.realisedOdds != null ? r.realisedOdds : r.odds);
+    const status = !r.complete
+      ? '<span style="color:var(--muted)">' + r.settledLegs + ' of ' + r.legs.length + ' settled</span>'
+      : r.hit ? '<span style="color:var(--green2)">WON &middot; +$' + (10 * (paid - 1)).toFixed(2) + '</span>'
+              : '<span style="color:var(--red)">LOST &middot; -$10.00</span>';
+    out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
+         + '<div class="sliphead">'
+         + '<div class="shcell"><span class="k">Odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>'
+         + '<div class="shcell"><span class="k">Result</span><span class="v" style="font-size:.86rem">' + status + '</span></div>'
+         + '<div class="shcell"><span class="k">Legs</span><span class="v">' + r.legs.length + '</span></div>'
+         + '</div>'
+         + r.legs.map((l, i) => {
+             const g = r.legGrades ? r.legGrades[i] : null;
+             const mark = g === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
+                        : g === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
+                        : g === 'void' ? '<span style="color:var(--gold)">VOID</span>'
+                        : '<span style="color:var(--muted)">&middot;</span>';
+             return '<div class="slipleg">'
+               + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
+               + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String(chipCode(l.code) || l.code || '')) + '</span>'
+               + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
+               + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
+               + '<span class="lgodds">' + mark + '</span></div></div>';
+           }).join('')
+         /* A slip that contained a voided leg did NOT pay the price on its card. Build 248 fixed the
+            arithmetic; this says so on the row itself, because a silent re-price is its own defect. */
+         + (r.hadVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
+                        + ', not ' + r.odds.toFixed(2) + '.</div>' : '')
+         + '</div>';
+  }
+  return out;
+}
+
+/* The back/forward bar. Only days the ledger actually holds are reachable, so the control cannot
+   offer a day it has nothing to show for. */
+function dailyNavBar(days, idx){
+  const label = idx === 0 ? 'Today' : days[idx];
+  const btn = (dir, txt, on) => '<button class="sfchip"' + (on ? '' : ' disabled style="opacity:.4"')
+        + ' data-ds-nav="' + dir + '">' + txt + '</button>';
+  return '<div class="row" style="gap:8px; align-items:center; margin:6px 0 10px">'
+       + btn('back', '‹ Earlier', idx < days.length - 1)
+       + '<span class="muted" style="flex:1; text-align:center; font-weight:700; font-size:.82rem">'
+       + escapeHtml(label) + '</span>'
+       + btn('fwd', 'Later ›', idx > 0) + '</div>';
+}
+
 function renderDailySlips(){
   const box = $('dailySlips'); if(!box) return;
+  /* BUILD 250 — the day being viewed. 0 is today and is computed live; anything else is replayed
+     from the ledger by `dailyPastCards`, never rebuilt with today's rules. */
+  const days = dailyLogDays(), view = dailySlipView();
+  if(view.back >= days.length) view.back = days.length - 1;
+  if(view.back < 0) view.back = 0;
+  const navBar = dailyNavBar(days, view.back);
+  const wire = () => {
+    box.querySelectorAll('[data-ds-nav]').forEach(b2 => b2.addEventListener('click', () => {
+      const v = dailySlipView();
+      v.back += (b2.getAttribute('data-ds-nav') === 'back') ? 1 : -1;
+      renderDailySlips();
+    }));
+  };
+  if(view.back > 0){
+    box.innerHTML = '<div class="sec-label" style="margin-top:6px">Past slips</div>' + navBar
+      + dailyPastCards(days[view.back])
+      + '<div class="subnote">Recorded as shown on the day. The log keeps the last '
+      + DAILY_LOG_MAX + ' entries — about ' + Math.floor(DAILY_LOG_MAX / DAILY_TIERS.length / 30)
+      + ' months at ' + DAILY_TIERS.length + ' slips a day.</div>';
+    wire();
+    try{ renderDailyTracker(); }catch(e){}
+    return;
+  }
   const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
   if(!cands.length){
     const nx = (typeof nextMatchday === 'function') ? nextMatchday() : null;
@@ -4598,12 +4789,8 @@ function renderDailySlips(){
          what Ken's "do NOT report no target met by holding an arbitrary threshold" asks us to avoid
          WITHOUT dropping the floors he set in the same message. So the card names the ceiling the
          day actually offers. */
-      const bd = tier.band[0].toFixed(2) + '\u2013' + tier.band[1].toFixed(2);
-      body = '<div class="subnote"><b style="color:var(--gold)">Not enough fixtures today to build '
-           + tier.minLegs + ' legs.</b> '
-           + 'Both the primary and the wider calibrated floors were tried, and the day offers '
-           + (aim.pool || 0) + ' qualifying fixture' + ((aim.pool === 1) ? '' : 's') + ', '
-           + 'short of the ' + tier.minLegs + ' this tier needs. No combination lands in ' + bd + '. '
+      body = '<div class="subnote"><b style="color:var(--gold)">Not enough qualifying fixtures today.</b> '
+           + 'This tier needs ' + tier.minLegs + ' legs; the day offers ' + (aim.pool || 0) + '. '
            + 'Legs are never invented to fill the card.</div>';
     } else {
       /* THE NUMBER SHOWN IS THE NUMBER ACHIEVED (build 218). A tier that cannot reach its target
@@ -4613,14 +4800,21 @@ function renderDailySlips(){
          printing that under a heading promising 'About 10.00' with no word about it would be
          exactly the bluff Milestone 8 forbids. The heading is always the number achieved (218). */
       const miss = effort
-        ? '<div class=\u0022subnote\u0022><b style=\u0022color:var(--gold)\u0022>Short of this tier\u2019s ' + band + ' band.</b> '
-          + 'Today\u2019s calibrated legs multiply to ' + reached.toFixed(2) + ' at best, so this is the '
-          + 'closest honest slip to ' + tier.target.toFixed(2) + ' rather than a slip at it.</div>'
-        : (step && step.note ? '<div class=\u0022subnote\u0022>' + step.note + '</div>' : '');
+        ? '<div class="subnote"><b style="color:var(--gold)">Short of ' + tier.target.toFixed(2) + '.</b> '
+          + 'Today’s legs reach ' + reached.toFixed(2) + ' at best.</div>'
+        : '';
+      /* 🚨 BUILD 250 — TWO FAULTS IN THREE CELLS, BOTH REPORTED BY KEN.
+         1. THE CELLS WERE NEVER STYLED. The stylesheet defines `.shcell .k` and `.shcell .v`; this
+            card emitted `shk`/`shv`, which match nothing — so the label and the value rendered as
+            two bare inline spans, no uppercase key, no large figure, no line break. The Slip
+            Generator emits `k`/`v` and looks right, which is why only this card was ugly.
+         2. "$10 returns $50.00" IS THE RETURN, NOT THE PROFIT, and Ken read it as profit — which is
+            the natural reading of a card about winnings. Never arithmetically wrong; ambiguously
+            labelled. It shows PROFIT now, signed. */
       body = '<div class="sliphead">'
-           + '<div class="shcell"><span class="shk">Odds</span><span class="shv">' + reached.toFixed(2) + '</span></div>'
-           + '<div class="shcell"><span class="shk">To land</span><span class="shv">' + (100 * comb).toFixed(1) + '%</span></div>'
-           + '<div class="shcell"><span class="shk">$10 returns</span><span class="shv">$' + (10 * reached).toFixed(2) + '</span></div>'
+           + '<div class="shcell"><span class="k">Odds</span><span class="v">' + reached.toFixed(2) + '</span></div>'
+           + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
+           + '<div class="shcell"><span class="k">Profit on $10</span><span class="v" style="color:var(--green2)">+$' + (10 * (reached - 1)).toFixed(2) + '</span></div>'
            + '</div>'
            + legs.map(l => '<div class="slipleg">'
                + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.f.home + ' v ' + l.f.away)) + '</span>'
@@ -4630,16 +4824,28 @@ function renderDailySlips(){
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
                + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></div>').join('')
            + miss
-           + '<div class="subnote">' + legs.length + ' leg' + (legs.length === 1 ? '' : 's')
-           + ' \u00b7 every one must win \u2014 <b>' + (100 * (1 - comb)).toFixed(0) + '% chance this loses</b>. '
-           + 'Fair odds from engine probabilities; a bookmaker\u2019s will differ.</div>';
+           + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price</div>';
     }
     if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', effort);   // insert-once, build 199's rule
-    cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
-           + '<div class="subnote" style="margin-top:-4px">' + tier.blurb + '</div>' + body + '</div>';
+    /* BUILD 250 — `tier.blurb` is gone. It restated the target and the leg count, which the header
+       and the legs line already carry. Ken: "there are too much writings there." */
+    cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>' + body + '</div>';
   }
-  box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + cards
-    + '<div class="subnote">Targets 2.00 / 5.00 / 10.00. <b>Floors are per selection and measured</b> - each is the lowest confidence at which that selection still lands as often as it claims, over 15,022 walk-forward fixtures. If the primary floors cannot fill a tier, the wider calibrated range is tried and the card says so. BTTS No is excluded: it has no honest threshold at any confidence. BTTS and Over rank ahead of Under. Tiers are a product choice, not a measured result.</div>';
+  /* BUILD 250 — the long footer moved into a <details>. Ken: "there are too much writings there."
+     COLLAPSED, NOT DELETED: every clause in it is an honesty obligation (which floors, why a
+     fallback exists, what is excluded and why, that the tiers are chosen rather than measured) and
+     Milestone 8 requires those to be available. A disclosure keeps them one tap away instead of
+     making the card unreadable. */
+  box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + navBar + cards
+    + '<details class="subnote"><summary style="cursor:pointer">How these are built</summary>'
+    + 'Targets 2.00 / 5.00 / 10.00. <b>Floors are per selection and measured</b> - each is the lowest '
+    + 'confidence at which that selection still lands as often as it claims, over 15,022 walk-forward '
+    + 'fixtures. If the primary floors cannot fill a tier, a wider calibrated range is tried and the '
+    + 'card says so. Draw No Bet is excluded because a voided leg makes the payout indeterminate; '
+    + 'BTTS No is excluded because it has no honest threshold at any confidence. BTTS and Over rank '
+    + 'ahead of Under. Odds are the engine fair price, so a tier target IS its win chance; a '
+    + 'bookmaker price will differ. Tiers are a product choice, not a measured result.</details>';
+  wire();
   try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
 }
 
@@ -12025,7 +12231,12 @@ function slipPool(cands, riskPct){
 
    If DC or goals legs should ever count toward the published record, that is its own decision with
    its own measurement — build 234's note, kept. */
-const SLIP_RECORD_MARKETS = new Set(['Winner']);
+/* 🚨 BUILD 251 — `SLIP_RECORD_MARKETS` IS DELETED, NOT LEFT SITTING THERE. Once the slip stopped
+   writing the accuracy record, nothing read it — and a constant that is declared and read by
+   nothing is exactly the fault `met` was for 119 builds (build 248). The rule it encoded is now
+   structural instead of conditional: no slip path calls `recordPick` at all, which is a stronger
+   guarantee than a market whitelist and cannot drift. The reasoning above is kept because it is
+   why Double Chance was safe to give codes to at build 237. */
 
 function genSlip(){
   const cands = slipCandidates({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });
@@ -12150,7 +12361,19 @@ function genSlip(){
   }
   $('reGen').addEventListener('click', genSlipWithSpinner);   // build 219 — same wait, same message
   $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
-  for(const l of legs) if(SLIP_RECORD_MARKETS.has(l.market)) recordPick(l.L.name, {fxid:l.f.fxid, date:l.f.date, home:l.f.home, away:l.f.away, pick:l.code, prob:l.prob});
+  /* 🚨 BUILD 251 — A CUSTOM SLIP NO LONGER WRITES THE ACCURACY RECORD. Found by an independent
+     review and verified. `recordPick` checks the publication WINDOW (build 225) but not the GATE,
+     and it de-duplicates by fixture id — so a Winner leg the user generated from their own slider
+     settings could land in the record BEFORE the published pick for that fixture and keep it out.
+
+     The consequence is that the figure labelled "Engine record" was a mixture: partly what the app
+     published, partly what this device's owner happened to build, and different on two phones from
+     the same engine. A record whose value depends on which buttons the reader pressed measures
+     nothing, and Milestone 5 exists to make that artefact credible.
+
+     The record is fed by the PUBLICATION paths and by nothing else. Slips remain fully usable;
+     they simply no longer vote on the engine's advertised accuracy. `SLIP_RECORD_MARKETS` becomes
+     unread by this change and is deleted rather than left as a dead constant — see its old site. */
   saveState();
 }
 
