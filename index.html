@@ -803,6 +803,8 @@
     <div id="devStubAuto" hidden aria-hidden="true">
       <div id="m15Btn"></div>
       <div id="m15Out"></div>
+      <div id="gateBtn"></div>
+      <div id="gateOut"></div>
     </div>
 
     </div>
@@ -829,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 256;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 257;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3452,6 +3454,52 @@ function gateReason(L, f, code, prob){
     if(e != null && e <= gateEdgeFor(L)) return 'nobase';
   }
   return null;
+}
+/* ══ BUILD 257 — THE GATE KEPT NO RECORD OF WHAT IT REFUSED ═══════════════════════════════════
+   Measured 2026-09-01 from the database: the archive gained 1 pick on 08-30, 1 on 08-31 and 2 on
+   09-01, from ONE competition each, against 118 fixtures scheduled over the following eight days
+   across up to nine competitions. The writer was healthy — each row carried the build that was live
+   that day — and the fixture supply was normal. So something between the two was refusing almost
+   everything, and NOTHING RECORDED IT.
+
+   `archivePrediction` sits inside `if(!f._fin && !f.gated)`, so a fixture `gateReason` declines
+   writes no row, no counter and no log line. `withheld_at` is a different event entirely: a pick
+   that WAS published and later stopped clearing the bar. That left two candidates that the database
+   cannot separate — the gate working exactly as Milestone 8 designed it, or the league read still
+   failing for most competitions, which is what "one competition" looks like from the outside.
+
+   THIS IS BUILD 129's `met` AGAIN. A decision taken on every fixture on every load, recorded
+   nowhere, invisible until somebody thought to ask. The answer is not a cleverer query — no query
+   can see a decision that was never written down — it is to count it where it happens.
+
+   ⚠ IT COUNTS, IT DOES NOT DECIDE. Nothing here changes what publishes. A census that could alter
+   the thing it measures would be worth less than no census at all.
+
+   THE BUCKETS ARE MUTUALLY EXCLUSIVE AND ORDERED, because a fixture can satisfy several and only
+   the first one that applies explains it:
+     started      the whistle has gone — the gate never ran (build 118)
+     published    already in the archive, so the gate is not asked again (build 199)
+     low          under this competition's MEASURED probability bar
+     nobase       prices, but says nothing the league's base rate does not already say
+     unpriced     the engine could not price this fixture at all
+     far          would publish, but sits beyond PUBLISH_AHEAD_DAYS — NOT a refusal, and the
+                  distinction matters: build 255 narrowed that window from 7 days to 4, so this
+                  bucket is expected to be non-empty and must never read as the gate rejecting
+     publishable  passed everything; archivePrediction was called
+     nomodel      predict() returned nothing for this fixture
+     noengine     the competition has under 15 finished matches, so it has no engine at all */
+let _gateCensus = null;
+function gateCensusReset(){
+  _gateCensus = { at: new Date().toISOString(), build: APP_BUILD,
+                  window: PUBLISH_AHEAD_DAYS, by: {} };
+}
+const GATE_BUCKETS = ['started','published','low','nobase','unpriced','far','publishable',
+                      'nomodel','noengine'];
+function gateCensusAdd(L, bucket){
+  if(!_gateCensus || !L) return;
+  const c = _gateCensus.by[L.id] || (_gateCensus.by[L.id] = { lname: L.name, seen: 0 });
+  c.seen++;
+  c[bucket] = (c[bucket] || 0) + 1;
 }
 const GATE_TEXT = {
   low:    'No strong read',
@@ -6163,6 +6211,84 @@ function recordDrift(f, now){
        record and counting it as a win overstates it, so it is neither (build 119).
      · Picks the model later moved away from, or stopped backing, are FLAGGED and still counted.
        They were published, so they are in the record — that is the whole of build 199. */
+/* BUILD 257 — the census on screen. It reports TWO things side by side, because either one alone
+   is ambiguous: how many competitions actually reached the browser, and what the gate did to the
+   fixtures inside them. "One competition published today" is a gate story if eleven loaded and a
+   league-read story if one did. Nothing here fetches; it reads the load already in memory. */
+function renderGateCensus(){
+  const box = $('gateOut'); if(!box) return;
+  if(!_gateCensus){
+    box.innerHTML = '<div class="subnote">No league load has run yet in this session. Open the '
+      + 'Analysis tab, let the competitions load, then come back — this reads that load rather than '
+      + 'starting one, so it cannot report on a load that never happened.</div>';
+    return;
+  }
+  const ids = Object.keys(_gateCensus.by);
+  const tot = {}; for(const b of GATE_BUCKETS) tot[b] = 0;
+  let seen = 0;
+  for(const id of ids){
+    const c = _gateCensus.by[id]; seen += c.seen;
+    for(const b of GATE_BUCKETS) tot[b] += (c[b] || 0);
+  }
+  const cell = n => '<td style="text-align:right;padding:2px 6px">' + (n || 0) + '</td>';
+  let html = '<div class="frow"><span class="muted">Competitions that reached the browser</span><b>'
+    + ids.length + ' of ' + COMP_IDS.length + '</b></div>'
+    + '<div class="frow"><span class="muted">Upcoming fixtures examined &middot; publication window</span><b>'
+    + seen + ' &middot; ' + _gateCensus.window + ' days</b></div>';
+  if(_loadIssues.length){
+    html += '<div class="subnote"><b style="color:var(--gold)">Failed to load:</b> '
+      + escapeHtml(_loadIssues.join(', ')) + '</div>';
+  }
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:8px">'
+    + '<tr><th style="text-align:left;padding:2px 6px">competition</th>'
+    + '<th style="padding:2px 6px">seen</th><th style="padding:2px 6px">started</th>'
+    + '<th style="padding:2px 6px">published</th><th style="padding:2px 6px">low</th>'
+    + '<th style="padding:2px 6px">nobase</th><th style="padding:2px 6px">unpriced</th>'
+    + '<th style="padding:2px 6px">not yet</th><th style="padding:2px 6px">eligible</th></tr>';
+  for(const id of ids){
+    const c = _gateCensus.by[id];
+    html += '<tr><td style="padding:2px 6px">' + escapeHtml(c.lname || String(id)) + '</td>'
+      + cell(c.seen) + cell(c.started) + cell(c.published) + cell(c.low) + cell(c.nobase)
+      + cell(c.unpriced) + cell(c.far) + cell(c.publishable) + '</tr>';
+  }
+  html += '<tr style="border-top:1px solid var(--line);font-weight:700"><td style="padding:2px 6px">total</td>'
+    + cell(seen) + cell(tot.started) + cell(tot.published) + cell(tot.low) + cell(tot.nobase)
+    + cell(tot.unpriced) + cell(tot.far) + cell(tot.publishable) + '</tr></table></div>';
+  if(tot.noengine || tot.nomodel){
+    html += '<div class="subnote">' + tot.noengine + ' fixture(s) in competitions with under 15 '
+      + 'finished matches, so no engine at all, and ' + tot.nomodel + ' the engine could not price. '
+      + 'Both are separate from the gate and are not refusals.</div>';
+  }
+  /* THE VERDICT NAMES WHAT THE NUMBERS SUPPORT AND NOTHING MORE. Milestone 8's rule applied to a
+     diagnostic: a panel with a conclusion slot that must be filled will invent one. */
+  const refused = tot.low + tot.nobase + tot.unpriced;
+  const live = tot.publishable + tot.far;
+  let verdict;
+  if(ids.length < COMP_IDS.length){
+    verdict = '<b style="color:var(--gold)">' + (COMP_IDS.length - ids.length) + ' competition(s) '
+      + 'never reached the browser.</b> That is a league-read problem and it outranks anything the '
+      + 'gate did — fixtures in a competition that did not load were never offered to the gate at all.';
+  } else if(!seen){
+    verdict = 'Eleven competitions loaded and no upcoming fixture was examined. That is a fixture '
+      + 'supply question, not a gate one.';
+  } else if(refused && !live){
+    const top = tot.low >= tot.nobase && tot.low >= tot.unpriced ? 'under the competition bar'
+              : tot.nobase >= tot.unpriced ? 'no edge over the league base rate' : 'unpriceable';
+    verdict = '<b>Every eligible fixture was refused</b>, mostly ' + top + '. The gate is the whole '
+      + 'explanation for the archive not growing, and whether that is right is a question about the '
+      + 'bar, not about the plumbing.';
+  } else {
+    verdict = tot.publishable + ' fixture(s) passed the gate and are eligible now; ' + tot.far
+      + ' are inside the feed but beyond the ' + _gateCensus.window + '-day window and will become '
+      + 'eligible as they approach. ' + refused + ' were refused. <b>An eligible fixture still only '
+      + 'publishes when a signed-in browser is open on it</b> — that is the remaining gap between '
+      + 'this column and the archive.';
+  }
+  html += '<div class="subnote" style="margin-top:8px">' + verdict + '</div>'
+    + '<div class="subnote">Counted at ' + escapeHtml(_gateCensus.at) + ' by build '
+    + _gateCensus.build + ', on the league load in memory. Reload the Analysis tab for a fresh one.</div>';
+  box.innerHTML = html;
+}
 const LEDGER_DAYS = 30;
 async function renderLedger(){
   const out = $('ledgerOut'); if(!out) return;
@@ -13608,6 +13734,7 @@ async function loadCloudLeagues(force){
         ? { id, pages: results[i].pages, rows: (results[i].data||[]).length } : null)
       .filter(Boolean);
     const leagues = {}, order = [], cf = {};
+    gateCensusReset();     // build 257 — one census per league load, never accumulated across loads
     /* Must cover the 7 days the feed now displays (build 59 widened the date pills but left this at
        3, so days 4-7 had no data AND their picks were never recomputed — which is why a fixture from
        25 July still carried a pre-build-44 '1' code while the detail page computed a fresh '1X'). */
@@ -13754,9 +13881,17 @@ async function loadCloudLeagues(force){
               else      recordDrift(f, lp);
             }
             if(!f._fin && arch && f.unbacked) markWithheld(f);
-          }
+            /* BUILD 257 — counted HERE, after the decision, using the same variables the decision
+               used. Anywhere else and it would be a second reconstruction of the rule, which is the
+               drift that a duplicated constant always eventually produces. */
+            gateCensusAdd(L, started ? 'started'
+                           : arch ? 'published'
+                           : f.gated ? f.gated
+                           : tooFarAheadToPublish(f) ? 'far'
+                           : 'publishable');
+          } else gateCensusAdd(L, 'nomodel');
         }
-      }
+      } else { for(const f of display) gateCensusAdd(L, 'noengine'); }
       for(const f of display) delete f._fin;
       display.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
       L.upcoming = display;
@@ -16100,6 +16235,7 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('backtestBtn').addEventListener('click', runBacktest);
 if($('ledgerBtn')) $('ledgerBtn').addEventListener('click', renderLedger);
+if($('gateBtn')) $('gateBtn').addEventListener('click', renderGateCensus);   // build 257
 if($('archBtn')) $('archBtn').addEventListener('click', renderArchiveDay);
 if($('archFillBtn')) $('archFillBtn').addEventListener('click', backfillPredictions);
 if($('archDate')) $('archDate').value = new Date(Date.now()-86400000).toISOString().slice(0,10);   // yesterday
