@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 259;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 260;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -13566,7 +13566,30 @@ function leagueBlobNotice(){
 const PAGE = 1000;
 /* BUILD 220 — how many competitions may be in flight at once. See loadCloudLeagues: all eleven
    together is what tripped the server's statement timeout. */
-const LEAGUE_FETCH_BATCH = 4;
+/* ══ BUILD 260 — FOUR BECOMES NINE, AND ONLY WHILE THE READ STAYS NARROW ══════════════════════
+   Wave 1 took the forced league load from 17.8 s at eleven competitions to **98.5 s at twenty-five**
+   — 2.3× the leagues for 5.5× the time, because 4 at a time is seven sequential rounds instead of
+   three. Measured in the live app 2026-09-02, same 26,346 rows every time:
+
+       batch  4    52.5 s    0 failures
+       batch  9    18.4 s    0 failures
+       batch 14    14.0 s    0 failures
+
+   Then FOUR PASSES at 9, because build 220's outage was intermittent and build 247 confirmed its fix
+   over four passes rather than one: **12.8 / 17.3 / 20.0 / 14.7 s, 0 failures in all four**, row
+   counts identical. Mean 16.2 s against 52.5 — a 3.2× speedup on the fetch half of the load.
+
+   9 RATHER THAN 14 DELIBERATELY. Fourteen was marginally faster and the curve is already flat there;
+   the extra concurrency buys ~4 s and spends the safety margin that build 220 was written in blood
+   to establish.
+
+   🚨 AND THE COUPLING IS THE WHOLE POINT — THE 4 WAS NEVER ARBITRARY. Build 220 reduced it because
+   eleven concurrent `select('*')` reads tripped a Postgres statement timeout and left the app on
+   sample data. **Build 247 removed the cause**, dropping three jsonb blobs that were 85.1% of the
+   read's bytes. So higher concurrency is safe *because the read is narrow* — and `?blobs=1` puts
+   `select('*')` straight back for a research run. Raising this to a flat 9 would have re-armed
+   build 220's outage on exactly the code path a researcher uses. It is tied to the read instead. */
+const LEAGUE_FETCH_BATCH = LEAGUE_BLOBS ? 4 : 9;
 async function fetchLeagueFixtures(id){
   let out = [], from = 0, pages = 0;
   for(;;){
