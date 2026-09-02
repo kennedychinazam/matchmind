@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 260;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 261;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -13219,7 +13219,7 @@ async function loadCloudResults(){
    falls back safely: `gateBarFor`/`gateEdgeFor` to the global bar, `dampenFor` to the engine
    default, and `autoGate` measures a new competition's own bar once it has history. Verified at
    build 257 rather than trusted from the note. */
-const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186];
+const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96];
 /* ⚠ EVERY COMPETITION MUST BE A DECISION: fitted by id in LEAGUE_FIT_NAME, or listed here as
    deliberately unfitted. The lock asserts `COMP_IDS == fitted ∪ unfitted`, so a league added with
    no decision either way fails the suite rather than quietly predicting on a constant nobody chose.
@@ -13230,7 +13230,7 @@ const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,
    Inventing a value to fill the row is §17e's exact habit, and it is why 13 has sat here unfitted
    since build 159 rather than being given a plausible number. They become candidates for fitting
    when they have the history to support one — which is a measurement, not this build. */
-const LEAGUE_UNFITTED = [13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186];
+const LEAGUE_UNFITTED = [13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96];
 
 /* BUILD 159 — 13 (CONMEBOL Libertadores) JOINS THE PREDICTION SET. It reached Scores in 158 and
    Ken asked for predictions on it. It qualifies: 133 finished matches on 2026-08-15, well past the
