@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 257;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 258;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -14911,7 +14911,105 @@ function savePrefs(){ saveState(); }
    THE FORMAT IS VERSIONED. `lv: 1` marks the packed shape; a cache written by build 194 or earlier
    has no `lv` and is read through the legacy path unchanged, so this upgrade cannot orphan anyone's
    favourites or record. */
-const LEAGUE_PACK_V = 1;
+/* ══ BUILD 258 — `upcoming` IS PACKED TOO, AND IT WAS 76% OF THE CACHE ═════════════════════════
+   Build 196 packed `matches` and named `upcoming` as "the next candidate", deferring it because
+   "its rows carry a published pick and probability, so compacting it is a change to something the
+   app DISPLAYS rather than to something it recomputes. One risk per build." That was right then.
+   It is now the dominant cost and the thing standing between this app and Ken's league expansion.
+
+   MEASURED IN THE LIVE APP 2026-09-02, in the unit the browser actually bills (UTF-16):
+
+       packed matches   559 KB   7,449 rows      77 bytes/row
+       upcoming       1,957 KB   3,154 rows     635 bytes/row   <- 76% of the league cache
+       league other      66 KB
+       name table        10 KB
+
+   **Eight times the cost per row, on fewer than half the rows.** The cause is that every row
+   repeats twenty long JSON keys and two full team names. `"moved":null` and `"unbacked":null`
+   alone are 205 KB; `"provisional":false` is another 117 KB.
+
+   THE SAME TREATMENT AS build 196, AND DELIBERATELY LOSSLESS. Positional rows against the shared
+   name table `t` — which already exists for matches, so team names cost nothing twice.
+
+   🚨 AND A BITMASK, BECAUSE ABSENT AND NULL ARE NOT THE SAME FACT. `pick` is present on 3,041 of
+   3,154 rows and `publishedAt` on 2,615; JSON cannot hold `undefined`, so a plain positional array
+   would silently turn every absent key into `null`. That is build 185's `inj_h` rule — an empty
+   answer and an unasked question must not collapse — and it is why this stores which keys were
+   present rather than assuming the difference does not matter. `extra` catches any field added
+   later that nobody thought to list here, so a future build cannot silently lose one.
+
+   ⚠ NOTHING IS DROPPED, INCLUDING THE FIELDS THE APP RECOMPUTES. `gated`, `moved`, `edge` and the
+   rest are all reassigned by the display loop on every league load, so dropping them would be free
+   most of the time — and wrong on a cold start on mobile data, which is the one moment the cache
+   exists for. Build 196 rejected exactly that trade for `matches` and the same answer holds here. */
+const LEAGUE_PACK_V = 2;
+const UPC_FIELDS = ['fxid','date','time','season','provisional','gated','moved','unbacked',
+                  'frozen','pick','prob','market','edge','formM','pW','pD','pL','publishedAt'];
+
+function packUpcoming(list, ix){
+  return (list || []).map(f => {
+    let mask = 0; const vals = [];
+    for(let i = 0; i < UPC_FIELDS.length; i++){
+      const k = UPC_FIELDS[i];
+      if(Object.prototype.hasOwnProperty.call(f, k)){
+        mask |= (1 << i);
+        vals.push(f[k] === undefined ? null : f[k]);
+      } else vals.push(null);
+    }
+    /* Anything not in UPC_FIELDS rides in a trailing object rather than being lost. `_x` and `_fin`
+       are memory-only by design (build 227 and the display builder) and are the only exclusions. */
+    let extra = null;
+    for(const k in f){
+      if(k === 'home' || k === 'away' || k === '_x' || k === '_fin') continue;
+      if(UPC_FIELDS.indexOf(k) >= 0) continue;
+      (extra = extra || {})[k] = f[k];
+    }
+    return [ix(f.home), ix(f.away), mask, extra].concat(vals);
+  });
+}
+
+function unpackUpcoming(rows, t){
+  return (rows || []).map(r => {
+    const f = {};
+    if(r[0] >= 0) f.home = t[r[0]];
+    if(r[1] >= 0) f.away = t[r[1]];
+    const mask = r[2] || 0, extra = r[3];
+    for(let i = 0; i < UPC_FIELDS.length; i++) if(mask & (1 << i)) f[UPC_FIELDS[i]] = r[4 + i];
+    if(extra) for(const k in extra) f[k] = extra[k];
+    return f;
+  });
+}
+
+/* Pack, unpack, and compare every field of every row against the original. Build 196 verified its
+   own change this way in the browser; this makes that verification a function rather than a thing
+   somebody did once. Returns the first mismatches rather than a boolean, because "it failed" is
+   not a useful answer when the whole point is which field moved. */
+function verifyLeaguePack(leagues){
+  const src = leagues || afState.leagues || {};
+  const round = unpackLeagues(packLeagues(src), LEAGUE_PACK_V);
+  const bad = [];
+  let rows = 0, fields = 0;
+  for(const id in src){
+    const a = (src[id].upcoming || []), b = ((round[id] || {}).upcoming || []);
+    if(a.length !== b.length){ bad.push(id + ': length ' + a.length + ' -> ' + b.length); continue; }
+    for(let i = 0; i < a.length; i++){
+      rows++;
+      const keys = new Set(Object.keys(a[i]).concat(Object.keys(b[i])));
+      for(const k of keys){
+        if(k === '_x' || k === '_fin') continue;
+        fields++;
+        const x = a[i][k], y = b[i][k];
+        const ax = Object.prototype.hasOwnProperty.call(a[i], k);
+        const by = Object.prototype.hasOwnProperty.call(b[i], k);
+        if(ax !== by){ if(bad.length < 12) bad.push(id + '#' + i + ' ' + k + ' presence ' + ax + '->' + by); continue; }
+        if(JSON.stringify(x === undefined ? null : x) !== JSON.stringify(y === undefined ? null : y)){
+          if(bad.length < 12) bad.push(id + '#' + i + ' ' + k + ': ' + JSON.stringify(x) + ' -> ' + JSON.stringify(y));
+        }
+      }
+    }
+  }
+  return { ok: bad.length === 0, rows: rows, fields: fields, mismatches: bad };
+}
 
 function packLeagues(leagues){
   const tbl = [], seen = new Map();
@@ -14925,28 +15023,38 @@ function packLeagues(leagues){
   for(const id in leagues){
     const L = leagues[id]; if(!L) continue;
     const o = {};
-    for(const k in L) if(k !== 'matches') o[k] = L[k];
+    for(const k in L) if(k !== 'matches' && k !== 'upcoming') o[k] = L[k];
     /* `_x` is memory-only and is dropped here as well as by dropExtras — this array never reaches
        the replacer, because it is built rather than copied. */
     o.m = (L.matches || []).map(m => [m.date ?? null, m.time ?? null, ix(m.home), ix(m.away),
                                       m.hg ?? null, m.ag ?? null, m.hth ?? null, m.hta ?? null]);
+    o.u = packUpcoming(L.upcoming, ix);     // build 258
     out[id] = o;
   }
   return { t: tbl, l: out };
 }
 
-function unpackLeagues(p){
+/* ⚠ VERSION-AWARE, AND THAT IS A BUG FIX AS WELL AS A FEATURE. The caller used to read
+   `s.af.lv === LEAGUE_PACK_V ? unpackLeagues(x) : x`, so ANY version bump would have assigned the
+   packed `{t, l}` object straight in as `afState.leagues` — two fake competitions named "t" and
+   "l", every real league gone, on every existing install's cold start. Nothing would have thrown.
+   The version is passed in here instead, so an unknown or older cache is decoded rather than
+   handed through, and `lv` can be bumped again without the same trap. */
+function unpackLeagues(p, v){
   if(!p || !p.l) return p || {};            // build 194 and earlier: already the plain shape
   const t = p.t || [], out = {};
   for(const id in p.l){
     const o = p.l[id], L = {};
-    for(const k in o) if(k !== 'm') L[k] = o[k];
+    for(const k in o) if(k !== 'm' && k !== 'u') L[k] = o[k];
     L.matches = (o.m || []).map(r => ({
       date: r[0], time: r[1],
       home: r[2] >= 0 ? t[r[2]] : null,
       away: r[3] >= 0 ? t[r[3]] : null,
       hg: r[4], ag: r[5], hth: r[6], hta: r[7]
     }));
+    /* v2 packs `upcoming` into `u`; a v1 cache still carries it as plain objects under `upcoming`,
+       and is read unchanged so this upgrade cannot orphan anybody's first paint. */
+    L.upcoming = o.u ? unpackUpcoming(o.u, t) : (o.upcoming || []);
     out[id] = L;
   }
   return out;
@@ -15017,11 +15125,43 @@ function cacheCutoff(){
   const d = new Date(); d.setMonth(d.getMonth() - CACHE_MONTHS);
   return d.toISOString().slice(0, 10);
 }
+/* ══ BUILD 258 — THE CACHE KEEPS WHAT THE FIRST SCREEN CAN SHOW, NOT THE WHOLE SEASON ══════════
+   `matches` has been bounded since build 232. `upcoming` never was, and MEASURED 2026-09-02 across
+   eleven competitions it holds 3,154 rows of which:
+
+       past (feed reaches back 31 days)        297
+       next 7 days — what the feed displays    124
+       **beyond 7 days                       2,733   = 87%**
+
+   `loadCloudLeagues` puts EVERY future fixture of every competition in the list, months ahead, and
+   all of it was being written to localStorage. **The feed shows `SCORES_AHEAD_DAYS` = 7.** So 87% of
+   the most expensive thing in the cache was fixtures the first screen cannot draw.
+
+   The cache's only job is the first paint — `loadCloudLeagues` re-fetches everything on every boot
+   and the far-future rows are back within seconds. Build 196 made exactly this argument for keeping
+   `matches` (a cold start on mobile data must not be blank) and it cuts the other way here: rows the
+   first screen cannot render buy nothing and cost the most.
+
+   ⚠ THE AHEAD BOUND IS 10 DAYS, NOT 7, AND THE MARGIN IS THE POINT. At exactly 7 a fixture would
+   drop out of the cache on the very day it becomes displayable, so the one screen that needs it
+   would be the one screen without it. Three days of slack costs ~50 rows.
+   ⚠ AND IT IS BOUNDED BY DATE, NOT BY COUNT. A count would silently keep whichever competitions
+   happened to sort first — build 246's nondeterministic-paging trap, in a different file. */
+const CACHE_UPCOMING_BACK_DAYS = 31, CACHE_UPCOMING_AHEAD_DAYS = 10;
+function upcomingCacheWindow(){
+  const day = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+  return { from: day(-CACHE_UPCOMING_BACK_DAYS), to: day(CACHE_UPCOMING_AHEAD_DAYS) };
+}
 function trimForCache(leagues){
-  const cut = cacheCutoff(), out = {};
+  const cut = cacheCutoff(), w = upcomingCacheWindow(), out = {};
   for(const id in (leagues || {})){
     const L = leagues[id];
-    out[id] = Object.assign({}, L, { matches: (L.matches || []).filter(m => !m.date || m.date >= cut) });
+    out[id] = Object.assign({}, L, {
+      matches: (L.matches || []).filter(m => !m.date || m.date >= cut),
+      /* A row with no date is KEPT rather than dropped: absence of a date is not evidence the
+         fixture is outside the window, and the display builder tolerates it. */
+      upcoming: (L.upcoming || []).filter(f => !f.date || (f.date >= w.from && f.date <= w.to))
+    });
   }
   return out;
 }
@@ -15188,7 +15328,7 @@ function restoreState(){
       afState.season = s.af.season || afState.season;
       /* Build 196 — `lv` marks the packed shape. Absent means a cache from build 194 or earlier,
          which unpackLeagues passes straight through. */
-      afState.leagues = s.af.lv === LEAGUE_PACK_V ? unpackLeagues(s.af.leagues) : (s.af.leagues || {});
+      afState.leagues = unpackLeagues(s.af.leagues, s.af.lv);   // build 258 — version-aware, see unpackLeagues
       afState.leagueOrder = s.af.leagueOrder || Object.keys(afState.leagues).map(Number);
       afState.activeLeagueId = s.af.activeLeagueId || null;
       afState.selectedDate = s.af.selectedDate || '';
