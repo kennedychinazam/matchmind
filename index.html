@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 263;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 264;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4598,8 +4598,26 @@ function dailyLogRecord(tier, legs, reached, floorStep, effort){
    which is the same distinction `tallyPicks` draws for voids. */
 function dailyLogGrade(rows){
   /* Keyed on date|home|away, because that is what a stored match actually carries. */
+  /* 🚨 BUILD 264 — `historyLeagues()`, AND THIS ONE IS THE ACCURACY RECORD RATHER THAN A DEV PANEL.
+     Grading needs RESULTS, so it must read every competition holding matches; `footballLeagues()`
+     filters on `upcoming.length` and drops a competition the moment it has no NEXT fixture. The
+     load itself already disagrees with that helper — it keeps a league on
+     `upcoming.length || matches.length` — so a competition between rounds sits in `afState.leagues`
+     with its results and was invisible to exactly the function that needs them.
+
+     WHAT THAT COST: a leg whose competition emptied its fixture list between the slip being written
+     and the slip being graded can NEVER be graded. `settled` never reaches `r.legs.length`, so
+     `complete` stays false and the slip is counted as neither a win nor a loss — it silently leaves
+     the record instead of failing loudly. A dropped slip is not a wrong number on screen, which is
+     why nothing caught it; it is a number quietly missing from the denominator.
+
+     AND IT IS NOT HYPOTHETICAL THIS WEEK. The census of 2026-09-03 read DFB Pokal 17 of 17 started,
+     KNVB Beker 32 of 32, Taça de Portugal 45 of 47 — cups whose whole scheduled list has kicked off
+     with no next round yet. As those finish, each drops out of `footballLeagues()` and takes its
+     results with it. ⚠ The ledger only runs from 2026-08-30 and the cups arrived 09-02, so the
+     damage so far is probably nil; the mechanism is live from now on. */
   const res = {};
-  for(const L of footballLeagues())
+  for(const L of historyLeagues())
     for(const m of (L.matches || []))
       if(m.hg != null && m.ag != null) res[m.date + '|' + m.home + '|' + m.away] = m;
   return rows.map(r => {
