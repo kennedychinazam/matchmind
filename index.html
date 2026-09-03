@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 261;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 262;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -13537,7 +13537,46 @@ function providerExtras(r){
    confusion builds 174, 181 and 227 each lost time to. `?blobs=1` restores `select('*')` for a
    research run, and the panels say which mode they are in rather than reporting a coverage number
    that would be an artefact of this optimisation. */
+/* ══ BUILD 262 — THE READ IS 50 MB PER APP BOOT, AND SUPABASE EGRESS IS 141% OF QUOTA ═════════
+   🚨 KEN'S SUPABASE DASHBOARD, 2026-09-03: **Egress 7.034 / 5 GB (141%)**, grace period ends
+   2026-10-01, after which requests return **402**. Measured on the live app the same day:
+
+       bytes per row            1,538        (84 columns)
+       rows per full load      33,451        (every fixture ever, all 35 competitions)
+       **egress per app boot    50.4 MB**
+       **boots the 5 GB buys       101**
+
+   **A hundred app loads a month, in total, for everyone.** At 35 competitions the app cannot work
+   on this plan, and every competition added makes it worse.
+
+   🚨 BUILD 247 FIXED THIS ONE LAYER UP AND STOPPED HALF WAY — WHICH IS THE LESSON, NOT A CRITICISM.
+   It dropped three jsonb blobs that were 85.1% of the bytes AT THE TIME and named the principle
+   exactly right: fetch what the app displays. It then left **84 scalar columns** in place because
+   they looked cheap next to a jsonb blob. Measured now, with the blobs gone, those 84 columns ARE
+   the cost:
+
+       27 columns are NULL on every single row      472 B/row   **30.7%**
+       home_logo + away_logo + llogo                190 B/row   the same URLs on every fixture
+       detail_tried_at, updated_at, venue_*, formation_*        never read by the shipped app
+
+   **AND THE FETCH HAS NO DATE BOUND AT ALL.** `cacheCutoff()` has bounded the CACHE to 24 months
+   since build 232, while the READ has always asked for every fixture ever recorded. The cache was
+   made smaller and the thing filling it was not.
+
+   SO: the shipped path gets the columns it actually reads, over the window it actually caches.
+   `?blobs=1` still restores `select('*')` AND the full history for a research run — build 247's
+   escape hatch, widened to cover the date bound too, because a panel that silently reads 0% is the
+   confusion builds 174, 181 and 227 each lost time to.
+
+   ⚠ WHY `season` AND `round` SURVIVE INTO THE LEAN SET AND NO OTHER `_x` FIELD DOES: build 247
+   traced it and wrote it down — *"the `_x` fields the SHIPPED path actually reads are `season` (the
+   League Table, ten sites) and `round` (via `isLeaguePhase`)"*. Everything else in `EXTRA_KEYS`
+   feeds the feature layer, which M13 shipped deliberately wired to nothing and which only dev
+   panels read. That is a traced fact, not an assumption, and it is why this is safe. */
 const LEAGUE_BLOBS = /[?&]blobs=1/.test(location.search);
+const LEAGUE_COLS_LEAN =
+  'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,' +
+  'home_logo,away_logo,gh,ga,ht_h,ht_a,provider,round';
 const LEAGUE_COLS =
   'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,home_logo,' +
   'away_logo,updated_at,ht_h,ht_a,provider,venue_id,venue_name,venue_city,surface,attendance,' +
@@ -13632,8 +13671,11 @@ async function fetchLeagueFixtures(id){
        would not have earned this: build 220's failure was concurrency tripping the statement
        timeout, and its own first reading was wrong for measuring the wrong thing. `fetchAllRows` keeps its `fxid` ordering — those reads are small and
        it measurably HELPED there (archive 1.8s ordered vs 3.3s unordered). */
-    const { data, error } = await supa.from('fixtures').select(LEAGUE_BLOBS ? '*' : LEAGUE_COLS).eq('lid', id)
-      .order('date').order('fxid').range(from, from + PAGE - 1);
+    /* build 262 — lean columns and a date bound on the shipped path; `?blobs=1` lifts BOTH so a
+       research run still sees every column and every season. */
+    let q = supa.from('fixtures').select(LEAGUE_BLOBS ? '*' : LEAGUE_COLS_LEAN).eq('lid', id);
+    if(!LEAGUE_BLOBS) q = q.gte('date', cacheCutoff());
+    const { data, error } = await q.order('date').order('fxid').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
     pages++;
