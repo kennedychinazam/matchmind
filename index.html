@@ -831,7 +831,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 262;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 263;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -6224,6 +6224,18 @@ function renderGateCensus(){
     return;
   }
   const ids = Object.keys(_gateCensus.by);
+  /* BUILD 263 — THREE STATES, NOT TWO, AND CONFLATING TWO OF THEM PRINTED A FALSE ALARM AS THIS
+     PANEL'S TOP-LINE VERDICT. A competition only enters `_gateCensus.by` when the load examined an
+     UPCOMING fixture in it, so one that loaded perfectly and is merely BETWEEN SEASONS never
+     appears — and the old verdict read that absence as "never reached the browser", which is a
+     league-read emergency. Measured on this build 2026-09-03: it announced 4 such competitions
+     when only 2 were real; Copa del Rey (263 matches held) and Coupe de France (400) had loaded
+     fine and simply had no next fixture.
+     It is note 13's rule one level up — `far` is not a refusal, and RESTING is not a failure — and
+     the same `upcoming.length` conflation that build 263 removed from the Elo block. */
+  const loadedIds = Object.keys(afState.leagues || {});
+  const neverLoaded = COMP_IDS.filter(id => loadedIds.indexOf(String(id)) < 0);
+  const resting = loadedIds.filter(id => ids.indexOf(id) < 0);
   const tot = {}; for(const b of GATE_BUCKETS) tot[b] = 0;
   let seen = 0;
   for(const id of ids){
@@ -6232,7 +6244,9 @@ function renderGateCensus(){
   }
   const cell = n => '<td style="text-align:right;padding:2px 6px">' + (n || 0) + '</td>';
   let html = '<div class="frow"><span class="muted">Competitions that reached the browser</span><b>'
-    + ids.length + ' of ' + COMP_IDS.length + '</b></div>'
+    + loadedIds.length + ' of ' + COMP_IDS.length + '</b></div>'
+    + (resting.length ? '<div class="frow"><span class="muted">&hellip; of those, between seasons '
+        + '(loaded, no next fixture)</span><b>' + resting.length + '</b></div>' : '')
     + '<div class="frow"><span class="muted">Upcoming fixtures examined &middot; publication window</span><b>'
     + seen + ' &middot; ' + _gateCensus.window + ' days</b></div>';
   if(_loadIssues.length){
@@ -6264,10 +6278,13 @@ function renderGateCensus(){
   const refused = tot.low + tot.nobase + tot.unpriced;
   const live = tot.publishable + tot.far;
   let verdict;
-  if(ids.length < COMP_IDS.length){
-    verdict = '<b style="color:var(--gold)">' + (COMP_IDS.length - ids.length) + ' competition(s) '
-      + 'never reached the browser.</b> That is a league-read problem and it outranks anything the '
-      + 'gate did — fixtures in a competition that did not load were never offered to the gate at all.';
+  if(neverLoaded.length){
+    verdict = '<b style="color:var(--gold)">' + neverLoaded.length + ' competition(s) '
+      + 'never reached the browser (' + neverLoaded.join(', ') + ').</b> That is a league-read '
+      + 'problem and it outranks anything the gate did — fixtures in a competition that did not '
+      + 'load were never offered to the gate at all.'
+      + (resting.length ? ' A further ' + resting.length + ' loaded but have no next fixture; '
+          + 'those are between seasons and are NOT a fault.' : '');
   } else if(!seen){
     verdict = 'Eleven competitions loaded and no upcoming fixture was examined. That is a fixture '
       + 'supply question, not a gate one.';
@@ -12323,6 +12340,26 @@ function footballLeagues(){
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
   return order.map(id=>afState.leagues[id]).filter(l=>l && l.upcoming.length && (l.sport||'football')==='football');
 }
+/* EVERY loaded football competition that HOLDS HISTORY — deliberately WITHOUT footballLeagues()'s
+   `upcoming.length` filter, which asks a different question and has now been reached for wrongly
+   three times: the dispersion test (build 96), the engine-2 comparison, and the whole M14b Elo
+   block (build 263). A competition between seasons is not absent, it is RESTING — on 2026-09-03
+   that silently hid Copa del Rey's 515 matches and Coupe de France's 792 from a global rating
+   whose entire premise is that history earned anywhere is the bridge.
+   It UNIONS `leagueOrder` with the keys of `leagues` rather than trusting either: a helper written
+   to stop one list quietly dropping a competition must not itself depend on one list being
+   complete. Order follows leagueOrder where it exists; anything only in `leagues` is appended. */
+function historyLeagues(){
+  const seen = {}, out = [];
+  const push = id => {
+    if(seen[id]) return; seen[id] = 1;
+    const l = afState.leagues[id];
+    if(l && (l.sport||'football') === 'football' && (l.matches || []).length) out.push(l);
+  };
+  for(const id of (afState.leagueOrder || [])) push(id);
+  for(const id of Object.keys(afState.leagues || {})) push(id);
+  return out;
+}
 function renderFavs(){
   const tabsBox=$('favTabs');
   const tabs=[['matches','⭐ Matches'],['leagues','🏆 Leagues & teams']];
@@ -12840,10 +12877,13 @@ function eloMov(gd, ratingGap){
 
 /* One pass over every finished match in every loaded competition, in date order. Returns the rating
    per club, how many matches each has, and the GRAPH of which clubs have met — which is what decides
-   whether two ratings may be compared at all. */
+   whether two ratings may be compared at all.
+   BUILD 263 — `historyLeagues()`, not `footballLeagues()`. The comment above said "every loaded
+   competition" while the helper it called dropped every competition without a NEXT fixture, so the
+   sentence and the code disagreed and the code won. */
 function eloRun(){
   const rows = [];
-  for(const L of footballLeagues()){
+  for(const L of historyLeagues()){
     for(const m of (L.matches || [])){
       if(m.hg == null || m.ag == null || !m.home || !m.away) continue;
       rows.push({ d: m.date, h: m.home, a: m.away, hg: m.hg, ag: m.ag, lid: L.id, lname: L.name, country: L.country || '' });
@@ -12905,17 +12945,19 @@ const COEF_SEASONS = 5;
 function uefaCoefficients(){
   const CONTINENTAL = new Set(['2', '13']);          // Champions League, Libertadores — by ID, never by name
   const club = {}, byCountry = {}, homeCountry = {};
-  for(const L of footballLeagues())
+  /* build 263 — historyLeagues() throughout: a coefficient is built from RESULTS, and an
+     out-of-season domestic league is exactly where a continental club's home country is recorded. */
+  for(const L of historyLeagues())
     if(!CONTINENTAL.has(String(L.id)))
       for(const m of (L.matches || [])){ homeCountry[m.home] = L.country || ''; homeCountry[m.away] = L.country || ''; }
 
   let newest = 0;
-  for(const L of footballLeagues())
+  for(const L of historyLeagues())
     if(CONTINENTAL.has(String(L.id)))
       for(const m of (L.matches || [])) if(m._x && m._x.season > newest) newest = m._x.season;
   const floor = newest ? newest - COEF_SEASONS + 1 : 0;
 
-  for(const L of footballLeagues()){
+  for(const L of historyLeagues()){
     if(!CONTINENTAL.has(String(L.id))) continue;
     for(const m of (L.matches || [])){
       if(m.hg == null || m.ag == null) continue;
@@ -12975,7 +13017,10 @@ function uefaCoefficients(){
 function eloValidate(){
   const CONT = ['2', '13'];
   const leagues = {}, engines = {};
-  for(const L of footballLeagues()){
+  /* BUILD 263 — historyLeagues(), and this is the hole the 2026-09-03 cup measurement had to work
+     around by iterating afState.leagues by hand. footballLeagues() filters on `upcoming.length`, so
+     a competition with history and no next fixture was dropped from the bridge entirely. */
+  for(const L of historyLeagues()){
     const ms = (L.matches || []).slice().sort((x, y) => x.date < y.date ? -1 : 1);
     leagues[L.id] = ms;
     if(CONT.indexOf(String(L.id)) >= 0){ const e = Object.create(footballEngine); e.matches = ms; engines[L.id] = e; }
