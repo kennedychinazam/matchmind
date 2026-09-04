@@ -850,7 +850,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 266;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 267;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1202,10 +1202,38 @@ const LEAGUE_FIT_NAME = {
    the retired free provider carry ids this map does not contain, and 'Campeonato Brasileiro
    Série A' / 'Primera Division' still resolve correctly through it. Returns undefined when a
    competition has no fitted value, so callers keep their own TUNE.DAMPEN fallback. */
+/* 🚨 BUILD 267 — THE NAME FALLBACK IS GONE, AND IT WAS PRICING TWO COUNTRIES WITH ANOTHER'S FOOTBALL.
+   Build 183 fixed this once by keying on ID and kept the name lookup "as a fallback for archived
+   rows". Measured 2026-09-04 at thirty-five competitions, that fallback was live and wrong:
+
+       233 Egypt   stored as "Premier League" -> took ENGLAND's fitted 0.70   (11 picks published)
+       186 Algeria stored as "Ligue 1"        -> took FRANCE's  fitted 0.45
+
+   Against `TUNE.DAMPEN` 0.50 that is a 40% relative error in the constant that flattens every
+   probability those competitions publish. The id path was sound throughout — Brazil (71) correctly
+   reads 0.20 by id rather than the 0.35 its shared "Serie A" name would give it — so ONLY
+   competitions with no fit entry ever fell through, and every one of those that landed on a value
+   landed on the wrong one.
+
+   THE ROADMAP WROTE THIS DOWN BEFORE IT HAPPENED: *"NEVER KEY ANYTHING ON A COMPETITION NAME…
+   'Premier League' exists in Russia, Ukraine, Egypt and Wales."* Egypt was simply the first to
+   arrive. An unfitted competition now gets `TUNE.DAMPEN`, which is the documented, honest default —
+   a number measured across football in general, not one measured on a different country's league.
+   ⚠ The 11 Egyptian picks already published cannot be repaired: a published pick is never
+   rewritten. Forward-only, like build 255's price capture. */
 function dampenFor(L){
   if(!L) return undefined;
   const fit = LEAGUE_FIT_NAME[L.id];
   if(fit != null){ const v = DAMPEN_BY_LEAGUE[fit]; if(typeof v === 'number') return v; }
+  /* 🚨 AND THE FIRST DRAFT OF THIS FIX DELETED THE NAME ROUTE OUTRIGHT, WHICH WOULD HAVE BROKEN
+     SOMETHING LOAD-BEARING. The lock caught it: archived predictions and rows written by the
+     RETIRED FREE PROVIDER carry league ids `LEAGUE_FIT_NAME` does not contain, and
+     'Campeonato Brasileiro Série A' and 'Primera Division' still have to resolve for them.
+     So the route survives — but only for an id this app does NOT currently collect. A competition
+     in `COMP_IDS` has an id, and an id is the only thing that can be trusted; if it has no fit
+     entry then it is genuinely unfitted and must say so by falling to `TUNE.DAMPEN`. That is what
+     Egypt and Algeria needed and what they were denied: a name lookup answered for them. */
+  if(COMP_IDS.some(id => String(id) === String(L.id))) return undefined;
   return DAMPEN_BY_LEAGUE[String(L.name || '').trim()];
 }
 const DAMPEN_OF_MATCHES = new WeakMap();
@@ -4826,14 +4854,26 @@ function dailyPastCards(day){
                 the fixture actually has a result. An empty span on an unplayed leg would read as a
                 missing score rather than a match that has not kicked off. */
              const sc = r.legScores ? r.legScores[i] : null;
-             return '<div class="slipleg">'
+             /* 🚨 BUILD 267 — Ken: "i want the matches on the slip to up to an analysis page when
+                tapped." The `.slipleg` rule already carried `cursor:pointer`, `font:inherit` and
+                `color:inherit` — button resets — so this row has LOOKED tappable since build 250
+                and was a `<div>` that did nothing. `openFixtureById` already exists, already
+                searches the loaded competitions, and already lands the user on Scores with a toast
+                when the fixture is outside the window rather than on a blank screen; nothing new is
+                invented here. ⚠ A leg with no `fxid` renders as a plain div — build 250's own note
+                is that loaded match rows are packed positionally and carry no id, so a button that
+                cannot resolve anything must not look like one. */
+             const fx = (l.fxid != null && l.fxid !== '') ? String(l.fxid) : null;
+             return (fx ? '<button type="button" class="slipleg" data-leg-fx="' + escapeHtml(fx) + '">'
+                        : '<div class="slipleg" style="cursor:default">')
                + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span>'
                + (sc ? '<span class="lgscore">' + escapeHtml(String(sc)) + '</span>' : '')
                + '</div>'
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String(chipCode(l.code) || l.code || '')) + '</span>'
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
-               + '<span class="lgodds">' + mark + '</span></div></div>';
+               + '<span class="lgodds">' + mark + '</span></div>'
+               + (fx ? '</button>' : '</div>');
            }).join('')
          /* A slip that contained a voided leg did NOT pay the price on its card. Build 248 fixed the
             arithmetic; this says so on the row itself, because a silent re-price is its own defect. */
@@ -4916,6 +4956,11 @@ function renderDailySlips(){
   if(view.back < 0) view.back = 0;
   const navBar = dailyNavBar(days, view.back);
   const wire = () => {
+    /* build 267 — one delegated pass for the legs, wired wherever the cards are rendered. */
+    box.querySelectorAll('[data-leg-fx]').forEach(el => el.addEventListener('click', () => {
+      const id = el.getAttribute('data-leg-fx');
+      if(id) openFixtureById(id);
+    }));
     box.querySelectorAll('[data-ds-nav]').forEach(b2 => b2.addEventListener('click', () => {
       const v = dailySlipView(), dir = b2.getAttribute('data-ds-nav');
       /* build 265 — three directions now, and `today` is an ASSIGNMENT rather than a step. Written
@@ -5040,13 +5085,16 @@ function renderDailySlips(){
            + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
            + '<div class="shcell"><span class="k">Profit on $10</span><span class="v" style="color:var(--green2)">+$' + (10 * (reached - 1)).toFixed(2) + '</span></div>'
            + '</div>'
-           + legs.map(l => '<div class="slipleg">'
+           /* build 267 — today's legs are tappable too. Ken asked for "the matches on the slip",
+              and this is the card he looks at every morning; the past cards are the smaller half. */
+           + legs.map(l => '<button type="button" class="slipleg" data-leg-fx="'
+               + escapeHtml(String((l.f && l.f.fxid != null) ? l.f.fxid : '')) + '">'
                + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.f.home + ' v ' + l.f.away)) + '</span>'
                + '<span class="lgko">' + escapeHtml(String(l.f.ktime || l.f.time || '')) + '</span></div>'
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.sel || '')) + '</span>'
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
-               + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></div>').join('')
+               + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
            + miss
            + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price</div>';
     }
@@ -12903,7 +12951,15 @@ function genSlip(){
     });
   }
   $('reGen').addEventListener('click', genSlipWithSpinner);   // build 219 — same wait, same message
-  $('slipOut').querySelectorAll('.fxrow.favrow[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; openFixture(l.L.id, l.f); }));
+  /* 🚨 BUILD 267 — THIS HANDLER HAD BEEN DEAD AND NOTHING SAID SO. It selected
+     `.fxrow.favrow[data-leg]`; the markup a few lines above emits `<button class="slipleg"
+     data-leg="i">`. **Zero elements matched.** The leg markup was restyled to `.slipleg` at some
+     point and the selector was never moved with it, so the Slip Generator's legs have looked
+     clickable — `cursor:pointer`, a gold hover border — and done nothing. No error, no console
+     warning: `querySelectorAll` on a selector that matches nothing is a silent no-op, which is the
+     same shape as build 129's `met` and build 90's phantom columns. Found while wiring the other
+     two slip surfaces for Ken, not by anyone reporting it. */
+  $('slipOut').querySelectorAll('.slipleg[data-leg]').forEach(row=>row.addEventListener('click',()=>{ const l=legs[+row.dataset.leg]; if(l && l.L && l.f) openFixture(l.L.id, l.f); }));
   /* 🚨 BUILD 251 — A CUSTOM SLIP NO LONGER WRITES THE ACCURACY RECORD. Found by an independent
      review and verified. `recordPick` checks the publication WINDOW (build 225) but not the GATE,
      and it de-duplicates by fixture id — so a Winner leg the user generated from their own slider
