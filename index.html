@@ -850,7 +850,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 265;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 266;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -13814,7 +13814,7 @@ async function fetchLeagueFixtures(id){
     /* build 262 — lean columns and a date bound on the shipped path; `?blobs=1` lifts BOTH so a
        research run still sees every column and every season. */
     let q = supa.from('fixtures').select(LEAGUE_BLOBS ? '*' : LEAGUE_COLS_LEAN).eq('lid', id);
-    if(!LEAGUE_BLOBS) q = q.gte('date', cacheCutoff());
+    if(!LEAGUE_BLOBS) q = q.gte('date', cacheCutoff()).lte('date', leagueAheadCutoff());
     const { data, error } = await q.order('date').order('fxid').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
@@ -15356,6 +15356,39 @@ const CACHE_MONTHS = 24;
 function cacheCutoff(){
   const d = new Date(); d.setMonth(d.getMonth() - CACHE_MONTHS);
   return d.toISOString().slice(0, 10);
+}
+
+/* ══ BUILD 266 — BUILD 262 BOUNDED THE PAST AND LEFT THE FUTURE OPEN ═════════════════════════════
+   262 cut the league read from 84 columns to 20 and added `.gte('date', cacheCutoff())`. That is a
+   LOWER bound only, so every boot still fetched every fixture the table held, however far ahead —
+   **2,759 of 13,449 rows (20.5%) dated beyond the collector's own +7-day window, 1,569 of them in
+   2027, the furthest 2027-05-30.** Measured on the live table 2026-09-04.
+
+   🚨 IT IS 262'S OWN FINDING, CAUGHT HALFWAY. Its entry reads: *"the cache was made smaller and the
+   thing filling it never was — the two were never compared."* Build 258 bounded the CACHE to
+   -31/+10 days; 262 bounded the READ's past; nobody bounded the read's future. Those rows were
+   fetched, parsed, priced by the engine, and then dropped by the cache packer for being more than
+   ten days out.
+
+   ⚠ AND THEY ARE STALE, NOT MERELY SURPLUS. The collector's base pass only ever asks for -10/+7
+   days, so anything beyond about a week exists solely because a whole-season backfill once put it
+   there and nothing refreshes it. Measured: **0 fixtures held between 2026-09-21 and 2026-10-06** —
+   a 17-day hole in our DATA, not in the football calendar.
+
+   THIRTY DAYS, AND DELIBERATELY WIDER THAN EVERYTHING THAT READS IT:
+     TIP_HORIZONS max          7 days   (the widest consumer; collectUpcoming is never called higher)
+     SCORES_AHEAD_DAYS         7 days
+     PUBLISH_AHEAD_DAYS        4 days
+     CACHE_UPCOMING_AHEAD_DAYS 10 days
+     LEAGUE_AHEAD_DAYS         30 days  <- this
+   +10 would have matched the cache exactly and saved 103 more rows of 2,646. It is not worth it:
+   `nextMatchday()` scans `upcoming` for the SOONEST future date and returns null if it finds none,
+   which would blank a line of the empty-state card during any drought longer than the bound. Thirty
+   days buys three times the margin for 4% of the saving. **The read must stay the widest of these
+   five numbers**, and a check asserts that ordering rather than any single value. */
+const LEAGUE_AHEAD_DAYS = 30;
+function leagueAheadCutoff(){
+  return new Date(Date.now() + LEAGUE_AHEAD_DAYS * 86400000).toISOString().slice(0, 10);
 }
 /* ══ BUILD 258 — THE CACHE KEEPS WHAT THE FIRST SCREEN CAN SHOW, NOT THE WHOLE SEASON ══════════
    `matches` has been bounded since build 232. `upcoming` never was, and MEASURED 2026-09-02 across
