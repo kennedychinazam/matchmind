@@ -177,6 +177,14 @@
   .dncur .dnday{display:block; font-size:.64rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#1a1405; opacity:.75}
   .dncur .dndate{display:block; font-size:.95rem; font-weight:800; color:#1a1405;}
   .dnav.dntoday{width:auto; padding:0 12px; font-size:.72rem; font-weight:700; color:var(--gold);}
+  /* BUILD 265 — the past-slips rail reuses .datenav, and needs exactly two things the Scores rail
+     does not: a real disabled state (Scores hides its Today button instead of disabling anything,
+     so no rule existed), and a non-clickable date pill — .dncur is `cursor:pointer` there because
+     it opens a date picker, and here it opens nothing. Nothing else is redeclared. */
+  .dsnav{margin:6px 0 12px;}
+  .dsnav .dncur{cursor:default;}
+  .dnav[disabled]{opacity:.32; cursor:default;}
+  .dnav[disabled]:active{transform:none;}
 .dpill{flex:0 0 auto; min-width:74px; text-align:center; padding:9px 10px; border-radius:12px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer;}
   .dpill .dw{font-size:.66rem; font-weight:600; display:block;}
   .dpill .dd{font-size:.9rem; font-weight:800; color:var(--text);}
@@ -355,6 +363,11 @@
              text-transform:uppercase; margin-bottom:2px;}
   .shcell .v{display:block; font-size:1.06rem; font-weight:800; line-height:1.15;
              white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  /* BUILD 265 — the second line of a slip-head cell, for a figure that will not fit beside its own
+     verdict. Same clipping discipline as `.v`, so a long value still ellipses rather than
+     overflowing the cell it shares with two others. */
+  .shcell .shsub{display:block; font-size:.72rem; font-weight:700; line-height:1.25; margin-top:1px;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .slipline{display:flex; align-items:center; gap:8px; flex-wrap:wrap;
             font-size:.72rem; color:var(--muted); margin:0 2px 10px;}
   .whybtn{background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px;
@@ -382,6 +395,12 @@
   .slipleg .lgmkt{font-size:.64rem; color:var(--muted); font-weight:600;
                   border:1px solid var(--line); border-radius:999px; padding:2px 7px;}
   .slipleg .lgprob{font-size:.66rem; color:var(--muted); font-weight:700;}
+  /* BUILD 265 — the final score, right-aligned on the teams row. `margin-left:auto` rather than a
+     width, so a 10-1 never crowds a long fixture name; `flex:none` so it is the team names that
+     ellipsis, not the result. */
+  .slipleg .lgscore{margin-left:auto; flex:none; font-size:.82rem; font-weight:800;
+                    color:var(--text); background:var(--line); border-radius:7px;
+                    padding:2px 8px; letter-spacing:.02em;}
 </style>
 </head>
 <body>
@@ -831,7 +850,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 264;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 265;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4623,12 +4642,23 @@ function dailyLogGrade(rows){
   return rows.map(r => {
     let settled = 0, won = 0, voidOdds = 1;
     const legGrades = r.legs.map(()=>null);
+    /* 🚨 BUILD 265 — Ken: "after a slip is played, the resulting score also should be updated on
+       them." The grader ALREADY held the answer and discarded it: it reads `m.hg`/`m.ag` on the
+       next line to decide hit or miss, then returned only the verdict. A tick told the user THAT a
+       leg won and never WHAT happened, so the one question a settled card invites — "what was the
+       score?" — could not be answered from the card that raised it.
+       This is `met` again in miniature: a value computed, used once, and never surfaced. Nothing is
+       re-fetched and no new source is consulted; the number simply stops being thrown away. */
+    const legScores = r.legs.map(()=>null);
     for(const l of r.legs){
       const m = res[l.d + '|' + l.h + '|' + l.a];
       if(!m) continue;
+      const li = r.legs.indexOf(l);
+      /* Guarded on null rather than falsiness — a 0-0 draw is a real score and `0` is falsy. */
+      if(m.hg != null && m.ag != null) legScores[li] = m.hg + '–' + m.ag;
       const actual = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
       const g = gradePick(l.code, actual, m.hg, m.ag);
-      legGrades[r.legs.indexOf(l)] = g;              // build 250 — a past card shows what each leg did
+      legGrades[li] = g;                             // build 250 — a past card shows what each leg did
       if(g === 'hit'){ settled++; won++; }
       else if(g === 'miss'){ settled++; }
       else if(g === 'void'){
@@ -4646,7 +4676,7 @@ function dailyLogGrade(rows){
     const realised = +(r.odds * voidOdds).toFixed(4);
     return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length,
                                   realisedOdds: realised, hadVoid: voidOdds !== 1,
-                                  legGrades: legGrades, settledLegs: settled });
+                                  legGrades: legGrades, legScores: legScores, settledLegs: settled });
   });
 }
 
@@ -4767,14 +4797,23 @@ function dailyPastCards(day){
     if(!r){ out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
           + '<div class="subnote">Not buildable that day.</div></div>'; continue; }
     const paid = (r.realisedOdds != null ? r.realisedOdds : r.odds);
+    /* 🚨 BUILD 265 — THIS CELL WAS CLIPPING THE NUMBER IT EXISTS TO SHOW. `.shcell .v` is
+       deliberately one line with an ellipsis, and "LOST · -$10.00" does not fit a third of a phone
+       width: it rendered as "LOST · -$1…". A truncated money figure is worse than no money figure,
+       and it was found by looking at the card in a browser rather than by reading the code.
+       Split rather than shrunk — the verdict on the value line, the amount beneath it — so the
+       ellipsis rule stays intact and neither part is ever cut. */
     const status = !r.complete
-      ? '<span style="color:var(--muted)">' + r.settledLegs + ' of ' + r.legs.length + ' settled</span>'
-      : r.hit ? '<span style="color:var(--green2)">WON &middot; +$' + (10 * (paid - 1)).toFixed(2) + '</span>'
-              : '<span style="color:var(--red)">LOST &middot; -$10.00</span>';
+      ? '<span class="v" style="color:var(--muted)">' + r.settledLegs + ' of ' + r.legs.length + '</span>'
+        + '<span class="shsub">settled</span>'
+      : r.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
+                + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
+              : '<span class="v" style="color:var(--red)">LOST</span>'
+                + '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>';
     out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
          + '<div class="sliphead">'
          + '<div class="shcell"><span class="k">Odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>'
-         + '<div class="shcell"><span class="k">Result</span><span class="v" style="font-size:.86rem">' + status + '</span></div>'
+         + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
          + '<div class="shcell"><span class="k">Legs</span><span class="v">' + r.legs.length + '</span></div>'
          + '</div>'
          + r.legs.map((l, i) => {
@@ -4783,8 +4822,14 @@ function dailyPastCards(day){
                         : g === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
                         : g === 'void' ? '<span style="color:var(--gold)">VOID</span>'
                         : '<span style="color:var(--muted)">&middot;</span>';
+             /* build 265 — the score sits on the teams row, right-aligned, and appears ONLY when
+                the fixture actually has a result. An empty span on an unplayed leg would read as a
+                missing score rather than a match that has not kicked off. */
+             const sc = r.legScores ? r.legScores[i] : null;
              return '<div class="slipleg">'
-               + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
+               + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span>'
+               + (sc ? '<span class="lgscore">' + escapeHtml(String(sc)) + '</span>' : '')
+               + '</div>'
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String(chipCode(l.code) || l.code || '')) + '</span>'
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
@@ -4822,15 +4867,44 @@ function dailyTodayCensus(){
   }
   return { total: total, done: done };
 }
+/* ══ BUILD 265 — THE PAST-SLIPS NAV NOW MATCHES THE DATE NAV IT SITS BELOW ══════════════════════
+   Ken: "do a UI touch to the smart bet past slips navigation. it doesn't look great."
+
+   Looked at in a browser rather than reasoned about, and there were three faults, only one of which
+   is taste:
+     1. **The labels were being clipped.** The middle span carried `flex:1`, so it took all the free
+        width and squeezed both `.sfchip` buttons below the width of their own text — "‹ Earlier"
+        and "Later ›" rendered cut off at 387px.
+     2. **The date was a raw ISO string** — `2026-09-03` on screen, in an app that writes
+        "Sep 4" three inches above it.
+     3. There was no way back to today except pressing "Later" once per day travelled.
+
+   It now reuses `.datenav` / `.dnav` / `.dncur` — the SAME classes as the Scores date rail, so the
+   two rails cannot drift apart, and the 44px touch target build 213 measured is inherited rather
+   than re-declared. The arrows are SVG_PREV/SVG_NEXT for the same reason. ⚠ Those consts are
+   declared far below this function; that is safe ONLY because `renderDailySlips` is reached from a
+   tab switch or a nav click, never during script evaluation — checked, not assumed. */
 function dailyNavBar(days, idx){
-  const label = idx === 0 ? 'Today' : days[idx];
-  const btn = (dir, txt, on) => '<button class="sfchip"' + (on ? '' : ' disabled style="opacity:.4"')
-        + ' data-ds-nav="' + dir + '">' + txt + '</button>';
-  return '<div class="row" style="gap:8px; align-items:center; margin:6px 0 10px">'
-       + btn('back', '‹ Earlier', idx < days.length - 1)
-       + '<span class="muted" style="flex:1; text-align:center; font-weight:700; font-size:.82rem">'
-       + escapeHtml(label) + '</span>'
-       + btn('fwd', 'Later ›', idx > 0) + '</div>';
+  const iso = days[idx], isToday = idx === 0;
+  /* `new Date('2026-09-03')` parses as UTC midnight, which renders as the PREVIOUS day for every
+     user west of Greenwich. The explicit time makes it local, which is what the ledger's day key
+     means — `todayStrLocal()` wrote it. */
+  const d = new Date(iso + 'T00:00:00');
+  const bad = isNaN(d.getTime());
+  const dayTxt  = isToday ? 'Today'
+                : bad ? '' : d.toLocaleDateString(undefined, { weekday: 'long' });
+  const dateTxt = bad ? iso : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const arrow = (dir, svg, on, label) =>
+        '<button class="dnav" data-ds-nav="' + dir + '" aria-label="' + label + '"'
+        + (on ? '' : ' disabled') + '>' + svg + '</button>';
+  return '<div class="datenav dsnav">'
+       + arrow('back', SVG_PREV, idx < days.length - 1, 'Earlier day')
+       + '<div class="dncur"><span class="dnday">' + escapeHtml(dayTxt) + '</span>'
+       + '<span class="dndate">' + escapeHtml(dateTxt) + '</span></div>'
+       + arrow('fwd', SVG_NEXT, idx > 0, 'Later day')
+       + '<button class="dnav dntoday" data-ds-nav="today" aria-label="Back to today"'
+       + (isToday ? ' style="visibility:hidden"' : '') + '>Today</button>'
+       + '</div>';
 }
 
 function renderDailySlips(){
@@ -4843,8 +4917,11 @@ function renderDailySlips(){
   const navBar = dailyNavBar(days, view.back);
   const wire = () => {
     box.querySelectorAll('[data-ds-nav]').forEach(b2 => b2.addEventListener('click', () => {
-      const v = dailySlipView();
-      v.back += (b2.getAttribute('data-ds-nav') === 'back') ? 1 : -1;
+      const v = dailySlipView(), dir = b2.getAttribute('data-ds-nav');
+      /* build 265 — three directions now, and `today` is an ASSIGNMENT rather than a step. Written
+         as `v.back -= v.back` it would be a second way of saying the same thing and would drift. */
+      if(dir === 'today') v.back = 0;
+      else v.back += (dir === 'back') ? 1 : -1;
       renderDailySlips();
     }));
   };
