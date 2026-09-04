@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 273;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 275;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2294,7 +2294,7 @@ const LEAGUES = [
   {id:78,  name:'Bundesliga',     country:'Germany', flag:'🇩🇪'},
   {id:61,  name:'Ligue 1',        country:'France',  flag:'🇫🇷'}
 ];
-const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', cloudFix:{}, skill:{}, gate:{}, archiveDate:null };
+const afState = { key:'', season:2025, leagues:{}, leagueOrder:[], activeLeagueId:null, teamIds:{}, requests:0, selectedDate:'', filter:'all', logos:{}, scores:null, scoreFilter:'all', scoresDate:'', record:[], favL:[], favT:[], favM:[], favTab:'matches', favAt:{L:{},T:{},M:{}}, favDel:{L:{},T:{},M:{}}, cloudFix:{}, skill:{}, gate:{}, archiveDate:null };
 
 const afRate = [];   // timestamps of recent requests — free plan allows 10/minute
 /* ---- API-Football request discipline (build 40) ----
@@ -4061,13 +4061,70 @@ function setShareCard(ok, d){
   const row = $('shareRow'); if(row) row.classList.toggle('hidden', !ok);
 }
 
+/* ---------- favourite tombstones (build 275) ---------- */
+/* A REMOVAL IS A FACT THAT HAS TO TRAVEL. Until this build the cloud pull merged favourites as a
+   UNION -- `uniq(local, cloud)` for leagues and teams, `mergeById` for matches -- and a union can
+   only ever ADD. Unstarring wrote the shorter list to localStorage, then the next boot pulled the
+   cloud copy, unioned the deleted item straight back in, and `saveState()` pushed that resurrection
+   back UP, erasing the removal from the server too. Cancelling a favourite was IMPOSSIBLE while
+   signed in, and every refresh re-proved it. Measured in the browser on 2026-09-04 against build
+   274: league, team and match all three came back from a simulated cloud row.
+   The union is not wrong, it is INCOMPLETE -- it carries additions between devices but has no way
+   to say "this one is gone". So each key now also records WHEN it was added and WHEN it was
+   removed, and the merge keeps whichever event is newer: a last-writer-wins register per favourite.
+   That survives two devices disagreeing, and an unstar on the phone REACHES the laptop instead of
+   merely failing to be undone there.
+   The stamps ride inside the `prefs` jsonb column, which already exists -- no migration, no SQL,
+   and an older client that ignores them still syncs its arrays exactly as before. */
+const FAV_TOMB_DAYS = 60;   // outlives any plausible offline gap, then stops being carried forever
+function favStamps(o){ o = o || {}; return { L:o.L||{}, T:o.T||{}, M:o.M||{} }; }
+function favMark(kind, key, added){
+  const k = String(key), now = Date.now();
+  afState.favAt = favStamps(afState.favAt); afState.favDel = favStamps(afState.favDel);
+  if(added){ afState.favAt[kind][k] = now; delete afState.favDel[kind][k]; }
+  else     { afState.favDel[kind][k] = now; delete afState.favAt[kind][k]; }
+}
+/* Present iff there is no tombstone, or the addition is strictly newer than one. A favourite from
+   before this build carries no add-stamp, so `0 > d` is false and a real removal beats it -- which
+   is exactly the case this build exists to fix. */
+function favKeep(kind, key, at, del){
+  const k = String(key), d = del[kind][k];
+  if(d == null) return true;
+  return ((at[kind][k]) || 0) > d;
+}
+function favMergeStamps(a, b){
+  a = favStamps(a); b = favStamps(b);
+  const out = {L:{},T:{},M:{}};
+  for(const kind of ['L','T','M']){
+    for(const k of new Set([...Object.keys(a[kind]), ...Object.keys(b[kind])]))
+      out[kind][k] = Math.max(a[kind][k]||0, b[kind][k]||0);
+  }
+  return out;
+}
+/* Stops the maps growing without bound: expired tombstones go, and so does any add-stamp whose
+   favourite is no longer held or which has already lost to a newer removal. */
+function favPrune(){
+  afState.favAt = favStamps(afState.favAt); afState.favDel = favStamps(afState.favDel);
+  const cut = Date.now() - FAV_TOMB_DAYS*86400000;
+  const live = { L:new Set((afState.favL||[]).map(String)),
+                 T:new Set((afState.favT||[]).map(String)),
+                 M:new Set((afState.favM||[]).map(m=>String(m && m.fxid))) };
+  for(const kind of ['L','T','M']){
+    for(const k of Object.keys(afState.favDel[kind])) if(afState.favDel[kind][k] < cut) delete afState.favDel[kind][k];
+    for(const k of Object.keys(afState.favAt[kind])){
+      const d = afState.favDel[kind][k];
+      if(!live[kind].has(k) || (d != null && d >= afState.favAt[kind][k])) delete afState.favAt[kind][k];
+    }
+  }
+}
+
 /* ---------- match favourites (#7) ---------- */
 function isFavMatch(fxid){ return fxid!=null && afState.favM.some(x=>x.fxid===fxid); }
 function toggleFavMatch(f,meta){
   if(f.fxid==null){ toast('This match can’t be starred yet'); return; }
   const i=afState.favM.findIndex(x=>x.fxid===f.fxid);
-  if(i>=0) afState.favM.splice(i,1);
-  else afState.favM.push({fxid:f.fxid, date:f.date, time:f.time||'', home:f.home, away:f.away, lid:(meta&&meta.lid)||null, lname:(meta&&meta.lname)||'', pick:f.pick||null, prob:f.prob||null});
+  if(i>=0){ afState.favM.splice(i,1); favMark('M', f.fxid, false); }
+  else { favMark('M', f.fxid, true); afState.favM.push({fxid:f.fxid, date:f.date, time:f.time||'', home:f.home, away:f.away, lid:(meta&&meta.lid)||null, lname:(meta&&meta.lname)||'', pick:f.pick||null, prob:f.prob||null}); }
   saveState();
 }
 function starHtml(fxid){ return `<span class="mstar${isFavMatch(fxid)?'':' off'}">${isFavMatch(fxid)?'★':'☆'}</span>`; }
@@ -4595,10 +4652,44 @@ const DAILY_MARKET_RANK = (c) => {
   return 2;                                                          // Winner / DC / DNB
 };
 
+/* ══ BUILD 274 — A WINNER LEG NEEDS A COMPETITION THAT HAS EARNED ONE ═══════════════════════════
+   Ken: "games where the engine has no measured [skill] and just home advantage should not be in
+   smartbet. you can't assume home will win or draw because they are home… if both teams are in
+   great attacking form, it is even safer for over goals or btts than assuming home wins when we
+   don't even know the strength of the away team."
+
+   **Both halves of that are now measured.** Scored at each code's live floor, split by whether the
+   competition's own `computeSkill` clears two standard errors:
+
+       competition      1X edge      O25 edge     BTS edge     U35 edge
+       skill PROVEN     +0.4 (0.2σ)  -0.8         0.0          +0.7        n=384 on 1X
+       skill UNPROVEN   **-2.3 (-3.1σ)**  -0.2 (-0.2σ)  -2.0    -2.1        n=2909 on 1X
+
+   **`1X` is the WORST code where skill is unproven and honest where it is proven. `O25` is the BEST
+   there — essentially perfect at -0.2.** That is exactly the asymmetry Ken described: a Double
+   Chance leg is a claim about RELATIVE strength, which the engine cannot make when it has only
+   learned home advantage; a goals leg reads each side's own attacking output and needs no such
+   comparison. `computeSkill` measures precisely this — the engine's departures from "home or draw"
+   against that rule — and 30 of 33 competitions fail it.
+
+   So the winner family is admitted only from a competition whose skill is PROVEN. Goals and BTTS
+   are untouched everywhere, which is why this narrows the pool rather than emptying it: 2,590 of
+   6,512 candidate legs go, and 3,108 goals legs from those same competitions stay.
+
+   ⚠ AND "NOT YET COMPUTED" IS TREATED AS NOT PROVEN, DELIBERATELY. `refreshSkills` fills
+   `afState.skill` one competition per tick after the feed paints, so on a FIRST-EVER load there is a
+   few-second window where nothing is proven yet and a slip would be built from goals alone. That is
+   the safer degradation of the two — the measurement above says goals legs are the sounder half in
+   exactly these competitions — and `afState.skill` persists in saved state, so it happens once. */
+const DAILY_WINNER_CODES = new Set(['1', '2', 'X', '1X', 'X2', '12', '1D', '2D']);
+
 function dailyEligible(cands, floors){
   const byFx = {};
   for(const c of cands){
     if(!c.code) continue;                                  // unpriceable without a code (build 237)
+    /* build 274 — a winner leg is a claim about relative strength; only a competition that has
+       PROVEN it beats "home or draw" may make one on a daily slip. */
+    if(DAILY_WINNER_CODES.has(c.code) && !skillProven(c.L)) continue;
     const floor = dailyFloorFor(c, floors);
     if(floor == null || c.prob < floor) continue;    // null floor = excluded outright (BTTS No)
     (byFx[c.key] = byFx[c.key] || []).push(c);
@@ -12624,7 +12715,8 @@ function showNoAnalysis(home, away, info){
 let curFavHome='', curFavAway='';
 function toggleFavLeague(id){
   const i = afState.favL.indexOf(id);
-  i>=0 ? afState.favL.splice(i,1) : afState.favL.push(id);
+  if(i>=0){ afState.favL.splice(i,1); favMark('L', id, false); }
+  else { afState.favL.push(id); favMark('L', id, true); }
   saveState(); renderFixtures();
 }
 function setFavRow(h,a){
@@ -12633,7 +12725,8 @@ function setFavRow(h,a){
   $('favRow').innerHTML = btn(h)+btn(a);
   $('favRow').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
     const n=b.dataset.t, i=afState.favT.indexOf(n);
-    i>=0 ? afState.favT.splice(i,1) : afState.favT.push(n);
+    if(i>=0){ afState.favT.splice(i,1); favMark('T', n, false); }
+    else { afState.favT.push(n); favMark('T', n, true); }
     saveState(); setFavRow(curFavHome,curFavAway);
   }));
 }
@@ -12710,7 +12803,10 @@ function renderFavMatches(){
   if([...fin.values()].some(Boolean)) html += `<button class="btn" id="clearFinFav" style="margin-top:12px">🧹 Clear finished</button>`;
   feed.innerHTML=html; wireFavRows(feed, refs, renderFavMatches, true);
   const cb=$('clearFinFav'); if(cb) cb.addEventListener('click', ()=>{ const sm=scoreMap();
-    afState.favM = afState.favM.filter(m=>{ const L=m.lid!=null?afState.leagues[m.lid]:null; return !fixtureResult(L,m,sm); });
+    afState.favM = afState.favM.filter(m=>{ const L=m.lid!=null?afState.leagues[m.lid]:null;
+      /* Build 275 -- a bulk clear is still a removal, so every swept match is tombstoned. Without
+         this the whole set was unioned back in on the next boot and the button did nothing. */
+      if(fixtureResult(L,m,sm)){ favMark('M', m.fxid, false); return false; } return true; });
     saveState(); renderFavMatches(); toast('Cleared finished matches'); });
 }
 function renderFavLeagues(){
@@ -12721,7 +12817,7 @@ function renderFavLeagues(){
       + (afState.favT.length?`<div class="sec-label" style="margin:10px 4px 6px">Teams</div><div class="sfilters" style="flex-wrap:wrap">${afState.favT.map(t=>`<button class="sfchip active" data-t="${t}">✕ ${t}</button>`).join('')}</div>`:'')
     : '<div class="subnote">No favourite competitions or teams yet. Star a competition with ☆ on the Analysis tab, or star a team from any match analysis.</div>';
   man.querySelectorAll('[data-lid]').forEach(b=>b.addEventListener('click',()=>{ toggleFavLeague(+b.dataset.lid); renderFavLeagues(); }));
-  man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0)afState.favT.splice(i,1); saveState(); renderFavLeagues(); }));
+  man.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{ const i=afState.favT.indexOf(b.dataset.t); if(i>=0){ afState.favT.splice(i,1); favMark('T', b.dataset.t, false); } saveState(); renderFavLeagues(); }));
   const rows=[], smap=scoreMap();
   for(const L of footballLeagues()) for(const f of L.upcoming)
     if((afState.favL.includes(L.id)||afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) && daysPast(f.date)<=2) rows.push({L,f});
@@ -15682,6 +15778,7 @@ function storageReport(){
 }
 
 function saveState(){
+  favPrune();   // build 275 -- keep the favourite stamp maps bounded before they are written
   try{
     localStorage.setItem('mm_state', JSON.stringify({
       fb: footballEngine.matches, bb: basketballEngine.matches,
@@ -15689,7 +15786,7 @@ function saveState(){
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
-      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab}
+      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab, favAt: afState.favAt, favDel: afState.favDel}
     }, dropExtras));
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
@@ -15759,11 +15856,18 @@ async function cloudPullMerge(){
     if(error) throw error;
     if(data){
       const uniq=(a,b)=>[...new Set([...(a||[]), ...(b||[])])];
-      afState.favL = uniq(afState.favL, data.fav_leagues);
-      afState.favT = uniq(afState.favT, data.fav_teams);
+      /* Build 275. The stamps merge FIRST (newest event wins per key), and only then do they filter
+         the unioned arrays -- so a removal made on EITHER device survives the round trip instead of
+         being quietly unioned away and then pushed back up as a resurrection. See favMark/favKeep. */
+      const cprefs = data.prefs || {};
+      const favAt  = favMergeStamps(afState.favAt,  cprefs.favAt);
+      const favDel = favMergeStamps(afState.favDel, cprefs.favDel);
+      afState.favAt = favAt; afState.favDel = favDel;
+      afState.favL = uniq(afState.favL, data.fav_leagues).filter(id => favKeep('L', id, favAt, favDel));
+      afState.favT = uniq(afState.favT, data.fav_teams).filter(nm  => favKeep('T', nm, favAt, favDel));
       const byId=(arr,key)=>{ const m={}; for(const x of (arr||[])) if(x && x[key]!=null) m[x[key]]=x; return m; };
       const mergeById=(a,b,key)=> Object.values({ ...byId(b,key), ...byId(a,key) });   // local wins on conflict
-      afState.favM = mergeById(afState.favM, data.fav_matches, 'fxid');
+      afState.favM = mergeById(afState.favM, data.fav_matches, 'fxid').filter(m => favKeep('M', m.fxid, favAt, favDel));
       afState.record = mergeById(afState.record, data.record, 'fxid');
     }
     saveState();   // persists locally + pushes the merged result back up
@@ -15777,7 +15881,11 @@ function cloudPush(){
     try{
       await supa.from('app_state').upsert({ user_id:authUser.id,
         fav_leagues:afState.favL, fav_teams:afState.favT, fav_matches:afState.favM,
-        record:afState.record, prefs:{theme:themeMode, aiProvider}, updated_at:new Date().toISOString() });
+        record:afState.record,
+        /* Build 275 -- the tombstones travel in the existing jsonb column, so removals reach the
+           other devices with no schema change and no SQL for anyone to run. */
+        prefs:{theme:themeMode, aiProvider, favAt:afState.favAt, favDel:afState.favDel},
+        updated_at:new Date().toISOString() });
     }catch(e){ /* offline/transient — retries on the next saveState */ }
   }, 1200);
 }
@@ -15849,6 +15957,8 @@ function restoreState(){
       afState.favT = s.af.favT || [];
       afState.favM = s.af.favM || [];
       afState.favTab = s.af.favTab || 'matches';
+      afState.favAt  = favStamps(s.af.favAt);    // build 275 -- add/remove stamps drive the cloud merge
+      afState.favDel = favStamps(s.af.favDel);
       if(afState.activeLeagueId && afState.leagues[afState.activeLeagueId])
         afState.teamIds = afState.leagues[afState.activeLeagueId].teamIds || {};
     }
