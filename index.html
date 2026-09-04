@@ -517,6 +517,8 @@
 
     <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
     <div id="tipListWrap">
+      <!-- build 268 — shown only on the O/U and BTTS tabs; see DAILY_MARKETS for the measurement -->
+      <div class="subnote hidden" id="tipNoEdge" style="border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin:2px 0 8px"></div>
       <div class="sfilters" style="margin:2px 0 8px">
         <button class="sfchip" id="tipFairToggle">Show fair odds</button>
       </div>
@@ -850,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 267;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 273;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4295,6 +4297,49 @@ function nextMatchday(){
    ⚠ REMOVED IN TWO PLACES ON PURPOSE. The market is dropped from the candidate set (cheaper — the
    selections are never built) AND the two codes are floored to null below (the semantic statement).
    Either alone would work; both means a future edit cannot re-admit DNB by touching one list. */
+/* ══ BUILD 268 — ONLY MARKETS THAT PASSED A PRE-REGISTERED HOLDOUT MAY CARRY A CLAIM ════════════
+   Ken: "remove the edge claim from btts and over/under."
+
+   MEASURED 2026-09-04, 5,773 held-out fixtures across 33 competitions, McNemar on discordant pairs
+   against a naive rule fitted on the first 70% and applied unchanged to the last 30%:
+
+       Double Chance   75.6% vs 68.5%   b 1283 / c 870   chi2 78.84   SKILL SHOWN
+       1X2             47.6% vs 42.8%   b  882 / c 603   chi2 52.04   SKILL SHOWN
+       Over/Under 2.5  57.4% vs 56.8%   b  385 / c 350   chi2  1.57   no measured skill
+       BTTS            56.4% vs 55.5%   b  633 / c 580   chi2  2.23   no measured skill
+
+   The rule was written down BEFORE scoring: skill only if `b > c AND chi2 >= 3.84`; anything else,
+   *including "harm not proven"*, is no measured skill. Both controls passed, so the instrument is
+   sound and the two verdicts stand.
+
+   ⚠ AND `OU35` IS REMOVED FOR A DIFFERENT REASON, WHICH MATTERS. It was not tested and could not
+   be: the app publishes Under 3.5 one-sidedly, so the engine's selection and the naive selection are
+   the same string and McNemar has nothing to compare. **It fails the same rule by being unprovable
+   rather than by being disproved.** The rule is "no claim without measurement", so it goes too —
+   but a future log-loss test against the league base rate could earn it back, which is not true of
+   the other two on current evidence.
+
+   ⚠ WHAT THIS DOES NOT DO. It does not withdraw the markets or their probabilities. Calibration is
+   good — BTTS -1.3, O/U 2.5 -0.9 over 12,652 fixtures — so the NUMBER is honest and the Tips tabs
+   still show it. What is withdrawn is the CLAIM — the word "edge" beside them in the analysis tab.
+
+   🚨 BUILD 269 — AND BUILD 268 TOOK THAT TOO FAR. It also removed the goals markets from
+   DAILY_MARKETS, which is not what was asked and is not what the measurement supports. Ken:
+   *"i want btts and over/under in my daily slip, don't touch that. i only asked that you don't
+   write edge on them in the analysis tab."*
+
+   **He is right, and the distinction is one this file already had.** "No measured EDGE over the base
+   rate" and "not worth putting on a slip" are different claims. The holdout showed the first; it
+   said nothing about the second, because a slip leg is chosen for its PROBABILITY and its price, not
+   for whether it beats a naive rule. A well-calibrated 78% BTTS leg is exactly as sound a component
+   of a 2.00 accumulator as a well-calibrated 78% Double Chance leg — the calibration is what the
+   tier's arithmetic rests on, and both markets have it.
+
+   **AND KEN'S OWN EXPERIENCE IS THE STRONGER ARGUMENT:** *"the double chance has failed me a lot of
+   times, chosing home win or draw, with very tiny odd but away end up winning 2-3. btts and over 2.5
+   would have saved the day."* A 1.20 Double Chance leg that loses costs the whole slip; a 1.80 BTTS
+   leg that wins carries it. **Hit rate is not the only axis and the tiers are priced, not ranked.**
+   The goals markets are restored to the daily set. */
 const DAILY_MARKETS = new Set(['1X2','DC','OU25','OU35','BTTS']);
 
 /* ══ BUILD 239 — TRUE ACCUMULATOR TARGETS, PER-MARKET FLOORS, AND AN EXACT BAND SEARCH ══════════
@@ -4384,7 +4429,18 @@ const DAILY_FLOOR_PRIMARY = {
   '1D':null, '2D':null,
   'BTS':0.60, 'NBT':null,                // null = never eligible. No calibrated threshold exists.
   'O15':0.60, 'O25':0.60, 'O35':0.60,
-  'U15':0.78, 'U25':0.78, 'U35':0.80     // U35 raised to where calibration holds (-1.6 ±2.1)
+  /* 🚨 BUILD 270 — UNDER 2.5 IS NEVER OFFERED. Ken: "no BTTS NO and no Under 2.5 but rather
+     under 3.5.. my priority is btts yes and over 2.5 before under 3.5."
+     `NBT` was already null since build 245. `U25` joins it, and `U35` stays at 0.80.
+
+     ⚠ AND THE MEASUREMENT DOES NOT REACH AS FAR AS THE INSTRUCTION — said plainly rather than
+     dressed up. The 2026-09-04 band backtest found Under 2.5 significantly overconfident at
+     **55-60% (-5.1, -4.3σ)** and **65-70% (-4.5, -2.0σ)** — but the floor was already 0.78, so
+     those bands were NEVER eligible. In the band that could actually reach a slip, 75-80%, it
+     measured **+0.7 on n=79**: too thin to defend either way. **So this is Ken's product decision,
+     supported in direction and not established at its own floor.** Recorded as a preference, not
+     as a finding, because the difference is exactly what this project keeps having to relearn. */
+  'U15':0.78, 'U25':null, 'U35':0.80     // U35 raised to where calibration holds (-1.6 ±2.1)
 };
 
 /* ══ THE FALLBACK STEP — LOWER, AND STILL HONEST ═════════════════════════════════════════════════
@@ -4434,6 +4490,27 @@ const DAILY_FLOOR_PRIMARY = {
 
    The ladder keeps its SHAPE — one step today, and a second is a one-line change the day a floor
    set earns one on a fresh holdout. */
+/* ══ BUILD 273 — A FLOOR CAN NOW DIFFER BY TIER, AND ONLY ONE DOES ══════════════════════════════
+   Ken: "safe can be 2 to 3 legs can include over 2.5/under3.5 goals and (BTTS with a very good
+   confidence at least 65%)".
+
+   Every floor until now was global across the three tiers, which was right while the tiers differed
+   only in PRICE. It stops being right the moment a tier differs in RISK APPETITE: a 62% BTTS leg is
+   honestly priced and perfectly reasonable inside a 10.00 Bold slip, and out of place inside one
+   sold as "Safe". **The market's calibration is unchanged; what changes is which tier will accept
+   it.** BTS keeps its measured 0.60 floor everywhere except Safe, where it must clear 0.65.
+
+   ⚠ AND THE OVERRIDE HAS TO BE APPLIED WHERE THE SELECTION IS CHOSEN, NOT AFTER. `dailyEligible`
+   takes ONE selection per fixture — the top-ranked that clears its floor. Filtering its output
+   afterwards would DROP a fixture whose BTTS came in at 0.62; rebuilding the pool per tier lets that
+   fixture fall through to its next-best selection instead, which is the whole point of having a
+   ranked ladder. That is why the pools move inside the tier loop below. */
+const DAILY_TIER_FLOORS = { safe: { BTS: 0.65 } };
+function floorsForTier(base, tier){
+  const ov = DAILY_TIER_FLOORS[tier && tier.key];
+  return ov ? Object.assign({}, base, ov) : base;
+}
+
 const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY);
 
 const DAILY_FLOOR_STEPS = [
@@ -4448,13 +4525,38 @@ function dailyFloorFor(c, floors){
   return (v === undefined) ? null : v;      // unknown code -> not eligible, rather than undefined
 }
 
+/* ══ BUILD 272 — THE TIER NUMBER IS A MINIMUM, NOT A MIDPOINT ═══════════════════════════════════
+   Ken: "they are to be 2 - 2odd safe, 5odds Value and 10odds bold as the minimum odds for each of
+   the slips."
+
+   The bands used to STRADDLE their target — Safe was [1.80, 2.20] — so a card headed "Safe" and
+   sold as 2.00 could legitimately return **1.80**, and a 5.00 Value could return 4.50. The label
+   was the midpoint of a range, and a user who reads "2.00" and receives 1.80 has been told
+   something that was never true of that slip. Build 219 settled this for the Slip Generator at
+   Ken's own direction — *"the exact target odd or more, not less"* — and the daily tiers were the
+   one surface never brought into line with it.
+
+   Each band's LOWER bound is now its target, with the width carried across unchanged so the search
+   keeps its shape:
+       Safe   [1.80, 2.20]  -> [2.00, 2.40]
+       Value  [4.50, 5.50]  -> [5.00, 6.00]
+       Bold   [9.00, 11.50] -> [10.00, 12.50]
+   `dailyBandSearch` minimises |product - target| inside the band, so with the target sitting ON the
+   floor it now returns the SMALLEST qualifying combination at or above the promised number. That is
+   what a minimum means, and it also stops a tier drifting to the top of its own range.
+
+   ⚠ THE COST IS BUILDABILITY, AND IT IS TAKEN DELIBERATELY. A higher floor is a harder slip to
+   assemble — build 251 took the same trade when honest floors cut buildability from ~90/83/75% of
+   days to 79/65/53%. **A tier that builds less often is a product loss; a tier that pays less than
+   it says is a broken promise.** This project has always chosen the first. `dailyBestEffort` still
+   fills what it can and still says on the card when it fell short. */
 const DAILY_TIERS = [
-  { key:'safe',  name:'Safe',  target:2,  band:[1.80,  2.20], minLegs:2, maxLegs:3,
-    blurb:'About 2.00 from two or three legs, each clearing its market\u2019s floor.' },
-  { key:'value', name:'Value', target:5,  band:[4.50,  5.50], minLegs:3, maxLegs:4,
-    blurb:'About 5.00 \u2014 three or four legs around 1.45\u20131.70 apiece.' },
-  { key:'bold',  name:'Bold',  target:10, band:[9.00, 11.50], minLegs:4, maxLegs:6,
-    blurb:'About 10.00. Needs the longest qualifying legs the day offers.' }
+  { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3,
+    blurb:'At least 2.00 from two or three legs, each clearing its market\u2019s floor.' },
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:4,
+    blurb:'At least 5.00 \u2014 three or four legs around 1.45\u20131.70 apiece.' },
+  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:6,
+    blurb:'At least 10.00. Needs the longest qualifying legs the day offers.' }
 ];
 
 /* ══ BUILD 240 — A STRICT MARKET HIERARCHY, AND THE MEASUREMENT THAT SAYS WHAT IT CAN FIX ═══════
@@ -4549,7 +4651,46 @@ function dailyBestEffort(pool, tier){
    inside the band. Bounded deliberately: the pool is capped so the search cannot blow up if the
    fixture list grows, and the cap is reported rather than silent. */
 function dailyBandSearch(pool, tier){
-  const items = pool.slice().sort((a, b) => a.prob - b.prob).slice(0, 18);   // longest-paying first
+  /* 🚨 BUILD 272 — THE SEARCH WINDOW WAS ALWAYS THE 18 LONGEST LEGS, AND THAT CANNOT BUILD A SAFE
+     SLIP. `pool.sort(by prob ascending).slice(0, 18)` takes the eighteen longest-PAYING legs, which
+     is right for Bold and structurally wrong for Safe: measured 2026-09-04 on a 366-leg pool, those
+     eighteen were all priced 1.65-1.67, so the CHEAPEST PAIR available to the search was **2.72** —
+     already past Safe's roof before a third leg was considered — while the pool itself held legs
+     from **1.07** upward. Safe could not build, and not because the day was thin.
+
+     It is a pre-existing defect, exposed rather than caused by this build's move to minimum odds:
+     the old Safe band [1.80, 2.20] was even further below 2.72.
+
+     The window is now chosen by PROXIMITY TO THE PRICE THE TIER ACTUALLY NEEDS. A tier targeting T
+     over roughly L legs wants legs near T^(1/L), so the eighteen kept are those closest to that
+     ideal — 1.41 for a two-leg Safe, 1.58 for a five-leg Bold. Same window size, same exhaustive
+     walk, same cost; it simply looks where the answer is. ⚠ Sorting by proximity and not by price
+     also means the window is no longer ordered, so nothing downstream may assume it is. */
+  const legsTypical = Math.max(1, Math.round((tier.minLegs + tier.maxLegs) / 2));
+  const idealOdds = Math.pow(tier.target, 1 / legsTypical);
+  const ranked = pool.slice()
+    .sort((a, b) => Math.abs((1 / a.prob) - idealOdds) - Math.abs((1 / b.prob) - idealOdds));
+  /* 🚨 BUILD 273 — AND THE WINDOW HAS TO BE ABLE TO EXPRESS MORE THAN ONE MARKET. Proximity alone
+     clusters on a single price: measured on the live pool, Safe's ideal leg is 1.26 and its eighteen
+     closest were **sixteen `1X` and two `1`**, while the pool itself held 154 O25, 27 U35 and 23 BTS
+     legs. Ken's instruction is that Safe *can* include goals and BTTS — that was true of the POOL
+     and false of the SEARCH, which is the only one that decides what a user sees.
+     At most six of the eighteen may now come from any one selection code, so at least three codes
+     are always represented; the remainder is filled by proximity as before. The cap is above
+     `maxLegs` for every tier, so it can never make a slip unbuildable that would otherwise build
+     from a single market. */
+  const PER_CODE_CAP = 6;
+  const seen = {}, items = [];
+  for(const c of ranked){
+    if(items.length >= 18) break;
+    const n = seen[c.code] || 0;
+    if(n >= PER_CODE_CAP) continue;
+    seen[c.code] = n + 1; items.push(c);
+  }
+  for(const c of ranked){                       // top up if the cap left the window short
+    if(items.length >= 18) break;
+    if(items.indexOf(c) < 0) items.push(c);
+  }
   const lo = tier.band[0], hi = tier.band[1];
   let best = null, ceiling = 1;
   for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= 1 / items[n].prob;
@@ -5025,10 +5166,14 @@ function renderDailySlips(){
     return;
   }
   let cards = '';
-  /* BUILD 245 - one eligible pool PER FLOOR STEP, built once and reused across all three tiers.
-     dailyEligible takes one selection per fixture, so the pools genuinely differ between steps. */
-  const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, st.floors));
+  /* BUILD 245 - one eligible pool PER FLOOR STEP. ⚠ BUILD 273 - and now per TIER as well, because
+     `DAILY_TIER_FLOORS` lets a tier raise a floor for itself (Safe requires BTTS at 0.65 where the
+     others take 0.60). The pool must be rebuilt rather than filtered: `dailyEligible` chooses ONE
+     selection per fixture, so a post-filter would delete a fixture whose BTTS missed the raised bar
+     instead of letting it fall to its next-best market. Six cheap O(n) passes over ~366 candidates
+     replace two — the walk that follows is the expensive part and it is unchanged. */
   for(const tier of DAILY_TIERS){
+    const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, floorsForTier(st.floors, tier)));
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
        different claim from one built at the primary floors and must not read identically. */
@@ -5191,6 +5336,19 @@ function renderTips(){
   renderStrongPicks();                                      // the accuracy record, always
   if(t==='smart') renderDailySlips();
   if(isList) renderTipList(t);
+  /* BUILD 268 — the honesty line that has to travel with the number. These two tabs keep their
+     probabilities because those probabilities are calibrated; what they may not keep is the
+     implication that the engine beats the base rate in them. Said on the tab rather than buried in
+     a footer, because the tab is where the number is read. */
+  const noEdgeNote = $('tipNoEdge');
+  if(noEdgeNote){
+    const off = (t === 'ou' || t === 'btts');
+    noEdgeNote.classList.toggle('hidden', !off);
+    if(off) noEdgeNote.textContent =
+      'These probabilities are calibrated and honest, but on a held-out test of 5,773 matches the '
+      + 'engine showed NO measured edge over simply backing what this competition usually does. '
+      + 'They are shown for information and are kept out of Smart Bet slips.';
+  }
 }
 /* Local calendar date, `n` days from today. Local rather than UTC for the reason `localHM` exists:
    a user in Lagos and a user in London do not agree on when "today" starts, and a fixture list that
@@ -14183,7 +14341,29 @@ async function loadCloudLeagues(force){
       for(const f of display) delete f._fin;
       display.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
       L.upcoming = display;
-      if(L.upcoming.length || L.matches.length){ leagues[L.id]=L; order.push(L.id); }
+      /* 🚨 BUILD 271 — THE FITTED CONSTANTS WERE NEVER REACHING THE ENGINE ON THIS PATH.
+         `footballEngine.dampenFor()` reads `DAMPEN_OF_MATCHES`, a WeakMap keyed on the match ARRAY
+         IDENTITY and filled by `registerLeagueDampen`. That was called from `afFetch` (the RETIRED
+         direct-provider loader), from `openFixture`, and from the scores merge — and never from
+         here, which is the loader the shipped app actually uses. Measured 2026-09-04: after a normal
+         load `DAMPEN_OF_MATCHES.get(L.matches)` was **undefined** for every competition, so every
+         engine fell back to `TUNE.DAMPEN` 0.5 while `dampenFor(L)` correctly returned 0.7 for the
+         Premier League, 0.35 for Serie A, 0.2 for Brazil.
+
+         **Builds 106 and 183 — and build 267's repair of the collision between them — have been
+         inert on the shipped path.** The mechanism worked, the registration simply never happened
+         where it mattered, which is why every structural check kept passing: they all assert that
+         `dampenFor(L)` resolves correctly, and it does. Nothing asserted that the ENGINE had been
+         told.
+
+         WHAT IT COST, measured on live fixtures: Serie A O2.5 +4.1 and U3.5 -4.5, Premier League
+         BTTS +4.6, La Liga O2.5 +2.4. **Winner markets 0.0 everywhere**, because `DAMPEN` reaches
+         only `damp()` — goals and BTTS. Bundesliga 0.0 because its fitted value already is 0.5.
+
+         Registered HERE rather than at construction because the array is filled by push afterwards
+         and the WeakMap keys the object, not its contents — build 106's own note at the `afFetch`
+         site says the same. */
+      if(L.upcoming.length || L.matches.length){ registerLeagueDampen(L); leagues[L.id]=L; order.push(L.id); }
     }
     if(order.length){
       /* BUILD 215 — THE BACKSTOP, and it is the half that cannot be argued with. `_loadIssues`
@@ -15343,6 +15523,11 @@ function unpackLeagues(p, v){
     /* v2 packs `upcoming` into `u`; a v1 cache still carries it as plain objects under `upcoming`,
        and is read unchanged so this upgrade cannot orphan anybody's first paint. */
     L.upcoming = o.u ? unpackUpcoming(o.u, t) : (o.upcoming || []);
+    /* build 271 — the cache restore builds a NEW `matches` array, so the WeakMap entry made on the
+       live load does not carry over to it. A boot served from cache would otherwise price goals and
+       BTTS at TUNE.DAMPEN while a boot served from the network priced them correctly — the same
+       fixture, two numbers, depending on how the app happened to start. */
+    registerLeagueDampen(L);
     out[id] = L;
   }
   return out;
