@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 275;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 276;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -13620,12 +13620,47 @@ function gradeFromHistory(){
     }
   }
 }
+/* ══ BUILD 276 — THE READ THAT WAS ACTUALLY COSTING THE EGRESS, AND IT WAS NEVER THE ONE I FIXED ══
+   Builds 262/263/266 narrowed the LEAGUE read from 49.2 MB to 6.0 MB a boot, and the 04 Sep per-day
+   bar — pre-registered on 03 Sep as the instrument — came back at **182.6 MB against a predicted
+   ~31 MB**, inside the band I had named in advance as refuting me. It did.
+
+   The gateway said why. In one hour: **915 requests, and the top THREE by count are this call**, one
+   per page — while the bounded league read appears **3 times**. Measured against the live database
+   on 2026-09-05, one pass of this function pulled:
+
+       3,268 rows  —  91 usable  —  3,163 of them `NS`, not started  —  97.2% WASTE
+       date span 2026-09-02 → **2027-05-30**        369.5 KB decoded, every 2 minutes, per open tab
+
+   🚨 THE PAST WAS BOUNDED TO THREE DAYS AND THE FUTURE RAN TO MAY 2027. That is build 262's defect
+   word for word, sitting in a read nobody had looked at: 266's entry says *"the cache was made
+   smaller and the thing filling it never was."* This function asks for FINISHED RESULTS and was
+   handed three thousand fixtures that had not kicked off, every two minutes, forever.
+
+   AND THE METHOD ERROR THAT HID IT FOR A WHOLE BUILD CYCLE: I inferred a DAY from a BOOT. The
+   per-boot measurement was correct and the 8.2× cut was real — but a reader that fires on a TIMER is
+   invisible to a per-boot instrument no matter how carefully the boot is measured.
+
+   Verified equivalent against live data BEFORE shipping, not after: the map this builds is
+   **byte-identical** either way — 91 graded fixtures, none missing, none extra — while the transfer
+   falls **315.4 KB → 9.4 KB, 33.7×**. It is a pure transfer cut with no behaviour change.
+
+   ⚠ DO NOT ADD A SERVER-SIDE `status` FILTER. It is the obvious next tightening and it is a trap.
+   The client canonicalises through STATUS_ALIAS (FINISHED→FT) precisely because the raw vocabulary
+   differs by provider, and the comment at `isFin` records that `FINISHED.includes(r.status)` IS THE
+   CALL THAT BROKE. A status literal in the query rebuilds that coupling on the server, where it
+   fails SILENTLY and to zero rows. `gh is not null` asks the same question, is provider-neutral, and
+   removes only rows this function's own test discards on arrival. `isFin` stays the authority. */
+const RESULTS_BACK_DAYS  = 3;
+const RESULTS_AHEAD_DAYS = 1;   // one day of headroom: `date` is UTC and a kick-off can straddle it
 // pull recent finished results (last few days) from the cloud collector so past fixtures show FT + ✓/✗
 async function loadCloudResults(){
   if(!supa) return;
   try{
-    const from = new Date(Date.now()-3*86400000).toISOString().slice(0,10);
-    const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,status,updated_at', q => q.gte('date', from));
+    const from = new Date(Date.now()-RESULTS_BACK_DAYS*86400000).toISOString().slice(0,10);
+    const upto = new Date(Date.now()+RESULTS_AHEAD_DAYS*86400000).toISOString().slice(0,10);
+    const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,status,updated_at',
+      q => q.gte('date', from).lte('date', upto).not('gh','is',null));
     if(error || !data) return;
     const m = {};
     for(const r of freshRows(data)){ if(r.gh!=null && r.ga!=null && isFin(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }   // build 160
