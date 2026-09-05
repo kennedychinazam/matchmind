@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 279;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 280;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -6464,10 +6464,67 @@ const DRIFT_PER_FLUSH = 40;
    the archive, where anyone asking "is the record being kept?" is already looking. Alarming every
    user about a backend policy is noise; leaving Ken to find it in eight days is what happened. */
 let archiveFailed = null;
+/* ══ BUILD 280 — THE ARCHIVE STOPS ASKING FOR PERMISSION IT HAS ALREADY BEEN REFUSED ═══════════
+   Measured on the live origin: a signed-out boot fired **130 requests that were all refused**, every
+   one a `PATCH /rest/v1/predictions?fxid=eq.…` answered `401 permission denied for table
+   predictions`. It was 52 before wave 2 — the storm scales with the competition count, because
+   `markWithheld` fires ONE request per withheld fixture and 53 competitions withhold more of them.
+
+   `anon` holds SELECT on `predictions` and not INSERT/UPDATE. That is a deliberate posture and this
+   build does not change it: an open INSERT on the shared prediction archive would let anyone write
+   arbitrary rows into the record the whole product's honesty rests on. What is wrong is the CLIENT
+   asking 130 times for something it was told it could not have on the first try.
+
+   Build 202 already learned the first half of this — it made the archive report its failure instead
+   of swallowing it, because supabase-js returns `{error}` rather than throwing and eight days of
+   silence cost a build to find. `archiveFailure` has recorded the first failure ever since. **What
+   nothing did was USE that knowledge to stop.** One probe is diagnosis; 130 is a stutter.
+
+   ⚠ ONLY A GRANT DENIAL LATCHES, AND THAT DISTINCTION IS THE WHOLE SAFETY OF THIS BUILD. A signed-in
+   user whose JWT expires mid-session gets a 401 too, and supabase-js refreshes and carries on — if a
+   bare 401 latched, one transient blip would silence a legitimate writer's archive for the rest of
+   the session and their picks would stop reaching the shared record. So the latch requires the
+   deterministic PostgreSQL signal — code 42501, or the literal `permission denied` — which does not
+   heal within a session and is exactly what a guest receives. A network blip, a 500, a timeout: all
+   still retry, precisely as before.
+
+   The end state is IDENTICAL, not merely similar. `markWithheld` stamps optimistically and calls
+   `undo()` when the write is refused, so today's 130 requests already leave nothing behind. Skipping
+   them changes what crosses the network and nothing that the app holds afterwards. */
+let archiveDenied = null;
+/* ⚠ LATCHING ON THE RESPONSE IS TOO LATE ON ITS OWN, AND MEASURING IT IS THE ONLY REASON THIS IS
+   HERE. The first cut of this build set `archiveDenied` when the first refusal came back and gated
+   every later write on it. Measured on a signed-out boot it took 130 refused requests down to
+   **49** — better, and not what it claimed. `markWithheld` is called from a render loop, so the
+   whole burst is FIRED SYNCHRONOUSLY before any response arrives; a latch that closes on the first
+   answer closes behind forty-nine requests already in flight.
+
+   So the first archive write of the session is a PROBE, and nothing else goes out until it answers.
+   While it is outstanding the rest are QUEUED rather than dropped — a signed-in writer must not
+   lose forty-nine stamps to a mechanism that exists for guests — and when the probe resolves the
+   queue either drains (allowed) or is undone (refused). One refused request per guest boot, and no
+   behaviour change at all for anyone the backend lets write. */
+let archiveProbeSent = false, archiveProbeDone = false;
+let _withheldWaiting = [];
+function archivePermissionDenied(err){
+  if(!err) return false;
+  const code = String((err && err.code) || '');
+  const msg  = String((err && err.message) || err || '').toLowerCase();
+  /* Deliberately NOT `status === 401`: see the warning above. A denied GRANT names itself. */
+  return code === '42501' || msg.indexOf('permission denied') >= 0;
+}
+/* Every archive write asks this first. */
+function archiveWritable(){ return !!supa && !archiveDenied; }
 function archiveFailure(op, err){
   if(!err) return false;
   const first = !archiveFailed;
   archiveFailed = { at: new Date().toISOString(), op, msg: String((err && err.message) || err) };
+  /* build 280 — a refused GRANT will still be refused in a minute, so stop asking. */
+  if(!archiveDenied && archivePermissionDenied(err)){
+    archiveDenied = { at: archiveFailed.at, op, msg: archiveFailed.msg };
+    try{ console.warn('MatchMind: this device may not write the shared archive —', archiveFailed.msg,
+                      '— no further archive writes will be attempted this session.'); }catch(_){}
+  }
   if(first){
     try{ console.warn('MatchMind: prediction archive write failed —', op, '—', archiveFailed.msg,
                       '— published picks are NOT reaching the shared record.'); }catch(_){}
@@ -6911,7 +6968,9 @@ function markWithheld(f){
   if(!f || !f.fxid) return;
   /* NOT removed from afState.archive — the display reads it, and a published pick must survive the
      bar rising. That single line is the whole of Ken's bug. */
-  if(!supa || kickoffPassed(f)) return;           // after kick-off the record is untouchable
+  /* build 280 — `archiveWritable()` rather than `supa`: this is the call that fired 130 refused
+     requests on a signed-out boot, one per withheld fixture. */
+  if(!archiveWritable() || kickoffPassed(f)) return;   // after kick-off the record is untouchable
   if(!afState.archive || !afState.archive[f.fxid]) return;   // never published — nothing to withhold
   if(afState.archive[f.fxid].withheldAt) return;             // already stamped
   if(_withheldStamped.has(f.fxid)) return;        // once per session is enough
@@ -6923,11 +6982,26 @@ function markWithheld(f){
      otherwise one denied request means this fixture is never stamped for the life of the install. */
   const undo = () => { _withheldStamped.delete(f.fxid);
                        if(afState.archive && afState.archive[f.fxid]) afState.archive[f.fxid].withheldAt = null; };
+  /* build 280 — queued behind the session's first write until that one has been answered. */
+  if(archiveProbeSent && !archiveProbeDone){ _withheldWaiting.push({ fxid: f.fxid, at, undo }); return; }
+  archiveProbeSent = true;
+  withholdWrite(f.fxid, at, undo);
+}
+/* One withhold write, and the release of anything queued behind the session's first. */
+function withholdWrite(fxid, at, undo){
+  const settle = () => {
+    if(archiveProbeDone) return;
+    archiveProbeDone = true;
+    const q = _withheldWaiting; _withheldWaiting = [];
+    /* Refused: nothing else is sent and every optimistic stamp is released, so the next load can
+       try again. Allowed: the queue drains immediately and no stamp was lost to the probe. */
+    for(const wq of q){ if(archiveWritable()) withholdWrite(wq.fxid, wq.at, wq.undo); else wq.undo(); }
+  };
   try{
-    supa.from('predictions').update({ withheld_at: at }).eq('fxid', f.fxid)
-      .then(r => { if(r && r.error && archiveFailure('withhold', r.error)) undo(); },
-            e => { archiveFailure('withhold', e); undo(); });
-  }catch(e){ archiveFailure('withhold', e); undo(); }
+    supa.from('predictions').update({ withheld_at: at }).eq('fxid', fxid)
+      .then(r => { if(r && r.error && archiveFailure('withhold', r.error)) undo(); settle(); },
+            e => { archiveFailure('withhold', e); undo(); settle(); });
+  }catch(e){ archiveFailure('withhold', e); undo(); settle(); }
 }
 const _withheldStamped = new Set();
 
@@ -7010,7 +7084,7 @@ async function stampPublicationPrices(rows){
   }
 }
 async function flushPredictionArchive(){
-  if(!supa || (!archiveQueue.size && !driftQueue.size)) return;
+  if(!archiveWritable() || (!archiveQueue.size && !driftQueue.size)) return;   // build 280
   const fresh = [...archiveQueue.values()];
   const moved = [...driftQueue.values()];
   archiveQueue.clear(); driftQueue.clear();
@@ -7054,7 +7128,22 @@ async function flushPredictionArchive(){
     const rest = moved.slice(DRIFT_PER_FLUSH);
     for(const r of rest) driftQueue.set(r.fxid, r);
     if(rest.length){ clearTimeout(archiveTimer); archiveTimer = setTimeout(flushPredictionArchive, 4000); }
-    for(const r of moved.slice(0, DRIFT_PER_FLUSH)){
+    const batch = moved.slice(0, DRIFT_PER_FLUSH);
+    for(let bi = 0; bi < batch.length; bi++){
+      const r = batch[bi];
+      /* ⚠ BUILD 280 — RE-CHECKED EVERY ITERATION, NOT ONCE AT ENTRY. This loop AWAITS each write,
+         so a refusal on the first pass is already latched by the second — and without this test the
+         cap becomes the number of refused requests instead of one. Measured on a signed-out boot
+         with only the entry gate in place: **17 went out**. The untried remainder has its optimistic
+         local guard released exactly as a failure would, so nothing is lost and the next load
+         re-queues it. */
+      if(!archiveWritable()){
+        for(let k = bi; k < batch.length; k++){
+          const a2 = afState.archive && afState.archive[batch[k].fxid];
+          if(a2) a2.finalPick = batch[k]._wasFinal || null;
+        }
+        break;
+      }
       const up = await supa.from('predictions')
         .update({ final_pick:r.final_pick, final_prob:r.final_prob, final_at:r.final_at })
         .eq('fxid', r.fxid);
@@ -12463,7 +12552,9 @@ async function renderArchiveDay(){
        is where someone asking "is the record being kept?" is already looking. */
     if(archiveFailed)
       html += `<div class="frow"><span class="muted">⚠ Archive write</span><b style="color:var(--gold)">failing — ${escapeHtml(archiveFailed.op)}</b></div>`
-            + `<div class="subnote">Published picks are not reaching the shared record. What you see is still correct; the stored history is not being added to. <span class="muted">${escapeHtml(archiveFailed.msg)}</span></div>`;
+            + `<div class="subnote">Published picks are not reaching the shared record. What you see is still correct; the stored history is not being added to. <span class="muted">${escapeHtml(archiveFailed.msg)}</span></div>`
+            /* build 280 — name the state rather than leaving "failing" to imply it is still trying. */
+            + (archiveDenied ? `<div class="subnote"><b style="color:var(--gold)">This device is read-only on the shared archive.</b> The backend refused the write on permission, so no further attempts are made this session — that is what stopped ${escapeHtml(String(archiveDenied.op))} repeating. Sign in on a writing account to contribute to the record.</div>` : '');
 
     /* 🚨 BUILD 212 — HOW FAR AHEAD THESE WERE FROZEN, BECAUSE SOME OF THEM WERE FROZEN ABSURDLY
        EARLY AND NOTHING SAID SO. Until this build `archivePrediction` had no lower bound, so a pick
