@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 282;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 284;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3809,6 +3809,46 @@ function fxPredict(L,f){
   return P;
 }
 // every priceable selection for a fixture, from the engine's numbers
+/* ══ BUILD 284 — UNDER 3.5 OVERCLAIMED BY 2.3 POINTS AND A FLOOR COULD NOT FIX IT ═════════════
+   Ken: "remember btts, over 2.5 and under 3.5."
+
+   Measured over **97,240 walk-forward selections** in exactly the population the app publishes from
+   — competitions PROVEN under build 283, both teams past build 277's evidence floor — each code at
+   its live floor:
+
+       code   floor   claimed   actual   error    σ
+       BTS    0.60     62.5     61.8     -0.7    -0.7    honest
+       O25    0.60     63.8     64.3     **+0.5** +0.6   honest, slightly conservative
+       1X     0.76     82.5     81.9     -0.6    -1.2    acceptable
+       X2     0.85     88.5     85.4     -3.1    -2.0    borderline
+       U35    0.80     83.9     81.5   **-2.3**  **-3.8**  OVERCLAIMS
+
+   \U0001f6a8 AND RAISING THE FLOOR DOES NOT FIX IT. The U35 error is FLAT across the whole range —
+   -1.2 at 0.60, -2.3 at 0.80, -1.4 at 0.88 — so the bar was never the problem. Lifting it to 0.88
+   would have discarded **87% of U35 legs and left the bias intact**. That is a calibration bias, and
+   a threshold cannot correct a bias; it can only hide it behind a smaller sample.
+
+   ⚠ AND THE OBVIOUS CORRECTION IS A TRAP, CAUGHT IN SIMULATION RATHER THAN IN PRODUCTION. A shift
+   estimated over ALL probabilities makes the good markets worse: BTS goes -0.7 → **-2.7 (-3.5σ)**
+   and O25 +0.5 → **-1.4**, because both UNDERclaim at low confidence and are accurate at high, so a
+   global shift drags the accurate region off target. **The correction must be estimated on the
+   population it is applied to — above the floor — and applied ONLY where the error is significant.**
+
+   So exactly one code is corrected. `-0.0175` takes U35 from **-2.33 (-3.8σ) to +0.08 (+0.11σ)** and
+   it HOLDS across the range (0.80 → +0.08, 0.83 → +0.25, 0.86 → +0.56), with the sample falling
+   3,613 → 2,485 rather than to 473.
+
+   **BTS, O25 and 1X are untouched because they are already honest.** X2 reads -1.95σ, just inside
+   the -2 bar this build set for itself, and is left alone rather than corrected on a rule bent to
+   include it. The bar was chosen before the numbers were read. */
+const CALIB_SHIFT = { U35: -0.0175 };
+/* Applied at the ONE place every selection is constructed, so the slip, the floors, the fair odds
+   and the displayed confidence can never disagree about what the engine claims. */
+function calibrate(code, prob){
+  const s = code && CALIB_SHIFT[code];
+  if(s == null) return prob;
+  return Math.min(0.995, Math.max(0.005, prob + s));
+}
 function allSelections(P,f,L){
   /* BUILD 193 — `key` is the SLOT this selection occupies, with no team name in it. `sel` stays
      exactly as it was, because it is what the reader sees. The two are one-to-one: every label this
@@ -3826,7 +3866,8 @@ function allSelections(P,f,L){
      would always hit and would quietly CHANGE that number. Correct score is filtered out of the
      Smart Bet pool anyway, so this is unobservable either way; it is written this way so the
      change is a pure speed-up rather than a speed-up carrying a silent behaviour edit. */
-  const S=[]; const add=(m,sel,prob,code,key)=>{ if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null,key:key||sel}); };
+  const S=[]; const add=(m,sel,prob,code,key)=>{ prob = calibrate(code, prob);   // build 284
+    if(prob>0&&prob<1) S.push({m,sel,prob,code:code||null,key:key||sel}); };
   /* HT/FT doubles enter the slip only when a league is passed in, because they need the half-time
      models (build 52). Measured on 192 real matches these prices land within ~2.5 points of reality,
      so they are fair to stake — but they are long shots by nature, so the slip's risk ceiling will
@@ -7223,30 +7264,85 @@ function calTable(title, rows, note){
    So this is computed per competition rather than hard-coded, because four measurements taken in
    August 2026 are a snapshot, not a law — squads change, leagues open up and close down, and eight
    competitions here have never been tested at all. */
+/* ══ BUILD 283 — THE SKILL TEST COMPARED SUBSETS AGAINST THEIR OWN SUPERSET ═══════════════════
+   Ken: "go at the skill problem." Only **4 of 47** competitions were 'proven', including a Premier
+   League reading +0.4 and an Eredivisie reading −2.4, and that number gates build 274's winner-leg
+   rule. Before concluding the engine has no skill, the yardstick was checked. **It was broken.**
+
+   The old test scored every departure against `1X`. But `1X` hits on HOME **or** DRAW, so when the
+   engine departs with a solo `1` it is being compared with a rule that wins everything it wins AND
+   every draw besides. **`1` is a strict subset of `1X` and cannot beat it — ever.** Same for `X`.
+   Measured across 51 competitions, 12,566 departures:
+
+       code    n      share   engine   naive 1X   gap        comparison
+       1     4,300     34%     61.0%     82.2%   **−21.2**   IMPOSSIBLE (subset of 1X)
+       X       579      5%     40.4%     75.3%   **−34.9**   IMPOSSIBLE (subset of 1X)
+       2     1,379     11%     56.6%     43.4%    **+13.3**  fair, +9.9σ
+       X2    6,308     50%     68.1%     58.4%     **+9.7**  fair, +15.6σ
+
+   **39% of the sample was unwinnable by construction**, and it dragged the pooled figure to −2.6 —
+   which is the number `computeSkill` reported and `skillProven` gated on. The engine's `1` picks hit
+   61%; `1X` scores 82% on those same fixtures only because it also collects the draws it did not
+   claim. That is not the engine failing, it is a rigged comparison.
+
+   THE HONEST QUESTION IS NOT "does the pick beat 1X" BUT "does the engine's CHOICE OF WHICH
+   FIXTURES GET THIS CODE beat saying that code everywhere". That is skill in the ordinary sense —
+   discrimination over a base rate — and it is what this now measures. Same 24,477 predictions:
+
+       code    n       engine   always-this-code   edge       σ
+       1     4,300      61.0%        43.9%        **+17.1**  22.6
+       2     1,379      56.6%        35.8%        **+20.8**  16.1
+       X       579      40.4%        31.5%         **+8.9**   4.6
+       X2    6,308      68.1%        57.4%        **+10.7**  17.2
+       1X   11,911      71.7%        69.1%          +2.5      6.0
+       ALL  24,477      67.3%        58.9%         **+8.4**  26.6
+
+   **Every code positive, pooled +8.4 at 26.6σ.** The engine has large discriminative skill and the
+   old statistic said the opposite.
+
+   ⚠ `1X` PICKS NOW COUNT. The old test threw them away as "not a departure", which discarded half
+   the evidence and is why `dep < 40` existed. Under a base-rate comparator a `1X` pick is a claim
+   like any other and is scored like any other — it just has the least room, +2.5 over a 69.1% base.
+
+   The returned SHAPE is unchanged so every consumer keeps working: `gap` is still engine minus
+   comparator, `dumb` is still what the comparator scored. Only the comparator changed, from "1X
+   everywhere" to "the code the engine actually chose, everywhere". */
+/* ⚠ BUILD 283 — A STAMP, BECAUSE A CHANGED STATISTIC MUST INVALIDATE ITS OWN STORED ANSWERS.
+   `refreshSkills` recomputes only when a competition's match count moves by more than 20, so on
+   every existing install the OLD verdicts — computed against the broken 1X comparator — would sit
+   in `afState.skill` unchanged and keep gating winner legs forever. The size guard is right for
+   "more data arrived"; it cannot see "the question changed". Bump this whenever the meaning of
+   `gap` moves. */
+const SKILL_STAT_V = 2;
 function computeSkill(L){
   const ms = (L && L.matches) || null;
   if(!ms || ms.length < 150) return { ready:false, reason:'thin', size: ms?ms.length:0 };
   const tmp = Object.create(footballEngine); tmp.matches = ms;
-  const pre = [{W:0,D:0,L:0}];
-  for(let i=0;i<ms.length;i++){ const m=ms[i], b=pre[i];
-    pre.push({ W:b.W+(m.hg>m.ag?1:0), D:b.D+(m.hg===m.ag?1:0), L:b.L+(m.hg<m.ag?1:0) }); }
   const start = Math.max(60, Math.floor(ms.length*0.3));
-  let n=0, dep=0, engHit=0, dumbHit=0;
+  /* Base rates over EXACTLY the window that is scored — not the whole history. A comparator fitted
+     on a different span than the thing it judges is build 253's fault in miniature. */
+  let W=0, h=0, d=0, a=0;
+  for(let i=start;i<ms.length;i++){ const m=ms[i]; W++;
+    if(m.hg>m.ag) h++; else if(m.hg===m.ag) d++; else a++; }
+  if(!W) return { ready:false, reason:'few', n:0, dep:0, size: ms.length };
+  const base = { '1':h/W, 'X':d/W, '2':a/W, '1X':(h+d)/W, 'X2':(d+a)/W, '12':(h+a)/W };
+  let n=0, dep=0, hit=0, exp=0;
   for(let i=start;i<ms.length;i++){
     const m = ms[i], p = tmp.predict(m.home, m.away, i); if(!p) continue;
     const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
-    const hp = headlinePick(p, 'H', 'A');
-    n++;
-    if(hp.code !== '1X'){ dep++;
-      if(pickHit(hp.code, act)) engHit++;
-      if(pickHit('1X', act))    dumbHit++; }
+    const hp = headlinePick(p, 'H', 'A'); if(!hp) continue;
+    const b = base[hp.code]; if(b == null) continue;   // a code with no base rate is not scoreable
+    n++; if(hp.code !== '1X') dep++;
+    if(pickHit(hp.code, act)) hit++;
+    exp += b;
   }
-  // too few departures means the engine barely left the dumb rule — nothing to judge either way
-  if(dep < 40) return { ready:false, reason:'few', n, dep, size:ms.length };
-  const e = engHit/dep, d = dumbHit/dep;
-  const floor = 2*Math.sqrt(Math.max(1e-9, d*(1-d)/dep));
-  return { ready:true, n, dep, eng:e, dumb:d, gap:e-d, floor,
-           proven: (e-d) > floor, size: ms.length, at: Date.now() };
+  /* The floor is on the SCORED sample now, which is every prediction rather than only departures,
+     so it is both larger and honestly counted. */
+  if(n < 100) return { ready:false, reason:'few', n, dep, size:ms.length };
+  const e = hit/n, b = exp/n;
+  const floor = 2*Math.sqrt(Math.max(1e-9, b*(1-b)/n));
+  return { ready:true, v: SKILL_STAT_V, n, dep, eng:e, dumb:b, gap:e-b, floor,
+           proven: (e-b) > floor, size: ms.length, at: Date.now() };
 }
 /* ── THE NEWCOMER PRIOR (build 125) ────────────────────────────────────────────
    With recency ruled out (§41), this is the remaining structural suspect, and it is the one the
@@ -11957,7 +12053,10 @@ function refreshSkills(){
      data. The 150-match floor below is the real guard and it is unchanged. */
   const todo = historyLeagues().filter(L=>{
     const s = afState.skill[L.id], g = afState.gate[L.id], size = (L.matches||[]).length;
-    return size >= 150 && (!s || !g || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
+    /* build 283 — `s.v !== SKILL_STAT_V` forces a recompute when the STATISTIC changed, which the
+       size comparison alone can never detect. */
+    return size >= 150 && (!s || !g || s.v !== SKILL_STAT_V
+                           || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
   }).map(L=>L.id);
   if(!todo.length) return;
   const step = ()=>{
