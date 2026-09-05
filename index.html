@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 281;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 282;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -14595,6 +14595,25 @@ async function loadCloudLeagues(force){
            HAD something last time. That is the disappearance build 123 was written for, and its
            caution is kept exactly as it was.
        So a first-run fetch failure is now named, and a genuinely empty competition still is not. */
+    /* ⚠ BUILD 282 — THE SECOND BANNER, SAME CAUSE AS THE FIRST, SEEN BY KEN AFTER 281 FIXED
+       THE FIRST: "4 competitions kept from the last load — they did not refresh this time, so their
+       fixtures may be behind."
+
+       They refreshed perfectly. They are RESTING. Since 279 an out-of-season competition's bounded
+       read returns no rows, so it is absent from `leagues`, the merge takes the kept branch, and
+       build 215's backstop counts it as carried-over. **Build 222's warning is about FIXTURES BEING
+       STALE, and a competition between seasons has no fixtures to be stale.**
+
+       281 fixed `_loadIssues` and left this — the same error a third time. So the fix now belongs to
+       the PREDICATE rather than to one of its readers: `resting` is computed once, here, and BOTH
+       banners read it. A competition is resting when the fetch SUCCEEDED, returned nothing, and the
+       cache supplied its history. Anything else — an error, or an empty result with no cache behind
+       it — is reported exactly as before. */
+    const restingIds = {};
+    COMP_IDS.forEach((id, i) => {
+      const r = results[i];
+      if(r && !r.error && (!r.data || !r.data.length) && histCache[String(id)]) restingIds[id] = 1;
+    });
     _loadIssues = COMP_IDS
       .map((id,i)=>{
         const r = results[i], prev = afState.leagues[id];
@@ -14613,7 +14632,7 @@ async function loadCloudLeagues(force){
            which is the same mistake twice in one build, one line apart in consequence.
 
            An empty fetch is only newsworthy when the history did NOT come from cache. */
-        if((!r || !r.data || !r.data.length) && prev && !histCache[String(id)]) return named;
+        if((!r || !r.data || !r.data.length) && prev && !restingIds[id]) return named;
         return null;
       })
       .filter(Boolean);
@@ -14838,7 +14857,9 @@ async function loadCloudLeagues(force){
       const merged = {};
       for(const id of COMP_IDS){
         if(leagues[id]) { merged[id] = leagues[id]; }
-        else if(afState.leagues && afState.leagues[id]) { merged[id] = afState.leagues[id]; keptIds.push(id); }
+        else if(afState.leagues && afState.leagues[id]) { merged[id] = afState.leagues[id];
+          /* build 282 — a resting competition is kept, but it is not STALE, so it is not counted. */
+          if(!restingIds[id]) keptIds.push(id); }
       }
       /* The order follows this run where it can and falls back to what was displayed before, so a
          kept competition does not silently drop off the bottom of the feed. */
