@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 280;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 281;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -11947,7 +11947,15 @@ function refreshSkills(){
   if(_skillTimer) return;
   afState.skill = afState.skill || {};
   afState.gate  = afState.gate  || {};   // build 128 — each competition's own measured publish bar
-  const todo = footballLeagues().filter(L=>{
+  /* ⚠ BUILD 281 — `historyLeagues()`, NOT `footballLeagues()`. The latter filters on
+     `upcoming.length`, so a competition between seasons is invisible to it — and skill is measured
+     from HISTORY, which such a competition has plenty of. Build 263 fixed this exact substitution in
+     `eloValidate` and the PROGRESS entry named `refreshSkills` as carrying the same trap; it was left
+     for its own build and this is it. Measured on 2026-09-05 at 53 competitions: **six were never
+     skill-measured at all** — Copa del Rey (526 matches), Coupe de France (800), Botola Pro (960),
+     A-League (678), Coppa Italia and DFB Pokal — every one of them out of season, not short of
+     data. The 150-match floor below is the real guard and it is unchanged. */
+  const todo = historyLeagues().filter(L=>{
     const s = afState.skill[L.id], g = afState.gate[L.id], size = (L.matches||[]).length;
     return size >= 150 && (!s || !g || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
   }).map(L=>L.id);
@@ -14314,6 +14322,24 @@ const HIST_DB = 'mm_hist', HIST_STORE = 'leagues', HIST_DB_V = 1;
 /* Bumped when the shape of a cached match changes. A stale shape is DISCARDED rather than migrated:
    the source of truth is one network read away, and a migration is a second thing to get wrong. */
 const HIST_CACHE_V = 1;
+/* ⚠ BUILD 281 — THE RESTORE PASS WAS NOT IDEMPOTENT, AND 279 SHIPPED THAT WAY.
+   `loadCloudLeagues` runs more than once in a session — boot, throttle expiry, manual refresh. A
+   competition that is FETCHED gets a brand-new object each run holding only recent rows, so
+   prepending its cached half is right every time. A competition that is KEPT — which is every
+   out-of-season one, because its bounded read returns nothing — is the SAME object as last run and
+   already carries its cached half. 279 prepended regardless.
+
+   🚨 MEASURED on build 281 before this fix: **A-League 339 distinct fixtures stored 1,356 times —
+   every one present FOUR times**, once per load in that session. Botola Pro, Copa del Rey and Coupe
+   de France the same. Duplicated history skews every strength, rate and skill number computed from
+   it, and `historyLeagues()` feeds Elo and the UEFA coefficients as well.
+
+   The two-boot equivalence test that caught 279's out-of-season bug could not catch this one: it
+   compared a fresh page load against a fresh page load, one `loadCloudLeagues` call each. The
+   duplication only appears on the SECOND call within one session. A WeakSet on the league OBJECT is
+   the fix — same reasoning as DAMPEN_OF_MATCHES: it keys identity, so a kept object is recognised
+   and a rebuilt one is not. */
+const HIST_JOINED = new WeakSet();
 function historySettleCutoff(){
   return new Date(Date.now() - HISTORY_SETTLE_DAYS * 86400000).toISOString().slice(0, 10);
 }
@@ -14339,8 +14365,25 @@ async function histLoad(){
         const c = rq.result;
         if(!c){ res(out); return; }
         const v = c.value;
-        if(v && v.v === HIST_CACHE_V && Array.isArray(v.m) && v.m.length)
-          out[c.key] = { m: v.m, meta: v.meta || null };
+        /* ⚠ BUILD 281 — DEDUPED ON READ, BECAUSE BUILD 279 POISONED CACHES THAT ARE ALREADY IN
+           THE WILD. 279's restore was not idempotent, so on every load after the first it appended
+           a competition's cached half again — and the write-back then stored the LONGER array. Any
+           install that ran 279 now holds a cache with two, four or more copies of every settled
+           match, and it would never heal: the guard added above stops new duplication and does
+           nothing about what is already on the device.
+           `date|home|away` is unique within a competition — a side plays once on a date — so this
+           is a safe identity. Cheaper than bumping HIST_CACHE_V, which would be correct too but
+           would make every existing install re-download 16.42 MB to fix a defect it can repair for
+           free. */
+        if(v && v.v === HIST_CACHE_V && Array.isArray(v.m) && v.m.length){
+          const seen = {}, clean = [];
+          for(const x of v.m){
+            const key = (x && x.date) + '|' + (x && x.home) + '|' + (x && x.away);
+            if(seen[key]) continue;
+            seen[key] = 1; clean.push(x);
+          }
+          out[c.key] = { m: clean, meta: v.meta || null };
+        }
         c.continue();
       };
       rq.onerror = () => res(out);
@@ -14557,7 +14600,20 @@ async function loadCloudLeagues(force){
         const r = results[i], prev = afState.leagues[id];
         const named = (prev && prev.name) ? prev.name : `competition ${id}`;
         if(r && r.error) return named;                                  // a real failure, always
-        if((!r || !r.data || !r.data.length) && prev) return named;     // it was there and now is not
+        /* ⚠ BUILD 281 — THIS FIRED FOUR FALSE ALARMS AND BUILD 279 IS WHY.
+           Ken saw: "A-League, Botola Pro, Copa del Rey and Coupe de France did not load this time —
+           a connection hiccup, not a competition change." All four had loaded perfectly; all four
+           are OUT OF SEASON.
+
+           279 bounded the league read to the settle cutoff, so a competition with no recent fixtures
+           now returns ZERO ROWS where it used to return two years of history — and `prev` exists,
+           because the cache put it there. 279's own entry states the trap in as many words: an empty
+           result meant "this competition has nothing" before, and means "nothing has changed here
+           since the settle cutoff" after. **I applied that to the merge and not to this alarm**,
+           which is the same mistake twice in one build, one line apart in consequence.
+
+           An empty fetch is only newsworthy when the history did NOT come from cache. */
+        if((!r || !r.data || !r.data.length) && prev && !histCache[String(id)]) return named;
         return null;
       })
       .filter(Boolean);
@@ -14825,7 +14881,9 @@ async function loadCloudLeagues(force){
         }
         /* Cached rows are all strictly older than the settle cutoff and everything already on the
            object is at-or-after it, so this is a concatenation and never a merge. */
+        if(HIST_JOINED.has(L2)) continue;      // build 281 — this exact object already carries it
         L2.matches = ms.concat(L2.matches || []);
+        HIST_JOINED.add(L2);
         registerLeagueDampen(L2);
       }
       afState.leagues = merged; afState.leagueOrder = mergedOrder;
