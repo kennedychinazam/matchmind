@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 284;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 288;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3799,12 +3799,164 @@ function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el
    The map also invalidates itself — a reload builds fresh fixture objects — and the match count is
    checked so a competition that has grown reprices rather than serving a stale number. */
 const _fxPredCache = new WeakMap();
+/* ══ BUILD 287 — THE CROSS-COMPETITION SHAPE, ON CUP TIES ONLY ═════════════════════════════════
+   Pre-registered at `MatchMind-ENSEMBLE-PREREG.md`, filed and run 2026-09-06. Ken: "i want where
+   multiple factors support a decision… instead of just comparing which is better between them."
+
+   WHAT IT DOES. A cup entrant with almost no history in that cup is priced by `NEWCOMER` at a flat
+   15% below average — the same number for a Premier League side and a non-league one. This uses the
+   side's OWN scoring record in the league it is concurrently playing, converted to the cup's level,
+   to move the HOME/AWAY SPLIT of the engine's goal expectations.
+
+   🚨 THE TOTAL IS CARRIED THROUGH UNCHANGED, AND THAT IS THE ENTIRE DESIGN. `CROSSCOMP` Part B
+   tried the same signal as a multiplier on attack, which lifts both lambdas together. Measured on
+   1,168 held-out fixtures it improved log loss by 9.61σ and made goals MAE WORSE by 4.38σ — and its
+   own filing had predicted exactly that failure in advance: "the conversion is moving the total
+   rather than the shape". It was vetoed. Constraining the total and moving only the shape, ON THE
+   SAME FIXTURES:
+
+       Part B, attack multiplied     log loss +9.61σ    goals MAE −4.38σ   VETOED
+       this build, shape only        log loss +4.79σ    goals MAE +4.61σ   BETTER
+
+   The log-loss gain is SMALLER once constrained. That is the honest reading: part of Part B's
+   apparent gain was the total drifting, not better discrimination.
+
+   THE HELD-OUT EVIDENCE, on the primary split — fit on odd-id competitions, scored on 642 fixtures
+   of Coupe de France, KNVB Beker, Taca de Portugal and the Champions League that the fit never saw:
+
+       log loss   1.00683 → 0.97917   +2.37σ
+       goals MAE  2.3527  → 2.3215    BETTER at +1.95σ
+       headline   329     → 353 hits of 642
+
+   ⚠ ELO WAS MEASURED IN THE SAME RUN AND IS NOT HERE. Drop-one on the score set: removing this
+   signal costs 2.11σ, removing Elo costs **0.22σ**. Its fitted weight was negative in the combined
+   arm (−0.245), flipped to +0.403 when fitted alone, and the temporal split drove it to exactly 0.
+   Elo beats the engine's raw direction on cup ties (`MatchMind-ELO-CUPS-PREREG.md`) and STILL adds
+   nothing on top of the engine's own shape — because the two are not independent instruments: the
+   engine already consumes the match history Elo is built from. Two systems agreeing is not two
+   pieces of evidence when they read the same rows.
+
+   ⚠ AND IT IS OFF EVERYWHERE ELSE. On 14,640 held-out general fixtures the same construction is a
+   null (+0.24σ), and Elo alone made goals MAE worse there at −4.14σ. The pre-registration forbids
+   carrying a win on one population across to the other, so this runs on cup and continental ties
+   and nowhere else.
+
+   🚨 `COMPS` IS A LIST OF IDS AND THAT IS A LIABILITY, NOT A CONVENIENCE. af-30's rule is that
+   admission should key on a fact about the fixture, never a guess about its league — and this keys
+   on the league, because the MEASURED POPULATION was cup and continental competitions. **Adding a
+   cup to this list without re-running the pre-registration would be claiming evidence that does not
+   exist**, so the lock asserts the list is exactly the nine competitions that were scored. */
+const XC_SHAPE = {
+  ON: true,
+  /* Fitted on seasons ≤2024-25 and scored on 2025-26/2026-27 at +4.79σ. The competition split fitted
+     1.6432 on its own half; the two disagree by ~40%, so the SMALLER is taken — it is the one
+     validated on 1,168 scored fixtures rather than 642, and understating a shape shift costs less
+     than overstating it. Neither number was refitted on everything: that would produce a weight no
+     held-out set has ever scored. */
+  W: 1.1672,
+  A: 0.5833, B: 0.5152,     // level conversion yhat(x) = A + B·x, fitted on ≤2024-25 team-seasons
+  MIN_SRC: 10,              // appearances required in the concurrent league
+  RECENT_DAYS: 180,         // "concurrent" — most recent source appearance within this many days
+  COMPS: [2,13,45,66,81,90,96,137,143]
+};
+const _XC_COMPS = new Set(XC_SHAPE.COMPS.map(String));
+let _xcIx = null, _xcIxTag = '';
+/* One index over every loaded competition: per team, the dates it appeared and its cumulative
+   goals-for, plus the competition's cumulative goals. Built from `historyLeagues()` — NOT
+   `footballLeagues()`, which drops a competition that is between seasons and would silently hide
+   the league half of a cup entrant's record (build 263's lesson, and the whole premise here is that
+   history earned elsewhere is the bridge). */
+function xcIndex(){
+  const ls = historyLeagues();
+  const tag = ls.map(L => L.id + ':' + (L.matches || []).length).join('|');
+  if(_xcIx && _xcIxTag === tag) return _xcIx;
+  const ix = {};
+  for(const L of ls){
+    const ms = (L.matches || []).filter(m => m.hg != null && m.ag != null)
+                 .slice().sort((a, b) => a.date < b.date ? -1 : 1);
+    const t = {}, dates = [], cum = []; let g = 0;
+    for(const m of ms){
+      g += m.hg + m.ag; dates.push(m.date); cum.push(g);
+      (t[m.home] = t[m.home] || { d:[], gf:[], s:0 });
+      (t[m.away] = t[m.away] || { d:[], gf:[], s:0 });
+      const h = t[m.home]; h.s += m.hg; h.d.push(m.date); h.gf.push(h.s);
+      const a = t[m.away]; a.s += m.ag; a.d.push(m.date); a.gf.push(a.s);
+    }
+    ix[L.id] = { dates, cum, team: t };
+  }
+  _xcIx = ix; _xcIxTag = tag;
+  return ix;
+}
+function _xcBefore(arr, date){          // count of entries strictly before `date`
+  let lo = 0, hi = arr.length;
+  while(lo < hi){ const mid = (lo + hi) >> 1; if(arr[mid] < date) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+/* This team's goals-for per game in the league it is CONCURRENTLY playing, normalised by that
+   league's own goals per game, using only matches strictly before `date`. Null when there is no
+   such league — and null is not zero: a side with no concurrent record keeps the incumbent prior. */
+function xcAttack(name, date){
+  const ix = xcIndex();
+  let best = null;
+  for(const cid in ix){
+    if(_XC_COMPS.has(String(cid))) continue;           // the source must be a LEAGUE, not the cup
+    const T = ix[cid].team[name]; if(!T) continue;
+    const k = _xcBefore(T.d, date);
+    if(k < XC_SHAPE.MIN_SRC) continue;
+    const gap = (Date.parse(date) - Date.parse(T.d[k-1])) / 86400000;
+    if(!(gap <= XC_SHAPE.RECENT_DAYS)) continue;       // concurrent, not a competition it has left
+    if(!best || k > best.k) best = { cid, k };
+  }
+  if(!best) return null;
+  const T = ix[best.cid].team[name], L = ix[best.cid];
+  const j = _xcBefore(L.dates, date); if(j < 1) return null;
+  const lg = L.cum[j-1] / (2 * j);
+  if(!(lg > 0)) return null;
+  return (T.gf[best.k-1] / best.k) / lg;
+}
+/* Returns the adjusted prediction, or the original untouched. */
+function xcAdjust(L, f, P, eng){
+  if(!XC_SHAPE.ON || !P || !L || !f) return P;
+  if(!_XC_COMPS.has(String(L.id))) return P;
+  if(!(P.lambdaH > 0) || !(P.lambdaA > 0)) return P;
+  const date = f.date; if(!date) return P;
+  const ix = xcIndex(), here = ix[L.id];
+  if(!here) return P;
+  /* P1, as pre-registered: at least one side short of NEWCOMER.FULL appearances in THIS
+     competition AND carrying a concurrent league record. */
+  const appsH = here.team[f.home] ? _xcBefore(here.team[f.home].d, date) : 0;
+  const appsA = here.team[f.away] ? _xcBefore(here.team[f.away].d, date) : 0;
+  const xh = xcAttack(f.home, date), xa = xcAttack(f.away, date);
+  const qualifies = (appsH < NEWCOMER.FULL && xh != null) || (appsA < NEWCOMER.FULL && xa != null);
+  if(!qualifies) return P;
+  /* "0 when unavailable", per TERM: a side with no concurrent record contributes the neutral level
+     1, so the difference is 0 when neither has one and still usable when only one does. */
+  const yh = xh != null ? (XC_SHAPE.A + XC_SHAPE.B * xh) : 1;
+  const ya = xa != null ? (XC_SHAPE.A + XC_SHAPE.B * xa) : 1;
+  const z = yh - ya;
+  if(!isFinite(z) || z === 0) return P;
+  const T = P.lambdaH + P.lambdaA, sh = P.lambdaH / T;
+  if(!(T > 0) || !(sh > 0 && sh < 1)) return P;
+  const s2 = 1 / (1 + Math.exp(-(Math.log(sh / (1 - sh)) + XC_SHAPE.W * z)));
+  if(!isFinite(s2) || !(s2 > 0 && s2 < 1)) return P;
+  /* THE TOTAL IS REBUILT FROM THE SAME T. Any edit here that lets T move reintroduces the exact
+     failure that vetoed CROSSCOMP Part B, and the lock asserts this line. */
+  const out = (eng || footballEngine).marketsFor(T * s2, T * (1 - s2), P.raw.rates);
+  if(!out) return P;
+  out.unknownTeams = P.unknownTeams; out.unknownNames = P.unknownNames;
+  out.xcShift = +z.toFixed(4);
+  return out;
+}
 function fxPredict(L,f){
   if(!(L && L.matches && L.matches.length>=15 && f)) return null;
   const hit = _fxPredCache.get(f);
   if(hit && hit.n === L.matches.length) return hit.P;
   const tmp=Object.create(footballEngine); tmp.matches=L.matches;
-  const P = tmp.predict(f.home,f.away);
+  /* build 287 — the cross-competition shape is applied HERE and not inside the engine, because
+     this is the only place that holds BOTH the competition and the fixture. The engine sees one
+     competition's matches and has no idea what else a club plays in; giving it app state to reach
+     for would couple the prediction core to the loader. */
+  const P = xcAdjust(L, f, tmp.predict(f.home,f.away), tmp);
   _fxPredCache.set(f, {n:L.matches.length, P});
   return P;
 }
@@ -4297,10 +4449,63 @@ function renderTipHorizon(){
    THE ODDS ARE ON THE CARD DELIBERATELY. At this confidence the pick is usually Double Chance or
    Draw No Bet, which pays short. A user who is shown "83%" and not "@ 1.20" thirty times, and then
    loses once, has been misled by omission. */
+/* ══ BUILD 288 — A WITHDRAWN PICK WAS STILL BEING SOLD AS THE STRONGEST READ ═══════════════════
+   Ken, with a screenshot of both screens side by side: *"thats what is claimed to be todays
+   strongest read, yet the analysis has no strong read, this is unacceptable. same goes with any
+   prediction that shall be put on the daily slip in the smart bet. the engine must have a very very
+   strong read on all that will be dished in there."*
+
+   HE IS RIGHT, AND THE APP ALREADY KNEW. Reproduced against the live database on 2026-09-06:
+
+       2. Bundesliga — SpVgg Greuther Fürth v 1. FC Heidenheim
+       card:   "Today — strongest read"  ·  Goals: O2.5  ·  90.7%  ·  @ 1.10
+       match:  "No strong read — the engine's best call here is 64.3%, under the 70.0% it has to
+                clear in this competition… this competition carries no measured edge."
+       fixture state:  gated: null   frozen: true   unbacked: "withdrawn earlier"
+
+   **`unbacked` was already set, and `markWithheld` had already stamped the shared archive.** The app
+   had withdrawn the pick, recorded that it withdrew it, and went on advertising it on the front of
+   the Tips tab.
+
+   THE CAUSE IS ONE MISSING TERM. Build 199 settled — correctly — that *a published pick is never
+   gated again*: `f.gated = (started || arch) ? null : gateReason(...)`. That rule exists so a tip
+   cannot vanish from under a user who already backed it, and it stays. But `bankerOf` filtered on
+   `f.gated` ALONE, and for any published fixture that is permanently null. **Build 199 also created
+   `f.unbacked` for exactly this question and nothing forward-looking ever read it.** Build 165's
+   rule, one more time: an instrument that exists and is never read is not an instrument.
+
+   ⚠ THIS DOES NOT REVERSE BUILD 199. A withdrawn pick stays VISIBLE on its own fixture, stays
+   graded, and stays in the record — that is history and rewriting it is the drift build 62 removed.
+   What changes is only what the app OFFERS FORWARD: the strongest-read card and the daily slip.
+
+   ⚠ AND IT DOES NOT TOUCH `DAILY_MARKETS`. The first shape of this fix was to drop the goals
+   markets, on the reasoning that build 268's holdout withdrew their edge claim. **Build 269 had
+   already reversed that at Ken's own instruction** — *"i want btts and over/under in my daily slip,
+   don't touch that. i only asked that you don't write edge on them in the analysis tab"* — and the
+   distinction there is right: no measured EDGE over a naive rule is a different claim from not
+   worth a slip leg, because a leg is chosen on calibrated probability and price. The set is
+   untouched. What was wrong was never the market; it was offering a fixture the engine had dropped.
+
+   MEASURED BEFORE SHIPPING, because a stricter gate that empties the card would trade one bad
+   answer for another — and "never output an empty slip card" is also Ken's instruction (build 245):
+
+       today            106 fixtures · 47 with a pick · 4 gated · 25 UNBACKED · 18 still backed
+       slip candidates  1,166 raw → 31 after the measured floors → 27 survive · 4 dropped
+       dropped legs     Arsenal v Chelsea 1X 82% (unbacked) · Oviedo v Burgos 1X 78% (unbacked)
+                        Eintracht v Augsburg BTS 61% (unbacked) · Hertha v Magdeburg BTS 62% (gated)
+       banker card      Fürth v Heidenheim O2.5 90.7% (withdrawn)  →  Vissel Kobe v Nagasaki 1D 84.6%
+
+   Nothing empties, and the card keeps a real read. */
+function engineBacksFixture(f){
+  /* ONE decision, read by both forward-looking screens rather than each recomputing the rule —
+     which is what build 118 asked for when it stored `gated` on the fixture in the first place. */
+  return !!f && !f.gated && !f.unbacked;
+}
 function bankerOf(){
   let best = null;
   for(const {L,f} of collectUpcoming(tipState.days)){
-    if(!f.pick || f.gated || f.prob==null) continue;
+    if(!f.pick || f.prob==null) continue;
+    if(!engineBacksFixture(f)) continue;   // build 288 — `gated` alone is null once published
     if(!best || f.prob > best.f.prob) best = {L,f};
   }
   return best;
@@ -5487,7 +5692,8 @@ function renderBanker(){
   if(!b){
     box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2>
       <div class="subnote"><b style="color:var(--gold)">No pick clears the bar in this window.</b>
-      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them confidently enough to publish.
+      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them confidently enough to stand behind
+      <b>now</b> \u2014 including any whose pick was published earlier and has since been withdrawn.
       MatchMind says nothing rather than picking the best of a bad set.</div></div>`;
     return;
   }
@@ -12657,6 +12863,21 @@ async function renderArchiveDay(){
        nothing had written in eight days, because a stored count cannot distinguish "kept up to date"
        from "frozen". This line is the difference, and it is here rather than in a toast because it
        is where someone asking "is the record being kept?" is already looking. */
+    /* ══ BUILD 285 — THE CACHE'S OWN HEALTH, ON THE PANEL THAT REPORTS THE CACHE ══════════════
+       `storageReport()` was written at build 196 and **called from nowhere** — build 165's lesson
+       exactly, an instrument that exists and is never read. It is read here now, alongside the
+       persistence state, because the failure it describes is INVISIBLE by nature: a device whose
+       IndexedDB is evicted silently pays 808 KB instead of 72 KB on its next boot and says nothing.
+       Not persisted is not an error — browsers grant it on heuristics and denied it outright when
+       measured on 2026-09-05 — so it is stated, not alarmed about. */
+    try{
+      const st = storageReport();
+      html += `<div class="frow"><span class="muted">Local cache</span><b>${st.utf16KB} KB of ${st.capKB} (${st.pct}%)</b></div>`;
+      if(_persistState.asked)
+        html += `<div class="frow"><span class="muted">Storage persistence</span><b style="color:${_persistState.granted === true ? 'var(--green2)' : 'var(--muted)'}">${_persistState.granted === true ? 'granted' : _persistState.granted === 'unsupported' ? 'not supported' : 'not granted'}</b></div>`
+              + (_persistState.granted === true ? ''
+                 : `<div class="subnote">The browser has not exempted this app's storage from eviction, which it decides by its own heuristics. If it clears the history cache, the next load re-reads two years of it — <b>808 KB on the wire instead of 72 KB</b> — and then behaves normally again. Installing the app to the home screen makes the exemption more likely.</div>`);
+    }catch(e){}
     if(archiveFailed)
       html += `<div class="frow"><span class="muted">⚠ Archive write</span><b style="color:var(--gold)">failing — ${escapeHtml(archiveFailed.op)}</b></div>`
             + `<div class="subnote">Published picks are not reaching the shared record. What you see is still correct; the stored history is not being added to. <span class="muted">${escapeHtml(archiveFailed.msg)}</span></div>`
@@ -13297,6 +13518,9 @@ function slipCandidates(opt){
       if(f.date < today) continue;
       if(opt.todayOnly && f.date !== today) continue;
       const s = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(s)) continue;   // skip already-played
+      /* build 288 — a fixture the engine has stopped backing supplies no leg, on either path.
+         Ken: "the engine must have a very very strong read on all that will be dished in there." */
+      if(!engineBacksFixture(f)) continue;
       const key = f.fxid || (f.home + f.away + f.date);
       if(tmp){
         const P = tmp.predict(f.home, f.away); if(!P) continue;
@@ -14503,7 +14727,7 @@ async function histSave(map){
   });
 }
 
-async function fetchLeagueFixtures(id){
+async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
   let out = [], from = 0, pages = 0;
   for(;;){
     /* 🚨 BUILD 220 — THE `.order('fxid')` TIEBREAK BUILD 208 ADDED HERE IS REVERTED, AND IT WAS MY
@@ -14551,8 +14775,13 @@ async function fetchLeagueFixtures(id){
     /* build 279 — when this competition's settled history is already cached locally, the read
        starts at the settle cutoff instead of 24 months back. `_histSince` is set by
        loadCloudLeagues from the cache it just opened; absent, this is build 278's read exactly. */
-    const since = (_histSince && _histSince[id]) || cacheCutoff();
-    if(!LEAGUE_BLOBS) q = q.gte('date', since).lte('date', leagueAheadCutoff());
+    /* build 286 — the same pager now serves BOTH halves: the cheap recent window every boot,
+       and the settled half fetched in the background afterwards. `exclusiveUntil` keeps the two
+       halves disjoint, so the merge below is a concatenation and never a de-duplication. */
+    const since = sinceOv || (_histSince && _histSince[id]) || cacheCutoff();
+    const until = untilOv || leagueAheadCutoff();
+    if(!LEAGUE_BLOBS) q = exclusiveUntil ? q.gte('date', since).lt('date', until)
+                                         : q.gte('date', since).lte('date', until);
     const { data, error } = await q.order('date').order('fxid').range(from, from + PAGE - 1);
     if(error) return { data:null, error };
     out = out.concat(data || []);
@@ -14612,6 +14841,76 @@ async function loadArchive(){
   }catch(e){}
 }
 
+/* ══ BUILD 286 — THE SETTLED HALF, FETCHED AFTER THE FEED IS ALREADY USABLE ═══════════════════
+   One competition at a time with a gap between them, because this is bookkeeping about matches that
+   have already been played and must never compete with the screen for the connection. Deliberately
+   NOT awaited by its caller.
+
+   ⚠ WHAT THIS COSTS, STATED PLAINLY: until a competition's history lands, the engine sees only the
+   recent window, so `autoGate` and `computeSkill` see a thin competition and **withhold its picks**.
+   That is the honest degradation — a withheld pick says "not yet", a pick priced off ten days of
+   data says something false — and it self-heals: `refreshSkills` recomputes when a competition's
+   match count moves by more than 20, and history arriving moves it by hundreds.
+
+   ⚠ AND THE HALVES MUST NOT OVERLAP. The boot read takes `date >= settleAt`; this takes
+   `date >= cacheCutoff() AND date < settleAt` — `exclusiveUntil`, not `lte`. Disjoint by
+   construction, so the join is a concatenation that preserves the fetch chronology exactly, which
+   is what every walk-forward number in this app is computed from. */
+const HIST_BACKFILL_GAP_MS = 400;
+let _histBackfillRunning = false;
+async function backfillSettledHistory(ids){
+  if(_histBackfillRunning || !supa || !ids || !ids.length) return;
+  _histBackfillRunning = true;
+  const from = cacheCutoff(), settleAt = historySettleCutoff();
+  let filled = 0;
+  try{
+    for(const id of ids){
+      let L = afState.leagues[id];
+      const { data, error } = await fetchLeagueFixtures(id, from, settleAt, true);
+      if(error || !data || !data.length) continue;
+      /* ⚠ BUILD 286, SECOND PASS — AN OUT-OF-SEASON COMPETITION HAS NOTHING IN THE RECENT WINDOW,
+         SO IT NEVER REACHED `merged` AT ALL. Measured on a genuine cold boot of the first draft:
+         **49 competitions loaded instead of 53** — A-League, Botola Pro, Copa del Rey and Coupe de
+         France vanished, and `_loadShort` read 4. Under 279 they survived because an uncached
+         competition still got the full 24-month read; 286 made the cheap read unconditional and took
+         that away. The history rows carry `lid/lname/lcountry/llogo/season`, so the competition can
+         be built from them exactly as loadCloudLeagues builds one from `data[0]`. */
+      if(!L){
+        const f0 = data[0];
+        L = afState.leagues[id] = { id: f0.lid, name: f0.lname, country: f0.lcountry || '', flag: '',
+              logo: f0.llogo || '', sport: 'football', season: f0.season,
+              matches: [], upcoming: [], teamIds: {}, scorerText: '' };
+        if((afState.leagueOrder || []).indexOf(f0.lid) < 0) afState.leagueOrder.push(f0.lid);
+      }
+      const add = [];
+      for(const r of data){
+        if(r.home_logo) afState.logos[r.home] = r.home_logo;
+        if(r.away_logo) afState.logos[r.away] = r.away_logo;
+        if(isFin(r.status) && r.gh != null && r.ga != null)
+          add.push({ date:r.date, time:r.time, home:r.home, away:r.away,
+                     hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r) });
+      }
+      if(!add.length) continue;
+      /* Cached rows are all older than the cutoff and everything already on the object is at or
+         after it, so this is a concatenation. HIST_JOINED stops build 279's restore pass adding the
+         same rows a second time to THIS object. */
+      L.matches = add.concat(L.matches || []);
+      HIST_JOINED.add(L);
+      registerLeagueDampen(L);
+      histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
+                 flag: L.flag, logo: L.logo, sport: L.sport, season: L.season } } });
+      filled++;
+      await new Promise(r => setTimeout(r, HIST_BACKFILL_GAP_MS));
+    }
+  }catch(e){ /* a competition that fails simply keeps its thin history until the next load */ }
+  _histBackfillRunning = false;
+  if(!filled) return;
+  saveState();
+  try{ refreshSkills(); }catch(e){}          // the gates re-open as the history lands
+  try{ gradeFromHistory(); }catch(e){}
+  if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
+}
+
 async function loadCloudLeagues(force){
   if(!supa) return;
   /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
@@ -14625,8 +14924,19 @@ async function loadCloudLeagues(force){
        cutoff; one without is read over the full 24 months, which is build 278's behaviour. */
     const histCache = await histLoad();
     const settleAt = historySettleCutoff();
+    /* ══ BUILD 286 — EVERY BOOT NOW READS ONLY WHAT CAN STILL CHANGE ═══════════════════════════
+       279 gave the cheap read to competitions whose history was already cached and left everyone
+       else on the full 24 months. That is the right answer for a warm device and the wrong one for
+       the case this build exists for: **a device whose cache the browser deleted, or a first-ever
+       visitor, paid 808 KB on the wire before anything appeared.** Wave 2 made that worse, not
+       better — 53 competitions cold cost 808 KB where 35 cost ~442 KB — and build 285 measured
+       `navigator.storage.persist()` being DENIED, so eviction cannot be prevented, only survived.
+
+       So the bound is now unconditional: **72.1 KB on the wire, always, before the feed paints.**
+       The settled half is fetched afterwards, one competition at a time, and only if the reader is
+       still here to want it. A user who bounces after ten seconds costs 72 KB instead of 808. */
     _histSince = {};
-    for(const k in histCache) _histSince[k] = settleAt;
+    for(const k of COMP_IDS) _histSince[k] = settleAt;
     /* BUILD 123 — a competition that fails to load must never vanish silently.
        Ken: "i notice i am no longer seeing prediction from the brazil league, why?" The cause was
        findable before he even asked, because it was written down and never fixed: 12 requests fire
@@ -14964,10 +15274,18 @@ async function loadCloudLeagues(force){
          kept competition does not silently drop off the bottom of the feed. */
       const mergedOrder = order.slice();
       for(const id of (afState.leagueOrder || [])) if(merged[id] && !mergedOrder.includes(id)) mergedOrder.push(id);
+      /* build 286 — whatever the cache could not supply is fetched in the background, in the order
+         the feed displays, so what the reader is looking at fills in first. A competition with NO
+         rows in the recent window is included too: it is exactly the out-of-season case. */
+      const needHistory = COMP_IDS.filter(id => !histCache[String(id)]);
 
       /* `_loadShort` is measured on the MERGED set, because that is what the user is looking at.
          Counting the fetch alone would report a shortfall the screen does not have. */
-      _loadShort = Math.max(0, COMP_IDS.length - Object.keys(merged).length);
+      /* build 286 — a competition queued for background history is PENDING, not missing. Without
+         this the cold boot flashes "4 competitions did not load", which is the same false alarm
+         builds 281 and 282 removed twice, arriving a third time through the progressive read. */
+      _loadShort = Math.max(0, COMP_IDS.length - Object.keys(merged).length
+                               - needHistory.filter(id => !merged[id]).length);
       _loadKept = keptIds.length;
 
       /* ══ BUILD 279 — THE RESTORE PASS, AND THE BUG IT EXISTS TO FIX ═══════════════════════
@@ -15033,6 +15351,10 @@ async function loadCloudLeagues(force){
         localStorage.setItem('mm_fdmig','1');
       } }catch(e){}
       _leaguesLoadedAt = Date.now();
+      /* build 285 — asked AFTER a successful load, not at boot: there is no point protecting an
+         empty cache, and engagement is one of the heuristics browsers weigh. */
+      try{ requestStoragePersistence(); }catch(e){}
+      try{ backfillSettledHistory(needHistory); }catch(e){}   // build 286 — never awaited
       refreshDataChip();         // build 214 — the badge now describes what the app is SHOWING
       renderBacktestLeagues();   // competitions just arrived — refresh the backtest picker (build 42)
       refreshSkills();           // measure each competition in the background (build 65)
@@ -16291,6 +16613,49 @@ function trimForCache(leagues){
     });
   }
   return out;
+}
+/* ══ BUILD 285 — THE SAVING DEPENDS ON A CACHE THE BROWSER MAY DELETE ═════════════════════════
+   Build 279 took the boot read from **808 KB to 72.1 KB on the wire** — but only for a device whose
+   IndexedDB survives. Wave 2 also made a COLD boot nearly twice what it used to be: 53 competitions
+   cost 808 KB where 35 cost ~442 KB. So an evicted device is now WORSE off than before wave 2, and
+   the whole egress result rests on the cache holding.
+
+   \U0001f6a8 MEASURED on 2026-09-05, and it is why this build exists: `navigator.storage.persisted()`
+   read **false**, and calling `navigator.storage.persist()` **returned false — DENIED.** Persistence
+   is granted on browser heuristics (installed PWA, engagement, bookmarks) and cannot be assumed. It
+   is requested here because it is free where it IS granted, not because it can be relied on.
+
+   ⚠ AND THE OBVIOUS ALTERNATIVE IS UNSAFE, ALSO MEASURED. Halving `CACHE_MONTHS` from 24 to 12 would
+   halve the cold read — and push **8 competitions below computeSkill's 150 floor and 11 below
+   autoGate's 200**, including MLS (699 → 146), Chinese Super League (303 → 72) and K League (308 →
+   82). Calendar-year leagues land mid-season at 12 months. **Reading less history silently disables
+   eleven competitions**, so the window stays at 24.
+
+   What this build does is therefore honest rather than complete: ASK for persistence, and make the
+   answer VISIBLE — because the failure mode is invisible by nature. A device that loses its cache
+   pays 808 KB and says nothing, and until now there was no way to know it had happened. */
+let _persistState = { asked:false, granted:null, at:null };
+async function requestStoragePersistence(){
+  if(_persistState.asked) return _persistState;
+  _persistState.asked = true;
+  try{
+    if(!navigator.storage || !navigator.storage.persist){ _persistState.granted = 'unsupported'; return _persistState; }
+    if(await navigator.storage.persisted()){ _persistState.granted = true; _persistState.at = Date.now(); return _persistState; }
+    _persistState.granted = await navigator.storage.persist();
+    _persistState.at = Date.now();
+  }catch(e){ _persistState.granted = 'error'; }
+  return _persistState;
+}
+/* Quota headroom, so "the cache was evicted" stops being a thing that can only be inferred. */
+async function storageEstimate(){
+  try{
+    if(!navigator.storage || !navigator.storage.estimate) return null;
+    const e = await navigator.storage.estimate();
+    return { usageMB: +((e.usage||0)/1048576).toFixed(2),
+             quotaMB: +((e.quota||0)/1048576).toFixed(0),
+             pct: e.quota ? +(100*(e.usage||0)/e.quota).toFixed(2) : null,
+             persisted: _persistState.granted };
+  }catch(e){ return null; }
 }
 /* What the cache actually costs, in the unit the browser bills. Reported so this never has to be
    diagnosed by surprise again - build 165's lesson is an instrument that exists and is never read,
