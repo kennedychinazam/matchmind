@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 293;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 294;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4934,7 +4934,22 @@ function dailyFloorFor(c, floors){
    1/total. A longer slip is not a better slip; it is a rarer one. The card prints the win chance
    next to the odds for that reason. */
 const DAILY_TIERS = [
-  { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3,
+  /* BUILD 294 — `preferGoals` IS ON FOR SAFE ONLY, and the restriction is a measurement rather than
+     caution. Scored over 614 walk-forward days (`MatchMind-SLIPMIX-PREREG.md`), with drop-one across
+     51 competitions, the candidate's honesty sigma at its WORST single drop:
+
+         tier    incumbent worst   outside 2SE      candidate worst   outside 2SE
+         Safe        -1.82             0 of 51        **-0.89**         **0 of 51**
+         Value       -1.56             0 of 51          -2.76             4 of 51
+         Bold        -2.93            13 of 51          -2.25             3 of 51
+
+     Safe is the ONLY tier where the candidate is robustly honest AND better than what ships. On
+     Value the candidate genuinely degrades honesty. On Bold both arms over-claim and the INCUMBENT
+     is the fragile one — 13 of 51 drops outside the bar — which is a live defect of that tier and
+     not something this flag should paper over. The filing named Safe as its primary tier in
+     advance, so shipping Safe ships the pre-registered claim; extending it would be the addition.
+     Found via §9 of `MatchMind-FTGOALS-DISPERSION-PREREG.md`. */
+  { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
     blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
   { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7,
     blurb:'At least 5.00 from calibrated legs — which needs about six of them.' },
@@ -5180,24 +5195,56 @@ function dailyBandSearch(pool, tier){
     if(items.indexOf(c) < 0) items.push(c);
   }
   const lo = tier.band[0], hi = tier.band[1];
+  /* 🚨 BUILD 294 — THE SEARCH WAS RESOLVING A TIE THAT IS NOT A TIE, AND THAT IS WHERE THE 1X
+     MONOCULTURE COMES FROM. Ken has said twice that the card is all 1X. Four builds answered "the
+     ranking already prefers BTTS, the engine hardly ever reaches 0.60" — and BOTH halves of that
+     were measured wrong. Over 16,967 walk-forward fixtures Over 2.5 clears 0.60 on **17.9%** of
+     fixtures, not 3%, and on the live pool BTTS and Over 2.5 are **45.1% of eligible legs against
+     1X's 19.1%**. The pool was never the problem.
+
+     Measured on the biggest forward slate (2026-09-12, 33 eligible legs): **284 combinations land
+     inside the Safe band and 264 of them — 93% — contain a goals leg.** The shipped search returned
+     `1X, U35, 1X` at 2.003 while `1X + BTS` at 2.009 sat right there. It preferred the first by
+     0.006 of an odds point on a 2.00 slip, which is a precision the product does not have and no
+     user can perceive. `DAILY_MARKET_RANK` decides which leg represents a FIXTURE; nothing decided
+     which FIXTURES reach the slip, and target-proximity alone systematically discards the goals
+     legs because short-priced markets can be tuned to the target more finely.
+
+     ⚠ NO FLOOR, CONSTANT OR BAND MOVES, AND THAT IS WHAT MAKES THIS SAFE TO ASK FOR. The walk still
+     enumerates exactly the combinations it enumerated before and still admits only in-band ones, so
+     nothing can enter that a floor excluded — build 251 is untouched. And because these are FAIR
+     prices, win chance is 1 ÷ odds, so holding the band fixed holds the win chance fixed: this
+     cannot buy variety with honesty. Measured over 614 days, buildability moves by **0.00 points on
+     every tier and in all 51 drop-one runs** — it must, since the candidate only re-picks among
+     combinations the incumbent already had.
+
+     ⚠ AND THE EARLY EXIT HAD TO GO WITH IT, under this flag only. `best.d < 1e-9` stopped the walk
+     the moment an exact target hit was found, which is correct when distance is the only criterion
+     and wrong when it is the tie-break: a goals-richer combination further along would never be
+     reached. Distance-only tiers keep the exit and are bit-for-bit unchanged. */
+  const preferGoals = !!tier.preferGoals;
+  const isGoalLeg = c => DAILY_MARKET_RANK(c) <= 1;   // BTTS (0) and Over goals (1) — Ken's own order
   let best = null, ceiling = 1;
   for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= 1 / items[n].prob;
   const pick = [];
-  (function walk(start, prod){
+  (function walk(start, prod, ng){
     if(pick.length >= tier.minLegs){
       if(prod >= lo && prod <= hi){
         const d = Math.abs(prod - tier.target);
-        if(!best || d < best.d) best = { d: d, legs: pick.slice(), reached: prod };
+        const better = !best ? true
+                     : preferGoals ? (ng > best.ng || (ng === best.ng && d < best.d))
+                                   : (d < best.d);
+        if(better) best = { d: d, ng: ng, legs: pick.slice(), reached: prod };
       }
     }
     if(pick.length >= tier.maxLegs) return;
     for(let i = start; i < items.length; i++){
       const p = prod / items[i].prob;
       if(p > hi + 1e-9) continue;                    // already past the roof; longer legs only worsen it
-      pick.push(items[i]); walk(i + 1, p); pick.pop();
-      if(best && best.d < 1e-9) return;
+      pick.push(items[i]); walk(i + 1, p, ng + (isGoalLeg(items[i]) ? 1 : 0)); pick.pop();
+      if(!preferGoals && best && best.d < 1e-9) return;
     }
-  })(0, 1);
+  })(0, 1, 0);
   return { legs: best ? best.legs : [], reached: best ? best.reached : 1,
            ceiling: ceiling, pool: items.length };
 }
