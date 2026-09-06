@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 294;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 295;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4934,26 +4934,36 @@ function dailyFloorFor(c, floors){
    1/total. A longer slip is not a better slip; it is a rarer one. The card prints the win chance
    next to the odds for that reason. */
 const DAILY_TIERS = [
-  /* BUILD 294 — `preferGoals` IS ON FOR SAFE ONLY, and the restriction is a measurement rather than
-     caution. Scored over 614 walk-forward days (`MatchMind-SLIPMIX-PREREG.md`), with drop-one across
-     51 competitions, the candidate's honesty sigma at its WORST single drop:
+  /* BUILD 295 — `preferGoals` IS ON FOR ALL THREE TIERS, AND BUILD 294'S "SAFE ONLY" WAS AN ARTIFACT
+     OF A SORTING BUG IN THE MEASUREMENT, NOT A PROPERTY OF THE TIERS.
 
-         tier    incumbent worst   outside 2SE      candidate worst   outside 2SE
-         Safe        -1.82             0 of 51        **-0.89**         **0 of 51**
-         Value       -1.56             0 of 51          -2.76             4 of 51
-         Bold        -2.93            13 of 51          -2.25             3 of 51
+     🚨 Build 294 restricted this flag to Safe on the strength of a drop-one table that said Value
+     degraded honesty (4 of 51 drops outside 2 SE) and that Bold's INCUMBENT was fragile (13 of 51).
+     Both readings came from a backtest that indexed `afState.leagues[].matches` as if it were in
+     date order. It was not — see the build 295 note at the history join — so "the latest 30%" was
+     not the latest 30% and the walk-forward trained on future matches in 14 of 52 competitions.
 
-     Safe is the ONLY tier where the candidate is robustly honest AND better than what ships. On
-     Value the candidate genuinely degrades honesty. On Bold both arms over-claim and the INCUMBENT
-     is the fragile one — 13 of 51 drops outside the bar — which is a live defect of that tier and
-     not something this flag should paper over. The filing named Safe as its primary tier in
-     advance, so shipping Safe ships the pre-registered claim; extending it would be the addition.
-     Found via §9 of `MatchMind-FTGOALS-DISPERSION-PREREG.md`. */
+     RE-RUN ON DATE-SORTED ARRAYS, 504 walk-forward days, drop-one across 50 competitions:
+
+         tier    goals share A -> B    worst drop-one gain    A worst |sigma|   B worst |sigma|
+         Safe        28.77 -> 56.35          +26.41            0.79 (0 out)     1.11 (0 out)
+         Value       32.16 -> 67.30          +32.17            0.98 (0 out)     1.76 (0 out)
+         Bold        36.18 -> 64.95          +27.66            1.33 (0 out)     1.50 (0 out)
+
+     **Every tier clears the filed +10 primary at its worst single drop, buildability moves by 0.00
+     everywhere, and NOT ONE drop-one run puts either arm outside 2 SE on any tier.** The filed rules
+     are per tier and all three pass them, so all three carry the flag. The earlier restriction was
+     itself a data-driven narrowing; with the data corrected there is nothing left to narrow.
+
+     ⚠ AND TWO BUILD-294 CLAIMS ARE WITHDRAWN: that the candidate degrades Value's honesty, and that
+     the Bold tier over-claims by ~3.8 points under the shipped code. On sorted data Bold's incumbent
+     reads -0.99 (-0.44 sigma). Both were the sorting bug talking. Found via §9 of
+     `MatchMind-FTGOALS-DISPERSION-PREREG.md`; scored in `MatchMind-SLIPMIX-PREREG.md`. */
   { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
     blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7,
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7, preferGoals:true,
     blurb:'At least 5.00 from calibrated legs — which needs about six of them.' },
-  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11,
+  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11, preferGoals:true,
     blurb:'At least 10.00. A 10.00 slip is a one-in-ten shot at fair prices.' }
 ];
 
@@ -5214,9 +5224,9 @@ function dailyBandSearch(pool, tier){
      enumerates exactly the combinations it enumerated before and still admits only in-band ones, so
      nothing can enter that a floor excluded — build 251 is untouched. And because these are FAIR
      prices, win chance is 1 ÷ odds, so holding the band fixed holds the win chance fixed: this
-     cannot buy variety with honesty. Measured over 614 days, buildability moves by **0.00 points on
-     every tier and in all 51 drop-one runs** — it must, since the candidate only re-picks among
-     combinations the incumbent already had.
+     cannot buy variety with honesty. Measured over 504 date-sorted walk-forward days, buildability
+     moves by **0.00 points on every tier and in all 50 drop-one runs** — it must, since the
+     candidate only re-picks among combinations the incumbent already had.
 
      ⚠ AND THE EARLY EXIT HAD TO GO WITH IT, under this flag only. `best.d < 1e-9` stopped the walk
      the moment an exact target hit was found, which is correct when distance is the only criterion
@@ -15106,10 +15116,33 @@ async function backfillSettledHistory(ids){
                      hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r) });
       }
       if(!add.length) continue;
-      /* Cached rows are all older than the cutoff and everything already on the object is at or
-         after it, so this is a concatenation. HIST_JOINED stops build 279's restore pass adding the
-         same rows a second time to THIS object. */
+      /* 🚨 BUILD 295 — THE COMMENT THAT USED TO SIT HERE ASSERTED AN INVARIANT THAT IS FALSE, AND
+         NOTHING CHECKED IT. It read: "Cached rows are all older than the cutoff and everything
+         already on the object is at or after it, so this is a concatenation." Measured on the live
+         app 2026-09-06, at build 293: **39 of 52 competitions carried exactly one date inversion**,
+         the signature of two sorted blocks joined in the wrong order.
+
+         WHAT IT COST, and it was not theoretical. `form()` returns `.slice(-k)` — the last k in
+         ARRAY order — so on Champions League the app showed Real Madrid's "recent form" as
+         **April-June 2024** when its true last five were **February-April 2026**. Across the nine
+         competitions where the tail landed in the older block the form shown was a **median 721
+         days stale, worst 781** (Copa del Rey, KNVB Beker, Taca de Portugal, Libertadores, FA Cup,
+         Botola Pro). That form is also posted to the AI writer, which is build 150's fault exactly:
+         a panel describing what the engine knew was quietly describing something else.
+
+         AND IT REACHED THE ENGINE, not just the panels. `strengths2(upTo)` and `rates(upTo)` both do
+         `this.matches.slice(0, upTo)`, which means "everything before this fixture" ONLY if the array
+         is in date order. Out of order, a walk-forward prediction trains on matches that had not
+         happened. Measured over the 52 competitions, an index-based 70/30 split overlapped the true
+         chronological holdout by a mean of **67.8%**, and Champions League, Coupe de France and Copa
+         del Rey overlapped it by **0%** — their "holdout" was the oldest block scored by a model
+         trained on the future.
+
+         THE FIX IS A SORT, NOT A BETTER INVARIANT. The order is what the engine depends on, so it is
+         established here rather than assumed of the inputs — the same reason build 183 keys fitted
+         constants on ids rather than trusting names to be unique. */
       L.matches = add.concat(L.matches || []);
+      L.matches.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
       HIST_JOINED.add(L);
       registerLeagueDampen(L);
       histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
@@ -15532,10 +15565,14 @@ async function loadCloudLeagues(force){
                                           rec.meta);
           if(!mergedOrder.includes(id)) mergedOrder.push(id);
         }
-        /* Cached rows are all strictly older than the settle cutoff and everything already on the
-           object is at-or-after it, so this is a concatenation and never a merge. */
+        /* BUILD 295 — the second of the two join sites, and it carried the same false invariant.
+           See the long note at the other one: the order is what the engine depends on, so it is
+           ESTABLISHED here rather than assumed of the inputs. Both sites sort, because a fix applied
+           to one of two copies of an idea is how this project keeps reintroducing bugs — §60's
+           archive fault, the correct-score panel in 117, the newcomer verdict in 126. */
         if(HIST_JOINED.has(L2)) continue;      // build 281 — this exact object already carries it
         L2.matches = ms.concat(L2.matches || []);
+        L2.matches.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
         HIST_JOINED.add(L2);
         registerLeagueDampen(L2);
       }
