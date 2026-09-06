@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 295;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 296;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4854,7 +4854,37 @@ function floorsForTier(base, tier){
   return ov ? Object.assign({}, base, ov) : base;
 }
 
-const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY);
+/* ══ BUILD 296 — THE FALLBACK IS ARMED FOR EXACTLY ONE CODE, AT KEN'S EXPLICIT DIRECTION ═════════
+   This table has been a deliberately inert copy since build 251, whose chronological holdout found
+   *"not one lowering survives an honest criterion."* **Build 251 is not reversed and no other entry
+   moves.** What changed is one fact it did not have: build 284 later applied `CALIB_SHIFT.U35`, and
+   the corrected probabilities were measured on 7,851 walk-forward held-out legs
+   (`MatchMind-U35-FLOOR-PREREG.md`):
+
+       [0.65, 0.80)   +0.26 (0.52 sigma)      sub-bands  -0.42 / +1.26 / +0.05
+       drop-one worst 1.55 over 52 competitions - fitted AND unfitted both pass
+
+   **These legs are honest.** They pay a median 1.397 against the shipped band's 1.205.
+
+   🚨 AND IT SHIPS OVER A FAILED VETO, RECORDED HERE RATHER THAN SMOOTHED OVER.
+   `MatchMind-U35-ADMISSION-PREREG.md` scored this exact change over 504 date-sorted days and
+   **failed its own veto 1 in all 51 drop-one runs** — the goals share of issued cards falls
+   63.3% -> 44.9% on Safe, -18.39 against a -3 bar. The decomposition is why Ken overrode it:
+
+       arm B changes NO existing card - it acts only where the primary set built nothing
+       123 new Safe cards, 65.2% U35, 9.0% goals - and honest at +4.15 (0.92 sigma)
+       buildability 51.6% -> 76.0%, firing on 24.4% of days
+
+   **A day that cannot build from ranks 0-2 is a day whose only honest reads are Under 3.5.** The
+   veto encoded a market-mix preference that is Ken's to weigh; he was shown the numbers and chose
+   the card over the blank. **The veto failing is a fact about this build, not a footnote.**
+
+   ⚠ AND THE LABEL SHIPS WITH IT, NOT AFTER IT. Until this build `step.note` was carried only into
+   the LEDGER, never onto the card — the comment below claimed it reached the card and it did not.
+   That gap was invisible while this table was inert, because the fallback could never fire. Arming
+   it without the label would put a weaker card on screen reading exactly like a primary one, which
+   is the bluff Milestone 8 forbids. The two changes are one build for that reason. */
+const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, { 'U35':0.65 });
 
 const DAILY_FLOOR_STEPS = [
   { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
@@ -4943,12 +4973,18 @@ const DAILY_TIERS = [
      date order. It was not — see the build 295 note at the history join — so "the latest 30%" was
      not the latest 30% and the walk-forward trained on future matches in 14 of 52 competitions.
 
-     RE-RUN ON DATE-SORTED ARRAYS, 504 walk-forward days, drop-one across 50 competitions:
+     RE-RUN ON DATE-SORTED ARRAYS, 504 walk-forward days, drop-one across 51 competitions, with
+     `floorsForTier` applied so Safe's own BTS >= 0.65 override is respected:
 
          tier    goals share A -> B    worst drop-one gain    A worst |sigma|   B worst |sigma|
-         Safe        28.77 -> 56.35          +26.41            0.79 (0 out)     1.11 (0 out)
+         Safe        27.34 -> 63.29          +34.01            1.31 (0 out)     1.11 (0 out)
          Value       32.16 -> 67.30          +32.17            0.98 (0 out)     1.76 (0 out)
          Bold        36.18 -> 64.95          +27.66            1.33 (0 out)     1.50 (0 out)
+
+     ⚠ THE SAFE ROW IS A CORRECTION. The first scoring pass filtered every tier at BTS >= 0.60 and
+     missed `DAILY_TIER_FLOORS`, which raises Safe alone to 0.65 — and 89.5% of BTTS legs sit below
+     that, so Safe's pool was modelled far richer in BTTS than it is. Corrected, the candidate's gain
+     on Safe is LARGER, not smaller (+35.95 at base against the +27.58 first reported).
 
      **Every tier clears the filed +10 primary at its worst single drop, buildability moves by 0.00
      everywhere, and NOT ONE drop-one run puts either arm outside 2 SE on any tier.** The filed rules
@@ -5863,7 +5899,22 @@ function renderDailySlips(){
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
                + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
            + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
-           + 'win chance is exactly 1 ÷ odds at fair prices</div>';
+           + 'win chance is exactly 1 ÷ odds at fair prices</div>'
+           /* 🚨 BUILD 296 — THE STEP IS NOW SAID ON THE CARD, AND UNTIL THIS BUILD IT WAS NOT.
+              The ladder's own comment claims "which step answered is carried through to the card,
+              because a slip built from the wider range is a different claim from one built at the
+              primary floors and must not read identically". It was carried to `dailyLogRecord` and
+              nowhere else, so the card read identically — the exact thing the comment forbids.
+              Invisible until now only because `DAILY_FLOOR_FALLBACK` was an inert copy and this
+              branch could never be reached. Build 296 arms it, so the label ships in the same
+              build; shipping the floor without the note would be Milestone 8's bluff. */
+           + ((step && step.key !== 'primary' && step.note)
+               ? '<div class="notice">' + escapeHtml(String(step.note))
+                 + ' No slip cleared the primary floors today, so this card was built from the '
+                 + 'wider calibrated range. Every leg is still priced honestly; the mix leans to '
+                 + 'Under 3.5 because on a day like this those are the only reads the engine '
+                 + 'stands behind.</div>'
+               : '');
     }
     if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', false);   // insert-once, build 199's rule
     /* BUILD 250 — `tier.blurb` is gone. It restated the target and the leg count, which the header
