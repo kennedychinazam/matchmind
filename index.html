@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 288;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 293;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4501,14 +4501,54 @@ function engineBacksFixture(f){
      which is what build 118 asked for when it stored `gated` on the fixture in the first place. */
   return !!f && !f.gated && !f.unbacked;
 }
+/* ══ BUILD 289 — THE HEADLINE HAD A WEAKER BAR THAN THE SLIP UNDERNEATH IT ═════════════════════
+   Ken, on build 288's fix: *"the engine must have a very very strong read on all that will be
+   dished in there."* 288 stopped the card offering a pick the engine had WITHDRAWN. It did not stop
+   the card offering one the engine had never been entitled to make.
+
+   MEASURED ON THE LIVE ORIGIN, 2026-09-06, immediately after 288 shipped:
+
+       card:  Taca de Portugal · O Elvas v Sao Roque (Acores) · Draw No Bet 1D · 83%
+              evidence 1  (build 277's floor is 10)
+              skillProven false  (this competition has never beaten "home or draw")
+              a DIRECTIONAL claim, which build 274 forbids a slip leg from making here
+
+   **Of the ten fixtures the engine backed that day, exactly ONE sat in a competition with no
+   measured skill, and the card picked it.** That is not bad luck: `bankerOf` ranked on RAW
+   PROBABILITY, and an unproven competition is precisely where the engine is most likely to be
+   overconfident, because its confidence has never been checked there. **Ranking on confidence
+   selects FOR the least validated competitions.**
+
+   THE SLIP UNDERNEATH ALREADY GOT THIS RIGHT. `dailyEligible` enforces three things the headline
+   did not: build 277's evidence floor, build 274's `skillProven` test on directional codes, and the
+   measured per-market floors. So the app's most prominent claim was held to its weakest standard.
+
+   THE FIX IS TO STOP HAVING TWO STANDARDS: the card is now drawn from the SAME vetted pool as the
+   slip and simply takes the best of it. One admission rule, one place, which is build 118's
+   principle — every screen reads one decision instead of recomputing its own.
+
+   ⚠ AND IT COSTS NOTHING. The vetted pick that day was BETTER on every axis:
+
+       Brasileirao Serie A · Corinthians v Chapecoense-sc · Double Chance 1X · 88.8%
+       evidence 24 · skillProven true · higher confidence than the 83% it replaced
+
+   ⚠ NO FALLBACK TO THE OLD POOL. If nothing clears, the card says so — build 235's "never output an
+   empty slip card" is about the SLIP tiers, which have their own honest best-effort path; a
+   headline that quietly drops its bar to avoid being empty is the bluff Milestone 8 forbids. */
 function bankerOf(){
+  const until = (tipState.days == null) ? null : dayStrLocal(tipState.days);
+  let cands;
+  try{ cands = slipCandidates({ markets: DAILY_MARKETS, until: until,
+                                todayOnly: tipState.days === 0 }); }
+  catch(e){ return null; }
+  let elig;
+  try{ elig = dailyEligible(cands, null) || []; }catch(e){ return null; }
   let best = null;
-  for(const {L,f} of collectUpcoming(tipState.days)){
-    if(!f.pick || f.prob==null) continue;
-    if(!engineBacksFixture(f)) continue;   // build 288 — `gated` alone is null once published
-    if(!best || f.prob > best.f.prob) best = {L,f};
+  for(const c of elig){
+    if(c.prob == null) continue;
+    if(!best || c.prob > best.prob) best = c;
   }
-  return best;
+  return best ? { L: best.L, f: best.f, pick: best.code, prob: best.prob, market: best.market } : null;
 }
 
 function nextMatchday(){
@@ -4853,13 +4893,53 @@ function dailyFloorFor(c, floors){
    days to 79/65/53%. **A tier that builds less often is a product loss; a tier that pays less than
    it says is a broken promise.** This project has always chosen the first. `dailyBestEffort` still
    fills what it can and still says on the card when it fell short. */
+/* ══ BUILD 292 — THE LEG CAPS WERE THE ONLY GATE THAT COULD HONESTLY MOVE ══════════════════════
+   Ken: "why is the smart bet falling short of it's expected odd… never dish odds lower that the
+   expected marks… drop the gate a bit just once, if it does not work, then [show nothing]."
+
+   🚨 THE CALIBRATION GATE CANNOT MOVE, AND THAT IS ALREADY MEASURED. Build 251 ran a
+   pre-registered chronological holdout (train 2022-04-26 → 2025-04-24, test 2025-04-25 →
+   2026-08-30) on exactly this question and every lowering failed:
+
+       code   honest floor   the lowered gate wanted   survived?
+       1      0.75           0.55                      NO
+       1X     0.76           0.55                      NO
+       O25    0.60           0.55                      NO
+       BTS    0.60           0.55                      NO
+
+   *"Not one lowering survives an honest criterion."* That is why `DAILY_FLOOR_FALLBACK` is a copy
+   of `DAILY_FLOOR_PRIMARY` — the second step already exists and is deliberately inert. Dropping it
+   again would ship legs that do not land as often as they claim.
+
+   ⚠ THE LEG CAP IS A DIFFERENT KIND OF GATE. Build 235 records the tier numbers as "Ken's product
+   spec, not a fitted result". Raising the cap multiplies MORE HONEST LEGS; it touches no floor and
+   makes no calibration claim. **That is the one gate that can be dropped, so it is the one dropped.**
+
+   MEASURED ON THE LIVE POOL, 2026-09-06 — 18 eligible legs, longest 1.62:
+
+       target 2.00   ->  2 legs   win chance 47.1%
+       target 5.00   ->  6 legs   win chance 17.1%   (cap was 4 — unreachable)
+       target 10.00  ->  9 legs   win chance  8.4%   (cap was 6 — unreachable)
+
+   So Value and Bold were not failing a search. **They were capped below the number of legs their
+   own targets require**, and the shortfall was arithmetic.
+
+   🚨 AND THE ORIGINAL SPEC WAS NEVER REACHABLE, WHICH IS WORTH SAYING PLAINLY. Build 235 carries
+   Ken's brief: "5 odds… maximum of 4 matches for the 5 odds." Four legs paying 5.00 need 1.50 each,
+   i.e. **67% per leg** — below the 76% floor 1X must clear. **No honest four-leg slip can pay 5.00
+   with this engine's calibrated legs.** Six is the minimum, and that is arithmetic rather than
+   preference.
+
+   ⚠ AND A 10.00 SLIP IS A 10% SHOT BY DEFINITION. These are fair prices, so win chance is exactly
+   1/total. A longer slip is not a better slip; it is a rarer one. The card prints the win chance
+   next to the odds for that reason. */
 const DAILY_TIERS = [
   { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3,
-    blurb:'At least 2.00 from two or three legs, each clearing its market\u2019s floor.' },
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:4,
-    blurb:'At least 5.00 \u2014 three or four legs around 1.45\u20131.70 apiece.' },
-  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:6,
-    blurb:'At least 10.00. Needs the longest qualifying legs the day offers.' }
+    blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7,
+    blurb:'At least 5.00 from calibrated legs — which needs about six of them.' },
+  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11,
+    blurb:'At least 10.00. A 10.00 slip is a one-in-ten shot at fair prices.' }
 ];
 
 /* ══ BUILD 240 — A STRICT MARKET HIERARCHY, AND THE MEASUREMENT THAT SAYS WHAT IT CAN FIX ═══════
@@ -5364,6 +5444,55 @@ function renderDailyTracker(){
    never offered — and the selection rules changed six times in the fortnight before this was
    written. `mm_dailyslips` holds what was actually shown, insert-once, so this reads it back and
    grades it. Same rule that keeps the tracker forward-only (build 242). */
+/* ══ BUILD 293 — THE SLIP ON SCREEN WAS NOT THE SLIP BEING GRADED ══════════════════════════════
+   Ken: "the slips in the smart bet also needs to stop changing up and down. i notice the matches on
+   it go away after they are played and replaced by another, i don't understand why."
+
+   HE FOUND A REAL DIVERGENCE, AND IT IS WORSE THAN THE CHURN HE DESCRIBED. Two mechanisms were
+   pulling in opposite directions:
+
+     · `slipCandidates` drops a fixture the moment it finishes — build 256 records that as designed,
+       so the pool shrinks through the day and the card was REBUILT from whatever was left.
+     · `dailyLogRecord` is INSERT-ONCE (build 199's rule): the ledger froze whatever was shown the
+       first time the card was built that day, and never rewrote it.
+
+   So the ledger held the morning's slip, the screen showed the evening's, and **the tracker was
+   grading a slip the user was no longer being offered.** A record that describes something other
+   than what was shown is the fault build 250 wrote "NEVER RECOMPUTED" to prevent — it was enforced
+   for past days and left open for today.
+
+   THE FIX IS TO READ WHAT WAS ALREADY WRITTEN. Once a tier is in today's ledger, the card renders
+   from that row, exactly as every past day already does. First build of the day decides; nothing
+   after it can move a leg.
+
+   ⚠ AND BUILD 292 IS WHAT MAKES THIS SAFE TO DO. Freezing was dangerous while a short slip could be
+   recorded — an early render on a thin pool would have locked in a bad card for the day. Since 292
+   a tier records ONLY when it actually reached its target, so there is nothing to freeze until
+   there is something worth freezing. The two builds are ordered that way on purpose. */
+function dailyFrozenCard(tier, r){
+  const legs = r.legs || [];
+  let comb = 1; for(const l of legs) comb *= (l.p || 0);
+  const odds = r.odds || 1;
+  return '<div class="sliphead">'
+    + '<div class="shcell"><span class="k">Odds</span><span class="v">' + odds.toFixed(2) + '</span></div>'
+    + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
+    + '<div class="shcell"><span class="k">Profit on $10</span><span class="v" style="color:var(--green2)">+$'
+    + (10 * (odds - 1)).toFixed(2) + '</span></div>'
+    + '</div>'
+    + legs.map(l => '<button type="button" class="slipleg" data-leg-fx="'
+        + escapeHtml(String(l.fxid != null ? l.fxid : '')) + '">'
+        + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
+        + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
+        + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
+        + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
+        + '<span class="lgodds">' + (1 / (l.p || 1)).toFixed(2) + '</span></div></button>').join('')
+    + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
+    + 'win chance is exactly 1 ÷ odds at fair prices</div>'
+    /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
+       stale screen rather than a deliberate one. */
+    + '<div class="subnote">Fixed for today. Legs do not change once a slip is issued, including '
+    + 'after a match has been played.</div>';
+}
 function dailyPastCards(day){
   const rows = dailyLogGrade(dailyLogRead()).filter(r => r.day === day);
   if(!rows.length) return '<div class="card"><div class="subnote">No slips were recorded on this day.</div></div>';
@@ -5530,6 +5659,11 @@ function renderDailySlips(){
     return;
   }
   const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
+  /* build 293 — ONE read of the ledger for the whole render. Both branches below need it: the
+     all-played branch asks whether today was ever issued, and the tier loop asks which tiers were.
+     Two reads of the same localStorage key per render is the kind of waste that only shows on a
+     slow phone, and the lock asserts there is exactly one. */
+  const _log = dailyLogRead(), _today = todayStrLocal();
   if(!cands.length){
     /* \u2550\u2550 BUILD 256 \u2014 THIS BRANCH USED TO DELETE THE LOOK-BACK \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
        Ken, 2026-09-01: "there were predictions there today and the buttons to see previous bets
@@ -5548,8 +5682,8 @@ function renderDailySlips(){
        card is not "nothing to recommend" \u2014 it is today's slips as they were published this
        morning, graded as results arrive. Replayed through `dailyPastCards`, the same function the
        Earlier view uses, never rebuilt with tonight's data. */
-    const today = todayStrLocal();
-    const heldToday = dailyLogRead().some(r => r.day === today);
+    const today = _today;
+    const heldToday = _log.some(r => r.day === today);
     const head = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + navBar;
     if(heldToday){
       box.innerHTML = head + dailyPastCards(today)
@@ -5580,21 +5714,40 @@ function renderDailySlips(){
      selection per fixture, so a post-filter would delete a fixture whose BTTS missed the raised bar
      instead of letting it fall to its next-best market. Six cheap O(n) passes over ~366 candidates
      replace two — the walk that follows is the expensive part and it is unchanged. */
+  /* build 293 — what today's ledger already holds. Read ONCE outside the loop: three reads of
+     localStorage per render for the same answer is the kind of waste that only shows up on a slow
+     phone. */
+  const _frozen = {};
+  for(const r of _log) if(r.day === _today) _frozen[r.tier] = r;
+
   for(const tier of DAILY_TIERS){
+    /* build 293 — issued today already: render what was recorded, never a fresh search. */
+    const fz = _frozen[tier.key];
+    if(fz && fz.legs && fz.legs.length){
+      cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
+             + dailyFrozenCard(tier, fz) + '</div>';
+      continue;
+    }
     const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, floorsForTier(st.floors, tier)));
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
        different claim from one built at the primary floors and must not read identically. */
-    let aim = null, step = null, effort = false;
+    let aim = null, step = null;
     for(let i = 0; i < DAILY_FLOOR_STEPS.length; i++){
       const a = dailyBandSearch(pools[i], tier);
       if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; break; }
     }
+    /* 🚨 BUILD 292 — THE BEST-EFFORT SLIP IS GONE. Ken: "never dish odds lower that the expected
+       marks." A card headed Bold that pays 5.85 fails the request even with a note attached, and a
+       note is not a substitute for not doing it. What survives is best-effort as a MEASUREMENT:
+       the ceiling is computed ONLY so the card can say how far short the day fell, and is never
+       offered as a slip. */
+    let ceiling = null;
     if(!aim){
       const be = dailyBestEffort(pools[pools.length - 1], tier);
-      if(be.legs.length){ aim = be; step = DAILY_FLOOR_STEPS[DAILY_FLOOR_STEPS.length - 1]; effort = true; }
+      ceiling = (be && be.legs && be.legs.length && be.reached) ? be.reached : null;
+      aim = dailyBandSearch(pools[0], tier);      // nothing offered - keeps pool for the notice
     }
-    if(!aim) aim = dailyBandSearch(pools[0], tier);      // nothing at all - keeps pool for the notice
     const legs = aim.legs || [];
     let comb = 1; for(const l of legs) comb *= l.prob;
     const reached = aim.reached || 1;
@@ -5611,9 +5764,15 @@ function renderDailySlips(){
          what Ken's "do NOT report no target met by holding an arbitrary threshold" asks us to avoid
          WITHOUT dropping the floors he set in the same message. So the card names the ceiling the
          day actually offers. */
-      body = '<div class="subnote"><b style="color:var(--gold)">Not enough qualifying fixtures today.</b> '
-           + 'This tier needs ' + tier.minLegs + ' legs; the day offers ' + (aim.pool || 0) + '. '
-           + 'Legs are never invented to fill the card.</div>';
+      /* build 292 — two different reasons, and they must not read alike. Build 256's rule: an
+         empty day and an unreachable target are not the same fact. Kept to one line each. */
+      body = (ceiling != null)
+        ? '<div class="subnote"><b style="color:var(--gold)">' + tier.target.toFixed(2)
+          + ' is out of reach today.</b> The best the day\u2019s qualifying legs reach is '
+          + ceiling.toFixed(2) + '. No slip is shown rather than a shorter one.</div>'
+        : '<div class="subnote"><b style="color:var(--gold)">Not enough qualifying fixtures today.</b> '
+          + 'This tier needs ' + tier.minLegs + ' legs; the day offers ' + (aim.pool || 0) + '. '
+          + 'Legs are never invented to fill the card.</div>';
     } else {
       /* THE NUMBER SHOWN IS THE NUMBER ACHIEVED (build 218). A tier that cannot reach its target
          says so and prints what it did reach, rather than presenting a shortfall as the offer. */
@@ -5621,10 +5780,8 @@ function renderDailySlips(){
       /* THE SHORTFALL IS STATED, NOT ABSORBED. A best-effort Bold slip reaches a median 5.86;
          printing that under a heading promising 'About 10.00' with no word about it would be
          exactly the bluff Milestone 8 forbids. The heading is always the number achieved (218). */
-      const miss = effort
-        ? '<div class="subnote"><b style="color:var(--gold)">Short of ' + tier.target.toFixed(2) + '.</b> '
-          + 'Today’s legs reach ' + reached.toFixed(2) + ' at best.</div>'
-        : '';
+      /* build 292 — the "Short of X" note is gone with the slip that needed it. A tier now
+         either reaches its target or shows nothing, so there is no shortfall left to caption. */
       /* 🚨 BUILD 250 — TWO FAULTS IN THREE CELLS, BOTH REPORTED BY KEN.
          1. THE CELLS WERE NEVER STYLED. The stylesheet defines `.shcell .k` and `.shcell .v`; this
             card emitted `shk`/`shv`, which match nothing — so the label and the value rendered as
@@ -5648,10 +5805,10 @@ function renderDailySlips(){
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
                + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
-           + miss
-           + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price</div>';
+           + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
+           + 'win chance is exactly 1 ÷ odds at fair prices</div>';
     }
-    if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', effort);   // insert-once, build 199's rule
+    if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', false);   // insert-once, build 199's rule
     /* BUILD 250 — `tier.blurb` is gone. It restated the target and the leg count, which the header
        and the legs line already carry. Ken: "there are too much writings there." */
     cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>' + body + '</div>';
@@ -5692,21 +5849,25 @@ function renderBanker(){
   if(!b){
     box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2>
       <div class="subnote"><b style="color:var(--gold)">No pick clears the bar in this window.</b>
-      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them confidently enough to stand behind
-      <b>now</b> \u2014 including any whose pick was published earlier and has since been withdrawn.
+      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them clearing the same bar a slip leg
+      must clear \u2014 enough history on both teams, a competition that has proven it beats
+      \u201chome or draw\u201d before making a directional call, and the measured floor for that market.
+      Picks already published and since withdrawn are excluded too.
       MatchMind says nothing rather than picking the best of a bad set.</div></div>`;
     return;
   }
   const {L,f} = b;
-  const mk = f.market || pickMarket(f.pick) || 'Winner';
+  /* build 289 — the selection now comes from the vetted pool, so the pick, its market and its
+     probability are the CANDIDATE's, not whatever the fixture happens to carry. */
+  const mk = b.market || pickMarket(b.pick) || 'Winner';
   box.innerHTML = `<div class="card" style="border:1px solid var(--gold)">
       <h2>\u26A1 ${escapeHtml(label)} \u2014 strongest read</h2>
       <div class="frow"><span class="muted">${escapeHtml(leagueTitle(L))}</span>
         <span class="muted">${escapeHtml((f.date||'').slice(5).replace('-','/'))} ${escapeHtml(localHM(f.date,f.time))}</span></div>
       <div style="font-weight:700;margin:4px 0">${crest(f.home)}${escapeHtml(f.home)} v ${crest(f.away)}${escapeHtml(f.away)}</div>
-      <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(chipCode(f.pick))}</b></span>
-        <span><span class="predchip sm">${(100*f.prob).toFixed(0)}%</span>
-              <span class="predchip sm">@ ${fairOdds(f.prob)}</span></span></div>
+      <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(chipCode(b.pick))}</b></span>
+        <span><span class="predchip sm">${(100*b.prob).toFixed(0)}%</span>
+              <span class="predchip sm">@ ${fairOdds(b.prob)}</span></span></div>
       <button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>
     </div>`;
   const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));
@@ -6379,9 +6540,15 @@ function renderHTFT(L, f){
     `<div class="subnote" style="color:var(--gold)">⚠ <b>These nine are the app's least reliable prices.</b> Across roughly 85,000 measured legs the HT/FT doubles won about 7% LESS often than they claimed (m = 0.93), and were over-confident at every confidence level tested. A separate 700-match check put <b>2/2 at 17.5% claimed against 13.9% real</b> and <b>X/X at 16.1% against 13.6%</b>. They are deliberately excluded from Smart Bet and from the bet slip. Treat them as a rough map of what is possible, not as prices to bet into.</div>` +
     `<div class="sec-label">Half-time result on its own</div>` +
     probRow(f.home+' (1)', H.htRow[0]) + probRow('Draw (X)', H.htRow[1]) + probRow(f.away+' (2)', H.htRow[2]) +
-    `<div class="subnote" style="color:var(--gold)">⚠ Measured on 192 Brasileirão matches, the half-time result is the app's WEAKEST market — 36.5% accurate, worse than simply always backing the home side. A first half holds barely one goal, so quality barely registers before the break and the outcome is close to a coin flip. Shown for context; not a tip.</div>` +
+    `<div class="subnote" style="color:var(--gold)">⚠ <b>Re-measured 2026-09-06 on 2,013 walk-forward fixtures</b>, against the 192 this note used to quote. <b>The old claim is withdrawn: the half-time model is NOT worse than always backing the home side.</b> It scores <b>42.7%</b> to that rule's <b>32.6%</b> — ten points better, χ² 32.9. <b>What it cannot beat is the draw.</b> A first half is level more often than either side leads, and simply always calling a draw scores <b>42.1%</b>; the model's 42.7% is not a measured improvement on it (χ² 0.28, and it beat the draw rule in 0 of 6 competitions). So this stays context and not a tip — but for a better reason than before: not because the model is weak, because a first half sits close to its own base rate. <span class="muted">Pre-registered at MatchMind-HALFTIME-PREREG.md. The six competitions clearing the filed 300-fixture holdout floor were all English lower-league or non-league; the majors did not clear it and are not covered by this verdict.</span></div>` +
     `<div class="sec-label">Goals in the first half</div>` +
     probRow('Over 0.5', H.htOver[0.5]) + probRow('Over 1.5', H.htOver[1.5]) +
+    /* BUILD 291 — these two rows shipped for a long time with NO measurement and NO caveat, while
+       every other number on this panel had one. Pre-registered at MatchMind-HALFTIME-GOALS-PREREG.md
+       and measured on 8,966 walk-forward fixtures across 38 competitions. Both claims fail, and the
+       calibration failure has a SHAPE that matters: it is over-dispersion, not a flat bias, so a
+       confidence floor could not fix it — build 284's finding on Under 3.5, in a new market. */
+    `<div class="subnote" style="color:var(--gold)">⚠ <b>Measured 2026-09-06 on 8,966 fixtures — these two numbers have no edge, and they are over-dispersed.</b> Against simply always calling the competition's usual outcome they are <b>measurably worse</b>: Over 0.5 lands 70.4% to the naive rule's 71.0% (χ² 14.2), Over 1.5 lands 64.4% to 65.2% (χ² 10.9), and <b>neither beat it in a single one of the 38 competitions tested.</b> The probabilities are also spread too wide — at the low end they badly UNDERSTATE (13% claimed, <b>25.9%</b> real) and at the high end they OVERSTATE (47% claimed, <b>37.8%</b> real), crossing over around 35%. <b>A threshold cannot correct that, because it is a slope and not a bias.</b> Shown for context; not a tip, and not a price to bet into.</div>` +
     `<div class="subnote">Read <b>1/2</b> as "home leading at half-time, away winning at full-time". Two separate models — one fitted on first-half goals, one on second-half — trained on ${H.trainedOn} matches carrying half-time scores. Expected first-half goals ${H.lambdaHT.h.toFixed(2)} – ${H.lambdaHT.a.toFixed(2)}, second half ${H.lambda2H.h.toFixed(2)} – ${H.lambda2H.a.toFixed(2)}.</div>` +
     `<div class="subnote"><b>Correction (build 109).</b> This note used to say these prices "land within a couple of points of reality — good enough to price with", on the strength of 192 matches in one competition. Three larger measurements have since disagreed, so the claim has been withdrawn rather than left standing: see the warning above. What the model still cannot do is tell you which particular match will produce a 1/1 — it knows the rates, not the fixture.</div>`;
 }
@@ -13517,6 +13684,7 @@ function slipCandidates(opt){
     for(const f of L.upcoming){
       if(f.date < today) continue;
       if(opt.todayOnly && f.date !== today) continue;
+      if(opt.until && f.date > opt.until) continue;   // build 289 — bound the scan to the window
       const s = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(s)) continue;   // skip already-played
       /* build 288 — a fixture the engine has stopped backing supplies no leg, on either path.
          Ken: "the engine must have a very very strong read on all that will be dished in there." */
