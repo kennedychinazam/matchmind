@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 297;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 299;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5378,6 +5378,138 @@ function dailySharedRow(tier){
     ? _sharedSlips.rows.filter(r => r.tier === tier.key)[0] || null : null;
 }
 
+/* == BUILD 299 - THE TIPS TAB STOPS EMPTYING ITSELF, AND MAY NOT RE-PRICE WHAT IT PUBLISHED =====
+   KEN: *"THE APP IS NOT SUPPOSED TO SHOW EMPTY SLIP, IT SHOULD SHOW THE ODDS AND BETS IT CREATED
+   FOR TODAY, THEY SHOULD REMAIN THERE AND AS THEY ARE PLAYED, THE RESULT SHOULD IMMEDIATELY UPDATE
+   IN IT... same as the Today's strongest read... same as every game in the tips bar."*
+
+   THE CAUSE IS A FILTER, NOT THE ENGINE, AND THAT WAS MEASURED BEFORE ANYTHING WAS WRITTEN.
+   `collectUpcoming` drops a fixture the moment it finishes and drops the whole day at midnight, so
+   by the end of a matchday the Winner, O/U and BTTS tabs and the strongest-read card show nothing.
+   Nothing is missing from the data: on 2026-09-07 all 113 of the previous day's fixtures were
+   still in `L.upcoming`, all finished, all in history. The tab was hiding what it already held.
+
+   THE OBVIOUS FIX - STOP HIDING THEM - WOULD HAVE MADE THE APP LOOK BETTER THAN IT IS.
+   Re-pricing a played fixture puts its OWN RESULT into the fit that prices it. Measured over those
+   113 fixtures, clean history against history containing the match itself:
+
+       Winner   mean |Δp| 0.0380    14 of 113 picks CHANGE    15.9% move by over 5 points
+       O/U 2.5  mean |Δp| 0.0177     5 side flips
+       BTTS     mean |Δp| 0.0112     9 side flips
+
+   Against ordinary within-day drift on the same fixtures - 0.0064, 0.0011 and 0.0009 - that is SIX
+   TIMES larger, and it leans toward the result, because the result is in the fit. A tab that
+   re-priced its own played picks would show picks retro-fitted to the outcomes it is graded on.
+   So a published pick is FROZEN. That measurement, not the filter, is why this is a build and not
+   a two-line change.
+
+   FROZEN WHERE THE SLIPS ARE ALREADY FROZEN, AND THAT COSTS NO SQL. `daily_slips` holds one
+   authoritative copy of the day keyed (day, tier), with the seed race settled by the primary key,
+   and its insert policy gates `build >= 297` and the day window ONLY - there is no constraint on
+   `tier`. Checked in the dashboard before this was written, rather than assumed. So two new tiers,
+   `tips` and `banker`, ride the existing table, the existing fetch and the existing policy. */
+const TIPS_FREEZE_TABS = ['winner','ou','btts'];   // Smart Bet's tab is the slips (build 241)
+const TIPS_FREEZE_TOP  = 30;                       // exactly what the tab renders; more is waste
+let _tipsSeedTried = null;                         // the day a seed was attempted, so it is once
+
+function tipsSharedRow(tier){
+  return (_sharedSlips.loaded && _sharedSlips.rows)
+    ? _sharedSlips.rows.filter(r => r.tier === tier)[0] || null : null;
+}
+function tipsFrozenLegs(tab){
+  const r = tipsSharedRow('tips');
+  if(!r || !Array.isArray(r.legs)) return null;
+  const legs = r.legs.filter(l => l && l.tab === tab).sort((a,b) => (a.rank||0) - (b.rank||0));
+  return legs.length ? legs : null;
+}
+/* A stored leg is identified by date|home|away, which is what a match row actually carries - build
+   265's lesson, that `fxid` is absent from cached match objects. The live fixture is looked up only
+   for the click target and the favourite star; a leg whose fixture cannot be found still renders. */
+function tipsResolveFixture(d, h, a){
+  for(const id of Object.keys(afState.leagues)){
+    const L = afState.leagues[id]; if(!L) continue;
+    for(const f of (L.upcoming || [])) if(f.date === d && f.home === h && f.away === a) return {L, f};
+  }
+  return null;
+}
+/* Grading REUSES `dailyLogGrade` rather than re-implementing it: the legs are handed over as one
+   pseudo-card, so a tip row and a slip leg can only ever be graded by the same code. Same reason
+   build 85 shared `smartRanked` - two graders would eventually disagree. */
+function tipsGradeLegs(legs){
+  if(!legs || !legs.length) return [];
+  try{
+    const g = (dailyLogGrade([{ odds: 1, legs: legs }]) || [])[0];
+    return legs.map((l, i) => ({ leg: l, grade: g && g.legGrades ? g.legGrades[i] : null,
+                                 score: g && g.legScores ? g.legScores[i] : null }));
+  }catch(e){ return legs.map(l => ({ leg: l, grade: null, score: null })); }
+}
+
+/* Seeded ONCE a day, by the first signed-in client holding the whole slate.
+   `_leaguesLoadedAt` is the gate and it is not decoration: a device that seeded from a partly
+   loaded `afState` would publish a SHORT list to everybody, which is build 297's two-phone
+   divergence in a worse form - one wrong answer made authoritative instead of two disagreeing. */
+async function tipsFrozenSeed(day){
+  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return false;
+  const legs = [];
+  for(const tab of TIPS_FREEZE_TABS){
+    let rows = []; try{ rows = tipRankedRows(tab, 0) || []; }catch(e){ return false; }
+    rows.slice(0, TIPS_FREEZE_TOP).forEach((r, i) => {
+      if(r.prob == null || !r.code) return;          // ungradeable, so never published as issued
+      legs.push({ tab: tab, rank: i, fxid: r.f.fxid, d: r.f.date, t: r.f.time || '',
+                  h: r.f.home, a: r.f.away, code: r.code, sel: r.sel,
+                  market: r.tag || '', p: +r.prob.toFixed(4) });
+    });
+  }
+  if(!legs.length) return false;
+  /* LATENESS IS NOT NEUTRAL, SO IT IS RECORDED. `tipRankedRows` ranks `collectUpcoming`, which
+     excludes a fixture that has already finished - so a day first issued at 20:00 can only ever
+     contain the fixtures still to come, and the ones already played are absent for good. Seeding
+     early is the real fix (see the call in `loadCloudLeagues`); this is the honesty that has to
+     travel with a row seeded late, because a short list presented as "today's tips" with nothing
+     saying why is the same silent disappearance this build exists to remove. */
+  const smap = scoreMap(); let played = 0;
+  for(const id of Object.keys(afState.leagues)){
+    const L = afState.leagues[id]; if(!L || (L.sport||'football')!=='football') continue;
+    for(const f of (L.upcoming || [])) if(f.date === day){
+      const sc = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(sc)) played++;
+    }
+  }
+  const q = await supa.from('daily_slips').insert(
+    { day: day, tier: 'tips', odds: 0, build: APP_BUILD,
+      step: played ? ('tips-partial-' + played) : 'tips', legs: legs });
+  return !q.error;
+}
+/* The strongest read is one leg, so it is its own row rather than a fourth list. It is the card the
+   app leads with, which makes it the most visible version of Ken's complaint when it changes under
+   a reader during the afternoon. `odds` is the fair price of the pick, so the row is self-
+   describing rather than carrying the 0 the list row has to. */
+async function bankerFrozenSeed(day){
+  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return false;
+  let b = null; try{ b = bankerOf(); }catch(e){ return false; }
+  if(!b || b.prob == null || !b.pick || !b.f) return false;
+  const q = await supa.from('daily_slips').insert(
+    { day: day, tier: 'banker', odds: +(1 / b.prob).toFixed(4), build: APP_BUILD, step: 'banker',
+      legs: [{ fxid: b.f.fxid, d: b.f.date, t: b.f.time || '', h: b.f.home, a: b.f.away,
+               code: b.pick, market: b.market || 'Winner', p: +b.prob.toFixed(4) }] });
+  return !q.error;
+}
+/* One attempt per day per tab session. A conflict is the SUCCESS case - another device issued the
+   day first - so the re-read is unconditional and brings back whichever row won. */
+function tipsFrozenEnsure(){
+  const day = todayStrLocal();
+  if(_tipsSeedTried === day) return;
+  if(!_sharedSlips.loaded || _sharedSlips.day !== day) return;
+  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return;
+  const needTips = !tipsSharedRow('tips'), needBanker = !tipsSharedRow('banker');
+  if(!needTips && !needBanker) return;
+  _tipsSeedTried = day;
+  Promise.all([ needTips   ? tipsFrozenSeed(day)   : Promise.resolve(false),
+                needBanker ? bankerFrozenSeed(day) : Promise.resolve(false) ])
+    .then(() => dailySharedLoad(day, true))
+    .then(() => { try{ renderTips(); }catch(e){} })
+    .catch(() => {});
+}
+
 /* ══ BUILD 297 — AND A TAB OPEN SINCE BEFORE AN UPLOAD MUST SAY SO ════════════════════════════
    Cause 2 above. `sw.js` carries `matchmind-vNNN` and is a few hundred bytes, so it is the cheapest
    honest version probe available without adding an endpoint. Checked on boot and whenever the tab
@@ -6135,9 +6267,43 @@ function renderDailySlips(){
   try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
 }
 
+/* BUILD 299 - the issued strongest read, held for the day and only graded. Rendered before the
+   `inWindow` guard on purpose: once every fixture on the slate has kicked off that guard is what
+   painted "No fixtures in this window" over a card that had been published hours earlier, which is
+   exactly the disappearance Ken reported. */
+function renderBankerFrozen(row, label, box){
+  const l = row.legs[0];
+  const g = tipsGradeLegs([l])[0] || { grade:null, score:null };
+  const r = tipsResolveFixture(l.d, l.h, l.a);
+  const status = g.grade === 'hit'  ? '<span style="color:var(--green2)">Won</span>'
+               : g.grade === 'miss' ? '<span style="color:var(--red)">Lost</span>'
+               : g.grade === 'void' ? '<span style="color:var(--gold)">Void</span>'
+               : '<span class="muted">Not settled</span>';
+  box.innerHTML = '<div class="card" style="border:1px solid var(--gold)">'
+    + '<h2>&#9889; ' + escapeHtml(String(label)) + ' — strongest read</h2>'
+    + '<div class="frow"><span class="muted">' + (r ? escapeHtml(leagueTitle(r.L)) : '') + '</span>'
+    + '<span class="muted">' + escapeHtml(String(l.d||'').slice(5).replace('-','/')) + ' '
+    + escapeHtml(String(localHM(l.d, l.t||''))) + '</span></div>'
+    + '<div style="font-weight:700;margin:4px 0">' + crest(l.h) + escapeHtml(String(l.h))
+    + ' v ' + crest(l.a) + escapeHtml(String(l.a)) + '</div>'
+    + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
+    + '<b style="color:var(--gold)">' + escapeHtml(String(chipCode(l.code))) + '</b></span>'
+    + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+    + '<span class="predchip sm">@ ' + fairOdds(l.p) + '</span></span></div>'
+    + '<div class="frow"><span class="muted">Result</span><span>' + status
+    + (g.score ? ' <span class="muted">' + escapeHtml(String(g.score)) + '</span>' : '') + '</span></div>'
+    + (r ? '<button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>' : '')
+    + '<div class="subnote" style="margin-top:6px">Issued for ' + escapeHtml(todayStrLocal())
+    + ' and held for the day. The number is the one that was published; a played fixture is never '
+    + 're-priced, because its own result would then be inside the fit that prices it.</div>'
+    + '</div>';
+  const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));
+}
 function renderBanker(){
   const box=$('bankerCard'); if(!box) return;
   const label = tipState.days===0 ? t('Today') : (tipState.days===3 ? t('Next 3 days') : t('Next 7 days'));
+  const fz = (tipState.days === 0) ? tipsSharedRow('banker') : null;
+  if(fz && Array.isArray(fz.legs) && fz.legs.length){ renderBankerFrozen(fz, label, box); return; }
   const inWindow = collectUpcoming(tipState.days).length;
   const b = bankerOf();
   /* build 241 — the slips are the Smart Bet tab's content now and render from the tab dispatch. */
@@ -6181,6 +6347,13 @@ function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
   box.innerHTML=TIP_TABS().map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
   box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
 function renderTips(){
+  /* BUILD 299 - the issued rows are needed by the strongest-read card and by all three list tabs,
+     not only by the Smart Bet tab that used to be their only reader. Kicked off here so the first
+     paint of ANY tips tab has them; `loaded` is set even on failure, so an outage falls through to
+     the live path instead of waiting forever, and the re-render cannot loop. */
+  if(!_sharedSlips.loaded || _sharedSlips.day !== todayStrLocal())
+    dailySharedLoad(todayStrLocal()).then(() => { tipsFrozenEnsure(); renderTips(); }).catch(() => {});
+  else tipsFrozenEnsure();
   renderTipHorizon();
   renderBanker();
   renderTipTabs();
@@ -6292,8 +6465,11 @@ function neutralSelections(L){
 
 function tipPickFor(market,P,f,L){
   if(market==='winner'){ const hp=headlinePick(P,f.home,f.away); return {sel:pickLabel(hp.code,f.home,f.away), prob:hp.prob, code:hp.code}; }
-  if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5]}:{sel:'Under 2.5',prob:1-P.over[2.5]};
-  if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts}:{sel:'BTTS No',prob:1-P.btts};
+  /* build 299 - THE CODE TRAVELS WITH THE PICK NOW. It was never needed while a played fixture
+     was hidden the moment it finished; a row that stays on the tab until its result lands has to
+     be gradeable, and `gradePick` grades codes, not display labels. */
+  if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5],code:'O25'}:{sel:'Under 2.5',prob:1-P.over[2.5],code:'U25'};
+  if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts,code:'BTS'}:{sel:'BTTS No',prob:1-P.btts,code:'NBT'};
 
   /* SMART BET — the engine's strongest OPINION, which is not the same as its biggest number.
      Ranking by raw probability made every pick a "+1.5 handicap", because "doesn't lose by 2+" sits
@@ -6302,7 +6478,7 @@ function tipPickFor(market,P,f,L){
      departs from the same market in an average match, so what surfaces is what the engine actually
      knows about THESE teams. Sub-50% picks are excluded — a strong opinion you can't back is noise. */
   const top = smartRanked(P,f,L)[0];
-  return {sel:top.sel, prob:top.prob, m:top.m, edge:top.edge};
+  return {sel:top.sel, prob:top.prob, m:top.m, edge:top.edge, code:top.code||null};
 }
 
 /* Build 85 — ONE ranking, called by both the Tips → Smart Bet tab and the match page.
@@ -6378,20 +6554,76 @@ function renderSmartBet(L, f, P, played, hp){
    on screen by the "+18 vs avg" figure on each row, which is the thing that actually says "this is
    measured against an average match, not against the other tabs". */
 const TIP_TAB_NOTES = {};
-function renderTipList(market){
-  { const n=$('tipTabNote');
-    if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
-  const box=$('tipList'); if(!box) return;
+/* BUILD 299 - ONE RANKING, USED BY THE TAB AND BY THE SEED THAT FREEZES IT. Same rule as build
+   85's `smartRanked`: two callers that must agree share the function instead of each building its
+   own list, which is what let the Tips number and the Analysis number drift apart for 44 builds.
+   Lifted verbatim out of `renderTipList`; the only addition is `code`, which grading needs. */
+function tipRankedRows(market, days){
   const rows=[];
-  for(const {L,f} of collectUpcoming(tipState.days)){
+  for(const {L,f} of collectUpcoming(days)){
     const P=fxPredict(L,f);
-    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:''}); continue; }
+    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:'',code:f.pick}); continue; }
     const tp=tipPickFor(market,P,f,L);
-    rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||'',edge:tp.edge});
+    rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||'',edge:tp.edge,code:tp.code||null});
   }
   // Smart Bet ranks by strength of opinion; the single-market tabs still rank by probability
   if(market==='smart') rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
   else rows.sort((a,b)=>b.prob-a.prob);
+  return rows;
+}
+/* The issued list for today, drawn from the row every device shares rather than rebuilt. The order
+   is the order it was issued in: a list that reshuffles under a reader during the afternoon is the
+   same complaint as one that empties. */
+function renderTipListFrozen(market, legs, box){
+  const graded = tipsGradeLegs(legs);
+  const refs = [];
+  box.innerHTML = graded.map(g => {
+    const l = g.leg, i = refs.length; refs.push(tipsResolveFixture(l.d, l.h, l.a));
+    const val = tipState.fair ? '<span class="predchip sm">@ ' + fairOdds(l.p) + '</span>'
+                              : '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>';
+    const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
+               : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
+               : g.grade === 'void' ? '<span style="color:var(--gold)">VOID</span>' : '';
+    const sc = g.score ? '<span class="muted" style="font-size:.66rem"> ' + escapeHtml(String(g.score)) + '</span>' : '';
+    const on = refs[i] ? isFavMatch(refs[i].f.fxid) : false;
+    const star = refs[i] ? '<span class="mstar' + (on?'':' off') + '" data-star="' + i + '">' + (on?'★':'☆') + '</span>' : '';
+    return '<div class="fxrow favrow" data-i="' + i + '"><span class="fxtime">'
+      + escapeHtml(String(l.d||'').slice(5).replace('-','/')) + '<br>' + escapeHtml(String(localHM(l.d, l.t||''))) + '</span>'
+      + '<span class="fxteams"><span class="tline">' + crest(l.h) + escapeHtml(String(l.h)) + '</span>'
+      + '<span class="tline">' + crest(l.a) + escapeHtml(String(l.a)) + '</span>'
+      + '<span class="lname">' + (l.market ? escapeHtml(String(l.market)) + ': ' : '')
+      + '<b style="color:var(--gold)">' + escapeHtml(String(l.sel || chipCode(l.code) || '')) + '</b>'
+      + ' ' + mark + sc + '</span></span>'
+      + '<span class="favright">' + val + star + '</span></div>';
+  }).join('');
+  const settled = graded.filter(g => g.grade).length;
+  const _row = tipsSharedRow('tips');
+  const _part = _row ? /^tips-partial-([0-9]+)$/.exec(String(_row.step || '')) : null;
+  box.insertAdjacentHTML('beforeend',
+    '<div class="subnote">Issued for ' + escapeHtml(todayStrLocal()) + ' and held for the day — '
+    + settled + ' of ' + graded.length + ' settled. These are the probabilities as published: a '
+    + 'played fixture is never re-priced, because its own result would then be inside the fit that '
+    + 'prices it.'
+    + (_part ? ' ' + _part[1] + ' of today&#39;s fixtures had already kicked off when the day was '
+             + 'issued, so they are not on this list.' : '')
+    + '</div>');
+  box.querySelectorAll('.fxrow.favrow').forEach(row => row.addEventListener('click', () => {
+    const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f); }));
+  box.querySelectorAll('.mstar[data-star]').forEach(st => st.addEventListener('click', e => {
+    e.stopPropagation(); const r = refs[+st.dataset.star];
+    if(r){ toggleFavMatch(r.f, {lid:r.L.id, lname:r.L.name}); renderTipList(market); } }));
+}
+function renderTipList(market){
+  { const n=$('tipTabNote');
+    if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
+  const box=$('tipList'); if(!box) return;
+  /* BUILD 299 - TODAY IS DRAWN FROM THE ISSUED ROW, NOT REBUILT. Only the Today window: the 3- and
+     7-day settings are a forward look at fixtures nobody has issued a card for, so they stay live
+     and keep the old behaviour exactly. The block above `TIPS_FREEZE_TABS` carries the measurement
+     that makes re-pricing a played fixture unacceptable. */
+  const frozen = (tipState.days === 0) ? tipsFrozenLegs(market) : null;
+  if(frozen){ renderTipListFrozen(market, frozen, box); return; }
+  const rows = tipRankedRows(market, tipState.days);
   if(!rows.length){
     /* Build 201 — this used to say "no priceable fixtures yet", which read as a broken app on any
        day the window simply had no football in it. The window is now a user choice, so the message
@@ -15027,6 +15259,66 @@ const LEAGUE_BLOBS = /[?&]blobs=1/.test(location.search);
 const LEAGUE_COLS_LEAN =
   'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,' +
   'home_logo,away_logo,gh,ga,ht_h,ht_a,provider,round';
+
+/* ══ BUILD 298 — HALF OF EVERY ROW WAS REDUNDANT, AND EGRESS HAS A DEADLINE ══════════════════════
+   🚨 Supabase, 2026-09-06: **Egress 7.612 / 5 GB — 152%**, the ONLY metric over quota, grace period
+   ending **01 Oct 2026**, after which requests return **402**. Build 247 dropped three jsonb blobs
+   and build 262 added the lean set and a date bound; measured now, a cold first visit is **2.58 MB
+   over 63 calls**, so both landed. **The remaining cost is what each ROW carries.**
+
+   Measured over 500 fixtures on the lean set, with the distinct values each column actually holds:
+
+       home_logo   63.2 B/row   13.6%    243 distinct — one per team
+       away_logo   63.2 B/row   13.5%    247 distinct — one per team
+       llogo       60.1 B/row   12.9%     24 distinct — one per competition
+       lname       22.5 B/row    4.8%     23 distinct
+       lcountry    18.8 B/row    4.0%     10 distinct
+       provider    14.0 B/row    3.0%      1 distinct — constant
+
+   **Six columns are 51.9% of every byte and not one of them is per-fixture information.** A team's
+   badge does not change between matches; it was being re-sent on every row of every season.
+
+   THE FIX SENDS IDS AND REBUILDS THE REST LOCALLY. Every logo URL is
+   `https://media.api-sports.io/football/teams/<id>.png` — verified **2,000 of 2,000** — so the id is
+   the only part worth carrying. `fixtures_lean` is a view that derives it; `competitions` carries
+   the per-competition metadata once. **Measured on the wire: 466 → 239 bytes/row, a 48.7% cut**,
+   which projects the cycle from 7.612 GB to about **3.9 GB, under quota.**
+
+   ⚠ AND THE REBUILD HAPPENS AT THE FETCH BOUNDARY SO NOTHING DOWNSTREAM CHANGES. `providerExtras`
+   derives team ids by parsing `home_logo` (`teamId(r.home_logo)`) for event attribution, and three
+   sites populate `afState.logos` from the same field. **Those are consumers of a column this build
+   stops sending**, so `hydrateLeanRow` puts the URL back before any of them sees the row. Found by
+   reading the consumers first — the step that was missing from two defects the day before. */
+const LEAN_VIEW = 'fixtures_lean';
+const LEAGUE_COLS_SLIM =
+  'fxid,lid,season,date,time,status,elapsed,home,away,gh,ga,ht_h,ht_a,round,home_id,away_id';
+const TEAM_LOGO_BASE = 'https://media.api-sports.io/football/teams/';
+let COMP_META = {};                    // lid -> { lname, lcountry, llogo }, fetched once
+
+async function loadCompMeta(){
+  if(!supa || Object.keys(COMP_META).length) return COMP_META;
+  try{
+    const q = await supa.from('competitions').select('lid,lname,lcountry,llogo');
+    if(!q.error) for(const c of (q.data || [])) COMP_META[c.lid] = c;
+  }catch(e){ /* absent view: hydrate leaves the fields blank and the league keeps its own name */ }
+  return COMP_META;
+}
+
+/* One row, put back the way every existing consumer expects it. Deliberately mutates in place and
+   never overwrites a value that is already there, so a `?blobs=1` row passes through untouched. */
+function hydrateLeanRow(r){
+  if(!r) return r;
+  if(r.home_id != null && !r.home_logo) r.home_logo = TEAM_LOGO_BASE + r.home_id + '.png';
+  if(r.away_id != null && !r.away_logo) r.away_logo = TEAM_LOGO_BASE + r.away_id + '.png';
+  const c = (r.lid != null) ? COMP_META[r.lid] : null;
+  if(c){
+    if(!r.lname)    r.lname    = c.lname || '';
+    if(!r.lcountry) r.lcountry = c.lcountry || '';
+    if(!r.llogo)    r.llogo    = c.llogo || '';
+  }
+  if(!r.provider) r.provider = 'af';   // one distinct value in 500 rows; no longer sent
+  return r;
+}
 const LEAGUE_COLS =
   'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,home_logo,' +
   'away_logo,updated_at,ht_h,ht_a,provider,venue_id,venue_name,venue_city,surface,attendance,' +
@@ -15243,7 +15535,8 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
        it measurably HELPED there (archive 1.8s ordered vs 3.3s unordered). */
     /* build 262 — lean columns and a date bound on the shipped path; `?blobs=1` lifts BOTH so a
        research run still sees every column and every season. */
-    let q = supa.from('fixtures').select(LEAGUE_BLOBS ? '*' : LEAGUE_COLS_LEAN).eq('lid', id);
+    let q = LEAGUE_BLOBS ? supa.from('fixtures').select('*').eq('lid', id)
+                         : supa.from(LEAN_VIEW).select(LEAGUE_COLS_SLIM).eq('lid', id);
     /* build 279 — when this competition's settled history is already cached locally, the read
        starts at the settle cutoff instead of 24 months back. `_histSince` is set by
        loadCloudLeagues from the cache it just opened; absent, this is build 278's read exactly. */
@@ -15263,6 +15556,8 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
     if(from > 20000) break;                     // hard stop; no league has 20k fixtures
   }
   // more than one page means this competition WOULD have been truncated before build 123
+  /* BUILD 298 — the wire carries ids; the URLs are rebuilt here so nothing downstream changes. */
+  if(!LEAGUE_BLOBS) for(const r of out) hydrateLeanRow(r);
   return { data: out, error:null, pages };
 }
 /* Same cap, same shape, different table. The archive covers a month and the results sweep covers
@@ -15412,6 +15707,12 @@ async function loadCloudLeagues(force){
      `await loadArchive()`, so a call that was about to decline still paid for three or four
      `predictions` pages first. */
   if(!force && Date.now()-_leaguesLoadedAt < 5*60*1000) return;   // throttle
+  /* BUILD 298 — the competition map must be in hand BEFORE any row is hydrated, because
+     `hydrateLeanRow` fills lname/lcountry/llogo from it and never overwrites. Awaited here rather
+     than fired alongside: 227 rows and ~27 KB once, against the 101 bytes per fixture row it
+     replaces. A failure leaves the map empty and the league keeps its own name, which is the
+     pre-298 behaviour rather than a blank screen. */
+  await loadCompMeta();
   try{
     const today = todayStrLocal();
     /* build 279 — opened BEFORE the requests are built, because it decides how far back each one
@@ -15850,6 +16151,12 @@ async function loadCloudLeagues(force){
         localStorage.setItem('mm_fdmig','1');
       } }catch(e){}
       _leaguesLoadedAt = Date.now();
+      /* BUILD 299 - the day is issued as soon as the whole slate is in hand, NOT when someone
+         happens to open the Tips tab. `tipsFrozenEnsure` seeds from `collectUpcoming`, which drops
+         a fixture once it finishes, so a first issue at 20:00 publishes only what is left of the
+         evening. This is the earliest point at which seeding is both possible and honest: it is
+         the line that marks the slate complete, and both seeds refuse to run without it. */
+      try{ dailySharedLoad(todayStrLocal()).then(() => tipsFrozenEnsure()).catch(() => {}); }catch(e){}
       /* build 285 — asked AFTER a successful load, not at boot: there is no point protecting an
          empty cache, and engagement is one of the heuristics browsers weigh. */
       try{ requestStoragePersistence(); }catch(e){}
