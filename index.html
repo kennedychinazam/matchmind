@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 299;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 301;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4886,6 +4886,14 @@ function floorsForTier(base, tier){
    is the bluff Milestone 8 forbids. The two changes are one build for that reason. */
 const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, { 'U35':0.65 });
 
+/* BUILD 301 - the price ladder, and it is a LADDER for the same reason the floors are: a card is
+   built first from legs a bookmaker is actually quoting, so its total is a number a user can obtain.
+   Only when no such card exists does it fall back to engine prices, and then it says so. The step
+   that answered travels to the card, exactly as the floor step does. */
+const DAILY_PRICE_STEPS = [
+  { key: 'market', marketOnly: true },
+  { key: 'fair',   marketOnly: false }
+];
 const DAILY_FLOOR_STEPS = [
   { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
   { key:'fallback', floors:DAILY_FLOOR_FALLBACK, note:'Built from the wider calibrated range \u2014 longer legs, each still priced honestly.' }
@@ -4997,10 +5005,18 @@ const DAILY_TIERS = [
      `MatchMind-FTGOALS-DISPERSION-PREREG.md`; scored in `MatchMind-SLIPMIX-PREREG.md`. */
   { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
     blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
-  /* BUILD 297 — `softMaxLegs` is Ken's own spec from build 235, restored as a LADDER. Four legs are
-     tried first and `maxLegs` catches the days four cannot fill; see the note in `renderDailySlips`
-     for why build 292's "no honest four-leg slip can pay 5.00" no longer holds. */
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7, softMaxLegs:4, preferGoals:true,
+  /* BUILD 301 - FOUR IS A HARD MAXIMUM, NOT A PREFERENCE. Build 297 restored Ken's build-235 spec as
+     a LADDER - try four, fall back to seven - and on 2026-09-07 it fell back and issued a six-leg
+     card. Ken: *"i also said maximum 4 matches for the value bet, you must stick to these
+     instructions."* **A cap that yields whenever it binds is not a cap**, so the ladder is gone.
+
+     AND IT IS NOW ARITHMETICALLY SOUND, because build 301 prices the card at real bookmaker odds.
+     Measured over the snapshot window, the best FOUR-leg card at market prices reached 4.86, 4.99,
+     5.13, 5.18 and 6.47 on the days with a real slate - a median of 4.99 against a 5.00 target. On a
+     thin day four legs will miss the band, and then the card says the band is out of reach rather
+     than padding itself with a fifth and sixth leg. That is build 292's own rule for shortfalls,
+     applied to the cap instead of around it. */
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:4, preferGoals:true,
     blurb:'At least 5.00 from calibrated legs — four where the day allows it.' },
   { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11, preferGoals:true,
     blurb:'At least 10.00. A 10.00 slip is a one-in-ten shot at fair prices.' }
@@ -5165,9 +5181,86 @@ function dailyEligible(cands, floors){
       return r !== 0 ? r : a.prob - b.prob;
     });
     const top = list[0];
-    out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top) }));
+    /* build 301 - the market price rides with the candidate from here on, so nothing downstream
+       has to look it up again and no two places can disagree about what a leg pays. */
+    out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top),
+                                      _real: dailyRealPrice(top.f && top.f.fxid, top.code) }));
   }
   return out;
+}
+
+/* == BUILD 301 - THE CARD IS PRICED AT REAL BOOKMAKER ODDS ====================================
+   KEN: *"the so-called fair odds are not correct by any means... the safe bet which the fair odd
+   called 2.0 odds is actually 1.52 in the bookmaker. how can i preach 2 odds but give less than
+   that."*
+
+   HE IS RIGHT, AND MEASURED ON HIS OWN CARD IT IS WORSE THAN HE SAID. Today's issued cards, every
+   leg priced from the capture closest to kick-off:
+
+       Safe    shown 2.04    real 1.48    overstated by 38%
+       Value   shown 5.73    real 2.95    overstated by 94%
+
+   Leg by leg: U3.5 1.24 -> 1.11, O2.5 1.64 -> 1.33, 1X 1.27 -> 1.13. `MatchMind-REALODDS-PREREG.md`
+   had measured the per-leg cost at 6% and called that "the number to trust"; on these legs it is
+   10-19%, and it COMPOUNDS - which is the whole point of an accumulator and exactly why a 6% per-leg
+   figure was the wrong summary to publish.
+
+   THE FIX IS NOT A DISCLAIMER. A number a user cannot obtain is not a number. Every leg is priced
+   at what a book is actually quoting, the card's total is the product of those prices, and the
+   search itself optimises the real product - so a card that says 5.00 pays 5.00.
+
+   WHAT DOES NOT CHANGE, per the filing's own vetoes:
+     - **Selection.** Legs are still chosen on the engine's probability at the engine's floors. The
+       price is applied to what was selected, never used to select. (VETO 2)
+     - **The win chance.** It stays the product of MODEL probabilities and is computed from a
+       different source than the odds, so the card can now show honestly that the two disagree -
+       which is the disclosure, not a defect. (VETO 1)
+
+   THE PRICE LADDER, and why it is a ladder rather than a filter: a card is built first from legs
+   that HAVE a market price, so the number shown is real. Only if no such card exists does it fall
+   back to engine prices, and then it says so in as many words. **Today that restriction is severe
+   and is reported rather than hidden: 16 legs clear the floors and only 4 carry a price.** A card
+   built from the quarter of fixtures a bookmaker happens to quote is a different selection wearing
+   the same name (VETO 3), so the card names which pricing it used, every time. */
+let _dailyOdds = { day: null, byFx: {}, loaded: false };
+
+async function dailyOddsLoad(day, fxids){
+  if(!cloudEnabled() || !supa || !fxids || !fxids.length){
+    _dailyOdds = { day: day, byFx: {}, loaded: true }; return _dailyOdds;
+  }
+  const byFx = {};
+  for(let i = 0; i < fxids.length; i += 150){
+    let q = null;
+    try{
+      q = await supa.from('odds_snapshots')
+            .select('fxid,mins_to_kick,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba')
+            .in('fxid', fxids.slice(i, i + 150));
+    }catch(e){ q = null; }
+    if(!q || q.error) continue;
+    for(const sn of (q.data || [])){
+      /* Captures taken AFTER kick-off are not a price anyone could have taken. */
+      if(sn.mins_to_kick == null || sn.mins_to_kick < 0) continue;
+      const cur = byFx[sn.fxid];
+      if(!cur || sn.mins_to_kick < cur.mins_to_kick) byFx[sn.fxid] = sn;
+    }
+  }
+  _dailyOdds = { day: day, byFx: byFx, loaded: true };
+  return _dailyOdds;
+}
+/* `m15Fair` is the app's own price reader and is REUSED rather than reimplemented - the same rule
+   that made `tipsGradeLegs` hand its legs to `dailyLogGrade`. Two readers of one odds row would
+   eventually disagree, and the one on the slip is the one that quotes a number to a user. */
+function dailyRealPrice(fxid, code){
+  if(fxid == null || !_dailyOdds.loaded) return null;
+  const sn = _dailyOdds.byFx[fxid]; if(!sn) return null;
+  const g = m15Fair(sn, code);
+  return (g && g.price > 1) ? g.price : null;
+}
+/* THE ONE PLACE A LEG'S PRICE IS DECIDED. Every search, every ceiling and every total goes through
+   this, so the card's headline and the legs under it can never be priced on different bases. */
+function dailyLegOdds(c){
+  if(c && c._real != null) return c._real;
+  return 1 / c.prob;
 }
 
 /* ══ BUILD 245 — WHEN NO BAND IS REACHABLE AT ANY HONEST FLOOR ═══════════════════════════════════
@@ -5184,7 +5277,7 @@ function dailyEligible(cands, floors){
    "about 10.00" would be the bluff Milestone 8 forbids, so `renderDailySlips` prints the achieved
    figure and names it as short of target. */
 function dailyBestEffort(pool, tier){
-  const items = pool.slice().sort((a, b) => a.prob - b.prob).slice(0, 18);
+  const items = pool.slice().sort((a, b) => dailyLegOdds(b) - dailyLegOdds(a)).slice(0, 18);
   let best = null; const pick = [];
   (function walk(start, prod){
     if(pick.length >= tier.minLegs){
@@ -5193,7 +5286,7 @@ function dailyBestEffort(pool, tier){
     }
     if(pick.length >= tier.maxLegs) return;
     for(let i = start; i < items.length; i++){
-      pick.push(items[i]); walk(i + 1, prod / items[i].prob); pick.pop();
+      pick.push(items[i]); walk(i + 1, prod * dailyLegOdds(items[i])); pick.pop();
     }
   })(0, 1);
   return { legs: best ? best.legs : [], reached: best ? best.reached : 1, pool: items.length };
@@ -5221,7 +5314,7 @@ function dailyBandSearch(pool, tier){
   const legsTypical = Math.max(1, Math.round((tier.minLegs + tier.maxLegs) / 2));
   const idealOdds = Math.pow(tier.target, 1 / legsTypical);
   const ranked = pool.slice()
-    .sort((a, b) => Math.abs((1 / a.prob) - idealOdds) - Math.abs((1 / b.prob) - idealOdds));
+    .sort((a, b) => Math.abs(dailyLegOdds(a) - idealOdds) - Math.abs(dailyLegOdds(b) - idealOdds));
   /* 🚨 BUILD 273 — AND THE WINDOW HAS TO BE ABLE TO EXPRESS MORE THAN ONE MARKET. Proximity alone
      clusters on a single price: measured on the live pool, Safe's ideal leg is 1.26 and its eighteen
      closest were **sixteen `1X` and two `1`**, while the pool itself held 154 O25, 27 U35 and 23 BTS
@@ -5274,7 +5367,7 @@ function dailyBandSearch(pool, tier){
   const preferGoals = !!tier.preferGoals;
   const isGoalLeg = c => DAILY_MARKET_RANK(c) <= 1;   // BTTS (0) and Over goals (1) — Ken's own order
   let best = null, ceiling = 1;
-  for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= 1 / items[n].prob;
+  for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= dailyLegOdds(items[n]);
   const pick = [];
   (function walk(start, prod, ng){
     if(pick.length >= tier.minLegs){
@@ -5288,7 +5381,7 @@ function dailyBandSearch(pool, tier){
     }
     if(pick.length >= tier.maxLegs) return;
     for(let i = start; i < items.length; i++){
-      const p = prod / items[i].prob;
+      const p = prod * dailyLegOdds(items[i]);
       if(p > hi + 1e-9) continue;                    // already past the roof; longer legs only worsen it
       pick.push(items[i]); walk(i + 1, p, ng + (isGoalLeg(items[i]) ? 1 : 0)); pick.pop();
       if(!preferGoals && best && best.d < 1e-9) return;
@@ -5366,6 +5459,33 @@ async function dailySharedSeed(day, tier, legs, reached, step){
   const q = await supa.from('daily_slips').insert(row);
   return !q.error;
 }
+
+/* == BUILD 300 - A LOCALLY FROZEN CARD MUST STILL BE PUBLISHED ================================
+   FOUND IN PRODUCTION, not by reading. Within an hour of build 299 going live, `daily_slips` held
+   `value`, `tips` and `banker` for the day - and NO `safe` row. The cause is the order of the two
+   branches in `renderDailySlips`: build 297 correctly put the shared row above the device's own
+   frozen row, but the local branch ends in `continue`, so a tier already frozen on this device
+   NEVER REACHES THE SEED. `value` was seeded only because it had not been frozen locally first.
+
+   The consequence is the exact divergence build 297 existed to end: no shared `safe` row means the
+   next device builds its own, and two phones disagree again. Build 297 fixed the reading order and
+   left the writing hole underneath it.
+
+   `build` is carried from the local row rather than stamped as APP_BUILD, and rows below
+   `DAILY_SHARED_MIN_BUILD` are refused: publishing a card frozen under retired rules with today's
+   build number on it would defeat the very gate that keeps retired cards off the screen. */
+async function dailySharedSeedRow(day, tier, row){
+  if(!cloudEnabled() || !supa || !authUser) return false;
+  if(!row || !Array.isArray(row.legs) || !row.legs.length) return false;
+  if(!(row.build >= DAILY_SHARED_MIN_BUILD)) return false;
+  const q = await supa.from('daily_slips').insert(
+    { day: day, tier: tier.key, odds: +(+row.odds).toFixed(4), build: row.build,
+      step: row.step || 'primary', legs: row.legs });
+  return !q.error;
+}
+/* One attempt per tier per day per session, for the same reason `_tipsSeedTried` exists: without it
+   every re-render fires an insert the primary key rejects - a write per paint rather than per day. */
+let _slipPublishTried = {};
 
 async function dailySharedLoad(day, force){
   if(!force && _sharedSlips.loaded && _sharedSlips.day === day) return _sharedSlips;
@@ -5808,7 +5928,11 @@ function renderDailyTracker(){
    and the tracker run on, called here with this single row. Writing a second copy of "did this leg
    land" is the drift that build 264 traced through `historyLeagues`, that build 117 hit with the
    correct-score panel, and that build 126 hit with the newcomer verdict. One grader. */
-function dailyFrozenCard(tier, r){
+/* BUILD 300 - `isShared` is not decoration. Until now this caption read "the same card on every
+   device" on BOTH paths, so a card this device built alone carried a uniformity promise that was
+   false - and it was on screen this morning, on the one feature Ken asked for uniformity on. A
+   claim about other devices may only be made by a card that came from the row other devices read. */
+function dailyFrozenCard(tier, r, isShared){
   const g = (dailyLogGrade([r]) || [])[0] || r;
   const legs = g.legs || [];
   let comb = 1; for(const l of legs) comb *= (l.p || 0);
@@ -5846,7 +5970,10 @@ function dailyFrozenCard(tier, r){
     /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
        stale screen rather than a deliberate one. Build 297 adds the second half: the LEGS are fixed
        and the RESULTS are not, which is the distinction Ken asked for in those words. */
-    + '<div class="subnote">Fixed for today — the same card on every device. Legs do not change once '
+    + '<div class="subnote">' + (isShared
+        ? 'Fixed for today — the same card on every device. Legs do not change once '
+        : 'Fixed for today on this device, and not published yet — another device may still show a '
+          + 'different card until it is. Legs do not change once ')
     + 'a slip is issued; results fill in as each match finishes.</div>';
 }
 function dailyPastCards(day){
@@ -6031,6 +6158,23 @@ function renderDailySlips(){
     wire();
     return;
   }
+  /* BUILD 301 - and the PRICES must be in hand too, for the same reason and by the same pattern:
+     the render is synchronous, so a cold tab kicks the fetch off and paints a waiting state that
+     still carries the day navigation (build 256). `loaded` is set even on failure, so an outage
+     falls through to engine prices - labelled - rather than waiting forever. */
+  if(!_dailyOdds.loaded || _dailyOdds.day !== todayStrLocal()){
+    const _ids = [];
+    for(const _lid of Object.keys(afState.leagues)){
+      const _L = afState.leagues[_lid]; if(!_L) continue;
+      for(const _f of (_L.upcoming || []))
+        if(_f.date === todayStrLocal() && _f.fxid != null && _ids.indexOf(_f.fxid) < 0) _ids.push(_f.fxid);
+    }
+    dailyOddsLoad(todayStrLocal(), _ids).then(() => renderDailySlips());
+    box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today’s slips</div>' + navBar
+      + '<div class="subnote"><span class="spinner"></span>Reading today’s bookmaker prices…</div>';
+    wire();
+    return;
+  }
   const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
   /* build 293 — ONE read of the ledger for the whole render. Both branches below need it: the
      all-played branch asks whether today was ever issued, and the tier loop asks which tiers were.
@@ -6105,14 +6249,24 @@ function renderDailySlips(){
          this idempotent, and a local row that disagrees is overwritten rather than trusted. */
       dailyLogAdopt(_today, tier, shared);
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
-             + dailyFrozenCard(tier, shared) + '</div>';
+             + dailyFrozenCard(tier, shared, true) + '</div>';
       continue;
     }
     /* build 293 — issued today already: render what was recorded, never a fresh search. */
     const fz = _frozen[tier.key];
     if(fz && fz.legs && fz.legs.length){
+      /* BUILD 300 - publish it. Losing the race is the success case, exactly as in `dailySharedSeed`:
+         whoever lands first wins and the re-read below brings back the winner for everyone. */
+      const _pk = _today + '|' + tier.key;
+      if(authUser && !_slipPublishTried[_pk] && fz.build >= DAILY_SHARED_MIN_BUILD){
+        _slipPublishTried[_pk] = 1;
+        dailySharedSeedRow(_today, tier, fz)
+          .then(() => dailySharedLoad(_today, true))
+          .then(() => renderDailySlips())
+          .catch(() => {});
+      }
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
-             + dailyFrozenCard(tier, fz) + '</div>';
+             + dailyFrozenCard(tier, fz, false) + '</div>';
       continue;
     }
     const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, floorsForTier(st.floors, tier)));
@@ -6139,13 +6293,23 @@ function renderDailySlips(){
        soft limit is tried first and the tier's own `maxLegs` catches the days it cannot fill.
        ⚠ Build 292 is not being overruled — its arithmetic was right for its pool. **A measurement can
        expire when the thing it measured changes**, and this one did. */
-    let aim = null, step = null;
-    for(let i = 0; i < DAILY_FLOOR_STEPS.length && !aim; i++){
-      const caps = tier.softMaxLegs ? [tier.softMaxLegs, tier.maxLegs] : [tier.maxLegs];
-      for(const cap of caps){
-        const a = dailyBandSearch(pools[i], cap === tier.maxLegs ? tier : Object.assign({}, tier, { maxLegs: cap }));
-        if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; break; }
+    /* BUILD 301 - THE LEG-CAP LADDER IS GONE AND `maxLegs` IS 4 FOR VALUE. Ken, twice: *"the value
+       bet in the tips was supposed to be just 4 legs max"* and *"you must stick to these
+       instructions."* Build 297 made it a ladder that fell back to seven, and today it did exactly
+       that - a six-leg card. A cap that yields whenever it binds is not a cap. If four legs cannot
+       reach the band, the card says the band is out of reach, which is the honest answer and the one
+       build 292 already established for shortfalls.
+
+       The PRICE ladder takes its place: market prices first, engine prices only if no market-priced
+       card exists at any floor. */
+    let aim = null, step = null, priceStep = null;
+    for(const pm of DAILY_PRICE_STEPS){
+      for(let i = 0; i < DAILY_FLOOR_STEPS.length && !aim; i++){
+        const pool = pm.marketOnly ? pools[i].filter(c => c._real != null) : pools[i];
+        const a = dailyBandSearch(pool, tier);
+        if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; priceStep = pm; }
       }
+      if(aim) break;
     }
     /* 🚨 BUILD 292 — THE BEST-EFFORT SLIP IS GONE. Ken: "never dish odds lower that the expected
        marks." A card headed Bold that pays 5.85 fails the request even with a note attached, and a
@@ -6225,6 +6389,17 @@ function renderDailySlips(){
               Invisible until now only because `DAILY_FLOOR_FALLBACK` was an inert copy and this
               branch could never be reached. Build 296 arms it, so the label ships in the same
               build; shipping the floor without the note would be Milestone 8's bluff. */
+           /* BUILD 301 - THE PRICE BASIS IS ON THE CARD, EVERY TIME. Ken's complaint was not that
+              the number was optimistic, it was that it was unobtainable: "how can i preach 2 odds
+              but give less than that". A total the user can take, and a plain word for where it
+              came from, is the whole fix. */
+           + (priceStep && priceStep.key === 'market'
+               ? '<div class="subnote">Priced at real bookmaker odds \u2014 this total is what the '
+                 + 'market is quoting, not an engine estimate. The win chance beside it is still the '
+                 + 'engine\u2019s own, so the two can disagree.</div>'
+               : '<div class="subnote"><b style="color:var(--gold)">Engine prices, not bookmaker '
+                 + 'prices.</b> No card could be built today from legs a bookmaker is quoting, so '
+                 + 'these are the engine\u2019s fair odds \u2014 the real return will be lower.</div>')
            + ((step && step.key !== 'primary' && step.note)
                ? '<div class="notice">' + escapeHtml(String(step.note))
                  + ' No slip cleared the primary floors today, so this card was built from the '
