@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 296;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 297;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4997,8 +4997,11 @@ const DAILY_TIERS = [
      `MatchMind-FTGOALS-DISPERSION-PREREG.md`; scored in `MatchMind-SLIPMIX-PREREG.md`. */
   { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
     blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7, preferGoals:true,
-    blurb:'At least 5.00 from calibrated legs — which needs about six of them.' },
+  /* BUILD 297 — `softMaxLegs` is Ken's own spec from build 235, restored as a LADDER. Four legs are
+     tried first and `maxLegs` catches the days four cannot fill; see the note in `renderDailySlips`
+     for why build 292's "no honest four-leg slip can pay 5.00" no longer holds. */
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:7, softMaxLegs:4, preferGoals:true,
+    blurb:'At least 5.00 from calibrated legs — four where the day allows it.' },
   { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11, preferGoals:true,
     blurb:'At least 10.00. A 10.00 slip is a one-in-ten shot at fair prices.' }
 ];
@@ -5317,6 +5320,106 @@ function dailyBandSearch(pool, tier){
 const DAILY_LOG_KEY = 'mm_dailyslips';
 const DAILY_STAKE = 10;
 
+/* ══ BUILD 297 — THE ISSUED SLIP IS SERVER-SIDE NOW, BECAUSE TWO PHONES SHOWED DIFFERENT CARDS ══
+   🚨 KEN, 2026-09-06, with screenshots from two handsets minutes apart: one showed Safe 2.00 /
+   Value 2.83 / Bold 4.60, every leg `1X`; the other Safe 2.00 / Value 5.00 / Bold 10.00 with BTTS
+   and Over 2.5 in them. *"MY BOTH PHONES CAN'T BE SAYING DIFFERENT THINGS FROM THE SAME APP…
+   EVERYONE MUST HAVE A UNIFORM VIEW."*
+
+   THREE CAUSES, AND ONLY THE FIRST IS STRUCTURAL:
+
+   1. **The card was computed per device.** Each phone built the slip from its own `afState.leagues`,
+      which differ by load timing and cache state, and `dailyLogRecord` then FROZE that answer in
+      that device's `localStorage`. Build 293 made the frozen row authoritative for the day, so once
+      two devices diverged they could never reconverge. The note above this block already said the
+      ledger was *"DEVICE-LOCAL… until the ledger is server-side"* and deferred it to Milestone 16.
+      **Ken hit the consequence first, so it is un-deferred here.**
+   2. **One phone was running older code.** `Value 2.83` and `Bold 4.60` are BEST-EFFORT shortfalls —
+      a card shape **build 292 deleted** — so that handset was still executing a build <= 291 in a
+      tab opened before the upload, and nothing told it to reload. `mmVersionWatch` fixes that.
+   3. NOT the service worker. `sw.js` is network-first and **nothing ever calls
+      `serviceWorker.register`**, so no stale shell was being served. Checked before being blamed.
+
+   THE RULE THIS ENFORCES: a client may only ever DISPLAY the row in `daily_slips`. If no row exists
+   yet it says so plainly rather than showing a card of its own — **"no card yet" is uniform, "my
+   card" is not.** A signed-in client may SEED the row once; the primary key on (day, tier) makes the
+   race harmless, because whoever lands first wins and everyone re-reads the winner. */
+const DAILY_SHARED_MIN_BUILD = 297;      // rows written under retired rules are never displayed
+let _sharedSlips = { day: null, rows: [], loaded: false, error: null };
+
+async function dailySharedFetch(day){
+  if(!cloudEnabled() || !supa) return { rows: [], error: 'offline' };
+  const q = await supa.from('daily_slips').select('day,tier,odds,build,step,legs')
+                      .eq('day', day).gte('build', DAILY_SHARED_MIN_BUILD);
+  if(q.error) return { rows: [], error: q.error.message };
+  return { rows: q.data || [], error: null };
+}
+
+/* Insert-once, and a conflict is the SUCCESS case rather than an error: it means another device
+   issued this tier first, which is exactly the outcome this build wants. */
+async function dailySharedSeed(day, tier, legs, reached, step){
+  if(!cloudEnabled() || !supa || !authUser) return false;
+  const row = { day: day, tier: tier.key, odds: +reached.toFixed(4), build: APP_BUILD,
+                step: step || 'primary',
+                legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
+                                       code: l.code, market: l.market, p: +l.prob.toFixed(4) })) };
+  const q = await supa.from('daily_slips').insert(row);
+  return !q.error;
+}
+
+async function dailySharedLoad(day, force){
+  if(!force && _sharedSlips.loaded && _sharedSlips.day === day) return _sharedSlips;
+  const r = await dailySharedFetch(day);
+  _sharedSlips = { day: day, rows: r.rows, loaded: true, error: r.error };
+  return _sharedSlips;
+}
+function dailySharedRow(tier){
+  return (_sharedSlips.loaded && _sharedSlips.rows)
+    ? _sharedSlips.rows.filter(r => r.tier === tier.key)[0] || null : null;
+}
+
+/* ══ BUILD 297 — AND A TAB OPEN SINCE BEFORE AN UPLOAD MUST SAY SO ════════════════════════════
+   Cause 2 above. `sw.js` carries `matchmind-vNNN` and is a few hundred bytes, so it is the cheapest
+   honest version probe available without adding an endpoint. Checked on boot and whenever the tab
+   comes back to the front. It never reloads by itself — a page that reloads under a reader is its
+   own kind of rudeness — it tells them, which is all cause 2 needed. */
+let _mmNewerBuild = 0;
+async function mmVersionWatch(){
+  try{
+    const r = await fetch('./sw.js?cb=' + Date.now(), { cache: 'no-store' });
+    const m = /matchmind-v(\d+)/.exec(await r.text());
+    if(m && +m[1] > APP_BUILD){ _mmNewerBuild = +m[1]; mmVersionBanner(); }
+  }catch(e){ /* offline is not a stale build */ }
+}
+function mmVersionBanner(){
+  if(!_mmNewerBuild || document.getElementById('mmVerBar')) return;
+  const d = document.createElement('div');
+  d.id = 'mmVerBar';
+  d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;padding:10px 14px;'
+    + 'background:#f5c451;color:#111;font-size:.86rem;text-align:center;cursor:pointer';
+  d.textContent = 'Build ' + _mmNewerBuild + ' is available — tap to reload. This tab is showing '
+    + 'build ' + APP_BUILD + ', which can differ from other devices.';
+  d.onclick = () => location.reload();
+  document.body.appendChild(d);
+}
+
+/* BUILD 297 — take the SHARED row into the local grading history, replacing whatever this device
+   had recorded for that tier. The tracker must grade what the user was actually shown, and after
+   this build that is always the shared row. Idempotent: re-adopting an identical row is a no-op. */
+function dailyLogAdopt(day, tier, shared){
+  const rows = dailyLogRead();
+  const i = rows.findIndex(r => r.day === day && r.tier === tier.key);
+  const row = { day: day, tier: tier.key, odds: shared.odds, build: shared.build,
+                step: shared.step || 'primary', effort: false, shared: true,
+                at: new Date().toISOString(), legs: shared.legs };
+  if(i >= 0){
+    if(JSON.stringify(rows[i].legs) === JSON.stringify(row.legs)
+       && rows[i].odds === row.odds && rows[i].shared) return;   // already adopted
+    rows[i] = row;
+  } else rows.push(row);
+  dailyLogWrite(rows);
+}
+
 function dailyLogRead(){
   try { const r = JSON.parse(localStorage.getItem(DAILY_LOG_KEY) || '[]'); return Array.isArray(r) ? r : []; }
   catch(_) { return []; }
@@ -5562,29 +5665,57 @@ function renderDailyTracker(){
    recorded — an early render on a thin pool would have locked in a bad card for the day. Since 292
    a tier records ONLY when it actually reached its target, so there is nothing to freeze until
    there is something worth freezing. The two builds are ordered that way on purpose. */
+/* 🚨 BUILD 297 — TODAY'S CARD NOW SHOWS RESULTS, AND UNTIL THIS BUILD IT DID NOT.
+   Ken: *"THEY SHOULD REMAIN THERE AND AS THEY ARE PLAYED, THE RESULT SHOULD IMMEDIATELY UPDATE IN
+   IT."* Build 293 got the first half right — the legs stop moving — and left the second half out:
+   this card printed the legs and their prices and never said whether any of them had landed. A
+   PAST day already showed exactly that (`dailyPastCards`: a Result cell, and a tick, cross or VOID
+   per leg), so today was the one day of the week you could not see how you were doing.
+
+   ⚠ THE GRADER IS REUSED, NOT REIMPLEMENTED. `dailyLogGrade` is the same function the past cards
+   and the tracker run on, called here with this single row. Writing a second copy of "did this leg
+   land" is the drift that build 264 traced through `historyLeagues`, that build 117 hit with the
+   correct-score panel, and that build 126 hit with the newcomer verdict. One grader. */
 function dailyFrozenCard(tier, r){
-  const legs = r.legs || [];
+  const g = (dailyLogGrade([r]) || [])[0] || r;
+  const legs = g.legs || [];
   let comb = 1; for(const l of legs) comb *= (l.p || 0);
-  const odds = r.odds || 1;
+  const odds = g.odds || 1;
+  const paid = (g.realisedOdds != null ? g.realisedOdds : odds);
+  /* Same three states and the same wording the past cards use: how many have settled while it is
+     still running, then WON or LOST with the money once every leg is in. */
+  const status = !g.complete
+    ? '<span class="v" style="color:var(--muted)">' + (g.settledLegs || 0) + ' of ' + legs.length + '</span>'
+      + '<span class="shsub">settled</span>'
+    : g.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
+              + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
+            : '<span class="v" style="color:var(--red)">LOST</span>'
+              + '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>';
   return '<div class="sliphead">'
     + '<div class="shcell"><span class="k">Odds</span><span class="v">' + odds.toFixed(2) + '</span></div>'
+    + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
     + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
-    + '<div class="shcell"><span class="k">Profit on $10</span><span class="v" style="color:var(--green2)">+$'
-    + (10 * (odds - 1)).toFixed(2) + '</span></div>'
     + '</div>'
-    + legs.map(l => '<button type="button" class="slipleg" data-leg-fx="'
+    + legs.map((l, i) => {
+        const lg = g.legGrades ? g.legGrades[i] : null;
+        const mark = lg === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
+                   : lg === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
+                   : lg === 'void' ? '<span style="color:var(--gold)">VOID</span>'
+                   : '<span style="color:var(--muted)">&middot;</span>';
+        return '<button type="button" class="slipleg" data-leg-fx="'
         + escapeHtml(String(l.fxid != null ? l.fxid : '')) + '">'
-        + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
+        + '<div class="lgtop"><span class="lgteams">' + mark + ' ' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
         + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
         + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
         + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
-        + '<span class="lgodds">' + (1 / (l.p || 1)).toFixed(2) + '</span></div></button>').join('')
+        + '<span class="lgodds">' + (1 / (l.p || 1)).toFixed(2) + '</span></div></button>'; }).join('')
     + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
     + 'win chance is exactly 1 ÷ odds at fair prices</div>'
     /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
-       stale screen rather than a deliberate one. */
-    + '<div class="subnote">Fixed for today. Legs do not change once a slip is issued, including '
-    + 'after a match has been played.</div>';
+       stale screen rather than a deliberate one. Build 297 adds the second half: the LEGS are fixed
+       and the RESULTS are not, which is the distinction Ken asked for in those words. */
+    + '<div class="subnote">Fixed for today — the same card on every device. Legs do not change once '
+    + 'a slip is issued; results fill in as each match finishes.</div>';
 }
 function dailyPastCards(day){
   const rows = dailyLogGrade(dailyLogRead()).filter(r => r.day === day);
@@ -5751,6 +5882,23 @@ function renderDailySlips(){
     try{ renderDailyTracker(); }catch(e){}
     return;
   }
+  /* 🚨 BUILD 297 — THE SHARED ROWS MUST BE IN HAND BEFORE TODAY IS DRAWN. This render is
+     synchronous and `daily_slips` is a network read, so a cold tab kicks the load off and paints a
+     waiting state; the load re-enters this function once. Without it the first paint would show a
+     device-computed card and only then be corrected, which is the flicker version of the very bug
+     this build removes. `loaded` is set even on failure, so an outage falls through to the local
+     path rather than waiting forever.
+     ⚠ AND IT SITS BELOW `navBar`, NOT ABOVE IT. The first draft returned early at the top of the
+     function and the lock caught it inside a minute: build 256's rule is that EVERY render path
+     carries the day navigation, and a loading state that drops it is the same defect that once
+     deleted the look-back every evening. */
+  if(!_sharedSlips.loaded || _sharedSlips.day !== todayStrLocal()){
+    dailySharedLoad(todayStrLocal()).then(() => renderDailySlips());
+    box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today’s slips</div>' + navBar
+      + '<div class="subnote"><span class="spinner"></span>Loading today’s issued slips…</div>';
+    wire();
+    return;
+  }
   const cands = slipCandidates({ todayOnly:true, leagues:null, markets:DAILY_MARKETS });
   /* build 293 — ONE read of the ledger for the whole render. Both branches below need it: the
      all-played branch asks whether today was ever issued, and the tier loop asks which tiers were.
@@ -5813,7 +5961,21 @@ function renderDailySlips(){
   const _frozen = {};
   for(const r of _log) if(r.day === _today) _frozen[r.tier] = r;
 
+  /* 🚨 BUILD 297 — THE SHARED ROW OUTRANKS THE LOCAL ONE, ALWAYS. Build 293's freeze made the
+     device's own `localStorage` authoritative, which is precisely how two of Ken's phones ended up
+     showing different cards on the same morning. `daily_slips` is the single copy; the local ledger
+     survives only as the tracker's grading history and is re-seeded FROM the shared row, so the two
+     can no longer disagree. See the block above `dailyLogRead` for the full diagnosis. */
   for(const tier of DAILY_TIERS){
+    const shared = dailySharedRow(tier);
+    if(shared && shared.legs && shared.legs.length){
+      /* Mirror it locally so the tracker grades exactly what everyone was shown. Insert-once keeps
+         this idempotent, and a local row that disagrees is overwritten rather than trusted. */
+      dailyLogAdopt(_today, tier, shared);
+      cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
+             + dailyFrozenCard(tier, shared) + '</div>';
+      continue;
+    }
     /* build 293 — issued today already: render what was recorded, never a fresh search. */
     const fz = _frozen[tier.key];
     if(fz && fz.legs && fz.legs.length){
@@ -5825,10 +5987,33 @@ function renderDailySlips(){
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
        different claim from one built at the primary floors and must not read identically. */
+    /* 🚨 BUILD 297 — THE LEG CAP IS A LADDER TOO, AND BUILD 292'S REASON FOR REMOVING IT HAS EXPIRED.
+       Ken: *"the value bet in the tips was supposed to be just 4 legs max, ensure that it remains the
+       standard unless a fall back."* Build 235 recorded that spec; **build 292 removed it and gave a
+       measurement for doing so**: *"Four legs paying 5.00 need 67% each, and 1X must clear 76%. No
+       honest four-leg slip can pay 5.00 with this engine. Six is the minimum."*
+
+       **That was true of the pool build 292 could see, and it is not true any more.** It was measured
+       when the card was 1X at 1.20-1.30, where four legs reach 2.6 at best. Builds 295 and 296 put
+       BTTS and Over 2.5 on the card at **1.55-1.65**, and four of those multiply to **5.0-6.5** —
+       inside Value's band rather than nowhere near it. Re-measured on the live pool 2026-09-07 over
+       fourteen upcoming days:
+
+           4-leg Value builds on   5 of 14 days   5.08 / 5.45 / 5.01 / 5.00 / 5.00
+           7-leg Value builds on   7 of 14 days
+
+       **Every four-leg card lands inside [5.00, 6.00]**, so the spec is now honest rather than
+       arithmetically impossible. The two days it costs are why this is a LADDER and not a cap: the
+       soft limit is tried first and the tier's own `maxLegs` catches the days it cannot fill.
+       ⚠ Build 292 is not being overruled — its arithmetic was right for its pool. **A measurement can
+       expire when the thing it measured changes**, and this one did. */
     let aim = null, step = null;
-    for(let i = 0; i < DAILY_FLOOR_STEPS.length; i++){
-      const a = dailyBandSearch(pools[i], tier);
-      if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; break; }
+    for(let i = 0; i < DAILY_FLOOR_STEPS.length && !aim; i++){
+      const caps = tier.softMaxLegs ? [tier.softMaxLegs, tier.maxLegs] : [tier.maxLegs];
+      for(const cap of caps){
+        const a = dailyBandSearch(pools[i], cap === tier.maxLegs ? tier : Object.assign({}, tier, { maxLegs: cap }));
+        if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; break; }
+      }
     }
     /* 🚨 BUILD 292 — THE BEST-EFFORT SLIP IS GONE. Ken: "never dish odds lower that the expected
        marks." A card headed Bold that pays 5.85 fails the request even with a note attached, and a
@@ -5917,6 +6102,17 @@ function renderDailySlips(){
                : '');
     }
     if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', false);   // insert-once, build 199's rule
+    /* 🚨 BUILD 297 — SEED THE SHARED ROW, THEN RE-READ AND RE-RENDER FROM IT. This client computed
+       a card because `daily_slips` had none; the insert may still lose the race to another device,
+       and losing is the correct outcome — `dailySharedLoad(force)` then brings back the winner and
+       the re-render replaces what is on screen with it. **Every device converges on one card**,
+       which is the whole point of this build. Only a signed-in client may seed; an anonymous one
+       displays nothing until someone has, because "no card yet" is uniform and "my card" is not. */
+    if(legs.length && authUser){
+      dailySharedSeed(_today, tier, legs, reached, (step && step.key) || 'primary')
+        .then(() => dailySharedLoad(_today, true))
+        .then(s => { if(s.rows && s.rows.length) renderDailySlips(); });
+    }
     /* BUILD 250 — `tier.blurb` is gone. It restated the target and the leg count, which the header
        and the legs line already carry. Ken: "there are too much writings there." */
     cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>' + body + '</div>';
@@ -18262,6 +18458,12 @@ setInterval(()=>{
   if(lastTab==='scores' && document.visibilityState!=='hidden') afScores(true);
 }, 120000);
 document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibilityState==='visible'){ loadCloudResults(); if(lastTab==='scores') afScores(true); } });
+/* 🚨 BUILD 297 — cause 2 of the two-phones defect: a tab opened before an upload keeps running the
+   old code forever, and one of Ken's handsets was showing best-effort cards that build 292 had
+   deleted. Checked on boot and on every return to the foreground; the shared slip makes the CARD
+   uniform, and this makes the CODE uniform, which are two different halves of the same complaint. */
+mmVersionWatch();
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') mmVersionWatch(); });
 /* end of app */
 
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
