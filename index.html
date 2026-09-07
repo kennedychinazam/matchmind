@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 301;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 304;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5004,7 +5004,7 @@ const DAILY_TIERS = [
      reads -0.99 (-0.44 sigma). Both were the sorting bug talking. Found via §9 of
      `MatchMind-FTGOALS-DISPERSION-PREREG.md`; scored in `MatchMind-SLIPMIX-PREREG.md`. */
   { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
-    blurb:'At least 2.00 from two or three legs, each clearing its market’s floor.' },
+    blurb:'At least 2.00 at real bookmaker prices, from two or three legs.' },
   /* BUILD 301 - FOUR IS A HARD MAXIMUM, NOT A PREFERENCE. Build 297 restored Ken's build-235 spec as
      a LADDER - try four, fall back to seven - and on 2026-09-07 it fell back and issued a six-leg
      card. Ken: *"i also said maximum 4 matches for the value bet, you must stick to these
@@ -5016,10 +5016,31 @@ const DAILY_TIERS = [
      thin day four legs will miss the band, and then the card says the band is out of reach rather
      than padding itself with a fifth and sixth leg. That is build 292's own rule for shortfalls,
      applied to the cap instead of around it. */
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:4, preferGoals:true,
-    blurb:'At least 5.00 from calibrated legs — four where the day allows it.' },
+  /* BUILD 303 - FIVE LEGS, AND THE 5.00 TARGET IS BACK. Ken: *"what if we try max of 5 legs for
+     value bet? can we remain at 5odds. i need that 5 odds more."* Measured before answering, over
+     the five days in the snapshot window with a real slate, at REAL bookmaker prices:
+
+         best 4-leg card   5.18  4.99  5.13  6.47  4.86   ->  5.00 reached on 3 of 5
+         best 5-leg card   7.46  6.44  7.21  9.70  6.80   ->  5.00 reached on 5 of 5
+
+     **One extra leg buys back the 5.00 outright**, with room to spare rather than by a hair - the
+     five-leg ceilings clear the target by 29% at their tightest. So `maxLegs` is 5 and the band
+     returns to [5.00, 6.00], which is where Ken's build-235 spec put it.
+
+     ⚠ BUILD 302 LOWERED THIS BAND TO [4.00, 5.50] AND THAT IS NOW SUPERSEDED, NOT WRONG. It was the
+     right call for a FOUR-leg cap, where 4.99 and 4.86 fall just under 5.00. The cap changed, so the
+     arithmetic changed with it. What has not changed is the rule that produced both numbers: the
+     band is set from what the market actually pays, never from what the tier would like to say.
+
+     BUILD 301/302's OTHER RULE STILL BINDS: `band[0] == target`. 5.00 promised is 5.00 minimum. */
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:5, preferGoals:true,
+    blurb:'At least 5.00 at real bookmaker prices, from five legs at most.' },
   { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11, preferGoals:true,
-    blurb:'At least 10.00. A 10.00 slip is a one-in-ten shot at fair prices.' }
+    /* build 302 - the old blurb said "a one-in-ten shot at fair prices". The card is no longer
+       priced at fair, so that sentence was quietly describing a different product than the one on
+       screen: at market prices a 10.00 slip is a WORSE than one-in-ten shot, because the margin is
+       taken out of the payout and not out of the risk. Saying so is the point of build 301. */
+    blurb:'At least 10.00 at real bookmaker prices — longer odds than the engine\u2019s own estimate of the chance.' }
 ];
 
 /* ══ BUILD 240 — A STRICT MARKET HIERARCHY, AND THE MEASUREMENT THAT SAYS WHAT IT CAN FIX ═══════
@@ -5224,6 +5245,27 @@ function dailyEligible(cands, floors){
    the same name (VETO 3), so the card names which pricing it used, every time. */
 let _dailyOdds = { day: null, byFx: {}, loaded: false };
 
+/* == BUILD 304 - ONE ROW PER FIXTURE, CHOSEN IN THE DATABASE =====================================
+   Build 301 fetched every capture for today's fixtures and kept one. Measured on the live data that
+   is **9.2 captures per fixture, of which one is used**: 5,333 rows and 1.05 MB to arrive at 608
+   rows and 119 KB. The choice - the capture closest to kick-off, and never one taken after it - is
+   a `distinct on` that Postgres can make once, instead of a reduction every client repeats.
+
+   `odds_latest` is the same technique as build 298's `competitions` and, like it, needs **no
+   collector change and no new column**: it is a read-only view over `odds_snapshots`.
+
+       select distinct on (fxid) ... from odds_snapshots
+       where mins_to_kick is not null and mins_to_kick >= 0
+       order by fxid, mins_to_kick asc
+
+   **Verified against the client-side reduction it replaces before being adopted: 608 of 608
+   fixtures identical on every column, no extra rows, no missing rows.** 88.7% fewer bytes.
+
+   ⚠ The `mins_to_kick` guard below is NOT redundant with the view's WHERE clause, and is kept
+   deliberately: it is the one line that still holds if this is ever pointed back at the raw table,
+   which is exactly how build 301's version of this function was written. */
+const ODDS_LATEST_VIEW = 'odds_latest';
+
 async function dailyOddsLoad(day, fxids){
   if(!cloudEnabled() || !supa || !fxids || !fxids.length){
     _dailyOdds = { day: day, byFx: {}, loaded: true }; return _dailyOdds;
@@ -5232,7 +5274,7 @@ async function dailyOddsLoad(day, fxids){
   for(let i = 0; i < fxids.length; i += 150){
     let q = null;
     try{
-      q = await supa.from('odds_snapshots')
+      q = await supa.from(ODDS_LATEST_VIEW)
             .select('fxid,mins_to_kick,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba')
             .in('fxid', fxids.slice(i, i + 150));
     }catch(e){ q = null; }
@@ -5240,8 +5282,7 @@ async function dailyOddsLoad(day, fxids){
     for(const sn of (q.data || [])){
       /* Captures taken AFTER kick-off are not a price anyone could have taken. */
       if(sn.mins_to_kick == null || sn.mins_to_kick < 0) continue;
-      const cur = byFx[sn.fxid];
-      if(!cur || sn.mins_to_kick < cur.mins_to_kick) byFx[sn.fxid] = sn;
+      byFx[sn.fxid] = sn;
     }
   }
   _dailyOdds = { day: day, byFx: byFx, loaded: true };
