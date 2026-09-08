@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 306;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 307;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8004,9 +8004,14 @@ async function renderLedger(){
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading the published record…</div>';
   try{
     const from = new Date(Date.now() - LEDGER_DAYS*86400000).toISOString().slice(0,10);
-    const { data: preds, error } = await supa.from('predictions')
-      .select('fxid,lid,lname,kickoff,ktime,home,away,pick,pick_prob,market,made_at,final_pick,withheld_at,build')
-      .gte('kickoff', from).lte('kickoff', todayStrLocal()).order('kickoff', {ascending:false});
+    /* BUILD 307 - PAGED, so the ledger cannot silently truncate at the server's row cap. It does
+       not truncate TODAY - the 30-day window holds 643 rows against a 1,000 cap - and that headroom
+       is the whole point: at ~21 predictions a day the cap is ~47 days, so a longer LEDGER_DAYS or a
+       busier slate would cross it with no error and no visible sign. `fetchAllRows` is build 123's
+       own helper and `backfillPredictions` already uses it; this read simply never did. */
+    const { data: preds, error } = await fetchAllRows('predictions',
+      'fxid,lid,lname,kickoff,ktime,home,away,pick,pick_prob,market,made_at,final_pick,withheld_at,build',
+      q => q.gte('kickoff', from).lte('kickoff', todayStrLocal()), 'kickoff');
     if(error) throw error;
     if(!preds || !preds.length){
       out.innerHTML = `<div class="subnote">Nothing published in the last ${LEDGER_DAYS} days. A fixture is only recorded if someone had the app open before it kicked off.</div>`;
@@ -15565,7 +15570,23 @@ function leagueBlobNotice(){
     + '<b>Reload with <code>?blobs=1</code> for a research run.</b></div>';
 }
 
-const PAGE = 1000;
+/* == BUILD 307 - THE PAGE MATCHES THE SERVER'S CAP, WHICH WAS RAISED TO 5,000 =================
+   Build 306's five-season window made the cold load 57 s, and the cost is SEQUENTIAL ROUND TRIPS:
+   the server capped every page at 1,000, so five seasons of the FA Cup was four trips waiting on
+   each other. Parallel paging was tried and REVERTED - build 208 had already measured it slower in
+   aggregate, and a full-scale re-run confirmed it (see `fetchLeagueFixtures`).
+
+   The lever that works is the cap itself. Ken approved raising the project's Data API `Max rows`
+   to 5,000 on 2026-09-08, verified live: the FA Cup's 3,995 rows now return in ONE request. Over
+   twelve sampled competitions that is **30 pages at 1,000 becoming 12 at 5,000** - one request each.
+
+   ⚠ THIS CONSTANT IS COUPLED TO A SERVER SETTING, WHICH IS THE ONE HAZARD WORTH NAMING. The paging
+   loops stop when a page returns fewer rows than they asked for. If `Max rows` were ever lowered
+   below this number, every first page would come back short and every loop would stop early -
+   **silent truncation, the exact defect build 123 exists to prevent, with no error to see it by.**
+   So the number is recorded in `MatchMind-SQL-LEDGER.md` beside the index and the views, and it may
+   only be raised past the server's cap, never above it. */
+const PAGE = 5000;
 /* BUILD 220 — how many competitions may be in flight at once. See loadCloudLeagues: all eleven
    together is what tripped the server's statement timeout. */
 /* ══ BUILD 260 — FOUR BECOMES NINE, AND ONLY WHILE THE READ STAYS NARROW ══════════════════════
@@ -15712,6 +15733,22 @@ async function histSave(map){
   });
 }
 
+  /* == BUILD 307 - PARALLEL PAGING WAS TRIED HERE AND REVERTED ================================
+     Build 306's five-season window made the cold load slower, and the cause is sequential round
+     trips: the server caps a page at 1,000 (asked for 5,000, got 1,000 in the same second). Firing
+     a competition's pages at once looked obviously right, and ONE BATCH measured beautifully:
+     16 concurrent page reads on the lean view, 0 errors, 5.2 s against 20.5 s sequential.
+
+     BUILD 208 HAD ALREADY MEASURED IT AND REJECTED IT, AND THE LOCK IS WHAT SAID SO - not me.
+     Its check carries the number: parallel is 2.6x faster for ONE league and 2.5x SLOWER for all of
+     them, because the leagues are already concurrent and the fan-out only competes with that. My
+     test measured the case 208 says looks good and never the case it says gets worse.
+
+     RE-MEASURED AT FULL SCALE, 53 competitions and 90,437 rows, because every condition behind the
+     original finding had changed (11 competitions, select('*') over 82 columns, no fxid index):
+     **sequential 57 s with 0 errors; parallel abandoned past twice that.** Build 208 stands, and
+     the lever that would actually work is the server's 1,000-row page cap - a project setting, not
+     a code change. */
 async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
   let out = [], from = 0, pages = 0;
   for(;;){
