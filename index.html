@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 307;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 308;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -16331,7 +16331,31 @@ async function loadCloudLeagues(force){
       /* build 286 — whatever the cache could not supply is fetched in the background, in the order
          the feed displays, so what the reader is looking at fills in first. A competition with NO
          rows in the recent window is included too: it is exactly the out-of-season case. */
-      const needHistory = COMP_IDS.filter(id => !histCache[String(id)]);
+      /* == BUILD 308 - A CACHE THAT NO LONGER COVERS THE WINDOW IS A CACHE THAT NEEDS FILLING ===
+         ⚠ BUILD 306 RAISED `CACHE_MONTHS` TO 60 AND NOT ONE EXISTING DEVICE GOT THE EXTRA HISTORY.
+         Found by verifying the live upload rather than trusting it: build 307 reported
+         `CACHE_MONTHS 60` while `afState` held **35,246 matches spanning 2024-09-06 to 2026-09-08**
+         - still two years. Premier League: 759 matches, not the 2,310 the database holds.
+
+         THE CAUSE IS THIS LINE. It queued a competition for the deep read only when it had NO cache
+         at all. Every competition had one from the 24-month era, so `needHistory` was EMPTY, the
+         backfill never ran, and `_histSince` pinned every read to the settle cutoff. The five-season
+         window was live in the constant and unreachable in practice - **a change that reports itself
+         as shipped and does nothing**, which is the shape of defect this project keeps finding.
+
+         The test is no longer "is there a cache" but "does the cache reach as far back as the window
+         asks". `backfillSettledHistory` already reads from `cacheCutoff()`, so nothing else changes:
+         it simply gets the right work list. A competition whose cache already spans the window is
+         still skipped, so a warm device that is genuinely up to date pays nothing. */
+      const needHistory = COMP_IDS.filter(id => {
+        const rec = histCache[String(id)];
+        if(!rec) return true;                       // nothing cached at all - build 286's case
+        const ms = rec.m;
+        if(!ms || !ms.length) return true;          // a cache with no matches covers nothing
+        let first = null;
+        for(const x of ms){ const d = x && x.date; if(d && (first === null || d < first)) first = d; }
+        return !first || first > cacheCutoff();     // cached history stops short of the window
+      });
 
       /* `_loadShort` is measured on the MERGED set, because that is what the user is looking at.
          Counting the fetch alone would report a shortfall the screen does not have. */
