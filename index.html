@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 304;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 306;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5496,7 +5496,8 @@ async function dailySharedSeed(day, tier, legs, reached, step){
   const row = { day: day, tier: tier.key, odds: +reached.toFixed(4), build: APP_BUILD,
                 step: step || 'primary',
                 legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
-                                       code: l.code, market: l.market, p: +l.prob.toFixed(4) })) };
+                                       code: l.code, market: l.market, p: +l.prob.toFixed(4),
+                                       o: +dailyLegOdds(l).toFixed(4) })) };
   const q = await supa.from('daily_slips').insert(row);
   return !q.error;
 }
@@ -5753,8 +5754,15 @@ function dailyLogRecord(tier, legs, reached, floorStep, effort){
                  results" forever while looking perfectly healthy. Found by checking a real match
                  object rather than assuming the id was there. fxid is kept because `scoreMap` uses
                  it, but the fixture is IDENTIFIED by the three fields the match rows actually hold. */
+              /* BUILD 305 - `o` IS THE PRICE THE CARD WAS BUILT AT, and it has to be stored because
+                 it cannot be recovered. Build 301 priced the search at market but kept only `p`, so
+                 the card totalled at market odds and then printed `1 / p` under each leg: today's
+                 Value card showed legs of 1.62/1.24/1.50/1.66/1.24 - a product of 6.15 - beneath a
+                 total of 5.00. **The card contradicted itself, and the legs were the fair prices Ken
+                 has twice said he does not want.** */
               legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
-                                     code: l.code, market: l.market, p: +l.prob.toFixed(4) })) });
+                                     code: l.code, market: l.market, p: +l.prob.toFixed(4),
+                                     o: +dailyLegOdds(l).toFixed(4) })) });
   dailyLogWrite(rows);
 }
 
@@ -5918,8 +5926,10 @@ function renderDailyTracker(){
     + '<div class="sfilters" style="margin-bottom:6px">' + tierRow + '</div>'
     + '<div class="sfilters" style="margin-bottom:10px">' + dayRow + '</div>'
     + metrics + capNote
-    + '<div class="subnote">Odds are the engine’s fair price, so this measures whether the slips '
-    + 'LAND at the rate claimed — not what a bookmaker would have paid. Kept on this device only.</div>'
+    /* BUILD 305 - THIS LINE HAD BECOME FALSE. It described slips priced at the engine's fair odds;
+       every slip issued since build 301 is priced at market, so the caption was contradicting the
+       cards it summarised. */
+    + '<div class="subnote">Record is kept on this device only.</div>'
     + '</div>';
 
   box.querySelectorAll('[data-dt-tier]').forEach(b =>
@@ -6005,17 +6015,21 @@ function dailyFrozenCard(tier, r, isShared){
         + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
         + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
         + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
-        + '<span class="lgodds">' + (1 / (l.p || 1)).toFixed(2) + '</span></div></button>'; }).join('')
-    + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
-    + 'win chance is exactly 1 ÷ odds at fair prices</div>'
+        + '<span class="lgodds">' + (l.o != null ? (+l.o).toFixed(2) : (1 / (l.p || 1)).toFixed(2))
+        + '</span></div></button>'; }).join('')
+    /* BUILD 305 - one line, and it names the price basis rather than asserting the wrong one.
+       `l.o` is absent only on rows issued before this build; those keep the old fair price and say
+       so, instead of a market label over an engine number. */
+    + '<div class="subnote">' + legs.length + ' legs, all must win · '
+    + (legs.every(l => l.o != null) ? 'real bookmaker odds' : 'engine price')
+    + ' · engine win chance</div>'
     /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
        stale screen rather than a deliberate one. Build 297 adds the second half: the LEGS are fixed
        and the RESULTS are not, which is the distinction Ken asked for in those words. */
-    + '<div class="subnote">' + (isShared
-        ? 'Fixed for today — the same card on every device. Legs do not change once '
-        : 'Fixed for today on this device, and not published yet — another device may still show a '
-          + 'different card until it is. Legs do not change once ')
-    + 'a slip is issued; results fill in as each match finishes.</div>';
+    /* BUILD 305 - Ken: "no writing should exceed one line". Four sentences became one clause. */
+    + '<div class="subnote">Legs fixed for today — '
+    + (isShared ? 'the same card on every device' : 'this device only, not published yet')
+    + '; results fill in as each match finishes.</div>';
 }
 function dailyPastCards(day){
   const rows = dailyLogGrade(dailyLogRead()).filter(r => r.day === day);
@@ -6420,7 +6434,7 @@ function renderDailySlips(){
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
                + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
-           + '<div class="subnote">' + legs.length + ' legs, all must win · engine’s fair price · '
+           + '<div class="subnote">' + legs.length + ' legs, all must win · '
            + 'win chance is exactly 1 ÷ odds at fair prices</div>'
            /* 🚨 BUILD 296 — THE STEP IS NOW SAID ON THE CARD, AND UNTIL THIS BUILD IT WAS NOT.
               The ladder's own comment claims "which step answered is carried through to the card,
@@ -6435,12 +6449,8 @@ function renderDailySlips(){
               but give less than that". A total the user can take, and a plain word for where it
               came from, is the whole fix. */
            + (priceStep && priceStep.key === 'market'
-               ? '<div class="subnote">Priced at real bookmaker odds \u2014 this total is what the '
-                 + 'market is quoting, not an engine estimate. The win chance beside it is still the '
-                 + 'engine\u2019s own, so the two can disagree.</div>'
-               : '<div class="subnote"><b style="color:var(--gold)">Engine prices, not bookmaker '
-                 + 'prices.</b> No card could be built today from legs a bookmaker is quoting, so '
-                 + 'these are the engine\u2019s fair odds \u2014 the real return will be lower.</div>')
+               ? '<div class="subnote">Priced at real bookmaker odds.</div>'
+               : '<div class="subnote"><b style="color:var(--gold)">Engine prices, not bookmaker prices — the real return will be lower.</b></div>')
            + ((step && step.key !== 'primary' && step.note)
                ? '<div class="notice">' + escapeHtml(String(step.note))
                  + ' No slip cleared the primary floors today, so this card was built from the '
@@ -6509,9 +6519,7 @@ function renderBankerFrozen(row, label, box){
     + '<div class="frow"><span class="muted">Result</span><span>' + status
     + (g.score ? ' <span class="muted">' + escapeHtml(String(g.score)) + '</span>' : '') + '</span></div>'
     + (r ? '<button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>' : '')
-    + '<div class="subnote" style="margin-top:6px">Issued for ' + escapeHtml(todayStrLocal())
-    + ' and held for the day. The number is the one that was published; a played fixture is never '
-    + 're-priced, because its own result would then be inside the fit that prices it.</div>'
+    + '<div class="subnote" style="margin-top:6px">Issued and held for the day, never re-priced.</div>'
     + '</div>';
   const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));
 }
@@ -6816,12 +6824,9 @@ function renderTipListFrozen(market, legs, box){
   const _row = tipsSharedRow('tips');
   const _part = _row ? /^tips-partial-([0-9]+)$/.exec(String(_row.step || '')) : null;
   box.insertAdjacentHTML('beforeend',
-    '<div class="subnote">Issued for ' + escapeHtml(todayStrLocal()) + ' and held for the day — '
-    + settled + ' of ' + graded.length + ' settled. These are the probabilities as published: a '
-    + 'played fixture is never re-priced, because its own result would then be inside the fit that '
-    + 'prices it.'
-    + (_part ? ' ' + _part[1] + ' of today&#39;s fixtures had already kicked off when the day was '
-             + 'issued, so they are not on this list.' : '')
+    '<div class="subnote">Issued and held for the day, never re-priced · '
+    + settled + ' of ' + graded.length + ' settled'
+    + (_part ? ' · ' + _part[1] + ' had already kicked off when the day was issued' : '')
     + '</div>');
   box.querySelectorAll('.fxrow.favrow').forEach(row => row.addEventListener('click', () => {
     const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f); }));
@@ -17553,7 +17558,38 @@ const dropExtras = (k, v) => (k === '_x' || k === '_engHT' || k === '_engH2') ? 
 
    UPCOMING FIXTURES ARE KEPT WHOLE. They carry a published pick and are what the app DISPLAYS on a
    cold start - build 196 refused to compact them for that reason and the reason still holds. */
-const CACHE_MONTHS = 24;
+/* BUILD 306 - FIVE SEASONS. Ken: "there should be a history of at least 5 seasons for every
+   competition... so we get the real data of team form... how they scored and conceded, how they won
+   and lost and to who."
+
+   THE HISTORY WAS ALREADY BOUGHT AND THE APP WAS IGNORING IT. `fixtures` holds 67,315 finished
+   matches back to 2020; this constant capped every read at 24 months, so only 35,243 were ever
+   loaded. Raising it is a one-constant change, not a collection job.
+
+   MEASURED FIRST, because more history is not obviously better with `HALF_LIFE` off - a 2021 result
+   weighs the same as last week's. Walk-forward over 2,700 matches in the nine competitions that
+   hold six seasons, log loss by training window:
+
+       24 months  1.00429      36 months  1.00043      48 months  0.99984      all (~72mo) 1.00186
+
+   Paired against 24 months, the deepest window is **-0.00243, SE 0.00258, -0.94 sigma** - better,
+   and INSIDE noise. **The honest reading is that more history does not measurably help prediction
+   and, importantly, does not hurt it.** What it does deliver is the depth Ken asked for: form, and
+   who a side actually beat, over five seasons instead of two.
+
+   ⚠ THE SHAPE IS THE PART TO WATCH: log loss falls to 48 months and then turns back UP at 72. That
+   is recency asserting itself beyond four years, and it is the first evidence in this project that
+   `HALF_LIFE: 10000` may be leaving something on the table. Recorded, not acted on - at -0.94 sigma
+   nothing here clears the bar this project sets for changing a constant.
+
+   Egress: 43,372 rows (9.72 MB cold) -> 64,412 rows (14.44 MB), +48% rather than the doubling the
+   competition count made me expect, because only 11 competitions hold pre-2022 seasons. Ken:
+   "don't worry about egress, i will upgrade."
+
+   THE OLD RULE STILL BINDS AND IS WHY THIS IS A FLOOR, NOT A SETTING: reading LESS than 24 months
+   pushes 8 competitions below computeSkill's 150 floor and 11 below autoGate's 200. Raising it can
+   only help that; lowering it is what the lock now forbids. */
+const CACHE_MONTHS = 60;
 function cacheCutoff(){
   const d = new Date(); d.setMonth(d.getMonth() - CACHE_MONTHS);
   return d.toISOString().slice(0, 10);
