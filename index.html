@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 308;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 314;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1376,7 +1376,17 @@ const ENGINE2 = {
   ITERS: 14,          // cold-start passes to convergence
   ITERS_WARM: 3,      // passes when warm-starting from the previous walk-forward step
   SHRINK_K: 4,        // pseudo-matches at league average — same meaning as TUNE.SHRINK_K
-  RHO: -0.08          // Dixon-Coles low-score correction. FITTED on Ken's data, never chosen.
+  RHO: -0.08,         // Dixon-Coles low-score correction. FITTED on Ken's data, never chosen.
+  /* BUILD 314 — the factored accumulator. A FLAG, not a replacement: the direct loop stays in the
+     file as the reference implementation, so the two can be compared in-process at any time and so
+     a fault here is one boolean away from being backed out. */
+  FACTORED: true,
+  /* `v(i) = 2^(i/HL)` overflows once i/HL passes 1024. The ceiling is set far below that because
+     precision, not overflow, is the real limit: at 2^60 the running sums still carry ~4 decimal
+     digits of headroom against a double's 15. Above it the direct path runs instead. HALF_LIFE is
+     10000 today, so a competition would need 600,000 matches to reach this — but moving HALF_LIFE
+     is an OPEN filing, and a guard that only works at today's value is not a guard. */
+  FACTOR_MAX_EXP: 60
 };
 
 /* ══ FORM ADJUSTMENT (build 138) — Ken's margin rule. OFF until the sweep says otherwise. ═══
@@ -1521,12 +1531,128 @@ const footballEngine = {
     }
     return val;
   },
+  /* ══ BUILD 313 — THE RECENCY WEIGHT IS A LOOKUP, NOT A `Math.pow` PER MATCH PER CALL ═════
+     PROFILED FIRST, on a 7,823-match competition at prefix 5,867, because build 312's filing had
+     already guessed wrong once about where the time went:
+
+         one strengths2() call          2.102 ms
+           └ accumulation loop          1.758 ms   (84%)
+               ├ Math.pow per match     0.300 ms
+               ├ team-id Map lookups    0.492 ms
+               ├ fx triple pushes       0.397 ms
+               └ the rest                ~0.57 ms
+           └ solve passes (3 warm)      0.344 ms   (16%)
+
+     `w(i) = Math.pow(0.5, (n-1-i)/HL)` is called ONCE PER MATCH PER CALL, and the walk makes one
+     call per match — so the pass performs **O(n²) `Math.pow` calls**. But the value depends only on
+     `(k, HL)`, never on the league or the prefix: `w` for offset k is the same number in every call
+     and every competition. Memoised, the whole pass performs **O(n)** of them.
+
+     ⚠ BIT-IDENTICAL, AND THAT IS THE ONLY REASON IT MAY SHIP HERE. The table holds
+     `Math.pow(0.5, k/HL)` — the same function on the same argument, evaluated once instead of
+     thousands of times. No sum is reassociated and no operand is reordered, so no result can move.
+     This sits directly under `autoGate`, the fitted bar that decides what the app publishes; a
+     change that were merely CLOSE would not be allowed.
+
+     ⚠ HALF_LIFE IS PART OF THE KEY, for the reason build 124 gave when it put HALF_LIFE into
+     `_s2tag`: ratings computed under one recency setting must never be served under another. The
+     roadmap has an open filing to move HALF_LIFE off 10000, and a table keyed only on length would
+     answer that sweep with the previous setting's weights.
+
+     ⚠ SHARED THROUGH THE PROTOTYPE ON PURPOSE, unlike `_s2`. `_s2` caches RATINGS, which belong to
+     one competition, so it is keyed on the match array's identity. This table holds nothing but
+     powers of a half — it is league-independent, so every derived engine may read the same one.
+
+     ⚠ WHAT THIS DOES NOT DO: the pass is still O(n²). The remaining cost is the accumulation of
+     weighted sums, and those weights are rescaled by prefix length, so they cannot be carried
+     forward without the factored form — which is not bit-identical. Filed, not built. */
+  _powTbl(hl, need){
+    let c = this._pw;
+    if(c && c.hl === hl && c.tbl.length >= need) return c.tbl;
+    const len = Math.max(need, c && c.hl === hl ? c.tbl.length * 2 : 2048);
+    const tbl = new Float64Array(len);
+    for(let k = 0; k < len; k++) tbl[k] = Math.pow(0.5, k / hl);
+    this._pw = { hl: hl, tbl: tbl };
+    return tbl;
+  },
+
+  /* ══ BUILD 314 — THE FACTORED ACCUMULATOR ══════════════════════════════════
+     Filed in `MatchMind-FACTORED-ACCUM-PREREG.md` BEFORE this code existed, with the acceptance
+     rule fixed in advance. Build 313 measured the target: the accumulation is **84%** of a
+     `strengths2()` call, and the walk makes one call per match.
+
+     THE OBSTRUCTION AND THE WAY ROUND IT. `w(i) = 0.5^((n-1-i)/HL)` depends on **n**, so every
+     earlier match's weight is rescaled at every step and nothing carries forward. But it factors:
+
+         w(i) = C_n · v(i)      v(i) = 2^(i/HL)   (independent of n)
+                                 C_n  = 0.5^((n-1)/HL)  (one scalar per call)
+
+     `v` never changes, so the sums accumulate ONCE and are extended by one match per step.
+
+     🔑 AND THE SCALAR NEVER HAS TO BE APPLIED. Every accumulator is linear in the weight, so
+     working entirely in v-units and dividing through cancels it everywhere except one constant:
+
+         na = (gfᵀ + K·eF) / (expFᵀ + K·eF)          with gfᵀ = C_n·gfᵛ, expFᵀ = C_n·expFᵛ
+            = (gfᵛ + (K/C_n)·eF) / (expFᵛ + (K/C_n)·eF)
+
+     `eF = expF/Wt` is a ratio and is already scale-free. So the ENTIRE change to the solve is
+     `K → K/C_n`. No per-team rescaling, no second pass over the fixture lists.
+
+     ⚠ NOT BIT-IDENTICAL, WHICH IS WHY THE FILING EXISTS. Summing scaled terms is not the same
+     rounding as scaling a sum. The ratings move at ~1e-15 and `autoGate` turns them into a published
+     bar through discrete comparisons, so the acceptance test is on the DECISIONS — `bar`,
+     `edgeFloor`, `n`, `rate`, `met`, `gap`, `proven` — across all 53 competitions.
+
+     ⚠ THE CACHE IS KEYED THE WAY `_s2` IS, and for the same reason: thirteen places do
+     `Object.create(footballEngine)` with a different league's matches, so reference identity on the
+     match array is the only key that cannot collide. `_s2tag()` carries HALF_LIFE and the half-time
+     variants. A prefix SHORTER than the cached one rebuilds rather than truncating — truncating a
+     weighted sum is not possible, and a new walk always restarts at `start`. */
+  _vTbl(hl, need){
+    let c = this._vt;
+    if(c && c.hl === hl && c.tbl.length >= need) return c.tbl;
+    const len = Math.max(need, c && c.hl === hl ? c.tbl.length * 2 : 2048);
+    const tbl = new Float64Array(len);
+    for(let k = 0; k < len; k++) tbl[k] = Math.pow(2, k / hl);
+    this._vt = { hl: hl, tbl: tbl };
+    return tbl;
+  },
+  /* Returns the accumulators in v-units, extended to `n`, or null when the fast path is refused. */
+  _accum(n, HL){
+    if(!ENGINE2.FACTORED || !(n / HL <= ENGINE2.FACTOR_MAX_EXP)) return null;
+    const src = this.matches, tag = this._s2tag();
+    let c = this._acc;
+    if(!(c && c.src === src && c.hl === HL && c.tag === tag && c.n <= n)){
+      c = this._acc = { src: src, hl: HL, tag: tag, n: 0, id: new Map(),
+                        gf: [], ga: [], wsum: [], fx: [], sumW: 0, sumHG: 0, sumAG: 0 };
+    }
+    if(c.n < n){
+      const vt = this._vTbl(HL, n);
+      const id = c.id, gf = c.gf, ga = c.ga, wsum = c.wsum, fx = c.fx;
+      const tid = name => { let k = id.get(name);
+        if(k === undefined){ k = id.size; id.set(name, k); gf.push(0); ga.push(0); wsum.push(0); fx.push([]); }
+        return k; };
+      for(let i = c.n; i < n; i++){
+        const m = src[i], wi = vt[i], hg = this.hgOf(m) || 0, ag = this.agOf(m) || 0;
+        c.sumW += wi; c.sumHG += hg * wi; c.sumAG += ag * wi;
+        const H = tid(m.home), A = tid(m.away);
+        gf[H] += hg * wi; ga[H] += ag * wi; wsum[H] += wi;
+        gf[A] += ag * wi; ga[A] += hg * wi; wsum[A] += wi;
+        fx[H].push(A, 1, wi);
+        fx[A].push(H, 0, wi);
+      }
+      c.n = n;
+    }
+    return c;
+  },
+
   _strengthsRaw(upTo){
     if(ENGINE2.ON) return this.strengths2(upTo);   // build 104 — flag is false until measured
     const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
     const n = arr.length;
     const HALF_LIFE = TUNE.HALF_LIFE;
-    const w = i => Math.pow(0.5, (n-1-i)/HALF_LIFE);
+    const _wt = this._powTbl(HALF_LIFE, n);        // build 313 — identical values, computed once
+    const w = i => _wt[n-1-i];
     let sumW=0, sumHG=0, sumAG=0;
     const t = {};
     arr.forEach((m,i)=>{
@@ -1562,27 +1688,39 @@ const footballEngine = {
      match barely moves a rating, so it resumes from the previous answer and needs three passes
      instead of fourteen. Without this the deep scan would take twenty minutes instead of two. */
   strengths2(upTo){
-    const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
-    const n = arr.length;
+    /* build 314 — the length, without the copy. `arr` was only ever read as `arr[i]`, and V8's
+       shallow slice is cheap but not free; the direct loop below indexes the source instead. */
+    const n = upTo!=null ? Math.min(upTo, this.matches.length) : this.matches.length;
     if(!n) return {teams:{}, avgH:1.35, avgA:1.15};
 
     const HL = TUNE.HALF_LIFE;                       // unchanged — recency is a separate question
-    const w = i => Math.pow(0.5, (n-1-i)/HL);
 
     // ── index teams once, accumulate weighted goals for/against and the fixture list ──
-    const id = new Map(), gf = [], ga = [], wsum = [], fx = [];
-    const tid = name => { let k = id.get(name);
-      if(k === undefined){ k = id.size; id.set(name, k); gf.push(0); ga.push(0); wsum.push(0); fx.push([]); }
-      return k; };
-    let sumW = 0, sumHG = 0, sumAG = 0;
-    for(let i = 0; i < n; i++){
-      const m = arr[i], wi = w(i), hg = this.hgOf(m) || 0, ag = this.agOf(m) || 0;
-      sumW += wi; sumHG += hg * wi; sumAG += ag * wi;
-      const H = tid(m.home), A = tid(m.away);
-      gf[H] += hg * wi; ga[H] += ag * wi; wsum[H] += wi;
-      gf[A] += ag * wi; ga[A] += hg * wi; wsum[A] += wi;
-      fx[H].push(A, 1, wi);            // [opponent, isHome, weight] triples, flat for speed
-      fx[A].push(H, 0, wi);
+    /* BUILD 314 — two paths, one of them the reference. See the block above `_vTbl`. */
+    let id, gf, ga, wsum, fx, sumW, sumHG, sumAG, KEFF = ENGINE2.SHRINK_K;
+    const _acc = this._accum(n, HL);
+    if(_acc){
+      id = _acc.id; gf = _acc.gf; ga = _acc.ga; wsum = _acc.wsum; fx = _acc.fx;
+      sumW = _acc.sumW; sumHG = _acc.sumHG; sumAG = _acc.sumAG;
+      /* THE ONLY PLACE C_n SURVIVES. Everything else is a ratio and cancels. */
+      KEFF = ENGINE2.SHRINK_K / Math.pow(0.5, (n - 1) / HL);
+    } else {
+      const _wt = this._powTbl(HL, n);             // build 313 — identical values, computed once
+      const w = i => _wt[n-1-i];
+      id = new Map(); gf = []; ga = []; wsum = []; fx = [];
+      const tid = name => { let k = id.get(name);
+        if(k === undefined){ k = id.size; id.set(name, k); gf.push(0); ga.push(0); wsum.push(0); fx.push([]); }
+        return k; };
+      sumW = 0; sumHG = 0; sumAG = 0;
+      for(let i = 0; i < n; i++){
+        const m = this.matches[i], wi = w(i), hg = this.hgOf(m) || 0, ag = this.agOf(m) || 0;
+        sumW += wi; sumHG += hg * wi; sumAG += ag * wi;
+        const H = tid(m.home), A = tid(m.away);
+        gf[H] += hg * wi; ga[H] += ag * wi; wsum[H] += wi;
+        gf[A] += ag * wi; ga[A] += hg * wi; wsum[A] += wi;
+        fx[H].push(A, 1, wi);          // [opponent, isHome, weight] triples, flat for speed
+        fx[A].push(H, 0, wi);
+      }
     }
     const avgH = sumHG / sumW, avgA = sumAG / sumW;   // home advantage lives here, as it always did
     const T = id.size;
@@ -1602,7 +1740,7 @@ const footballEngine = {
       iters = ENGINE2.ITERS_WARM;
     }
 
-    const K = ENGINE2.SHRINK_K;
+    const K = KEFF;   // build 314 — SHRINK_K on the direct path, SHRINK_K/C_n on the factored one
     for(let it = 0; it < iters; it++){
       const na = new Float64Array(T), nd = new Float64Array(T);
       for(let t = 0; t < T; t++){
@@ -3428,7 +3566,43 @@ function gateMetFor(L){
 /* One walk-forward pass, every threshold scored from it. The rungs for a match do not depend on the
    bar — only WHICH rung gets published does — so the expensive part (predicting) happens once and
    the candidates are swept over the stored rungs for free. */
-function autoGate(L){
+/* ══ BUILD 312 — THE FITTED-BAR PASS STOPS FREEZING THE APP ═════════════════════════
+   Ken: *"the app is hanging and lagging a lot."*
+
+   MEASURED ON THE LIVE APP, one competition, 7,823 matches:
+
+       computeSkill(L)   7,077 ms
+       autoGate(L)      15,450 ms
+       ------------------------------
+       one competition  22,527 ms of UNINTERRUPTED main-thread work
+
+   `refreshSkills` chains these one competition per `setTimeout(step, 120)`, so the 120 ms gap buys
+   nothing: the work inside a single tick is what freezes the page. A `setTimeout(..., 100)` failed
+   to fire within 45 seconds, three times running. That is not lag, it is a stalled event loop.
+
+   ⚠ WHY THE OBVIOUS FIX IS FORBIDDEN. Both are O(n²): the walk-forward calls
+   `predict(home, away, i)` and `strengths(upTo)` only caches when `upTo == null`, so every step
+   rebuilds from scratch. Capping the history would fix that instantly — and would CHANGE
+   `autoGate`'s answer, which is the fitted bar that decides what the app publishes. **That is a
+   measurement decision requiring a filing and a held-out split, not a performance tweak.** It stays
+   filed and unbuilt.
+
+   SO THE ARITHMETIC IS NOT TOUCHED AT ALL. Both loops keep their bodies, their order and their
+   accumulators exactly; the only change is that they yield to the event loop when a slice has run
+   long enough. Same operations in the same sequence means the same floating-point result — bit
+   identical, not merely close — which is the only version of this change that is allowed to ship
+   near a fitted constant. The total work is unchanged; what changes is that the page stays alive
+   while it happens.
+
+   ⚠ THE SNAPSHOT IS WHAT MAKES YIELDING SAFE. Both functions bind `ms = L.matches` once and hand
+   that array to `tmp.matches`. `backfillSettledHistory` REPLACES `L.matches` with a new array rather
+   than mutating it in place, so a walk in progress keeps a consistent view. The result is stamped
+   `size: ms.length` — the snapshot it actually measured — so if the league grew meanwhile,
+   `refreshSkills`'s own size check recomputes it next pass. Self-correcting, with no torn read. */
+const ENGINE_SLICE_MS = 12;                 // one frame; the page stays responsive between slices
+function _engineYield(){ return new Promise(r => setTimeout(r, 0)); }
+
+async function autoGate(L){
   const ms = (L && L.matches) || null;
   if(!ms || ms.length < 200) return { ready:false, reason:'thin', size: ms?ms.length:0 };
   const tmp = Object.create(footballEngine); tmp.matches = ms; tmp._s2 = null;
@@ -3455,7 +3629,9 @@ function autoGate(L){
      it 2,000 times would dominate the run. Same cadence here — every `NEUTRAL_EVERY` matches. */
   const NEUTRAL_EVERY = 25;
   let nAsAt = null, nAt = -1e9;
+  let _sliceAt = performance.now();          // build 312 — see the block above autoGate
   for(let i=start;i<ms.length;i++){
+    if(performance.now() - _sliceAt > ENGINE_SLICE_MS){ await _engineYield(); _sliceAt = performance.now(); }
     const m = ms[i];
     if(m.hg == null || m.ag == null) continue;
     const p = tmp.predict(m.home, m.away, i); if(!p) continue;
@@ -3778,8 +3954,12 @@ function fxCells(L,f,smap){
      The match keeps its kick-off time and its teams, and the chip says what is missing rather than
      the fixture quietly disappearing, which would leave the user unable to tell an absent prediction
      from an absent match. */
-  const chip = f.gated ? `<span class="predchip muted-chip">${GATE_TEXT[f.gated] || GATE_TEXT.low}</span>`
-             : f.pick  ? `<span class="predchip">${chipCode(f.pick)} · ${(100*f.prob).toFixed(0)}%</span>`
+  /* BUILD 310 — the chip asks the CURRENT verdict, so the feed and the fixture's own page cannot
+     say different things about the same match. `L` has been in this function's signature since it
+     was written; the chip simply never used it for the gate. */
+  const _g = gateNow(L, f);
+  const chip = _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
+             : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${(100*f.prob).toFixed(0)}%</span>`
              : '';
   return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
@@ -4496,10 +4676,80 @@ function renderTipHorizon(){
        banker card      Fürth v Heidenheim O2.5 90.7% (withdrawn)  →  Vissel Kobe v Nagasaki 1D 84.6%
 
    Nothing empties, and the card keeps a real read. */
-function engineBacksFixture(f){
+/* ══ BUILD 310 — THE STORED VERDICT IS STALE, AND THAT IS WHY TWO SCREENS DISAGREE ════════
+   Ken, 2026-09-12: *"matches that their analysis is NO STRONG READ should not be printing
+   predictions and shouldnt be recommended in tips. this is because they end up printing wrong
+   prediction, it's hurting my record."*
+
+   BUILD 309 FILTERED ON `f.gated`. THAT FIELD IS COMPUTED ONCE, INSIDE `loadCloudLeagues`, AGAINST
+   HOWEVER MUCH HISTORY HAD ARRIVED AT THAT MOMENT — and nothing ever recomputes it. The match page,
+   by contrast, re-walks `ladderPick` + `gateReason` every single time it is opened. So the two
+   surfaces answer the same question at different times with different amounts of data, and drift
+   apart on their own.
+
+   MEASURED ON THE LIVE APP, 2026-09-12, over 988 future unfrozen fixtures:
+     · **99 stored OPEN that recompute as GATED** — the feed prints a pick, the page says
+       "No strong read". **That is Ken's complaint, exactly.**
+     · 94 stored GATED that recompute as OPEN — the same fault in the other direction
+     · **157 carry a stored pick the engine no longer makes** — 19.5% disagreement overall
+   Sheffield Wednesday v Stockport County: stored `X2` 65.2% `gated:low`; the page renders
+   **"SHEFFIELD WEDNESDAY or DRAW, 73.2% confidence"** and no gate at all.
+
+   ⚠ THIS DOES NOT REOPEN BUILD 62 OR BUILD 199. A fixture that has kicked off, or that has a
+   published pick, is returned EXACTLY as stored and is never re-asked — that is the whole of 62's
+   freeze and 199's "a published pick is never gated again", and re-pricing one would put its own
+   result in the fit. What is recomputed is only the set the app is still free to change its mind
+   about: unstarted, unpublished, unfrozen. For those the app was ALREADY changing its mind on the
+   match page; this makes the other screens hear it. */
+function gateNow(L, f){
+  if(!f) return null;
+  /* 62 / 199 — frozen, played or published: the stored answer IS the answer, forever. */
+  if(f.frozen || f._fin || kickoffPassed(f)) return f.gated || null;
+  if(!L || !L.matches || L.matches.length < 15) return f.gated || null;
+  const P = fxPredict(L, f);
+  if(!P) return f.gated || null;
+  /* BUILD 309's term, asked live rather than read from the load-time snapshot. A price computed
+     from the division's average instead of from these two teams is not a read. */
+  if(P.unknownTeams) return 'low';
+  const lp = ladderPick(P, f.home, f.away, L);
+  if(!lp) return f.gated || null;
+  /* The SAME two calls the match page makes, in the same order. One question, one answer. */
+  return gateReason(L, {}, lp.code, lp.prob);
+}
+function engineBacksFixture(L, f){
   /* ONE decision, read by both forward-looking screens rather than each recomputing the rule —
      which is what build 118 asked for when it stored `gated` on the fixture in the first place. */
-  return !!f && !f.gated && !f.unbacked;
+  /* ══ BUILD 309 — `provisional` JOINS THE RULE, AND IT IS THE TERM THAT COST KEN A LOSING TIP ══
+     Ken, 2026-09-08: *"in the analysis tab, for porto vs man city, it was Man City to win or draw
+     but in the tips tab, winners section, it lost with Porto win or draw."*
+
+     BOTH SCREENS WERE READING THE SAME ENGINE. The issued leg was `1X` "FC Porto or Draw" at
+     **74.75%**; the engine says `X2` at 69.8%. That is not the model changing its mind. Measured on
+     the live app: an engine asked about a pairing it has NEVER SEEN returns **`1X` at 71.8%** — a
+     home-advantage prior wearing a confidence number. **The issued leg IS that prior.** At issue
+     time the Champions League history had not loaded, so Porto and Manchester City were unknown
+     teams to their own competition's engine.
+
+     IT WAS NOT ONE FIXTURE. Of 30 issued Winner legs, **8 disagreed with the engine once the history
+     landed, and all 8 were issued as `1X` in the 73–80% band** — the prior's fingerprint. 27% of
+     the day's Winner list was boilerplate sold as a read.
+
+     THE INSTRUMENT ALREADY EXISTED AND NOTHING FORWARD-LOOKING READ IT. Build 77 made an unknown
+     team shrink to league average and set `unknownTeams`; build 118's pass has stored
+     `f.provisional = !!p.unknownTeams` on the fixture ever since, and the match page prints the
+     "no history in this competition — newly promoted, most likely" note off it. **Build 165's rule
+     for the third time: an instrument that exists and is never read is not an instrument.** Same
+     shape as build 288, which found `unbacked` set and unread.
+
+     ⚠ THIS DOES NOT HIDE PROMOTED SIDES. A provisional fixture keeps its page, its number and its
+     note — that is build 84, and Ken's own *"we know both teams, we just don't know the second team
+     well enough"*. What changes is only what the app OFFERS FORWARD, which is the line build 288
+     drew: a price computed from the division's average instead of from these two teams is not a
+     read, and a tip is a read. */
+  if(!f) return false;
+  if(f.unbacked) return false;      // build 288 — withdrawn stays withdrawn
+  if(f.provisional) return false;   // build 309 — the no-information prior is not a read
+  return !gateNow(L, f);            // build 310 — asked now, not read from the load-time snapshot
 }
 /* ══ BUILD 289 — THE HEADLINE HAD A WEAKER BAR THAN THE SLIP UNDERNEATH IT ═════════════════════
    Ken, on build 288's fix: *"the engine must have a very very strong read on all that will be
@@ -6785,6 +7035,24 @@ const TIP_TAB_NOTES = {};
 function tipRankedRows(market, days){
   const rows=[];
   for(const {L,f} of collectUpcoming(days)){
+    /* ══ BUILD 309 — THE GATE REACHES THE LISTS, WHICH IS WHERE IT WAS MISSING ALL ALONG ═════
+       Ken, 2026-09-08: *"any match that says NO STRONG READ should never print a prediction nor get
+       to the tips tab especially the smart bet."*
+
+       `engineBacksFixture` was written by build 288 and had exactly ONE caller — `slipCandidates`,
+       which serves the Smart Bet slip and the strongest-read card. The three list tabs never went
+       near it: `renderTipList` → `tipRankedRows` → `collectUpcoming`, which filters on date and on
+       having-not-finished, and on nothing else. Measured on the live 3-day window before this build:
+       **8 of the top 30 Winner rows carried `unbacked: "no market clears the bar"`** — the Analysis
+       tab said "No strong read" and the Tips tab printed a pick anyway, at 80.1% and 80.0%.
+
+       IT IS FILTERED HERE AND NOT IN `collectUpcoming`, deliberately. `renderBanker` counts
+       `collectUpcoming(days).length` to tell the difference between "no fixtures in this window" and
+       "fixtures, but none clearing the bar" — two different sentences on screen. Filtering upstream
+       would collapse them and make the app claim an empty calendar on a full matchday. So the count
+       stays truthful and the PUBLISHING surface is the thing that narrows: this one function feeds
+       both the live lists and `tipsFrozenSeed`, so the issued day and the tab cannot disagree. */
+    if(!engineBacksFixture(L, f)) continue;
     const P=fxPredict(L,f);
     if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:'',code:f.pick}); continue; }
     const tp=tipPickFor(market,P,f,L);
@@ -6906,7 +7174,39 @@ async function analyze(){
   const home = $('homeTeam').value, away = $('awayTeam').value;
   if(home===away){ alert('Pick two different teams.'); return; }
   const eng = sport==='football' ? footballEngine : basketballEngine;
-  const pred = (sport==='football' && pendingFrozenPred) ? pendingFrozenPred : eng.predict(home, away);
+  /* ══ BUILD 311 — THE ANALYSIS PAGE WAS PRICING WITHOUT THE CROSS-COMPETITION SHAPE ════════
+     Ken, 2026-09-12: *"a match shows home win in the tips tab but shows away draw no bet in the
+     analysis tab"* and *"just like the champions league, europa league and some others."*
+
+     `xcAdjust` — build 287's cross-competition shape — had **exactly one caller**: `fxPredict`.
+     The Tips tab, the feed and the slip all price through `fxPredict` and therefore WITH it. This
+     function prices with a bare `eng.predict(home, away)` and therefore WITHOUT it. Two models,
+     two screens, one fixture.
+
+     AND IT LANDS PRECISELY WHERE KEN SAID. `XC_SHAPE.COMPS` is the cup list — Champions League,
+     Libertadores, FA Cup, the domestic cups — because that is where 287 measured the shape. So the
+     disagreement is invisible in the leagues and systematic in exactly the competitions he named.
+
+     MEASURED ON THE LIVE APP, 2026-09-12, over 289 cross-competition fixtures:
+       · **14 return a DIFFERENT PICK** on the two screens (4.8%)
+       · **38 more return the same pick at a materially different probability**
+       · **52 of 289 disagree — 18%**
+     Slavia Praha v Lens: Tips **X2 68.2%**, Analysis **1X 64.1%** — opposite sides of the same match.
+     VfB Stuttgart v Viking: Tips **1 55.2%**, Analysis **1X 70.9%**.
+
+     ⚠ BUILD 287'S OWN COMMENT SAID WHY IT LIVED IN `fxPredict`: *"this is the only place that holds
+     BOTH the competition and the fixture."* That was true of the loader. It is NOT true here —
+     `pendingMeta` has carried `lid`, `date`, `home` and `away` since build 151, which is everything
+     `xcAdjust` reads. The reason was sound and simply stopped being true.
+
+     ⚠ THE FROZEN PATH IS UNTOUCHED. `pendingFrozenPred` is a played fixture rebuilt from its
+     archived xG — a claim already made, which builds 62 and 199 forbid re-pricing. Only the live
+     branch is adjusted. */
+  const _predRaw = (sport==='football' && pendingFrozenPred) ? pendingFrozenPred : eng.predict(home, away);
+  const pred = (sport==='football' && !pendingFrozenPred && pendingMeta && pendingMeta.lid != null)
+    ? xcAdjust(afState.leagues[pendingMeta.lid],
+               { home: home, away: away, date: pendingMeta.date }, _predRaw, eng)
+    : _predRaw;
   if(!pred){ showNoAnalysis(home, away); return; }   // build 110 — was a dead-end alert
   /* BUILD 151 — READ FROM `pendingMeta`, NOT FROM THE UNPACKED GLOBALS.
      Build 150 checked the two unpacked globals here — but those are not assigned
@@ -8449,7 +8749,7 @@ function calTable(title, rows, note){
    "more data arrived"; it cannot see "the question changed". Bump this whenever the meaning of
    `gap` moves. */
 const SKILL_STAT_V = 2;
-function computeSkill(L){
+async function computeSkill(L){
   const ms = (L && L.matches) || null;
   if(!ms || ms.length < 150) return { ready:false, reason:'thin', size: ms?ms.length:0 };
   const tmp = Object.create(footballEngine); tmp.matches = ms;
@@ -8462,7 +8762,9 @@ function computeSkill(L){
   if(!W) return { ready:false, reason:'few', n:0, dep:0, size: ms.length };
   const base = { '1':h/W, 'X':d/W, '2':a/W, '1X':(h+d)/W, 'X2':(d+a)/W, '12':(h+a)/W };
   let n=0, dep=0, hit=0, exp=0;
+  let _sliceAt = performance.now();          // build 312 — see the block above autoGate
   for(let i=start;i<ms.length;i++){
+    if(performance.now() - _sliceAt > ENGINE_SLICE_MS){ await _engineYield(); _sliceAt = performance.now(); }
     const m = ms[i], p = tmp.predict(m.home, m.away, i); if(!p) continue;
     const act = m.hg>m.ag ? '1' : m.hg===m.ag ? 'X' : '2';
     const hp = headlinePick(p, 'H', 'A'); if(!hp) continue;
@@ -8933,7 +9235,7 @@ const DISPERSION_PREDICTION = {
 function renderDispersionTest(){
   const box = $('dispOut'); if(!box) return;
   box.innerHTML = '<div class="subnote"><span class="spinner"></span>Measuring every competition…</div>';
-  setTimeout(()=>{
+  setTimeout(async ()=>{
     /* NOT footballLeagues(). That helper filters on `upcoming.length` — competitions with fixtures
        SCHEDULED — which in early August excludes every European league, i.e. precisely the four this
        test is about. They are loaded and carry three full seasons; they simply have no next match
@@ -8945,7 +9247,7 @@ function renderDispersionTest(){
       if(!L || (L.sport||'football') !== 'football') continue;
       const d = leagueDispersion(L);
       if(!d) continue;
-      rows.push({ L, d, sk: computeSkill(L), pred: DISPERSION_PREDICTION[L.id] || null });
+      rows.push({ L, d, sk: await computeSkill(L), pred: DISPERSION_PREDICTION[L.id] || null });
     }
     if(rows.length < 3){
       const loaded = Object.keys(afState.leagues || {}).length;
@@ -13194,18 +13496,24 @@ function refreshSkills(){
                            || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
   }).map(L=>L.id);
   if(!todo.length) return;
-  const step = ()=>{
+  const step = async ()=>{
     const id = todo.shift();
     if(id == null){ _skillTimer = null; saveState();
-      if(lastTab==='predict') renderFixtures(); else if(lastTab==='analysis') renderStrongPicks();
+      /* BUILD 311 — `lastTab` is only ever assigned from `navTo(t)`, and `t` comes from
+         `NAV_VIEWS = ['scores','predict','tips','favs','data','detail']`. **There is no 'analysis'.**
+         So this branch has never once run, and the accuracy record it re-renders has never refreshed
+         when the skill pass finished — which is the moment the gates re-open and the record can
+         change. Build 165's rule again: an instrument that exists and is never read. The record
+         lives on the Tips tab, so that is the tab that must re-render. */
+      if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderStrongPicks();
       return; }
     const L = afState.leagues[id];
     if(L) {
-      try{ afState.skill[id] = computeSkill(L); }catch(e){}
+      try{ afState.skill[id] = await computeSkill(L); }catch(e){}
       /* build 128 — the bar is measured in the same background pass as the skill badge, on the same
          history, so the two can never describe different data. A competition that cannot measure one
          keeps the global fallback rather than being handed an invented number. */
-      try{ const g = autoGate(L); if(g && g.ready) afState.gate[id] = g; else delete afState.gate[id]; }catch(e){}
+      try{ const g = await autoGate(L); if(g && g.ready) afState.gate[id] = g; else delete afState.gate[id]; }catch(e){}
     }
     _skillTimer = setTimeout(step, 120);
   };
@@ -14450,7 +14758,7 @@ function slipCandidates(opt){
       const s = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(s)) continue;   // skip already-played
       /* build 288 — a fixture the engine has stopped backing supplies no leg, on either path.
          Ken: "the engine must have a very very strong read on all that will be dished in there." */
-      if(!engineBacksFixture(f)) continue;
+      if(!engineBacksFixture(L, f)) continue;
       const key = f.fxid || (f.home + f.away + f.date);
       if(tmp){
         const P = tmp.predict(f.home, f.away); if(!P) continue;
@@ -15882,6 +16190,9 @@ async function loadArchive(){
    construction, so the join is a concatenation that preserves the fetch chronology exactly, which
    is what every walk-forward number in this app is computed from. */
 const HIST_BACKFILL_GAP_MS = 400;
+/* BUILD 309 — how long the daily issue waits for `backfillSettledHistory` before going ahead
+   without it. A deadline, not a fallback: see the race in `loadCloudLeagues`. */
+const TIPS_SEED_WAIT_MS = 900000;
 let _histBackfillRunning = false;
 async function backfillSettledHistory(ids){
   if(_histBackfillRunning || !supa || !ids || !ids.length) return;
@@ -16245,7 +16556,27 @@ async function loadCloudLeagues(force){
                only ever INSERT. An unpublished fixture that fails the bar writes nothing at all —
                that half of build 142 was right and is why its "1X ✗" cannot recur. A PUBLISHED
                fixture that later fails the bar is stamped, not deleted. */
-            if(!f._fin && !f.gated){
+            /* ══ BUILD 311 — THE RECORD STOPS ACCEPTING A PICK THE ENGINE CANNOT BACK ═════════
+               Ken: *"they end up printing wrong prediction, it's hurting my record."*
+
+               Builds 309 and 310 stopped a no-information pick being SHOWN and RECOMMENDED. Neither
+               stopped it being PUBLISHED. This is the write site, and it read `!f.gated` alone — so
+               a fixture priced from the division's average, because its competition's history had
+               not loaded yet, was still archived into `predictions` and graded from then on.
+
+               MEASURED against the live database on 2026-09-08: of 841 published predictions that
+               could be matched to a fixture, **39 (4.6%) were made when at least one side had NO
+               prior appearance in that competition** — Le Mans, Hull City, Coventry, Lincoln at
+               season start, and Lille v Real Betis in the Champions League. **2 of them reached the
+               108-row CLV set.** That is the record being hurt, and it is measured rather than
+               inferred.
+
+               `provisional` is the same term builds 309 and 310 already refuse to show. Refusing to
+               WRITE it is the half that protects the tally. ⚠ It withholds rather than deletes: a
+               fixture that is provisional today and known next week publishes then, because
+               `archivePrediction` can still only ever INSERT and nothing here removes a row. Build
+               142's rule, unchanged. */
+            if(!f._fin && !f.gated && !f.provisional){
               recordPick(L.name,f);
               /* Two mutually exclusive writes. An unpublished fixture is INSERTED once and never
                  again; a published one can only ever have its `final_*` columns moved, and only
@@ -16438,11 +16769,33 @@ async function loadCloudLeagues(force){
          a fixture once it finishes, so a first issue at 20:00 publishes only what is left of the
          evening. This is the earliest point at which seeding is both possible and honest: it is
          the line that marks the slate complete, and both seeds refuse to run without it. */
-      try{ dailySharedLoad(todayStrLocal()).then(() => tipsFrozenEnsure()).catch(() => {}); }catch(e){}
       /* build 285 — asked AFTER a successful load, not at boot: there is no point protecting an
          empty cache, and engagement is one of the heuristics browsers weigh. */
       try{ requestStoragePersistence(); }catch(e){}
-      try{ backfillSettledHistory(needHistory); }catch(e){}   // build 286 — never awaited
+      /* ══ BUILD 309 — THE SLATE BEING COMPLETE IS NOT THE ENGINE BEING READY ═══════════════
+         Build 299's comment above claimed this line "marks the slate complete". It marks the FIXTURE
+         LIST complete. The HISTORY that prices those fixtures is fetched by `backfillSettledHistory`
+         on the line below, was never awaited by anyone, and on 2026-09-08 took **over four minutes**
+         to reach the Champions League. So the day was issued against engines that had not been fed —
+         and a competition whose history has not landed prices every fixture at the no-information
+         home prior. That is the whole of the Porto v Manchester City defect; the filter in
+         `engineBacksFixture` catches it, and this stops manufacturing it.
+
+         THE CEILING IS NOT A FALLBACK, IT IS A DEADLINE. If the backfill stalls, the day still gets
+         issued — a Tips tab that silently never issues is build 299's complaint returning by another
+         road. What the ceiling CANNOT do is publish the prior, because the filter runs either way.
+         Set at 15 minutes because the measured cold load on 09-08 was ~12; `tips-partial-N` already
+         records how much of the day had kicked off by the time the row was written. */
+      const _histReady = (function(){
+        try{ return backfillSettledHistory(needHistory) || Promise.resolve(); }
+        catch(e){ return Promise.resolve(); }
+      })();
+      try{
+        Promise.race([ _histReady, new Promise(r => setTimeout(r, TIPS_SEED_WAIT_MS)) ])
+          .then(() => dailySharedLoad(todayStrLocal()))
+          .then(() => tipsFrozenEnsure())
+          .catch(() => {});
+      }catch(e){}
       refreshDataChip();         // build 214 — the badge now describes what the app is SHOWING
       renderBacktestLeagues();   // competitions just arrived — refresh the backtest picker (build 42)
       refreshSkills();           // measure each competition in the background (build 65)
