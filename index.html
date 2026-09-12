@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 316;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 317;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3772,21 +3772,59 @@ const GATE_WHY = {
    ladder. They were about to be two copies of the same ordering, and every time this project has
    kept two copies of one idea they have drifted (the correct-score panel vs the write-up in 117, the
    season verdict vs its table in 122, the newcomer verdict vs its table in 126). One source. */
+/* ══ BUILD 317 — THE PUBLISHED PICK AND THE FITTED BAR NEVER WENT THROUGH `calibrate()` ═════
+   Build 284 fitted `CALIB_SHIFT.U35 = -0.0175` and its own comment says it is *"applied at the ONE
+   place every selection is constructed, so the slip, the floors, the fair odds and the displayed
+   confidence can never disagree about what the engine claims."*
+
+   **They disagreed.** `calibrate()` had exactly one caller, `allSelections`. This function — whose
+   only two callers are `ladderPick`, which chooses the pick the app PUBLISHES, and `autoGate`, which
+   fits the bar deciding WHETHER it publishes — read `P.pW`, `P.over` and `P.btts` raw. Measured on
+   the live app at build 316, over 633 fixtures:
+
+       U35 via rungsFor        0.6530   ← the published pick, and the bar
+       U35 via allSelections   0.6355   ← the slip leg
+       difference              0.0175   = CALIB_SHIFT.U35, exactly
+       U35 was a rung on 517 of those 633 fixtures
+
+   AND THE CORRECTION IT WAS MISSING IS THE RIGHT ONE, MEASURED AGAIN HERE RATHER THAN ASSUMED.
+   `MatchMind-CALIB-SLOPE-PREREG.md`, 87,949 walk-forward fixtures across 53 competitions: on the
+   uncorrected series `U35` carries a mean calibration error of **+0.0155, which is 5.6 SE** — it
+   over-claims by a point and a half. The shipped shift is -0.0175, so applying it lands the bias
+   near zero. Build 284's number was right; it simply never reached the screen.
+
+   ⚠ WHAT IT COSTS, MEASURED BEFORE SHIPPING: **100 of 2,798 future fixtures change their published
+   pick**, every one of them a `U35` that drops below its competition's bar and now publishes
+   nothing. That is the correct direction — those picks were being offered on a probability measured
+   1.5 points too high — but it is a withdrawal of 100 tips and is recorded as such.
+
+   🔑 AND THE BAR REFITS ITSELF, WHICH IS WHY THIS IS SAFE. `autoGate` fits each competition's
+   bar by walking `rungsFor` over history. Calibrating INSIDE this function means the bar is fitted
+   on the same corrected numbers it will later judge — so the coupling the filing warned about
+   (humbler probabilities against a bar fitted on confident ones, which would silently publish less)
+   cannot arise. Correcting at either caller instead of here would have created exactly that.
+
+   ⚠ THE SOLO RANKING IS CALIBRATED BEFORE IT IS SORTED, mirroring `allSelections`, which calibrates
+   as it adds and ranks afterwards. Today `1`, `X` and `2` carry no shift so this changes nothing and
+   that is verifiable; it is written this way so that adding one later cannot leave the ladder
+   choosing on one scale and publishing on another. That is the defect this build exists to remove,
+   and re-introducing it three lines down would be its own joke. */
 function rungsFor(P){
   if(!P) return [];
+  const R = (code, prob) => ({ code: code, prob: calibrate(code, prob) });
   const rungs = [];
-  const solo = [[P.pW,'1'],[P.pD,'X'],[P.pL,'2']].sort((a,b)=>b[0]-a[0]);
+  const solo = [[calibrate('1',P.pW),'1'],[calibrate('X',P.pD),'X'],[calibrate('2',P.pL),'2']]
+                 .sort((a,b)=>b[0]-a[0]);
   rungs.push({code:solo[0][1], prob:solo[0][0]});
   const dnb = P.pW + P.pL;
   if(dnb > 0 && solo[0][1] !== 'X')
-    rungs.push(P.pW >= P.pL ? {code:'1D', prob:P.pW/dnb} : {code:'2D', prob:P.pL/dnb});
-  rungs.push(P.pW >= P.pL ? {code:'1X', prob:P.pW+P.pD} : {code:'X2', prob:P.pD+P.pL});
+    rungs.push(P.pW >= P.pL ? R('1D', P.pW/dnb) : R('2D', P.pL/dnb));
+  rungs.push(P.pW >= P.pL ? R('1X', P.pW+P.pD) : R('X2', P.pD+P.pL));
   const goals = [];
   if(P.over){
-    goals.push({code:'O25', prob:P.over[2.5]}, {code:'U25', prob:1-P.over[2.5]},
-               {code:'U35', prob:1-P.over[3.5]});
+    goals.push(R('O25', P.over[2.5]), R('U25', 1-P.over[2.5]), R('U35', 1-P.over[3.5]));
   }
-  if(P.btts != null) goals.push({code:'BTS', prob:P.btts}, {code:'NBT', prob:1-P.btts});
+  if(P.btts != null) goals.push(R('BTS', P.btts), R('NBT', 1-P.btts));
   goals.sort((a,b)=>b.prob-a.prob);
   if(goals.length) rungs.push(goals[0]);
   return rungs;
