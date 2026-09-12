@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 315;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 316;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -16270,6 +16270,191 @@ async function backfillSettledHistory(ids){
   if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
 }
 
+/* ══ BUILD 316 — THE GATE PASS WAS JUDGING EVERY COMPETITION ON TEN DAYS OF FOOTBALL ═════
+   Ken, 2026-09-12: *"why the major leagues are no more showing in the analysis tab."*
+
+   They were not missing from the match page — that renders fine. They were missing from the Predict
+   feed, which lists a fixture only if it has `f.pick`. Build 257's gate census, read on the live
+   app, answered it in one word: **`noengine: 80` for the Premier League — every fixture.** That
+   bucket means `L.matches.length < 15` AT THE MOMENT THE PASS RAN.
+
+   THE PASS RAN INSIDE THE PER-LEAGUE LOOP, ON THE CHEAP BOOT WINDOW ALONE. Build 286 made that read
+   `date >= settleAt` — ten days. Measured 2026-09-12 with `settleAt` at 2026-09-02:
+
+       Premier League   10 matches in the window   — under 15, no picks, dropped from the feed
+       Bundesliga       10                          — same
+       Ligue 1          10                          — same
+       Serie A          11                          — same
+       La Liga          12                          — same
+       Championship     26                          — cleared, 91 published
+       Isthmian Premier 22                          — cleared
+
+   A twenty-team league plays ten matches a round. **The threshold discriminates by round size, and
+   the biggest competitions have the fewest matches per week** — so an international break, which is
+   what left one partial round in the window, silences exactly the leagues a user cares about most.
+   **37 of 50 competitions were fully `noengine` on that load. Thirteen produced picks.**
+
+   🚩 AND BUILD 286'S OWN COMMENT SAYS THIS "MUST SELF-HEAL, WHICH IS WHY refreshSkills IS
+   CALLED WHEN THE BACKFILL COMPLETES." **It does not self-heal.** `refreshSkills` recomputes the
+   skill badge and the fitted bar; **nothing re-runs the pick assignment**, so `f.pick` stays absent
+   for the whole session while the full history sits in memory. The claim was written and never
+   checked — build 165's rule wearing a different coat.
+
+   THE FIX IS WHEN, NOT WHAT. The body below is build 118/199's pass, moved verbatim and not edited:
+   it now runs ONCE, after the cached history has been merged into `afState.leagues`, so it sees the
+   real match list instead of ten days of it. Once, not twice — running it again would put a second
+   `archivePrediction` against the same fixture, and that write is insert-once by design.
+
+   ⚠ AND IT PICKS UP BUILD 271's FIX, WHICH THIS CALL SITE HAD BEEN MISSING. `registerLeagueDampen`
+   ran AFTER the old pass, so `DAMPEN_OF_MATCHES` — keyed on the match array — was empty while the
+   picks were being computed, and every engine fell back to `TUNE.DAMPEN` 0.5. That is precisely the
+   defect build 271 fixed at the other call sites, surviving here because the registration was three
+   lines too late. After the merge the registration has already happened, so the fitted dampen now
+   reaches the pass. **Picks in dampen-sensitive markets will move, and they move toward the fitted
+   value this project measured.** */
+/* ══ BUILD 316, SECOND HALF — A WARM CACHE IS NOT A GUARANTEE ══════════════════════
+   Moving the pass after the merge fixes a device whose cache is warm. It fixes NOTHING on a first
+   visit, after an eviction, or for a competition whose cached history is itself thin — the deep
+   half only arrives later, from `backfillSettledHistory`. **Measured on a clean origin with an empty
+   IndexedDB: still `noengine: 80` for the Premier League.** The first half of this build would have
+   shipped looking correct on my own warm profile and done nothing for a new user.
+
+   So the pass reports which arm it took, and a competition that was too thin is passed AGAIN when
+   its history lands — and only then. `_gateThin` is what makes that once-and-once-only: a league is
+   passed either at merge time or after the backfill, never both, because `archivePrediction` is
+   insert-once by design and a second pass over the same fixture would write against a row it had
+   just created.
+
+   ⚠ AND `_fin` SURVIVES UNTIL THE RE-RUN, WHICH IS THE WHOLE REASON THIS IS SAFE. `_fin` is what
+   tells the pass a fixture has already been played. Clearing it on a thin league and re-running
+   later would present every played fixture as unplayed and re-price it — the drift build 62 removed
+   and build 299 measured at 6×. The caller clears it only for a league it actually passed. */
+/* Competitions whose history was still too thin when the pass reached them. Emptied as each one is
+   passed for real, so nothing here is ever passed twice. */
+const _gateThin = new Set();
+function applyGatePass(L, display){
+  if(!L || !display || !display.length) return false;
+  // predictions from the engine (needs enough history)
+  if(L.matches.length>=15){
+    const tmp=Object.create(footballEngine); tmp.matches=L.matches;
+    for(const f of display){
+      // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
+      const p = f._fin
+        ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
+        : tmp.predict(f.home, f.away);
+      if(p){
+        const hp = headlinePick(p, f.home, f.away);
+        /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
+           after the match uses data that now contains the result, so the pick drifts — Flamengo
+           v São Paulo silently flipped from 1X (a hit) to 1 (a miss) with nothing about the match
+           having changed. That made the record move under Ken's feet and made the headline
+           disagree with its own probability bars.
+           Order of trust: the archived pre-match prediction, then whatever is already stored,
+           then a fresh calculation — and only ever a fresh one before kick-off. */
+        const started = f._fin || kickoffPassed(f);
+        /* BUILD 199 — THE ARCHIVE IS APPLIED WHETHER OR NOT THE MATCH HAS STARTED, and that
+           dropped `started &&` is the whole of Ken's fix. The window this app used to leave
+           freely rewritable was the one where it matters most: between a user reading a tip and
+           the match kicking off. `loadArchive` never had an upper date bound, so these rows were
+           already being fetched for upcoming fixtures and simply thrown away. */
+        const arch = afState.archive ? afState.archive[f.fxid] : null;
+        /* The ladder still runs on every load — not to publish, but so the CURRENT model view
+           can be recorded in `final_*` and shown beside a pick it has moved away from. */
+        const lp = started ? null : ladderPick(p, f.home, f.away, L);
+        if(arch){
+          f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL;
+          if(arch.market) f.market = arch.market;
+          f.frozen = true;
+          f.publishedAt = arch.at || null;
+        }
+        else if(started && f.pick){ f.frozen = true; }
+        else if(!started){
+          /* BUILD 119 — walk the ladder to the bar instead of committing to a rung and then
+             failing it. `headlinePick` is untouched and still drives every measurement panel;
+             what changes is only what gets PUBLISHED. When no rung clears, the headline is kept
+             so the fixture can still say what it was and why it is being withheld. */
+          f.pick   = lp ? lp.code   : hp.code;
+          f.prob   = lp ? lp.prob   : +hp.prob.toFixed(3);
+          f.market = lp ? lp.market : 'Winner';
+          f.frozen = false;
+        }
+        f.provisional = !!p.unknownTeams;   // priced on league averages, not on these teams
+        /* BUILD 118 — the gate is applied to fixtures that have NOT kicked off, and only to
+           those. A frozen pick was a claim made before the match; hiding it afterwards would
+           rewrite history and quietly improve the record, which is the exact drift build 62
+           removed. So: past picks stay visible and stay graded, and the gate changes what the
+           app says from here on. `gated` is stored on the fixture so every screen reads one
+           decision instead of each recomputing its own. */
+        f.edge  = started ? f.edge : pickEdge(L, f.pick, f.prob);   // build 129 — for Top Matches
+        /* build 141 — form margin, for ranking and the badge. Frozen fixtures keep whatever
+           they had: recomputing it after kick-off would re-describe a published pick, which
+           is the drift build 62 removed. */
+        f.formM = started ? f.formM : formMarginFor(L, f.home, f.away, f.pick);
+        /* ══ BUILD 199 — A PUBLISHED PICK IS NEVER GATED AGAIN ═══════════════════════════
+           `gateReason` decides what the app is willing to SAY. Once it has said something, the
+           question is settled for that fixture: re-asking it is how a tip disappeared from under
+           a user who had already backed it. So the gate now applies only to fixtures that have
+           never been published. */
+        f.gated = (started || arch) ? null : gateReason(L, f, f.pick, f.prob);
+        /* WHAT THE MODEL THINKS NOW, WHICH IS A DIFFERENT QUESTION FROM WHAT WAS PUBLISHED.
+           Both are shown. `moved` is the model having walked to another rung; `unbacked` is it
+           no longer clearing the bar at all. Neither changes the pick, the record or the
+           grading — they are the honest label on a claim the app is standing behind. */
+        f.moved = null; f.unbacked = null;
+        if(arch && !started){
+          const nowGate = lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
+          if(lp && lp.code !== arch.pick) f.moved = { pick:lp.code, prob:lp.prob, market:lp.market };
+          if(nowGate || arch.withheldAt) f.unbacked = nowGate || 'withdrawn earlier';
+        }
+        /* build 142's rule, corrected at 199. Publishing writes the pick that was shown and can
+           only ever INSERT. An unpublished fixture that fails the bar writes nothing at all —
+           that half of build 142 was right and is why its "1X ✗" cannot recur. A PUBLISHED
+           fixture that later fails the bar is stamped, not deleted. */
+        /* ══ BUILD 311 — THE RECORD STOPS ACCEPTING A PICK THE ENGINE CANNOT BACK ═════════
+           Ken: *"they end up printing wrong prediction, it's hurting my record."*
+
+           Builds 309 and 310 stopped a no-information pick being SHOWN and RECOMMENDED. Neither
+           stopped it being PUBLISHED. This is the write site, and it read `!f.gated` alone — so
+           a fixture priced from the division's average, because its competition's history had
+           not loaded yet, was still archived into `predictions` and graded from then on.
+
+           MEASURED against the live database on 2026-09-08: of 841 published predictions that
+           could be matched to a fixture, **39 (4.6%) were made when at least one side had NO
+           prior appearance in that competition** — Le Mans, Hull City, Coventry, Lincoln at
+           season start, and Lille v Real Betis in the Champions League. **2 of them reached the
+           108-row CLV set.** That is the record being hurt, and it is measured rather than
+           inferred.
+
+           `provisional` is the same term builds 309 and 310 already refuse to show. Refusing to
+           WRITE it is the half that protects the tally. ⚠ It withholds rather than deletes: a
+           fixture that is provisional today and known next week publishes then, because
+           `archivePrediction` can still only ever INSERT and nothing here removes a row. Build
+           142's rule, unchanged. */
+        if(!f._fin && !f.gated && !f.provisional){
+          recordPick(L.name,f);
+          /* Two mutually exclusive writes. An unpublished fixture is INSERTED once and never
+             again; a published one can only ever have its `final_*` columns moved, and only
+             when they actually changed. */
+          if(!arch) archivePrediction(L, f, p);
+          else      recordDrift(f, lp);
+        }
+        if(!f._fin && arch && f.unbacked) markWithheld(f);
+        /* BUILD 257 — counted HERE, after the decision, using the same variables the decision
+           used. Anywhere else and it would be a second reconstruction of the rule, which is the
+           drift that a duplicated constant always eventually produces. */
+        gateCensusAdd(L, started ? 'started'
+                       : arch ? 'published'
+                       : f.gated ? f.gated
+                       : tooFarAheadToPublish(f) ? 'far'
+                       : 'publishable');
+      } else gateCensusAdd(L, 'nomodel');
+    }
+    return true;                                 // build 316 — the engine ran; the caller may clear `_fin`
+  } else { for(const f of display) gateCensusAdd(L, 'noengine'); return false; }
+  /* `_fin` is NOT cleared here. It is what tells this pass a fixture has been played, and the
+     caller owns its lifetime - clearing it inside would leave the flag's removal tangled with
+     the decision that reads it. */
+}
 async function loadCloudLeagues(force){
   if(!supa) return;
   /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
@@ -16480,123 +16665,6 @@ async function loadCloudLeagues(force){
         }
       }
       L.matches.sort((a,b)=> a.date<b.date?-1:1);
-      // predictions from the engine (needs enough history)
-      if(L.matches.length>=15){
-        const tmp=Object.create(footballEngine); tmp.matches=L.matches;
-        for(const f of display){
-          // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
-          const p = f._fin
-            ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
-            : tmp.predict(f.home, f.away);
-          if(p){
-            const hp = headlinePick(p, f.home, f.away);
-            /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
-               after the match uses data that now contains the result, so the pick drifts — Flamengo
-               v São Paulo silently flipped from 1X (a hit) to 1 (a miss) with nothing about the match
-               having changed. That made the record move under Ken's feet and made the headline
-               disagree with its own probability bars.
-               Order of trust: the archived pre-match prediction, then whatever is already stored,
-               then a fresh calculation — and only ever a fresh one before kick-off. */
-            const started = f._fin || kickoffPassed(f);
-            /* BUILD 199 — THE ARCHIVE IS APPLIED WHETHER OR NOT THE MATCH HAS STARTED, and that
-               dropped `started &&` is the whole of Ken's fix. The window this app used to leave
-               freely rewritable was the one where it matters most: between a user reading a tip and
-               the match kicking off. `loadArchive` never had an upper date bound, so these rows were
-               already being fetched for upcoming fixtures and simply thrown away. */
-            const arch = afState.archive ? afState.archive[f.fxid] : null;
-            /* The ladder still runs on every load — not to publish, but so the CURRENT model view
-               can be recorded in `final_*` and shown beside a pick it has moved away from. */
-            const lp = started ? null : ladderPick(p, f.home, f.away, L);
-            if(arch){
-              f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL;
-              if(arch.market) f.market = arch.market;
-              f.frozen = true;
-              f.publishedAt = arch.at || null;
-            }
-            else if(started && f.pick){ f.frozen = true; }
-            else if(!started){
-              /* BUILD 119 — walk the ladder to the bar instead of committing to a rung and then
-                 failing it. `headlinePick` is untouched and still drives every measurement panel;
-                 what changes is only what gets PUBLISHED. When no rung clears, the headline is kept
-                 so the fixture can still say what it was and why it is being withheld. */
-              f.pick   = lp ? lp.code   : hp.code;
-              f.prob   = lp ? lp.prob   : +hp.prob.toFixed(3);
-              f.market = lp ? lp.market : 'Winner';
-              f.frozen = false;
-            }
-            f.provisional = !!p.unknownTeams;   // priced on league averages, not on these teams
-            /* BUILD 118 — the gate is applied to fixtures that have NOT kicked off, and only to
-               those. A frozen pick was a claim made before the match; hiding it afterwards would
-               rewrite history and quietly improve the record, which is the exact drift build 62
-               removed. So: past picks stay visible and stay graded, and the gate changes what the
-               app says from here on. `gated` is stored on the fixture so every screen reads one
-               decision instead of each recomputing its own. */
-            f.edge  = started ? f.edge : pickEdge(L, f.pick, f.prob);   // build 129 — for Top Matches
-            /* build 141 — form margin, for ranking and the badge. Frozen fixtures keep whatever
-               they had: recomputing it after kick-off would re-describe a published pick, which
-               is the drift build 62 removed. */
-            f.formM = started ? f.formM : formMarginFor(L, f.home, f.away, f.pick);
-            /* ══ BUILD 199 — A PUBLISHED PICK IS NEVER GATED AGAIN ═══════════════════════════
-               `gateReason` decides what the app is willing to SAY. Once it has said something, the
-               question is settled for that fixture: re-asking it is how a tip disappeared from under
-               a user who had already backed it. So the gate now applies only to fixtures that have
-               never been published. */
-            f.gated = (started || arch) ? null : gateReason(L, f, f.pick, f.prob);
-            /* WHAT THE MODEL THINKS NOW, WHICH IS A DIFFERENT QUESTION FROM WHAT WAS PUBLISHED.
-               Both are shown. `moved` is the model having walked to another rung; `unbacked` is it
-               no longer clearing the bar at all. Neither changes the pick, the record or the
-               grading — they are the honest label on a claim the app is standing behind. */
-            f.moved = null; f.unbacked = null;
-            if(arch && !started){
-              const nowGate = lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
-              if(lp && lp.code !== arch.pick) f.moved = { pick:lp.code, prob:lp.prob, market:lp.market };
-              if(nowGate || arch.withheldAt) f.unbacked = nowGate || 'withdrawn earlier';
-            }
-            /* build 142's rule, corrected at 199. Publishing writes the pick that was shown and can
-               only ever INSERT. An unpublished fixture that fails the bar writes nothing at all —
-               that half of build 142 was right and is why its "1X ✗" cannot recur. A PUBLISHED
-               fixture that later fails the bar is stamped, not deleted. */
-            /* ══ BUILD 311 — THE RECORD STOPS ACCEPTING A PICK THE ENGINE CANNOT BACK ═════════
-               Ken: *"they end up printing wrong prediction, it's hurting my record."*
-
-               Builds 309 and 310 stopped a no-information pick being SHOWN and RECOMMENDED. Neither
-               stopped it being PUBLISHED. This is the write site, and it read `!f.gated` alone — so
-               a fixture priced from the division's average, because its competition's history had
-               not loaded yet, was still archived into `predictions` and graded from then on.
-
-               MEASURED against the live database on 2026-09-08: of 841 published predictions that
-               could be matched to a fixture, **39 (4.6%) were made when at least one side had NO
-               prior appearance in that competition** — Le Mans, Hull City, Coventry, Lincoln at
-               season start, and Lille v Real Betis in the Champions League. **2 of them reached the
-               108-row CLV set.** That is the record being hurt, and it is measured rather than
-               inferred.
-
-               `provisional` is the same term builds 309 and 310 already refuse to show. Refusing to
-               WRITE it is the half that protects the tally. ⚠ It withholds rather than deletes: a
-               fixture that is provisional today and known next week publishes then, because
-               `archivePrediction` can still only ever INSERT and nothing here removes a row. Build
-               142's rule, unchanged. */
-            if(!f._fin && !f.gated && !f.provisional){
-              recordPick(L.name,f);
-              /* Two mutually exclusive writes. An unpublished fixture is INSERTED once and never
-                 again; a published one can only ever have its `final_*` columns moved, and only
-                 when they actually changed. */
-              if(!arch) archivePrediction(L, f, p);
-              else      recordDrift(f, lp);
-            }
-            if(!f._fin && arch && f.unbacked) markWithheld(f);
-            /* BUILD 257 — counted HERE, after the decision, using the same variables the decision
-               used. Anywhere else and it would be a second reconstruction of the rule, which is the
-               drift that a duplicated constant always eventually produces. */
-            gateCensusAdd(L, started ? 'started'
-                           : arch ? 'published'
-                           : f.gated ? f.gated
-                           : tooFarAheadToPublish(f) ? 'far'
-                           : 'publishable');
-          } else gateCensusAdd(L, 'nomodel');
-        }
-      } else { for(const f of display) gateCensusAdd(L, 'noengine'); }
-      for(const f of display) delete f._fin;
       display.sort((a,b)=> (a.date+(a.time||''))<(b.date+(b.time||''))?-1:1);
       L.upcoming = display;
       /* 🚨 BUILD 271 — THE FITTED CONSTANTS WERE NEVER REACHING THE ENGINE ON THIS PATH.
@@ -16738,6 +16806,18 @@ async function loadCloudLeagues(force){
         registerLeagueDampen(L2);
       }
       afState.leagues = merged; afState.leagueOrder = mergedOrder;
+      /* BUILD 316 — HERE, and not in the loop above. `merged` carries the cached history and has
+         been through `registerLeagueDampen`, so the pass finally sees the whole match list and the
+         fitted constants. Every competition, including ones restored from cache with no fresh rows. */
+      for(const _id in merged){
+        const _L = merged[_id];
+        if(!_L || (_L.sport||'football') !== 'football') continue;
+        let _ran = false;
+        try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
+        if(_ran){ _gateThin.delete(String(_id));
+                  for(const _f of (_L.upcoming || [])) delete _f._fin; }
+        else if((_L.upcoming || []).length) _gateThin.add(String(_id));
+      }
       /* build 279 — re-cache what has settled since last time. Deliberately NOT awaited: this is
          bookkeeping about rows already in memory and must never delay the feed. */
       try{
@@ -16790,6 +16870,26 @@ async function loadCloudLeagues(force){
         try{ return backfillSettledHistory(needHistory) || Promise.resolve(); }
         catch(e){ return Promise.resolve(); }
       })();
+      /* BUILD 316 — the second pass, for the competitions that were too thin the first time. It
+         waits on the real backfill rather than the deadline: a pick published from ten days of
+         football is the defect, so publishing late beats publishing thin. */
+      try{
+        _histReady.then(() => {
+          let filled = 0;
+          for(const _id of Array.from(_gateThin)){
+            const _L = afState.leagues[_id];
+            if(!_L || (_L.matches || []).length < 15) continue;
+            _gateThin.delete(_id);
+            let _ran = false;
+            try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
+            if(_ran){ filled++; for(const _f of (_L.upcoming || [])) delete _f._fin; }
+          }
+          if(filled){
+            try{ saveState(); }catch(e){}
+            if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
+          }
+        }).catch(() => {});
+      }catch(e){}
       try{
         Promise.race([ _histReady, new Promise(r => setTimeout(r, TIPS_SEED_WAIT_MS)) ])
           .then(() => dailySharedLoad(todayStrLocal()))
