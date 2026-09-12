@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 314;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 315;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -18037,7 +18037,33 @@ function cacheCutoff(){
    which would blank a line of the empty-state card during any drought longer than the bound. Thirty
    days buys three times the margin for 4% of the saving. **The read must stay the widest of these
    five numbers**, and a check asserts that ordering rather than any single value. */
-const LEAGUE_AHEAD_DAYS = 30;
+/* ══ BUILD 315 — THIRTY DAYS MISSED THE CHAMPIONS LEAGUE BY ONE DAY ═════════════════
+   Build 311 traced Ken's *"matches won't appear in the analysis tab until they are played, just
+   like the champions league"* to the collector: `WINDOW_AHEAD = 7`, so cup fixtures were never
+   written until a week before kick-off. Running the collector's season mode wrote **126 future
+   Champions League fixtures**, out to 2027-01-27.
+
+   🚩 AND THE APP STILL SHOWED NONE, WHICH IS WHY THAT FIX WAS VERIFIED LIVE RATHER THAN
+   ASSUMED. There is a SECOND forward bound, this one client-side: `fetchLeagueFixtures` clamps
+   every read at `leagueAheadCutoff()`. On 2026-09-12 that was **2026-10-12**. The next Champions
+   League matchday is **2026-10-13**. It missed by a single day.
+
+   MEASURED AGAINST THE LIVE DATABASE BEFORE CHANGING THE NUMBER:
+
+       rows inside the current 30-day window          1,537
+       rows added by extending it to 60 days         +1,313
+       competitions with NOTHING inside 30 days           2  — and both are cups:
+                                                             UEFA Champions League  next 2026-10-13
+                                                             DFB Pokal              next 2026-10-27
+
+   THE COST IS THE REASON THIS WAS 30 IN THE FIRST PLACE. Build 262 put a date bound on the shipped
+   read to hold egress down, and that concern is real — it is the same budget builds 298 and 304
+   spent two builds recovering. But 1,313 additional LEAN rows sit against the ~118,000 matches a
+   load already carries: **about 1%**, and the lean view is what made that true. Sixty days clears
+   both stranded competitions with room, because a cup that plays every three to five weeks needs a
+   window longer than its own gap or it is invisible between matchdays — which is exactly the
+   symptom Ken reported. */
+const LEAGUE_AHEAD_DAYS = 60;
 function leagueAheadCutoff(){
   return new Date(Date.now() + LEAGUE_AHEAD_DAYS * 86400000).toISOString().slice(0, 10);
 }
