@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 317;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 318;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1239,8 +1239,19 @@ function dampenFor(L){
   return DAMPEN_BY_LEAGUE[String(L.name || '').trim()];
 }
 const DAMPEN_OF_MATCHES = new WeakMap();
+/* BUILD 318 — the rating shrink rides the SAME registration as DAMPEN, on purpose. Eight sites create
+   a competition and every one already calls registerLeagueDampen; a second function would be a
+   ninth call site to forget, which is this project's signature defect (311, 316, 317). It is set
+   BEFORE the dampen early-out, because a competition with no fitted DAMPEN still has a type. */
+const SHRINK_OF_MATCHES = new WeakMap();
+function shrinkKFor(L){
+  if(!L || L.id == null) return ENGINE2.SHRINK_K;
+  return XC_SHAPE.COMPS.some(id => String(id) === String(L.id)) ? ENGINE2.SHRINK_K_CUP
+                                                                 : ENGINE2.SHRINK_K_LEAGUE;
+}
 function registerLeagueDampen(L){
   if(!L || !Array.isArray(L.matches)) return;
+  SHRINK_OF_MATCHES.set(L.matches, shrinkKFor(L));
   const v = dampenFor(L);
   if(typeof v === 'number') DAMPEN_OF_MATCHES.set(L.matches, v);
 }
@@ -1377,6 +1388,25 @@ const ENGINE2 = {
   ITERS_WARM: 3,      // passes when warm-starting from the previous walk-forward step
   SHRINK_K: 4,        // pseudo-matches at league average — same meaning as TUNE.SHRINK_K
   RHO: -0.08,         // Dixon-Coles low-score correction. FITTED on Ken's data, never chosen.
+  /* BUILD 318 — THE SHRINK IS FITTED BY COMPETITION TYPE. `MatchMind-SHRINK-TYPE-PREREG.md`, filed
+     before any sweep, on the 62,884 walk-forward fixtures of the build-317 load. Both splits fitted
+     the SAME pair: cups 32, leagues 8. Scored on the published path (xcAdjust(predict())):
+
+                                  parity (30,065)         chronological (18,889)
+       1X2 log loss               +4.82σ                  +3.59σ
+       home-win slope, pooled     0.814 → 0.929           0.843 → 0.956
+       home-win slope, cups       0.666 → 1.034           0.691 → 0.958
+       home-win slope, leagues    0.857 → 0.933           0.890 → 0.960
+       goals no-worse VETO        O25 +3.58 BTTS +1.59 U35 +3.75σ   +1.78 / +1.13 / +0.86σ
+       drop-one, worst            +4.44σ                  +3.21σ
+
+     κ and RHO had moved the same slope by at most 0.007: the over-confidence was the SPREAD of
+     the ratings, not the shape of the grid, and it was worst in cups exactly as
+     EVIDENCE-DISPERSION (09-06) located it. `SHRINK_K` above stays 4 and is still what half-time
+     engines and unregistered match arrays read. It is NOT the value of any published full-time
+     price. */
+  SHRINK_K_LEAGUE: 8,
+  SHRINK_K_CUP: 32,
   /* BUILD 314 — the factored accumulator. A FLAG, not a replacement: the direct loop stays in the
      file as the reference implementation, so the two can be compared in-process at any time and so
      a fault here is one boolean away from being backed out. */
@@ -1494,6 +1524,14 @@ const footballEngine = {
     const v = DAMPEN_OF_MATCHES.get(this.matches);
     return (typeof v === 'number') ? v : TUNE.DAMPEN;
   },
+  /* BUILD 318 — this engine's rating shrink. FULL-TIME ONLY: the half-time and second-half engines
+     override hgOf and were never part of the filing, so they keep ENGINE2.SHRINK_K exactly. An
+     unregistered array (a research panel's sorted copy) also keeps it. */
+  shrinkK(){
+    if(this.hgOf !== footballEngine.hgOf) return ENGINE2.SHRINK_K;
+    const v = SHRINK_OF_MATCHES.get(this.matches);
+    return (typeof v === 'number') ? v : ENGINE2.SHRINK_K;
+  },
 
   /* ══ BUILD 192 — MEASURED: THE TIPS TAB TOOK 20.6 SECONDS, AND AGAIN ON EVERY RE-OPEN ═════════
      Ken reported it as slow. Timed on a DESKTOP against the live database: Scores 13ms, Predict
@@ -1521,12 +1559,15 @@ const footballEngine = {
     const canCache = (upTo == null) && !!this.matches && !this._s2;
     if(canCache){
       const c = _engCache.get(this.matches);
-      if(c && c.s && c.sN === this.matches.length && c.sE2 === ENGINE2.ON) return c.s;
+      /* BUILD 318 — keyed on _s2tag() too, which now carries K. Without it, ratings computed before
+         a competition registers (fallback K) would be served after it does — build 316's
+         registration-order defect in a new place. */
+      if(c && c.s && c.sN === this.matches.length && c.sE2 === ENGINE2.ON && c.sTag === this._s2tag()) return c.s;
     }
     const val = this._strengthsRaw(upTo);
     if(canCache){
       const c = _engCache.get(this.matches) || {};
-      c.s = val; c.sN = this.matches.length; c.sE2 = ENGINE2.ON;
+      c.s = val; c.sN = this.matches.length; c.sE2 = ENGINE2.ON; c.sTag = this._s2tag();
       _engCache.set(this.matches, c);
     }
     return val;
@@ -1697,13 +1738,14 @@ const footballEngine = {
 
     // ── index teams once, accumulate weighted goals for/against and the fixture list ──
     /* BUILD 314 — two paths, one of them the reference. See the block above `_vTbl`. */
-    let id, gf, ga, wsum, fx, sumW, sumHG, sumAG, KEFF = ENGINE2.SHRINK_K;
+    const K0 = this.shrinkK();                       // build 318 — by competition type
+    let id, gf, ga, wsum, fx, sumW, sumHG, sumAG, KEFF = K0;
     const _acc = this._accum(n, HL);
     if(_acc){
       id = _acc.id; gf = _acc.gf; ga = _acc.ga; wsum = _acc.wsum; fx = _acc.fx;
       sumW = _acc.sumW; sumHG = _acc.sumHG; sumAG = _acc.sumAG;
       /* THE ONLY PLACE C_n SURVIVES. Everything else is a ratio and cancels. */
-      KEFF = ENGINE2.SHRINK_K / Math.pow(0.5, (n - 1) / HL);
+      KEFF = K0 / Math.pow(0.5, (n - 1) / HL);
     } else {
       const _wt = this._powTbl(HL, n);             // build 313 — identical values, computed once
       const w = i => _wt[n-1-i];
@@ -1815,7 +1857,7 @@ const footballEngine = {
      That is a coincidence of loop order, not a guarantee, and any sweep that walked the candidates
      in a different order would have silently scored one half-life using another's ratings. */
   _s2tag(){ return (this.hgOf === footballEngine.hgOf ? 'ft' : (this._tag || 'alt'))
-                 + '|hl' + TUNE.HALF_LIFE + '|nc' + NEWCOMER.MIN; },   // build 127 — sweeping MIN must not reuse cached ratings
+                 + '|hl' + TUNE.HALF_LIFE + '|nc' + NEWCOMER.MIN + '|k' + this.shrinkK(); },   // build 318   // build 127 — sweeping MIN must not reuse cached ratings
 
   /* What actually happens in an average match of THIS competition — measured, not assumed.
      Brasileirão and the Eredivisie have very different BTTS and Over 2.5 rates, so the anchor the
@@ -8786,7 +8828,7 @@ function calTable(title, rows, note){
    in `afState.skill` unchanged and keep gating winner legs forever. The size guard is right for
    "more data arrived"; it cannot see "the question changed". Bump this whenever the meaning of
    `gap` moves. */
-const SKILL_STAT_V = 2;
+const SKILL_STAT_V = 3;   // build 318 — the ratings' shrink changed, so every stored bar is stale
 async function computeSkill(L){
   const ms = (L && L.matches) || null;
   if(!ms || ms.length < 150) return { ready:false, reason:'thin', size: ms?ms.length:0 };
