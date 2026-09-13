@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 318;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 319;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -16057,6 +16057,45 @@ const HIST_CACHE_V = 1;
    the fix — same reasoning as DAMPEN_OF_MATCHES: it keys identity, so a kept object is recognised
    and a rebuilt one is not. */
 const HIST_JOINED = new WeakSet();
+/* ══ BUILD 319 — ONE HISTORY JOIN, AND IT CANNOT ADD A MATCH THE LEAGUE ALREADY HOLDS ═══════════
+   Measured on the live app 2026-09-13, on a returning device: 117,698 matches in memory for
+   89,873 distinct ones — 27,825 duplicates across 18 of 53 competitions, League One holding 5,536
+   rows for 2,780 matches. Every one of the 18 was on build 308's backfill queue.
+
+   THE MECHANISM. The restore pass joins a competition's cached history and marks it. Build 308's
+   queue then asks whether that cache starts on or before the window's cutoff — and a competition
+   whose first match in the window falls a few days AFTER the cutoff fails that test on every boot,
+   however complete its cache. The backfill fetched the same history again and joined it on top,
+   checking nothing. Build 281 fixed exactly this at the restore site with the mark; the backfill
+   site set the mark and never read it. One guard, two join sites, one of them missing it.
+
+   WHAT IT COST. After the date sort each duplicate sits next to its original, so the walk-forward
+   that fits the skill badge and the publish bar predicted the second copy with the identical
+   match — result included — already in its history. The stored cache was never poisoned: histLoad
+   de-duplicates on read and both saves write single copies. It was in memory, on warm devices.
+
+   THE FIX IS ONE JOIN FOR BOTH SITES, idempotent by CONTENT rather than by a mark: de-duplicated on
+   the same date/home/away identity histLoad already uses, the block first and the existing matches
+   after it exactly as both sites concatenated before, sorted with the consistent comparator, and a
+   new array assigned so a suspended walk keeps its snapshot. `keep` names which side wins an
+   overlap: the backfill's freshly fetched rows, or the restore's fresh boot rows. With no duplicates
+   the output is identical to the two hand-written joins it replaces. */
+function joinHistory(L, block, keep){
+  const key = x => (x && x.date) + '|' + (x && x.home) + '|' + (x && x.away);
+  const existing = L.matches || [], before = existing.length + block.length;
+  const primary = keep === 'existing' ? existing : block;
+  const secondary = keep === 'existing' ? block : existing;
+  const seen = new Set(), kept = [], other = [];
+  for(const x of primary){ const k = key(x); if(seen.has(k)) continue; seen.add(k); kept.push(x); }
+  for(const x of secondary){ const k = key(x); if(seen.has(k)) continue; seen.add(k); other.push(x); }
+  const joined = keep === 'existing' ? other.concat(kept) : kept.concat(other);
+  joined.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  L.matches = joined;
+  HIST_JOINED.add(L);
+  registerLeagueDampen(L);
+  return before - joined.length;
+}
+let _histJoinDropped = 0;   // build 319 — duplicates the join refused this session; read it to verify
 function historySettleCutoff(){
   return new Date(Date.now() - HISTORY_SETTLE_DAYS * 86400000).toISOString().slice(0, 10);
 }
@@ -16332,12 +16371,9 @@ async function backfillSettledHistory(ids){
          THE FIX IS A SORT, NOT A BETTER INVARIANT. The order is what the engine depends on, so it is
          established here rather than assumed of the inputs — the same reason build 183 keys fitted
          constants on ids rather than trusting names to be unique. */
-      L.matches = add.concat(L.matches || []);
-      L.matches.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
-      HIST_JOINED.add(L);
-      registerLeagueDampen(L);
+      _histJoinDropped += joinHistory(L, add, 'block');   // build 319 — the freshly fetched rows win an overlap
       histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
-                 flag: L.flag, logo: L.logo, sport: L.sport, season: L.season } } });
+                 flag: L.flag, logo: L.logo, sport: L.sport, season: L.season, from } } });
       filled++;
       await new Promise(r => setTimeout(r, HIST_BACKFILL_GAP_MS));
     }
@@ -16831,6 +16867,7 @@ async function loadCloudLeagues(force){
         if(!rec) return true;                       // nothing cached at all - build 286's case
         const ms = rec.m;
         if(!ms || !ms.length) return true;          // a cache with no matches covers nothing
+        if(rec.meta && rec.meta.from && rec.meta.from <= cacheCutoff()) return false;   // build 319 — the read that filled it started inside the window
         let first = null;
         for(const x of ms){ const d = x && x.date; if(d && (first === null || d < first)) first = d; }
         return !first || first > cacheCutoff();     // cached history stops short of the window
@@ -16880,10 +16917,7 @@ async function loadCloudLeagues(force){
            to one of two copies of an idea is how this project keeps reintroducing bugs — §60's
            archive fault, the correct-score panel in 117, the newcomer verdict in 126. */
         if(HIST_JOINED.has(L2)) continue;      // build 281 — this exact object already carries it
-        L2.matches = ms.concat(L2.matches || []);
-        L2.matches.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
-        HIST_JOINED.add(L2);
-        registerLeagueDampen(L2);
+        _histJoinDropped += joinHistory(L2, ms, 'existing');   // build 319 — the fresh boot rows win an overlap
       }
       afState.leagues = merged; afState.leagueOrder = mergedOrder;
       /* BUILD 316 — HERE, and not in the loop above. `merged` carries the cached history and has
@@ -16909,7 +16943,8 @@ async function loadCloudLeagues(force){
              rebuilt at all: its bounded read returns no rows, so there is no `data[0]` to take a
              name, country or logo from. See the restore pass above. */
           if(ms.length) toCache[id] = { m: ms, meta: { id: L2.id, name: L2.name, country: L2.country,
-              flag: L2.flag, logo: L2.logo, sport: L2.sport, season: L2.season } };
+              flag: L2.flag, logo: L2.logo, sport: L2.sport, season: L2.season,
+              from: (histCache[String(id)] && histCache[String(id)].meta && histCache[String(id)].meta.from) || null } };
         }
         if(Object.keys(toCache).length) histSave(toCache);
       }catch(e){}
