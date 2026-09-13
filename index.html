@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 319;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 320;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3040,20 +3040,61 @@ function freshRows(rows){
   return rows.filter(r => Date.parse(r.updated_at||'') >= cutoff);
 }
 // bump when the shape of the cached scores list changes, to force one refresh on upgrade
-const SCORES_CACHE_V = 39;
+const SCORES_CACHE_V = 40;   // build 320 — a cached list from before it carries unsettled cup scores
 function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(const s of afState.scores.list) m[s.fxid]=s; return m; }
 function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!=null && s.ga!=null); }
 // final result for a fixture: today's scores by id, else league history by teams+date
 function fixtureResult(L,f,smap){
   smap=smap||scoreMap();
   const s = f.fxid!=null ? smap[f.fxid] : null;
-  if(isFinishedScore(s)) return {gh:s.gh, ga:s.ga};
+  if(isFinishedScore(s)) return Object.assign({gh:s.gh, ga:s.ga}, aetOf(s));
   // recent finished results from the shared cloud collector (covers past days too)
-  if(f.fxid!=null && afState.cloudFix && afState.cloudFix[f.fxid]){ const c=afState.cloudFix[f.fxid]; return {gh:c.gh, ga:c.ga}; }
-  if(L && L.matches){ const m=L.matches.find(x=>x.date===f.date && x.home===f.home && x.away===f.away); if(m) return {gh:m.hg, ga:m.ag}; }
+  if(f.fxid!=null && afState.cloudFix && afState.cloudFix[f.fxid]){ const c=afState.cloudFix[f.fxid]; return Object.assign({gh:c.gh, ga:c.ga}, aetOf(c)); }
+  if(L && L.matches){ const m=L.matches.find(x=>x.date===f.date && x.home===f.home && x.away===f.away); if(m) return Object.assign({gh:m.hg, ga:m.ag}, aetOf(m)); }
   return null;
 }
 function actualCode(gh,ga){ return gh>ga?'1':gh===ga?'X':'2'; }
+/* ══ BUILD 320 — EVERY GRADE AND THE ENGINE READ THE 90-MINUTE SCORE (MatchMind-FT-SCORE-PREREG.md) ══
+   The collector has always stored the provider's `goals` as `gh`/`ga`, and those include extra time.
+   Audited 2026-09-13 from stored goal events: 106 of 2,009 validated knockout cup results were graded
+   as a win or a loss when the match was level at 90 minutes. A bookmaker settles 1X2, Double Chance,
+   Draw No Bet, goals and BTTS on the 90 minutes. af-41 stores `score.fulltime` as `ft_h`/`ft_a`, and
+   this is the one place it is read.
+
+   ONE RULE, NO SECOND COPY. `ft` is used only as a WHOLE pair of non-negative integers, neither of
+   which exceeds the final score. Anything else settles on the final score, which is what every site
+   read before this build: a null (league history is not backfilled), a half-null, or an impossible
+   pair (fxid 1477537 stores 4-0 at 90 minutes against a 2-0 final).
+   ⚠ DECLARED RESIDUAL: on 7 of 128 audited extra-time rows the provider's `fulltime` already carries
+   the final score. Their goal events prove it, but the app does not load events (build 247), so those
+   seven stay on the final score exactly as before. Nothing here claims to fix them.
+
+   Only a FINISHED row is settled. During extra time `fulltime` is already filled while the live score
+   is still the one to show. The final score rides along as `fgh`/`fga` only when it differs, so a
+   grade is never displayed beside a score it was not computed on. */
+function settledScore(r){
+  const gh = r ? r.gh : null, ga = r ? r.ga : null, fh = r ? r.ft_h : null, fa = r ? r.ft_a : null;
+  if(gh != null && ga != null && Number.isInteger(fh) && Number.isInteger(fa)
+     && fh >= 0 && fa >= 0 && fh <= gh && fa <= ga)
+    return { gh: fh, ga: fa, via: 'ft', fgh: gh, fga: ga };
+  return { gh, ga, via: 'final', fgh: gh, fga: ga };
+}
+function settledRow(r){
+  if(!r || !isFin(r.status)) return r;
+  const s = settledScore(r), out = Object.assign({}, r, { gh: s.gh, ga: s.ga });
+  if(s.via === 'ft' && (s.fgh !== s.gh || s.fga !== s.ga)){ out.fgh = s.fgh; out.fga = s.fga; }
+  return out;
+}
+function aetOf(x){ return (x && x.fgh != null && x.fga != null) ? { fgh: x.fgh, fga: x.fga } : {}; }
+function aetText(x){ return (x && x.fgh != null && x.fga != null) ? 'AET ' + x.fgh + '–' + x.fga : ''; }
+/* The legacy no-backend path reads the provider directly, so it settles the same way from the raw
+   response rather than keeping a second rule. */
+function legacySettled(f){
+  const fullT = f && f.score && f.score.fulltime;
+  const s = settledRow({ status: f.fixture.status.short, gh: f.goals.home, ga: f.goals.away,
+                         ft_h: fullT ? fullT.home : null, ft_a: fullT ? fullT.away : null });
+  return Object.assign({ gh: s.gh, ga: s.ga }, aetOf(s));
+}
 
 /* ================= HALF-TIME / FULL-TIME MODEL (build 48) =================
    A first half is not a short match — teams score at different rates before and after the break,
@@ -4014,7 +4055,7 @@ function pickMarket(code){
 function fxCells(L,f,smap){
   const res=fixtureResult(L,f,smap);
   if(res){
-    const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">FT</span></span>`;
+    const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
     let chip='';
     /* build 119 — a drawn Draw No Bet is a VOID, not a loss. Grading it ✗ would understate the
        record against a bet that actually returned the stake. */
@@ -4329,7 +4370,7 @@ function setHeroMeta(meta){
   const comp = meta.comp ? `${meta.comp}${meta.country && !(meta.comp||'').toLowerCase().includes((meta.country||'').toLowerCase()) ? ` · ${meta.country}` : ''}` : '';
   const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '';
   let sc='';
-  if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} FT</b>`;
+  if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} ${meta.aet ? meta.aet : 'FT'}</b>`;
   box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
 }
 
@@ -7326,7 +7367,7 @@ async function analyze(){
     pendingMetaPlayed = false;
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
       const res = Lm ? fixtureResult(Lm, {fxid:meta.fxid, date:meta.date, home:meta.home, away:meta.away}) : null;
-      if(res){ meta.score = `${res.gh}–${res.ga}`; }
+      if(res){ meta.score = `${res.gh}–${res.ga}`; meta.aet = aetText(res); }
       // NB: this must come AFTER the score is attached. Reading it a line earlier made it always
       // false, so played matches kept firing grounded lookups and burning the rate limit.
       pendingMetaPlayed = !!(meta && meta.score);
@@ -8404,8 +8445,8 @@ async function renderLedger(){
     const res = {};
     for(let i=0;i<ids.length;i+=200){
       const { data: fx } = await supa.from('fixtures')
-        .select('fxid,gh,ga,status,provider').in('fxid', ids.slice(i,i+200));
-      for(const f of (fx||[])) res[f.fxid] = f;
+        .select('fxid,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));
+      for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320 — graded on the 90-minute score
     }
 
     /* build -1 is a RECONSTRUCTION and build < 62 predates the freeze rule, so neither is evidence
@@ -8828,7 +8869,7 @@ function calTable(title, rows, note){
    in `afState.skill` unchanged and keep gating winner legs forever. The size guard is right for
    "more data arrived"; it cannot see "the question changed". Bump this whenever the meaning of
    `gap` moves. */
-const SKILL_STAT_V = 3;   // build 318 — the ratings' shrink changed, so every stored bar is stale
+const SKILL_STAT_V = 4;   // build 320 — cup history now carries the 90-minute score, so every stored bar is stale (318: the shrink)
 async function computeSkill(L){
   const ms = (L && L.matches) || null;
   if(!ms || ms.length < 150) return { ready:false, reason:'thin', size: ms?ms.length:0 };
@@ -10914,9 +10955,9 @@ async function m15Fetch(){
   for(const p of preds) if(ids.indexOf(p.fxid) < 0) ids.push(p.fxid);
   const fx = [];
   for(let i = 0; i < ids.length; i += 150){
-    const q = await supa.from('fixtures').select('fxid,status,gh,ga').in('fxid', ids.slice(i, i + 150));
+    const q = await supa.from('fixtures').select('fxid,status,gh,ga,ft_h,ft_a').in('fxid', ids.slice(i, i + 150));
     if(q.error) throw new Error('fixtures: ' + q.error.message);
-    for(const r of q.data) fx.push(r);
+    for(const r of q.data) fx.push(settledRow(r));   // build 320 — the grader reads the 90-minute score
   }
   return { preds: preds, snaps: snaps, fx: fx };
 }
@@ -14153,8 +14194,8 @@ async function renderArchiveDay(){
        'Serie A' and this panel grouped by NAME, so Brazil and Italy were pooled under one
        heading. It costs no extra round trip and it is the same collision that had the engine
        pricing Brasileirão with Italy's constant. */
-    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status,lcountry').in('fxid', preds.map(p=>p.fxid));
-    const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
+    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status,lcountry').in('fxid', preds.map(p=>p.fxid));
+    const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
 
     let graded=0, hits=0, stale=0;
     const byLeague = {};
@@ -14232,7 +14273,7 @@ async function renderArchiveDay(){
         ? g.label + ' (' + g.labelCountry + ')' : g.label;
       html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(heading)}</div>`;
       for(const {p, f, done, hit} of rows){
-        const score = done ? `${f.gh}–${f.ga}` : (f && f.status ? statusWord(f.status) : '—');
+        const score = done ? `${f.gh}–${f.ga}${f.fgh!=null ? ' · ' + aetText(f) : ''}` : (f && f.status ? statusWord(f.status) : '—');
         const mark = hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
         html += `<div class="frow" style="align-items:flex-start">
           <span style="flex:1">
@@ -14270,7 +14311,7 @@ async function apiAnalyze(f, L){
   $('heroAway').innerHTML = heroSide(f.away,'Away');
   setFavRow(f.home, f.away);
   pendingMeta = null;
-  { const res = fixtureResult(L, f); const meta = {comp:L.name, country:L.country||'', date:f.date, time:f.time}; if(res) meta.score = `${res.gh}–${res.ga}`; setHeroMeta(meta); }
+  { const res = fixtureResult(L, f); const meta = {comp:L.name, country:L.country||'', date:f.date, time:f.time}; if(res){ meta.score = `${res.gh}–${res.ga}`; meta.aet = aetText(res); } setHeroMeta(meta); }
   $('heroPick').textContent = '…';
   $('heroConf').textContent = 'fetching prediction… (may pause briefly for API rate limits)';
   for(const id of ['acc-smart','acc-goals','acc-score','acc-scorers','acc-injuries']) $(id).classList.add('hidden');
@@ -14650,7 +14691,7 @@ async function matchDetail(s){
   setFavRow(s.home, s.away);
   pendingMeta = null;
   setHeroMeta({comp:s.lname, country:s.lcountry||'', date:s.date, time:s.time});
-  $('heroPick').textContent = (s.gh!=null?s.gh:'–') + ' – ' + (s.ga!=null?s.ga:'–');
+  $('heroPick').textContent = (s.gh!=null?s.gh:'–') + ' – ' + (s.ga!=null?s.ga:'–') + (s.fgh!=null ? '  (' + aetText(s) + ')' : '');
   const isLive = LIVE_CODES.includes(s.status);
   $('heroConf').textContent = isLive ? '🔴 LIVE · '+(s.elapsed?s.elapsed+"'":statusWord(s.status))
                                      : (s.status==='NS' ? 'Kick-off '+localHM(s.date, s.time) : statusWord(s.status));
@@ -15409,7 +15450,7 @@ function gradeRecord(scoreList){
       r.result = s.gh>s.ga ? '1' : s.gh===s.ga ? 'X' : '2';
       // build 120 — the score is kept as well, because a goals or BTTS pick cannot be graded without
       // it. Older entries have no gh/ga and are all 1X2 picks, which grade from `result` as before.
-      r.gh = s.gh; r.ga = s.ga;
+      r.gh = s.gh; r.ga = s.ga; r.sv = RECORD_SETTLE_V;   // build 320 — the scores list is read from `fixtures`, settled
     }
   }
 }
@@ -15430,6 +15471,45 @@ function gradeFromHistory(){
       if(m){ r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2'; r.gh=m.hg; r.ga=m.ag; }   // build 120 — score kept
     }
   }
+}
+/* ══ BUILD 320 — A PICK GRADED BEFORE THE 90-MINUTE SCORE EXISTED IS RE-GRADED ONCE ══════════════════
+   `afState.record` lives on the device and a graded entry is never looked at again. Left alone, a cup
+   pick graded on a score after extra time would read ✓ in the record and ✗ on the card, which is the
+   one-correction-two-surfaces defect of builds 311 and 317 arriving through stored state.
+   So an entry carries `sv` once it has been checked against `fixtures` itself. The table always carries
+   ft, whatever the lean view does. Entries without it are read back in one small batched query and
+   settled with the SAME rule. Entries graded from the scores list are already settled and are stamped
+   there. An entry whose fixture cannot be found is stamped too, so it is not asked for again every boot.
+   `_recordSettled` counts the entries whose grade actually moved, so a verification can read it. */
+const RECORD_SETTLE_V = 1;
+let _settlingRecord = false, _recordSettled = 0;
+async function settleRecord(){
+  if(!supa || _settlingRecord) return 0;
+  const todo = (afState.record || []).filter(r => r && r.result && r.fxid != null && r.sv !== RECORD_SETTLE_V);
+  if(!todo.length) return 0;
+  _settlingRecord = true;
+  let changed = 0;
+  try{
+    const ids = [...new Set(todo.map(r => r.fxid))], byId = {};
+    for(let i = 0; i < ids.length; i += 150){
+      const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 150));
+      if(q.error) return 0;                  // nothing stamped; the next results read tries again
+      for(const f of (q.data || [])) byId[f.fxid] = f;
+    }
+    for(const r of todo){
+      const f = byId[r.fxid];
+      if(f && isFin(f.status) && f.gh != null && f.ga != null){
+        const s = settledScore(f), res = actualCode(s.gh, s.ga);
+        if(r.result !== res || (r.gh != null && (r.gh !== s.gh || r.ga !== s.ga))) changed++;
+        r.result = res; r.gh = s.gh; r.ga = s.ga;
+      }
+      r.sv = RECORD_SETTLE_V;
+    }
+    _recordSettled += changed;
+    saveState();
+    if(changed){ try{ renderStrongPicks(); renderMoreRecord(); }catch(e){} }
+  } finally { _settlingRecord = false; }
+  return changed;
 }
 /* ══ BUILD 276 — THE READ THAT WAS ACTUALLY COSTING THE EGRESS, AND IT WAS NEVER THE ONE I FIXED ══
    Builds 262/263/266 narrowed the LEAGUE read from 49.2 MB to 6.0 MB a boot, and the 04 Sep per-day
@@ -15470,13 +15550,14 @@ async function loadCloudResults(){
   try{
     const from = new Date(Date.now()-RESULTS_BACK_DAYS*86400000).toISOString().slice(0,10);
     const upto = new Date(Date.now()+RESULTS_AHEAD_DAYS*86400000).toISOString().slice(0,10);
-    const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,status,updated_at',
+    const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,ft_h,ft_a,status,updated_at',
       q => q.gte('date', from).lte('date', upto).not('gh','is',null));
     if(error || !data) return;
     const m = {};
-    for(const r of freshRows(data)){ if(r.gh!=null && r.ga!=null && isFin(r.status)) m[r.fxid]={gh:r.gh, ga:r.ga}; }   // build 160
+    for(const r0 of freshRows(data)){ if(r0.gh!=null && r0.ga!=null && isFin(r0.status)){ const s = settledRow(r0); m[r0.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); } }   // build 160; build 320 — settled
     afState.cloudFix = m;
     gradeFromHistory();
+    settleRecord().catch(() => {});   // build 320 — once per entry, then never again
     if(lastTab==='predict') renderFixtures(); else if(lastTab==='favs') renderFavs(); else if(lastTab==='tips') renderTips();
   }catch(e){}
 }
@@ -15904,6 +15985,22 @@ const LEAGUE_COLS_LEAN =
    stops sending**, so `hydrateLeanRow` puts the URL back before any of them sees the row. Found by
    reading the consumers first — the step that was missing from two defects the day before. */
 const LEAN_VIEW = 'fixtures_lean';
+/* BUILD 320 — the view gains `ft_h`/`ft_a` by SQL that runs before this build is uploaded, and the build
+   must still load if that order slips. Ledger row 23 cost 54 hours for exactly that: a select naming a
+   column the database did not have yet returns an error, not a partial row, and every competition
+   would blank. So one probe per session asks the view, and the league read names the two columns only
+   when they are there. Any failure counts as absent, which is today's read exactly. */
+let _leanFt = null;            // null unknown · true the view carries ft_h/ft_a · false it does not (yet)
+let _leanFtProbe = null;
+function leanHasFt(){
+  if(_leanFt !== null) return Promise.resolve(_leanFt);
+  if(!_leanFtProbe) _leanFtProbe = (async () => {
+    try{ const q = await supa.from(LEAN_VIEW).select('ft_h,ft_a').limit(1); _leanFt = !q.error; }
+    catch(e){ _leanFt = false; }
+    return _leanFt;
+  })();
+  return _leanFtProbe;
+}
 const LEAGUE_COLS_SLIM =
   'fxid,lid,season,date,time,status,elapsed,home,away,gh,ga,ht_h,ht_a,round,home_id,away_id';
 const TEAM_LOGO_BASE = 'https://media.api-sports.io/football/teams/';
@@ -16039,6 +16136,19 @@ const HIST_DB = 'mm_hist', HIST_STORE = 'leagues', HIST_DB_V = 1;
 /* Bumped when the shape of a cached match changes. A stale shape is DISCARDED rather than migrated:
    the source of truth is one network read away, and a migration is a second thing to get wrong. */
 const HIST_CACHE_V = 1;
+/* BUILD 320 — a CUP competition's cached history predates the 90-minute score, and cached matches carry
+   no fxid and no ft, so they could never be corrected in place. Those entries are discarded and refetched
+   once, and a saved entry records that its matches were settled (`meta.ftv`). ONLY cups: a league's
+   settled score equals its stored score on every row that carries ft today, so a league refetch would
+   change nothing and cost egress while the project is over quota. That is why this is a per-entry marker
+   and not a bump of HIST_CACHE_V, which build 281 measured at 16.42 MB a device. */
+const HIST_FT_V = 1;
+const _histFtDiscarded = new Set();
+function histSettledOk(key, meta){
+  const id = meta && meta.id != null ? meta.id : key;
+  if(!XC_SHAPE.COMPS.map(String).includes(String(id))) return true;
+  return !!(meta && meta.ftv === HIST_FT_V);
+}
 /* ⚠ BUILD 281 — THE RESTORE PASS WAS NOT IDEMPOTENT, AND 279 SHIPPED THAT WAY.
    `loadCloudLeagues` runs more than once in a session — boot, throttle expiry, manual refresh. A
    competition that is FETCHED gets a brand-new object each run holding only recent rows, so
@@ -16131,7 +16241,7 @@ async function histLoad(){
            is a safe identity. Cheaper than bumping HIST_CACHE_V, which would be correct too but
            would make every existing install re-download 16.42 MB to fix a defect it can repair for
            free. */
-        if(v && v.v === HIST_CACHE_V && Array.isArray(v.m) && v.m.length){
+        if(v && v.v === HIST_CACHE_V && Array.isArray(v.m) && v.m.length && histSettledOk(c.key, v.meta)){
           const seen = {}, clean = [];
           for(const x of v.m){
             const key = (x && x.date) + '|' + (x && x.home) + '|' + (x && x.away);
@@ -16139,7 +16249,7 @@ async function histLoad(){
             seen[key] = 1; clean.push(x);
           }
           out[c.key] = { m: clean, meta: v.meta || null };
-        }
+        } else if(v && v.v === HIST_CACHE_V && !histSettledOk(c.key, v.meta)) _histFtDiscarded.add(String(c.key));   // build 320
         c.continue();
       };
       rq.onerror = () => res(out);
@@ -16178,6 +16288,7 @@ async function histSave(map){
      a code change. */
 async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
   let out = [], from = 0, pages = 0;
+  const ftCols = (!LEAGUE_BLOBS && await leanHasFt()) ? ',ft_h,ft_a' : '';   // build 320 — only when the view has them
   for(;;){
     /* 🚨 BUILD 220 — THE `.order('fxid')` TIEBREAK BUILD 208 ADDED HERE IS REVERTED, AND IT WAS MY
        DEFECT. Ken, 2026-08-26: eight of eleven competitions failing to load, "too often now".
@@ -16221,7 +16332,7 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
     /* build 262 — lean columns and a date bound on the shipped path; `?blobs=1` lifts BOTH so a
        research run still sees every column and every season. */
     let q = LEAGUE_BLOBS ? supa.from('fixtures').select('*').eq('lid', id)
-                         : supa.from(LEAN_VIEW).select(LEAGUE_COLS_SLIM).eq('lid', id);
+                         : supa.from(LEAN_VIEW).select(LEAGUE_COLS_SLIM + ftCols).eq('lid', id);
     /* build 279 — when this competition's settled history is already cached locally, the read
        starts at the settle cutoff instead of 24 months back. `_histSince` is set by
        loadCloudLeagues from the cache it just opened; absent, this is build 278's read exactly. */
@@ -16341,9 +16452,11 @@ async function backfillSettledHistory(ids){
       for(const r of data){
         if(r.home_logo) afState.logos[r.home] = r.home_logo;
         if(r.away_logo) afState.logos[r.away] = r.away_logo;
-        if(isFin(r.status) && r.gh != null && r.ga != null)
-          add.push({ date:r.date, time:r.time, home:r.home, away:r.away,
-                     hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r) });
+        if(isFin(r.status) && r.gh != null && r.ga != null){
+          const s = settledRow(r);   // build 320 — the engine is trained on the 90-minute score
+          add.push(Object.assign({ date:r.date, time:r.time, home:r.home, away:r.away,
+                     hg:s.gh, ag:s.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r) }, aetOf(s)));
+        }
       }
       if(!add.length) continue;
       /* 🚨 BUILD 295 — THE COMMENT THAT USED TO SIT HERE ASSERTED AN INVARIANT THAT IS FALSE, AND
@@ -16373,7 +16486,7 @@ async function backfillSettledHistory(ids){
          constants on ids rather than trusting names to be unique. */
       _histJoinDropped += joinHistory(L, add, 'block');   // build 319 — the freshly fetched rows win an overlap
       histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
-                 flag: L.flag, logo: L.logo, sport: L.sport, season: L.season, from } } });
+                 flag: L.flag, logo: L.logo, sport: L.sport, ftv: _leanFt === true ? HIST_FT_V : null, season: L.season, from } } });
       filled++;
       await new Promise(r => setTimeout(r, HIST_BACKFILL_GAP_MS));
     }
@@ -16687,7 +16800,7 @@ async function loadCloudLeagues(force){
     const restingIds = {};
     COMP_IDS.forEach((id, i) => {
       const r = results[i];
-      if(r && !r.error && (!r.data || !r.data.length) && histCache[String(id)]) restingIds[id] = 1;
+      if(r && !r.error && (!r.data || !r.data.length) && (histCache[String(id)] || _histFtDiscarded.has(String(id)))) restingIds[id] = 1;   // build 320 — a discarded cup cache is still a resting cup
     });
     _loadIssues = COMP_IDS
       .map((id,i)=>{
@@ -16737,7 +16850,9 @@ async function loadCloudLeagues(force){
            because the historical match list carried the date and the goals but never the time.
            The feature was reading a field that had never existed on these rows. Exactly what the
            coverage column was put there to catch, and cheaper to find now than after a fit. */
-        if(fin){ L.matches.push({date:r.date, time:r.time, home:r.home, away:r.away, hg:r.gh, ag:r.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r)}); cf[r.fxid]={gh:r.gh, ga:r.ga}; }
+        if(fin){ const s = settledRow(r);   // build 320 — the engine and every grade read the 90-minute score
+                 L.matches.push(Object.assign({date:r.date, time:r.time, home:r.home, away:r.away, hg:s.gh, ag:s.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r)}, aetOf(s)));
+                 cf[r.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
         if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart)){
@@ -16944,6 +17059,7 @@ async function loadCloudLeagues(force){
              name, country or logo from. See the restore pass above. */
           if(ms.length) toCache[id] = { m: ms, meta: { id: L2.id, name: L2.name, country: L2.country,
               flag: L2.flag, logo: L2.logo, sport: L2.sport, season: L2.season,
+              ftv: (_leanFt === true && (leagues[id] || histSettledOk(String(id), histCache[String(id)] && histCache[String(id)].meta))) ? HIST_FT_V : null,
               from: (histCache[String(id)] && histCache[String(id)].meta && histCache[String(id)].meta.from) || null } };
         }
         if(Object.keys(toCache).length) histSave(toCache);
@@ -17175,7 +17291,7 @@ function scoresDayList(){
    competition the Pro collector also writes. Every current row is 'af', so dropping it would have
    disabled that filter and changed nothing visible until the day it mattered.
    `loadCloudResults` has named its five columns since build 160. This path never did. */
-const SCORES_COLS = 'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,home_logo,away_logo,updated_at,provider';
+const SCORES_COLS = 'fxid,lid,lname,lcountry,llogo,season,date,time,status,elapsed,home,away,gh,ga,ft_h,ft_a,home_logo,away_logo,updated_at,provider';
 
 /* BUILD 207 — A FAILED READ IS NOT DATA, AND MUST NEVER BE SAVED AS THOUGH IT WERE.
    Both failure paths below used to write `{at:Date.now(), v:SCORES_CACHE_V, source:'cloud', list:[]}`
@@ -17217,15 +17333,15 @@ async function afScoresFromCloud(){
     // freshRows drops orphaned rows from a RETIRED collector; dedupeProviders drops the free twin
     // of a competition the Pro collector is also writing RIGHT NOW. Two different problems — the
     // staleness fence cannot see this one, because both collectors are live and both look fresh.
-    const rows = dedupeProviders(freshRows(data||[]));
+    const rows = dedupeProviders(freshRows(data||[])).map(settledRow);   // build 320
     for(const r of rows){ if(r.home_logo) afState.logos[r.home]=r.home_logo; if(r.away_logo) afState.logos[r.away]=r.away_logo; }
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
     let newest = 0;
     for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
-    afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>({
+    afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
       date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
-      home:r.home, away:r.away, gh:r.gh, ga:r.ga })) };
+      home:r.home, away:r.away, gh:r.gh, ga:r.ga }, aetOf(r))) };
     gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
     return true;
@@ -17247,12 +17363,12 @@ async function afScores(silent){
       FAMOUS_CLUBS.some(c=>f.teams.home.name.includes(c) || f.teams.away.name.includes(c))
     ).slice(0,120);
     keep.forEach(f=>{ regLogo(f.teams.home); regLogo(f.teams.away); });
-    afState.scores = { at: Date.now(), list: keep.map(f=>({
+    afState.scores = { at: Date.now(), list: keep.map(f=>Object.assign({
       fxid:f.fixture.id, lid:f.league.id, lname:f.league.name, lcountry:f.league.country||'', llogo:f.league.logo||'', season:f.league.season,
       date:f.fixture.date.slice(0,10), time:f.fixture.date.slice(11,16),
       ldate:localDateOf({date:f.fixture.date.slice(0,10), time:f.fixture.date.slice(11,16)}),
       status:f.fixture.status.short, elapsed:f.fixture.status.elapsed,
-      home:f.teams.home.name, away:f.teams.away.name, gh:f.goals.home, ga:f.goals.away })) };
+      home:f.teams.home.name, away:f.teams.away.name }, legacySettled(f))) };
     gradeRecord(afState.scores.list);
     saveState();
     renderScores();
@@ -17339,7 +17455,7 @@ function renderScores(){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
       const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : s.status;
-      const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}` : '–';
+      const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}${s.fgh!=null ? ' <span class="ftl">' + aetText(s) + '</span>' : ''}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
@@ -17915,8 +18031,8 @@ async function showPredictDate(d){
       .select('fxid,lname,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
-    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,status').in('fxid', preds.map(p=>p.fxid));
-    const res = {}; for(const f of (fx||[])) res[f.fxid] = f;
+    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', preds.map(p=>p.fxid));
+    const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
       const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && isFin(f.status);   // build 160
@@ -17926,7 +18042,7 @@ async function showPredictDate(d){
       const chip = done
         ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
         : `<span class="predchip">${p.pick} · ${(100*p.pick_prob).toFixed(0)}%</span>`;
-      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">FT</span>`:localHM(d, p.ktime)}</span>
+      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(d, p.ktime)}</span>
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
     $('fixtureList').innerHTML =
