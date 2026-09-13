@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 320;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 321;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1555,17 +1555,31 @@ const footballEngine = {
        - Keyed on the matches ARRAY by reference, in a WeakMap, for the two reasons `_s2` itself
          gives: two competitions with the same match count cannot collide, and nothing hangs off the
          league object that `saveState` serialises into a ~5MB quota (build 163). */
+  /* 🚩 BUILD 321 — THE CLAIM ABOVE WAS HALF TRUE (MatchMind-ENGCACHE-PREREG.md). The cached value IS
+     bit-for-bit the cold solve: 14 of 14 competitions, Object.is. What was not true is that every
+     full-history caller got the cold solve. `!this._s2` sent an engine that had already been asked
+     once past the cache and into a WARM start: three more passes on top of its own previous answer,
+     with the newcomer multiplier applied to that seed a second time. 14 passes is not converged, so
+     every repeat moved the ratings. `applyGatePass` asks one engine about a whole competition's
+     fixtures, so fixture 2 onward was published from a drifted engine (63 stored picks, 0 the other
+     way), and `analyze()` on `footballEngine` leaked the warm state into every `fxPredict` engine.
+
+     THE FIX IS WHO MAY WARM-START, NOT THE CACHE. A full-history solve (`upTo == null`) is always
+     cold: it neither reads `_s2` nor writes it. A full-history `_s2` could never seed a walk-forward
+     call anyway (`c.n <= n` fails for every upTo below the length), so its only reader was the next
+     full-history call, and that read was the defect. Walk-forward warm starts, ITERS, ITERS_WARM and
+     the newcomer adjustment are untouched: every fitted bar was fitted on them. */
   strengths(upTo){
-    const canCache = (upTo == null) && !!this.matches && !this._s2;
-    if(canCache){
+    const full = (upTo == null) && !!this.matches;
+    if(full){
       const c = _engCache.get(this.matches);
       /* BUILD 318 — keyed on _s2tag() too, which now carries K. Without it, ratings computed before
          a competition registers (fallback K) would be served after it does — build 316's
          registration-order defect in a new place. */
       if(c && c.s && c.sN === this.matches.length && c.sE2 === ENGINE2.ON && c.sTag === this._s2tag()) return c.s;
     }
-    const val = this._strengthsRaw(upTo);
-    if(canCache){
+    const val = this._strengthsRaw(upTo, full);   // build 321 — full history is solved cold
+    if(full){
       const c = _engCache.get(this.matches) || {};
       c.s = val; c.sN = this.matches.length; c.sE2 = ENGINE2.ON; c.sTag = this._s2tag();
       _engCache.set(this.matches, c);
@@ -1687,8 +1701,8 @@ const footballEngine = {
     return c;
   },
 
-  _strengthsRaw(upTo){
-    if(ENGINE2.ON) return this.strengths2(upTo);   // build 104 — flag is false until measured
+  _strengthsRaw(upTo, cold){
+    if(ENGINE2.ON) return this.strengths2(upTo, cold);   // build 104 — flag is false until measured; build 321 — `cold`
     const arr = upTo!=null ? this.matches.slice(0, upTo) : this.matches;
     const n = arr.length;
     const HALF_LIFE = TUNE.HALF_LIFE;
@@ -1728,7 +1742,7 @@ const footballEngine = {
      WARM START. Walk-forward calls this once per match with upTo climbing by one, and one extra
      match barely moves a rating, so it resumes from the previous answer and needs three passes
      instead of fourteen. Without this the deep scan would take twenty minutes instead of two. */
-  strengths2(upTo){
+  strengths2(upTo, cold){
     /* build 314 — the length, without the copy. `arr` was only ever read as `arr[i]`, and V8's
        shallow slice is cheap but not free; the direct loop below indexes the source instead. */
     const n = upTo!=null ? Math.min(upTo, this.matches.length) : this.matches.length;
@@ -1775,7 +1789,7 @@ const footballEngine = {
        the same number of matches would otherwise collide and serve one league's ratings for
        another's. Reference identity cannot collide, and `_s2` reached through the prototype chain
        from a derived engine fails this check rather than leaking. */
-    const c = this._s2;
+    const c = cold ? null : this._s2;   // build 321 — a full-history solve never warm-starts
     if(c && c.src === this.matches && c.n <= n && c.atk.length <= T && c.tag === this._s2tag()){
       atk.set(c.atk); def.set(c.def);
       for(let t = c.atk.length; t < T; t++){ atk[t] = 1; def[t] = 1; }   // teams seen since
@@ -1840,7 +1854,7 @@ const footballEngine = {
       }
     }
 
-    this._s2 = { src: this.matches, n, atk, def, tag: this._s2tag() };
+    if(!cold) this._s2 = { src: this.matches, n, atk, def, tag: this._s2tag() };   // build 321 — ...and never seeds one
 
     const out = {};
     for(const [name, t] of id)
