@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 322;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 323;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -16020,12 +16020,43 @@ const LEAGUE_COLS_SLIM =
 const TEAM_LOGO_BASE = 'https://media.api-sports.io/football/teams/';
 let COMP_META = {};                    // lid -> { lname, lcountry, llogo }, fetched once
 
+/* ══ BUILD 323 — A COMPETITION'S NAME MUST NOT DEPEND ON ONE VIEW ANSWERING ═══════════════════════
+   Ken, 2026-09-14, a screenshot of the Predict feed: every heading read "undefined". Measured on live
+   build 322: `competitions` answered **500 57014, statement timeout, ~3.3 s, three of three**, so
+   COMP_META was empty; build 298 stopped sending `lname` on the lean rows, so 50 of 53 league objects
+   were built with `name: undefined`. The comment below said a failure "leaves the fields blank and the
+   league keeps its own name" — **there was no own name to keep.** It had been failing for at least a
+   day, logged in three write-ups as "the known 500", and never read for what it broke.
+   Engine output was not affected: dampen and shrink resolve by id (measured, 10 of 10 fitted values).
+
+   THE FALLBACK READS WHAT THE VIEW READS, ONE COMPETITION AT A TIME. Any id still unnamed after the view
+   is asked for its most recently updated `fixtures` row — the view's own rule — four columns, limit 1, on
+   the (lid, updated_at desc nulls last) index added the same day, ~120 bytes each. It only runs when the
+   view fails, and a working view costs nothing extra.
+   ⚠ THE FIRST DRAFT ORDERED BY fxid, AND ITS OWN VERIFICATION CAUGHT IT: with the view forced to fail,
+   Brazil's heading read "Serie A", because its highest-fxid row still carries the old name, where the view
+   and the collector say "Brasileirao Serie A". Two competitions called "Serie A" is exactly the collision
+   builds 183 and 267 removed. */
+const COMP_META_FALLBACK_BATCH = 8;
+let _compMetaFallback = 0;   // build 323 — how many ids the per-competition fallback was asked for this session
 async function loadCompMeta(){
   if(!supa || Object.keys(COMP_META).length) return COMP_META;
   try{
     const q = await supa.from('competitions').select('lid,lname,lcountry,llogo');
     if(!q.error) for(const c of (q.data || [])) COMP_META[c.lid] = c;
-  }catch(e){ /* absent view: hydrate leaves the fields blank and the league keeps its own name */ }
+  }catch(e){ /* a failed view falls through to the per-competition read below */ }
+  const missing = COMP_IDS.filter(id => !(COMP_META[id] && COMP_META[id].lname));
+  _compMetaFallback = missing.length;
+  for(let i = 0; i < missing.length; i += COMP_META_FALLBACK_BATCH){
+    await Promise.all(missing.slice(i, i + COMP_META_FALLBACK_BATCH).map(async id => {
+      try{
+        const r = await supa.from('fixtures').select('lid,lname,lcountry,llogo')
+                            .eq('lid', id).order('updated_at', { ascending: false, nullsFirst: false }).limit(1);
+        const c = !r.error && r.data && r.data[0];
+        if(c && c.lname) COMP_META[id] = c;
+      }catch(e){ /* this id stays unnamed; the heading guard below shows nothing rather than "undefined" */ }
+    }));
+  }
   return COMP_META;
 }
 
@@ -17051,6 +17082,8 @@ async function loadCloudLeagues(force){
           if(!rec.meta) continue;                       // no metadata — cannot rebuild, leave it out
           L2 = merged[id] = Object.assign({ matches: [], upcoming: [], teamIds: {}, scorerText: '' },
                                           rec.meta);
+          { const c = COMP_META[id];   // build 323 — a cache written while names were missing carries none
+            if(c){ if(!L2.name) L2.name = c.lname; if(!L2.country) L2.country = c.lcountry || ''; if(!L2.logo) L2.logo = c.llogo || ''; } }
           if(!mergedOrder.includes(id)) mergedOrder.push(id);
         }
         /* BUILD 295 — the second of the two join sites, and it carried the same false invariant.
@@ -17909,7 +17942,7 @@ function renderFixtures(){
     });
     if(!todays.length) continue;
     const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
-    html += `<div class="lghead">${badge} ${L.name} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
+    html += `<div class="lghead">${badge} ${L.name || ''} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
   if(!html){
