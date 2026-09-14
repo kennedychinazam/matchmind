@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 321;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 322;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -16502,6 +16502,16 @@ async function backfillSettledHistory(ids){
       histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
                  flag: L.flag, logo: L.logo, sport: L.sport, ftv: _leanFt === true ? HIST_FT_V : null, season: L.season, from } } });
       filled++;
+      /* BUILD 322 — priced now, on the full array, and only if the merge deferred it. Removed from `_gateThin`
+         BEFORE the pass, so the catch-all loop can never pass it a second time (`archivePrediction` is
+         insert-once). `_fin` is cleared only for a competition actually passed, as at the merge. */
+      _histLanded.add(String(id));
+      if(_gateThin.has(String(id)) && L.matches.length >= 15){
+        _gateThin.delete(String(id));
+        let _ran = false;
+        try{ _ran = applyGatePass(L, L.upcoming || []); }catch(e){}
+        if(_ran) for(const _f of (L.upcoming || [])) delete _f._fin;
+      }
       await new Promise(r => setTimeout(r, HIST_BACKFILL_GAP_MS));
     }
   }catch(e){ /* a competition that fails simply keeps its thin history until the next load */ }
@@ -16575,6 +16585,9 @@ async function backfillSettledHistory(ids){
 /* Competitions whose history was still too thin when the pass reached them. Emptied as each one is
    passed for real, so nothing here is ever passed twice. */
 const _gateThin = new Set();
+/* BUILD 322 — ids whose OWN backfill joined this session. A competition queued for backfill is priced only
+   once its history has landed; one whose backfill failed is withheld until the next load (Ken, D1). */
+const _histLanded = new Set();
 function applyGatePass(L, display){
   if(!L || !display || !display.length) return false;
   // predictions from the engine (needs enough history)
@@ -17052,9 +17065,20 @@ async function loadCloudLeagues(force){
       /* BUILD 316 — HERE, and not in the loop above. `merged` carries the cached history and has
          been through `registerLeagueDampen`, so the pass finally sees the whole match list and the
          fitted constants. Every competition, including ones restored from cache with no fresh rows. */
+      /* ══ BUILD 322 — BUILD 316's SECOND HALF, KEYED ON THE RIGHT CONDITION ════════════════════════
+         316 re-passes a competition after the backfill only if it had fewer than 15 matches here. A cache
+         that stops short (a cold device, an eviction, a pre-319 cache without `from`, the 9 cups on 320's
+         first boot) holds hundreds of matches, clears that test, and was priced on them; `joinHistory` then
+         replaced `L.matches` with the full set and nothing priced it again. Reproduced exactly on a forced
+         backfill (MatchMind-GATEPASS-HISTORY-PREREG.md): Champions League passed on 389 of 1,221 matches,
+         54 of 54 stored picks equal that snapshot and 0 equal today's engine, 18 codes different.
+         So a competition in `needHistory` is not passed here. It joins `_gateThin` and is passed once, by
+         the backfill, when its own history lands. Publishing late beats publishing on partial history. */
+      const _awaitHist = new Set(needHistory.map(String));
       for(const _id in merged){
         const _L = merged[_id];
         if(!_L || (_L.sport||'football') !== 'football') continue;
+        if(_awaitHist.has(String(_id)) && (_L.upcoming || []).length){ _gateThin.add(String(_id)); continue; }   // build 322
         let _ran = false;
         try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
         if(_ran){ _gateThin.delete(String(_id));
@@ -17124,6 +17148,7 @@ async function loadCloudLeagues(force){
           for(const _id of Array.from(_gateThin)){
             const _L = afState.leagues[_id];
             if(!_L || (_L.matches || []).length < 15) continue;
+            if(_awaitHist.has(String(_id)) && !_histLanded.has(String(_id))) continue;   // build 322 — D1: its backfill failed; withhold, next load prices it
             _gateThin.delete(_id);
             let _ran = false;
             try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
