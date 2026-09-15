@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 325;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 326;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8595,6 +8595,43 @@ function renderGateCensus(){
     + _gateCensus.build + ', on the league load in memory. Reload the Analysis tab for a fresh one.</div>';
   box.innerHTML = html;
 }
+/* ══ BUILD 326 — AUGUST'S FAR-AHEAD PICKS ARE RETIRED, AND THE APP SAYS SO ═════════════════════════
+   Measured 2026-09-15: before any publication window existed, builds 160/199/201 bulk-published whole seasons
+   (2,490 rows on 08-15, up to 288 days ahead). An archived row is shown as the published pick, never gated
+   again, blocks any fresh pick (`archivePrediction` returns early) and is graded by the shared record - so
+   every device would have shown picks priced in August for matches through May 2027.
+
+   Ken ruled Option A: the rows whose match was still more than a week away (so no feed, which reaches about a
+   week ahead, had ever listed them) were MOVED, unchanged, into their own public read-only table in one
+   verified transaction, and the database now refuses a pick more than `PUBLISH_GUARD_DAYS` ahead. No reader of
+   `predictions` needed an edit. What this block adds is the disclosure: a record that silently lost rows would
+   be the defect build 118 forbade, so the panels that read the archive say what was retired and where it is.
+   `MatchMind-BUILD-326-RETIRE-FAR-PICKS.md`, SQL ledger. */
+const RETIRED_TABLE = 'predictions_retired';
+const PUBLISH_GUARD_DAYS = 5;          // the database's INSERT window (SQL ledger); stays above PUBLISH_AHEAD_DAYS
+const _retiredCounts = {};
+async function retiredCount(day){
+  const key = day || '*';
+  if(Object.prototype.hasOwnProperty.call(_retiredCounts, key)) return _retiredCounts[key];
+  if(!supa) return null;
+  try{
+    let q = supa.from(RETIRED_TABLE).select('fxid', { count: 'exact', head: true });
+    if(day) q = q.eq('kickoff', day);
+    const r = await q;
+    if(r.error) throw r.error;
+    _retiredCounts[key] = r.count || 0;
+  }catch(e){ return null; }            // not cached: an absent table or an outage says nothing, and is asked again
+  return _retiredCounts[key];
+}
+function retiredNoteLedger(n){
+  return n ? '<div class="subnote">' + n + ' pick' + (n === 1 ? '' : 's') + ' published in August for matches more than a week away '
+           + (n === 1 ? 'was' : 'were') + ' retired before any feed showed them, and kept unchanged in their own table.</div>' : '';
+}
+function retiredNoteDay(n){
+  return n ? '<div class="subnote">' + n + ' August pick' + (n === 1 ? '' : 's') + ' for this date ' + (n === 1 ? 'was' : 'were')
+           + ' retired before any feed showed ' + (n === 1 ? 'it' : 'them') + '; a fresh pick is published '
+           + PUBLISH_AHEAD_DAYS + ' days before kick-off.</div>' : '';
+}
 const LEDGER_DAYS = 30;
 async function renderLedger(){
   const out = $('ledgerOut'); if(!out) return;
@@ -8720,6 +8757,7 @@ async function renderLedger(){
       html += `<div class="subnote"><b>${orphans.length} pick${orphans.length===1?'':'s'} can never be graded.</b> ${orphans.length===1?'Its':'Their'} fixture belongs to the data provider this app retired at Milestone 11. The row is still there and still reads "not started", because the job that updated those fixtures was switched off and nothing has touched them since. You can spot them in the list under the old competition names — <i>Primera Division</i> beside <i>La Liga</i> — alongside their modern twins. Shown rather than hidden, and counted in neither the hit rate nor what is still to come.</div>`;
     if(excluded.length)
       html += `<div class="subnote">${excluded.length} older row${excluded.length===1?'':'s'} ${excluded.length===1?'is':'are'} left out: ${excluded.length===1?'it was':'they were'} rebuilt after the fact or predate the freeze rule, so ${excluded.length===1?'it is':'they are'} not evidence about what this app told anybody.</div>`;
+    html += retiredNoteLedger(await retiredCount(null));   // build 326
     out.innerHTML = html;
   }catch(e){
     out.innerHTML = `<div class="subnote">Could not read the ledger — ${escapeHtml(String(e && e.message || e))}</div>`;
@@ -14384,8 +14422,9 @@ async function renderArchiveDay(){
       .select('fxid,lid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build,made_at')
       .eq('kickoff', d).order('ktime');
     if(error) throw error;
+    const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){
-      out.innerHTML = `<div class="subnote">Nothing stored for ${d}. The archive started at build 59, and a fixture is only recorded if someone had the app open before it kicked off. Missing days stay missing on purpose — filling them in now would mean predicting a result we already know.</div>`;
+      out.innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">Nothing stored for ${d}. The archive started at build 59, and a fixture is only recorded if someone had the app open before it kicked off. Missing days stay missing on purpose — filling them in now would mean predicting a result we already know.</div>`;
       return;
     }
     /* build 183 — lcountry joins this select for one reason: two competitions are named
@@ -14414,6 +14453,7 @@ async function renderArchiveDay(){
       : `<div class="frow"><span class="muted">Predictions stored</span><b>${preds.length}</b></div>`;
     if(graded && graded < preds.length)
       html += `<div class="frow"><span class="muted">Still to finish</span><b>${preds.length-graded}</b></div>`;
+    html += retiredNoteDay(retiredHere);   // build 326
     /* BUILD 202 — THE ARCHIVE'S OWN HEALTH, ON THE PANEL THAT REPORTS THE ARCHIVE. Between
        2026-08-15 and 08-23 this panel would have shown a perfectly plausible count for a table
        nothing had written in eight days, because a stored count cannot distinguish "kept up to date"
@@ -18410,8 +18450,9 @@ async function showPredictDate(d){
   try{
     const { data: preds } = await supa.from('predictions')
       .select('fxid,lname,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');
+    const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){
-      $('fixtureList').innerHTML = `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
+      $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
     const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', preds.map(p=>p.fxid));
     const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
     let hits=0, graded=0, html='', lastL='';
@@ -18427,7 +18468,7 @@ async function showPredictDate(d){
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
     $('fixtureList').innerHTML =
-      (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html;
+      (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html + retiredNoteDay(retiredHere);
   }catch(e){
     $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
   }
