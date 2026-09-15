@@ -5,6 +5,7 @@ name: Publish picks
 
 on:
   schedule:
+    - cron: '17 23 * * *'    # 00:17 in Lagos: issues the day's Smart Bet cards (build 325, Ken's D1)
     - cron: '17 5 * * *'     # 06:17 in Lagos
     - cron: '17 17 * * *'    # 18:17 in Lagos
   workflow_dispatch: {}
