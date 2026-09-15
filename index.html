@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 324;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 325;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5926,7 +5926,7 @@ async function dailySharedFetch(day){
 /* Insert-once, and a conflict is the SUCCESS case rather than an error: it means another device
    issued this tier first, which is exactly the outcome this build wants. */
 async function dailySharedSeed(day, tier, legs, reached, step){
-  if(!cloudEnabled() || !supa || !authUser) return false;
+  if(!cloudEnabled() || !supa || !authUser || !isPublisher()) return false;
   const row = { day: day, tier: tier.key, odds: +reached.toFixed(4), build: APP_BUILD,
                 step: step || 'primary',
                 legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
@@ -5951,7 +5951,7 @@ async function dailySharedSeed(day, tier, legs, reached, step){
    `DAILY_SHARED_MIN_BUILD` are refused: publishing a card frozen under retired rules with today's
    build number on it would defeat the very gate that keeps retired cards off the screen. */
 async function dailySharedSeedRow(day, tier, row){
-  if(!cloudEnabled() || !supa || !authUser) return false;
+  if(!cloudEnabled() || !supa || !authUser || !isPublisher()) return false;
   if(!row || !Array.isArray(row.legs) || !row.legs.length) return false;
   if(!(row.build >= DAILY_SHARED_MIN_BUILD)) return false;
   const q = await supa.from('daily_slips').insert(
@@ -5963,9 +5963,104 @@ async function dailySharedSeedRow(day, tier, row){
    every re-render fires an insert the primary key rejects - a write per paint rather than per day. */
 let _slipPublishTried = {};
 
+/* ══ BUILD 325 — THE SMART BET RECORD IS THE SAME ON EVERY DEVICE ═══════════════════════════════
+   Ken, 2026-09-15: *"all the records must also be the same on all device, that is record on the engine
+   performance and smart bet record, not just the picks."*
+
+   READ IN THE CODE BEFORE THIS WAS WRITTEN - three per-device sources survived build 297:
+     1. the tracker and the past days read `mm_dailyslips`, THIS device's log (`dailyLogRead`);
+     2. every leg was graded from THIS device's loaded history (`historyLeagues()` in `dailyLogGrade`),
+        so a phone that had not loaded a result showed a leg unsettled that another showed won;
+     3. a device with no shared row built and showed a card of its own, and any signed-in device seeded.
+
+   THE RULE: the issued rows in `daily_slips` are the only slips anybody sees. Their legs are graded
+   from the `fixtures` rows the legs name, read by fxid, on the 90-minute score. Only the publisher
+   issues a card (Ken's D1/D2; the database enforces it once the SQL ledger's policy is run). The local
+   log stays in storage and nothing displays it. */
+const SLIP_HISTORY_DAYS = 120;
+const SHARED_RES_TTL_MS = 3 * 60 * 1000;
+let _slipHist = { rows: [], loaded: false, capped: false, error: null };
+const _sharedResByKey = {};             // 'date|home|away' -> { hg, ag }: the key `dailyLogGrade` reads
+const _sharedResFinal = new Set();      // fxids already settled, never asked for again
+let _sharedResAt = 0;
+
+async function sharedResultsLoad(rows){
+  if(!cloudEnabled() || !supa) return 0;
+  const want = {};
+  for(const r of (rows || []))
+    for(const l of (r && Array.isArray(r.legs) ? r.legs : []))
+      if(l && l.fxid != null && l.fxid !== '' && !_sharedResFinal.has(String(l.fxid)))
+        (want[String(l.fxid)] = want[String(l.fxid)] || []).push(l);
+  const ids = Object.keys(want);
+  let added = 0;
+  for(let i = 0; i < ids.length; i += 200){
+    const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 200));
+    if(q.error) throw q.error;
+    for(const raw of (q.data || [])){
+      if(!isFin(raw.status) || raw.gh == null || raw.ga == null) continue;
+      const f = settledRow(raw);                                   // build 320 - the 90-minute score
+      _sharedResFinal.add(String(f.fxid));
+      for(const l of (want[String(f.fxid)] || [])){
+        _sharedResByKey[l.d + '|' + l.h + '|' + l.a] = { hg: f.gh, ag: f.ga };
+        added++;
+      }
+    }
+  }
+  return added;
+}
+/* Results fill in as matches finish (Ken, build 297), at most one read per three minutes, and only for
+   legs not yet settled. A failed read is retried after thirty seconds rather than on every paint. */
+function sharedResultsTick(rerender){
+  if(Date.now() - _sharedResAt < SHARED_RES_TTL_MS) return;
+  _sharedResAt = Date.now();
+  sharedResultsLoad((_sharedSlips.rows || []).concat(_slipHist.rows || []))
+    .then(n => { if(n && rerender){ try{ rerender(); }catch(e){} } })
+    .catch(() => { _sharedResAt = Date.now() - SHARED_RES_TTL_MS + 30000; });
+}
+/* Earlier days, once a session. `loaded` is set on failure too, so an outage shows no history rather
+   than a spinner forever - and never falls back to this device's own log. */
+async function slipHistoryLoad(){
+  if(_slipHist.loaded) return _slipHist;
+  if(!cloudEnabled() || !supa){ _slipHist = { rows: [], loaded: true, capped: false, error: 'offline' }; return _slipHist; }
+  try{
+    const d0 = new Date(); d0.setDate(d0.getDate() - SLIP_HISTORY_DAYS);
+    const from = d0.toISOString().slice(0, 10);
+    const tiers = DAILY_TIERS.map(t => t.key);
+    const q = await supa.from('daily_slips').select('day,tier,odds,build,step,legs')
+                        .gte('build', DAILY_SHARED_MIN_BUILD).in('tier', tiers).gte('day', from)
+                        .order('day', { ascending: false }).limit(5000);
+    if(q.error) throw q.error;
+    const older = await supa.from('daily_slips').select('day', { count: 'exact', head: true })
+                            .gte('build', DAILY_SHARED_MIN_BUILD).in('tier', tiers).lt('day', from);
+    const rows = q.data || [];
+    await sharedResultsLoad(rows);
+    _slipHist = { rows: rows, loaded: true, capped: !!(older && !older.error && older.count > 0), error: null };
+  }catch(e){
+    _slipHist = { rows: [], loaded: true, capped: false, error: String((e && e.message) || e) };
+  }
+  return _slipHist;
+}
+/* One row per day and tier, daily tiers only (`tips` and `banker` are graded on the Tips tab). Today's
+   rows come from `_sharedSlips`, which is re-read when a card is issued; earlier days from the history. */
+function dailySharedAllRows(){
+  const keys = new Set(DAILY_TIERS.map(t => t.key)), seen = {}, out = [];
+  const today = _sharedSlips.loaded ? (_sharedSlips.rows || []) : [];
+  for(const r of today.concat(_slipHist.rows || [])){
+    if(!r || !keys.has(r.tier) || !Array.isArray(r.legs) || !r.legs.length) continue;
+    const k = r.day + '|' + r.tier;
+    if(seen[k]) continue;
+    seen[k] = 1; out.push(r);
+  }
+  return out;
+}
+function dailySharedDayRows(day){ return dailySharedAllRows().filter(r => r.day === day); }
+
 async function dailySharedLoad(day, force){
   if(!force && _sharedSlips.loaded && _sharedSlips.day === day) return _sharedSlips;
   const r = await dailySharedFetch(day);
+  /* BUILD 325 - the results of today's issued legs are read before the rows are marked loaded, so the
+     first paint on every device already shows the same settled legs. A failed read grades nothing. */
+  try{ await sharedResultsLoad(r.rows); _sharedResAt = Date.now(); }catch(e){}
   _sharedSlips = { day: day, rows: r.rows, loaded: true, error: r.error };
   return _sharedSlips;
 }
@@ -6045,7 +6140,7 @@ function tipsGradeLegs(legs){
    loaded `afState` would publish a SHORT list to everybody, which is build 297's two-phone
    divergence in a worse form - one wrong answer made authoritative instead of two disagreeing. */
 async function tipsFrozenSeed(day){
-  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return false;
+  if(!cloudEnabled() || !supa || !authUser || !isPublisher() || !_leaguesLoadedAt) return false;
   const legs = [];
   for(const tab of TIPS_FREEZE_TABS){
     let rows = []; try{ rows = tipRankedRows(tab, 0) || []; }catch(e){ return false; }
@@ -6080,7 +6175,7 @@ async function tipsFrozenSeed(day){
    a reader during the afternoon. `odds` is the fair price of the pick, so the row is self-
    describing rather than carrying the 0 the list row has to. */
 async function bankerFrozenSeed(day){
-  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return false;
+  if(!cloudEnabled() || !supa || !authUser || !isPublisher() || !_leaguesLoadedAt) return false;
   let b = null; try{ b = bankerOf(); }catch(e){ return false; }
   if(!b || b.prob == null || !b.pick || !b.f) return false;
   const q = await supa.from('daily_slips').insert(
@@ -6095,7 +6190,7 @@ function tipsFrozenEnsure(){
   const day = todayStrLocal();
   if(_tipsSeedTried === day) return;
   if(!_sharedSlips.loaded || _sharedSlips.day !== day) return;
-  if(!cloudEnabled() || !supa || !authUser || !_leaguesLoadedAt) return;
+  if(!cloudEnabled() || !supa || !authUser || !isPublisher() || !_leaguesLoadedAt) return;
   const needTips = !tipsSharedRow('tips'), needBanker = !tipsSharedRow('banker');
   if(!needTips && !needBanker) return;
   _tipsSeedTried = day;
@@ -6223,10 +6318,11 @@ function dailyLogGrade(rows){
      with no next round yet. As those finish, each drops out of `footballLeagues()` and takes its
      results with it. ⚠ The ledger only runs from 2026-08-30 and the cups arrived 09-02, so the
      damage so far is probably nil; the mechanism is live from now on. */
-  const res = {};
-  for(const L of historyLeagues())
-    for(const m of (L.matches || []))
-      if(m.hg != null && m.ag != null) res[m.date + '|' + m.home + '|' + m.away] = m;
+  /* BUILD 325 - THE RESULTS ARE THE SHARED ONES, NOT THIS DEVICE'S HISTORY. Build 264's point above still
+     stands - a leg whose result cannot be found leaves the denominator silently - and it is why the map
+     is now read by fxid from `fixtures` (`sharedResultsLoad`) instead of from whichever competitions this
+     device happened to load. Every device grades the same leg from the same row. */
+  const res = _sharedResByKey;
   return rows.map(r => {
     let settled = 0, won = 0, voidOdds = 1;
     const legGrades = r.legs.map(()=>null);
@@ -6283,7 +6379,7 @@ function dailySlipView(){ window.__dsv = window.__dsv || { back: 0 }; return win
 
 /* Distinct recorded days, newest first. Today is always index 0 whether or not it has rows yet. */
 function dailyLogDays(){
-  const days = {}; for(const r of dailyLogRead()) days[r.day] = 1;
+  const days = {}; for(const r of dailySharedAllRows()) days[r.day] = 1;   // build 325 - shared rows only
   const today = todayStrLocal(); days[today] = 1;
   return Object.keys(days).sort().reverse();
 }
@@ -6296,7 +6392,7 @@ function dailyTrackerState(){
 function renderDailyTracker(){
   const box = $('dailyTracker'); if(!box) return;
   const st = dailyTrackerState();
-  const graded = dailyLogGrade(dailyLogRead());
+  const graded = dailyLogGrade(dailySharedAllRows());   // build 325 - the same rows on every device
   const cut = (() => { const d = new Date(); d.setDate(d.getDate() - st.days); return d.toISOString().slice(0,10); })();
   const rows = graded.filter(r => r.tier === st.tier && (st.days === 0 || r.day >= cut));
   const done = rows.filter(r => r.complete);
@@ -6307,14 +6403,14 @@ function renderDailyTracker(){
      at its cap it has already dropped older entries, and saying "All time" over that is a claim
      the data does not support. `allLog` is every tier, not the selected one, because the CAP is
      shared: 400 rows is ~133 days at three tiers, and filtering first would overstate the span. */
-  const allLog  = dailyLogRead();
+  const allLog  = dailySharedAllRows();
   const earliest = allLog.length ? allLog.map(r => r.day).sort()[0] : null;
-  const capped  = allLog.length >= DAILY_LOG_MAX;
+  const capped  = !!_slipHist.capped;                  // build 325 - older issued days exist beyond the window
   const allLabel = earliest ? (capped ? 'Since ' + earliest : 'All recorded') : 'All recorded';
   /* When the cap has bitten, say so where the rate is read rather than only in the chip label. A
      span that silently shortened is how a long-run figure quietly becomes a short-run one. */
   const capNote = capped
-    ? '<div class="subnote">The log is at its ' + DAILY_LOG_MAX + '-entry limit, so days before '
+    ? '<div class="subnote">Only the last ' + SLIP_HISTORY_DAYS + ' days are read, so days before '
       + escapeHtml(String(earliest)) + ' have been dropped. This is not a lifetime record.</div>'
     : '';
   const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,allLabel]]
@@ -6363,7 +6459,7 @@ function renderDailyTracker(){
     /* BUILD 305 - THIS LINE HAD BECOME FALSE. It described slips priced at the engine's fair odds;
        every slip issued since build 301 is priced at market, so the caption was contradicting the
        cards it summarised. */
-    + '<div class="subnote">Record is kept on this device only.</div>'
+    + '<div class="subnote">Issued cards graded from shared results — the same record on every device.</div>'
     + '</div>';
 
   box.querySelectorAll('[data-dt-tier]').forEach(b =>
@@ -6466,7 +6562,7 @@ function dailyFrozenCard(tier, r, isShared){
     + '; results fill in as each match finishes.</div>';
 }
 function dailyPastCards(day){
-  const rows = dailyLogGrade(dailyLogRead()).filter(r => r.day === day);
+  const rows = dailyLogGrade(dailySharedDayRows(day));   // build 325 - never this device's log
   if(!rows.length) return '<div class="card"><div class="subnote">No slips were recorded on this day.</div></div>';
   const byTier = {}; for(const r of rows) byTier[r.tier] = r;
   let out = '';
@@ -6620,12 +6716,20 @@ function renderDailySlips(){
       renderDailySlips();
     }));
   };
+  /* BUILD 325 - the day list and every past card come from the shared rows, so they must be in hand before
+     anything is drawn. The waiting state carries the day navigation (build 256's rule). */
+  if(!_slipHist.loaded){
+    slipHistoryLoad().then(() => renderDailySlips()).catch(() => {});
+    box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today’s slips</div>' + navBar
+      + '<div class="subnote"><span class="spinner"></span>Reading the issued slips…</div>';
+    wire();
+    return;
+  }
   if(view.back > 0){
     box.innerHTML = '<div class="sec-label" style="margin-top:6px">Past slips</div>' + navBar
       + dailyPastCards(days[view.back])
-      + '<div class="subnote">Recorded as shown on the day. The log keeps the last '
-      + DAILY_LOG_MAX + ' entries — about ' + Math.floor(DAILY_LOG_MAX / DAILY_TIERS.length / 30)
-      + ' months at ' + DAILY_TIERS.length + ' slips a day.</div>';
+      + '<div class="subnote">Issued once for everyone, graded from shared results; the last '
+      + SLIP_HISTORY_DAYS + ' days are shown.</div>';
     wire();
     try{ renderDailyTracker(); }catch(e){}
     return;
@@ -6669,7 +6773,7 @@ function renderDailySlips(){
      all-played branch asks whether today was ever issued, and the tier loop asks which tiers were.
      Two reads of the same localStorage key per render is the kind of waste that only shows on a
      slow phone, and the lock asserts there is exactly one. */
-  const _log = dailyLogRead(), _today = todayStrLocal();
+  const _log = isPublisher() ? dailyLogRead() : [], _today = todayStrLocal();   // build 325 - the publisher's own log only
   if(!cands.length){
     /* \u2550\u2550 BUILD 256 \u2014 THIS BRANCH USED TO DELETE THE LOOK-BACK \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
        Ken, 2026-09-01: "there were predictions there today and the buttons to see previous bets
@@ -6689,7 +6793,7 @@ function renderDailySlips(){
        morning, graded as results arrive. Replayed through `dailyPastCards`, the same function the
        Earlier view uses, never rebuilt with tonight's data. */
     const today = _today;
-    const heldToday = _log.some(r => r.day === today);
+    const heldToday = DAILY_TIERS.some(t => { const s = dailySharedRow(t); return !!(s && s.legs && s.legs.length); });
     const head = '<div class="sec-label" style="margin-top:6px">Today\u2019s slips</div>' + navBar;
     if(heldToday){
       box.innerHTML = head + dailyPastCards(today)
@@ -6756,6 +6860,15 @@ function renderDailySlips(){
       }
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
              + dailyFrozenCard(tier, fz, false) + '</div>';
+      continue;
+    }
+    /* BUILD 325 - ONLY THE PUBLISHER ISSUES A CARD (Ken's D1). Any other device shows the shared row or says
+       none was issued; it never builds one of its own, because "no card" is uniform and "my card" is not. */
+    if(!isPublisher()){
+      cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2><div class="subnote">'
+             + (_sharedSlips.error ? 'Could not read today’s issued cards. Try again shortly.'
+                                   : 'No card issued for this tier today. Cards are issued once, for everyone.')
+             + '</div></div>';
       continue;
     }
     const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, floorsForTier(st.floors, tier)));
@@ -7012,6 +7125,7 @@ function renderTips(){
   if(!_sharedSlips.loaded || _sharedSlips.day !== todayStrLocal())
     dailySharedLoad(todayStrLocal()).then(() => { tipsFrozenEnsure(); renderTips(); }).catch(() => {});
   else tipsFrozenEnsure();
+  if(_sharedSlips.loaded) sharedResultsTick(() => renderTips());   // build 325
   renderTipHorizon();
   renderBanker();
   renderTipTabs();
@@ -16828,6 +16942,7 @@ async function loadCloudLeagues(force){
      pre-298 behaviour rather than a blank screen. */
   await loadCompMeta();
   await loadSharedMeasures();   // build 324 — every bar comes from the shared record, before any gate pass
+  loadSharedRecords();          // build 325 - one engine record for every device, not awaited
   try{
     const today = todayStrLocal();
     /* build 279 — opened BEFORE the requests are built, because it decides how far back each one
@@ -17289,20 +17404,17 @@ async function loadCloudLeagues(force){
    kick-off and are the only ones the app is entitled to claim. */
 const FROZEN_FROM_BUILD = 62;
 function recordStats(){
-  gradeFromHistory();
-  const graded = afState.record.filter(r=>r.result);
-  if(!graded.length) return null;
-  const trust = graded.filter(r=>(r.build||0) >= FROZEN_FROM_BUILD);
-  const legacy = graded.length - trust.length;
+  /* BUILD 325 - the shared engine record (see `loadSharedRecords`). The notes below describe the per-device
+     tally this replaced; the void rule they state is kept in `sharedTally`. */
   /* build 119 — Draw No Bet can now be published, and a drawn DNB returns the stake. It is neither a
      hit nor a miss, so it is removed from the denominator rather than being counted as either. A
      record that called voids losses would understate the app against bets that cost nothing. */
   /* build 120 — the score goes in too, because a goals or BTTS pick cannot be graded from the 1/X/2
      result. Entries written before 120 have no gh/ga, and every one of them is a 1X2 pick, so they
      grade from `result` exactly as they always did — no historical number moves. */
-  const t = tallyPicks(trust);
-  return { n:t.n, hits:t.hits, voids:t.voids, pct:t.pct,
-           legacy, legacyHits: graded.filter(r=>(r.build||0) < FROZEN_FROM_BUILD && pickHit(r.pick, r.result)).length };
+  const t = sharedTally(null, null, null);
+  if(!t || !(t.n + t.voids)) return null;
+  return { n:t.n, hits:t.hits, voids:t.voids, pct:t.pct, legacy: 0, legacyHits: 0 };
 }
 
 /* BUILD 164 — ONE TALLY, USED BY EVERY FIGURE THE APP SHOWS.
@@ -17324,9 +17436,132 @@ function tallyPicks(rows){
 /* Graded, frozen-era picks whose match falls in [from, to] — the same population the headline
    counts, narrowed by date and nothing else. */
 function recordBetween(from, to){
-  return tallyPicks((afState.record||[]).filter(r =>
-    r.result && (r.build||0) >= FROZEN_FROM_BUILD &&
-    r.date && r.date >= from && r.date <= to));
+  return sharedTally(from, to, null) || { n:0, hits:0, voids:0, pct:'—' };
+}
+
+/* ══ BUILD 325 — ONE ENGINE RECORD, THE SAME ON EVERY DEVICE ════════════════════════════════════
+   Ken, 2026-09-15: *"all the records must also be the same on all device, that is record on the engine
+   performance and smart bet record, not just the picks."*
+
+   WHAT IT WAS: `recordStats` tallied `afState.record` - the picks THIS device happened to display,
+   written by `recordPick` as fixtures were shown and graded from this device's loaded history. Two
+   phones that opened the app on different days counted different populations.
+
+   THE RULE: the record is every pick in the shared archive (`predictions`), graded by the rules of the
+   published-record panel (`renderLedger`: frozen-era rows only, the 90-minute score, voids out of the
+   denominator), computed by the publisher and stored as ONE row in `shared_records`. Every device reads
+   that row and none computes its own; the database lets only the publisher write it. The numbers moved
+   once, on purpose: they now count every published pick, not those a device happened to show. */
+const RECORDS_TABLE = 'shared_records';
+const ENGINE_RECORD_KEY = 'engine';
+const RECORD_TTL_MS = 10 * 60 * 1000;
+let _engineRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
+let _engineRecordLoading = null;
+function loadSharedRecords(){
+  if(_engineRecordLoading) return _engineRecordLoading;
+  _engineRecord.at = Date.now();
+  _engineRecordLoading = (async () => {
+    try{
+      if(!supa) throw new Error('offline');
+      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at').eq('key', ENGINE_RECORD_KEY).limit(1);
+      if(q.error) throw q.error;
+      const r = (q.data || [])[0] || null;
+      _engineRecord = { state: r ? 'loaded' : 'empty', payload: r ? r.payload : null,
+                        computedAt: r ? r.computed_at : null, build: r ? r.build : null, at: Date.now() };
+    }catch(e){
+      /* A failed read keeps nothing from before: an old figure shown as current is the defect. */
+      _engineRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
+    }
+    _engineRecordLoading = null;
+    try{ renderStrongPicks(); renderMoreRecord(); }catch(e){}
+    return _engineRecord;
+  })();
+  return _engineRecordLoading;
+}
+/* ONE tally over the shared row: hits, misses and voids per day per market. A void returned the stake,
+   so it leaves the denominator exactly as `tallyPicks` has always done (build 119). */
+function sharedTally(from, to, market){
+  const p = _engineRecord.payload;
+  if(!p || !p.days) return null;
+  let hits = 0, misses = 0, voids = 0;
+  for(const day of Object.keys(p.days)){
+    if(from && day < from) continue;
+    if(to && day > to) continue;
+    const dd = p.days[day] || {};
+    for(const mk of Object.keys(dd)){
+      if(market && mk !== market) continue;
+      const c = dd[mk] || [0, 0, 0];
+      hits += c[0] || 0; misses += c[1] || 0; voids += c[2] || 0;
+    }
+  }
+  const n = hits + misses;
+  return { n: n, hits: hits, voids: voids, pct: n ? (100 * hits / n).toFixed(1) : '—' };
+}
+function sharedRecordMarkets(){
+  const p = _engineRecord.payload, out = {};
+  if(p && p.days) for(const day of Object.keys(p.days)) for(const mk of Object.keys(p.days[day] || {})) out[mk] = 1;
+  return Object.keys(out);
+}
+function recordUpdatedText(){
+  const t = Date.parse(_engineRecord.computedAt || '');
+  if(isNaN(t)) return '';
+  const dt = new Date(t);
+  return ', updated ' + dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+       + ' ' + dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+/* The grading is `renderLedger`'s, row for row: the same exclusions, the same finished statuses, the same
+   90-minute score and the same `gradePick`. Only the output differs - tallies instead of a list. */
+function engineRecordPayload(preds, res, today){
+  const days = {};
+  let graded = 0, withheld = 0, excluded = 0, pending = 0, orphan = 0, off = 0, ungradeable = 0;
+  for(const r of preds){
+    const stale = (r.build||0) < FROZEN_FROM_BUILD || r.build === RECONSTRUCTED;
+    if(stale){ excluded++; continue; }
+    const f = res[r.fxid];
+    const done = f && ['FINISHED','FT','AET','PEN'].includes(f.status) && f.gh!=null && f.ga!=null;
+    const g = done ? gradePick(r.pick, actualCode(f.gh,f.ga), f.gh, f.ga) : null;
+    if(g === 'hit' || g === 'miss' || g === 'void'){
+      const day = String(r.kickoff || '').slice(0, 10), mk = r.market || pickMarket(r.pick) || 'Other';
+      const dd = (days[day] = days[day] || {}), c = (dd[mk] = dd[mk] || [0, 0, 0]);
+      c[g === 'hit' ? 0 : g === 'miss' ? 1 : 2]++;
+      graded++;
+      if(r.withheld_at) withheld++;
+      continue;
+    }
+    if(done){ ungradeable++; continue; }
+    const dead = f ? (f.provider !== 'af' && r.kickoff < today) : (r.kickoff < today);
+    if(dead) orphan++;
+    else if(f && /POSTPON|CANCEL|ABAND|SUSP|AWARD/i.test(String(f.status || ''))) off++;
+    else pending++;
+  }
+  return { v: 1, days: days, total: preds.length, graded: graded, withheld: withheld, excluded: excluded,
+           pending: pending, orphan: orphan, off: off, ungradeable: ungradeable };
+}
+/* Run by the publisher robot after it publishes. Never by any other account: the tally every device
+   shows must have exactly one author, or two authors would eventually disagree. */
+async function sharedRecordsPublish(){
+  if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher writes the shared record' };
+  try{
+    const { data: preds, error } = await fetchAllRows('predictions', 'fxid,kickoff,pick,market,build,withheld_at', null, 'fxid');
+    if(error) throw error;
+    const ids = (preds || []).map(r => r.fxid), res = {};
+    for(let i = 0; i < ids.length; i += 200){
+      const { data: fx, error: fe } = await supa.from('fixtures')
+        .select('fxid,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));
+      if(fe) throw fe;
+      for(const f of (fx || [])) res[f.fxid] = settledRow(f);
+    }
+    const payload = engineRecordPayload(preds || [], res, todayStrLocal());
+    const w = await supa.from(RECORDS_TABLE).upsert(
+      { key: ENGINE_RECORD_KEY, payload: payload, build: APP_BUILD, computed_at: new Date().toISOString() },
+      { onConflict: 'key' });
+    if(w.error) throw w.error;
+    await loadSharedRecords();
+    return { ok: _engineRecord.state === 'loaded', rows: payload.total, graded: payload.graded,
+             excluded: payload.excluded, pending: payload.pending };
+  }catch(e){
+    return { ok: false, error: String((e && e.message) || e) };
+  }
 }
 const ymdLocal = (d) => new Date(d).toISOString().slice(0,10);
 function clearLegacyRecord(){
@@ -17740,9 +17975,12 @@ async function openFixture(leagueId, f, btn){
    the new 70% floor was meant to act on. */
 function renderMoreRecord(){
   const line = $('moreRecordLine'); if(!line) return;
+  if(_engineRecord.state !== 'pending' && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();   // build 325
   const stats = recordStats();
   if(!stats || !stats.n){
-    line.textContent = 'No graded predictions yet. Every published pick is frozen at kick-off and counted here once its match finishes.';
+    line.textContent = _engineRecord.state === 'pending' ? 'Reading the shared record…'
+      : _engineRecord.state === 'failed' ? 'Could not read the shared record. It is tried again when this tab is reopened.'
+      : 'No graded predictions yet. Every published pick is frozen at kick-off and counted here once its match finishes.';
     const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
     return;
   }
@@ -17772,10 +18010,10 @@ function renderMoreRecord(){
     + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out rather than called a loss.` : '')
     + (stats.legacy ? ` ${stats.legacy} older result${stats.legacy===1?'':'s'} predate the freeze rule and are not counted.` : '')
     + ` Yesterday and the last seven days count the same picks as the total above, narrowed by date.`
+    + ` The same record on every device: every published pick, graded once by MatchMind${recordUpdatedText()}.`
     + `</div>`;
 
   const box = $('moreRecordBreak'); if(!box) return;
-  const graded = (afState.record||[]).filter(r=>r.result && (r.build||0) >= FROZEN_FROM_BUILD);
   /* BUILD 229 - THIS TABLE COUNTED EVERY PICK AS CORRECT, AND KEN FOUND IT ON HIS PHONE.
      It read Double Chance 14/14, Draw No Bet 9/9, Winner 3/3, Goals 3/3 - 100% in every market -
      while the headline above it admitted 20 of 28. Eight losses were invisible, on the one panel
@@ -17794,14 +18032,11 @@ function renderMoreRecord(){
      panel was added later and brought its own counting with it. Grouping the rows and calling
      `tallyPicks` per market makes disagreement with the headline structurally impossible rather
      than merely fixed - and the market rows now sum to the headline's denominator by construction. */
-  const by = {};
-  for(const r of graded){
-    const m = r.market || pickMarket(r.pick) || 'Other';
-    (by[m] = by[m] || []).push(r);
-  }
+  /* BUILD 325 - the same ONE rule, now over the shared record: `sharedTally` per market, so the rows still
+     sum to the headline's denominator by construction. */
   const tal = {};
-  for(const m in by) tal[m] = tallyPicks(by[m]);          // ONE rule, shared with the headline
-  const rows = Object.keys(by).filter(m => tal[m].n > 0).sort((a,b)=>tal[b].n - tal[a].n);
+  for(const m of sharedRecordMarkets()) tal[m] = sharedTally(null, null, m);   // ONE rule, shared with the headline
+  const rows = Object.keys(tal).filter(m => tal[m].n > 0).sort((a,b)=>tal[b].n - tal[a].n);
   if(!rows.length){ box.innerHTML = ''; return; }
   box.innerHTML = `<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">
       <span style="flex:1">Market</span><span style="width:24%;text-align:right">Picks</span>
