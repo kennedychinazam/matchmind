@@ -5,17 +5,20 @@
    would let anyone forge the audit record M15 rests on. So the CLV sample grew with Ken's app opens,
    not with time: 129 picks archived on 2026-09-08, three on 2026-09-14.
 
-   WHAT IT DOES, AND WHAT IT NEVER DOES. It opens the LIVE app in a headless browser, signed in as a
-   dedicated publisher account, and waits while the app's own boot publishes exactly what any signed-in
-   device would. It then opens the Smart Bet tab so the app seeds the day's shared slips. It NEVER
-   computes, writes or edits a pick itself: the engine that publishes is the engine users run, so there
-   is no second copy to drift (the signature defect: one correction, two surfaces).
+   WHAT IT DOES, AND WHAT IT NEVER DOES. It opens the LIVE app in a headless browser, signed in as the
+   publisher account. From build 324 that account is the ONLY writer of the shared bars
+   (`competition_measures`): the app measures every competition and writes the result, and the robot waits
+   for that pass, then reopens the app so a fresh boot publishes from the bars just written — the same bars
+   every device reads. It then opens the Smart Bet tab so the app seeds the day's shared slips. It NEVER
+   computes, writes or edits a pick or a bar itself: the engine that publishes is the engine users run,
+   so there is no second copy to drift (the signature defect: one correction, two surfaces).
 
    CREDENTIALS come only from the environment (GitHub Actions secrets) and are never printed.
 
-   EXIT CODE: 0 when the app loaded and published without an archive error (zero new picks can be a
-   correct answer). Non-zero when it could not sign in, could not load, found duplicates, or the app
-   reported an archive failure. MM_DRY_RUN=1 runs signed out for local testing and fails only if the
+   EXIT CODE: 0 when the app loaded, the shared bars were written and read back, and it published without
+   an archive error (zero new picks can be a correct answer). Non-zero when it could not sign in, was not
+   the publisher, a shared write failed, the bars did not load, it could not load, found duplicates, or the
+   app reported an archive failure. MM_DRY_RUN=1 runs signed out for local testing and fails only if the
    app does not load. */
 import { chromium } from 'playwright-core';
 
@@ -29,6 +32,7 @@ const CHANNEL  = process.env.MM_CHANNEL || 'chrome';
 const DRY_RUN  = process.env.MM_DRY_RUN === '1';
 const TIMEZONE = 'Africa/Lagos';               // the day the app computes is the day its readers live in
 const LOAD_TIMEOUT_MS = 20 * 60 * 1000;        // a cold profile reads five seasons of history
+const MEASURE_TIMEOUT_MS = 70 * 60 * 1000;     // build 324: a full measurement pass over every competition
 const QUIET_MS = 60 * 1000;                    // settled = loaded, backfill idle, queues empty, for a full minute
 const POLL_MS = 5 * 1000;
 
@@ -65,6 +69,7 @@ function readState() {
       if (seen.has(k)) duplicates++; else seen.add(k);
     }
   }
+  const shared = typeof _measuresState !== 'undefined';
   return {
     build: APP_BUILD,
     competitions: Object.keys(afState.leagues || {}).length,
@@ -77,6 +82,17 @@ function readState() {
     archiveFailed: archiveFailed || null,
     archiveDenied: !!archiveDenied,
     archiveRows: afState.archive ? Object.keys(afState.archive).length : null,
+    // build 324 — the shared bars
+    sharedBars: shared,
+    publisher: shared ? isPublisher() : false,
+    measuresState: shared ? _measuresState : null,
+    sharedRows: shared ? Object.keys(SHARED_MEASURES).length : null,
+    engineComps: Object.values(afState.leagues || {})
+      .filter(L => L && (L.sport || 'football') === 'football' && (L.matches || []).length >= 15).length,
+    skillRunning: !!_skillTimer,
+    measuresPassDone: shared ? _measuresPassDone : 0,
+    measuresWritten: shared ? _measuresWritten : 0,
+    measuresWriteFailed: shared ? _measuresWriteFailed : 0,
   };
 }
 
@@ -98,7 +114,8 @@ async function waitSettled(page, label) {
     if (settled) {
       if (quietSince == null) quietSince = Date.now();
       if (Date.now() - quietSince >= QUIET_MS) {
-        log(`${label}: settled`, { secs: Math.round((Date.now() - t0) / 1000), competitions: s.competitions, matches: s.matches });
+        log(`${label}: settled`, { secs: Math.round((Date.now() - t0) / 1000), competitions: s.competitions, matches: s.matches,
+                                   measuresState: s.measuresState, sharedRows: s.sharedRows });
         return s;
       }
     } else {
@@ -109,11 +126,39 @@ async function waitSettled(page, label) {
   throw new Error(`${label}: the app did not settle within ${LOAD_TIMEOUT_MS / 60000} minutes: ` + JSON.stringify(s));
 }
 
+/* BUILD 324 — the publisher's measurement pass writes every competition's bar to the shared record.
+   Done = the app stamped the pass complete AND nothing has been measured for a full minute. */
+async function waitMeasured(page) {
+  const t0 = Date.now();
+  let quietSince = null, s = null, lastLog = 0;
+  while (Date.now() - t0 < MEASURE_TIMEOUT_MS) {
+    s = await page.evaluate(readState);
+    if (Date.now() - lastLog > 60000) {
+      log('measures: in progress', { written: s.measuresWritten, failed: s.measuresWriteFailed, running: s.skillRunning });
+      lastLog = Date.now();
+    }
+    const done = s.measuresPassDone > 0 && !s.skillRunning;
+    if (done) {
+      if (quietSince == null) quietSince = Date.now();
+      if (Date.now() - quietSince >= QUIET_MS) {
+        log('measures: pass complete', { secs: Math.round((Date.now() - t0) / 1000), written: s.measuresWritten,
+                                         failed: s.measuresWriteFailed, sharedRows: s.sharedRows, engineComps: s.engineComps });
+        return s;
+      }
+    } else {
+      quietSince = null;
+    }
+    await sleep(POLL_MS);
+  }
+  throw new Error(`the shared measurement pass did not finish within ${MEASURE_TIMEOUT_MS / 60000} minutes: ` + JSON.stringify(s));
+}
+
 async function main() {
   if (!DRY_RUN && (!EMAIL || !PASSWORD)) throw new Error('MM_PUBLISHER_EMAIL and MM_PUBLISHER_PASSWORD must be set');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TIMEZONE });
   const before = { predictions: await restCount('predictions', 'fxid=not.is.null'),
-                   slipsToday: await restCount('daily_slips', `day=eq.${today}`) };
+                   slipsToday: await restCount('daily_slips', `day=eq.${today}`),
+                   sharedBars: await restCount('competition_measures', 'lid=not.is.null') };
   log('start', { app: APP_URL, dryRun: DRY_RUN, channel: CHANNEL, today, before });
 
   const ctx = await chromium.launchPersistentContext(PROFILE, {
@@ -145,6 +190,19 @@ async function main() {
     const boot = await waitSettled(page, 'boot');
 
     if (!DRY_RUN) {
+      if (!boot.sharedBars) throw new Error('the live app is older than build 324: it has no shared bars to write');
+      if (!boot.publisher) throw new Error('signed in, but not as the publisher account, so the shared bars cannot be written');
+      /* Build 324 — measure and write every competition's bar, then publish from what was written. */
+      const measured = await waitMeasured(page);
+      if (measured.measuresWriteFailed) throw new Error(measured.measuresWriteFailed + ' shared measurement write(s) failed');
+      log('reopening so a fresh boot publishes from the shared bars just written', { written: measured.measuresWritten });
+      await openApp(page);
+      await page.waitForFunction(() => !!authUser, null, { timeout: 60000, polling: 1000 });
+      const republish = await waitSettled(page, 'republish');
+      if (republish.measuresState !== 'loaded') throw new Error('the shared bars did not load on the republish boot: ' + republish.measuresState);
+      if (republish.sharedRows < republish.engineComps) {
+        throw new Error(`only ${republish.sharedRows} shared bars for ${republish.engineComps} competitions with an engine`);
+      }
       /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
          the app's own state and render call, exactly as a tap on the tab does. */
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
@@ -153,19 +211,23 @@ async function main() {
     const end = await waitSettled(page, 'after slips');
 
     const after = { predictions: await restCount('predictions', 'fxid=not.is.null'),
-                    slipsToday: await restCount('daily_slips', `day=eq.${today}`) };
+                    slipsToday: await restCount('daily_slips', `day=eq.${today}`),
+                    sharedBars: await restCount('competition_measures', 'lid=not.is.null') };
     const summary = {
       build: end.build, competitions: end.competitions, expected: end.expected, matches: end.matches,
-      duplicates: end.duplicates, signedIn: end.signedIn, archiveFailed: end.archiveFailed,
+      duplicates: end.duplicates, signedIn: end.signedIn, publisher: end.publisher, archiveFailed: end.archiveFailed,
       archiveDenied: end.archiveDenied, archiveRows: end.archiveRows,
+      measuresState: end.measuresState, sharedRows: end.sharedRows, engineComps: end.engineComps,
       newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
-      slipsToday: after.slipsToday, bootMatches: boot.matches,
+      slipsToday: after.slipsToday, sharedBarsInTable: after.sharedBars, bootMatches: boot.matches,
     };
     log('summary', summary);
 
     if (!DRY_RUN) {
       const problems = [];
       if (!end.signedIn) problems.push('not signed in at the end');
+      if (!end.publisher) problems.push('not the publisher account at the end');
+      if (end.measuresState !== 'loaded') problems.push('the shared bars were not loaded at the end');
       if (end.archiveFailed) problems.push('the app reported an archive failure');
       if (end.archiveDenied) problems.push('the database refused the archive write');
       if (end.duplicates) problems.push(end.duplicates + ' duplicate matches in memory');
