@@ -9,7 +9,8 @@
    publisher account. From build 324 that account is the ONLY writer of the shared bars
    (`competition_measures`): the app measures every competition and writes the result, and the robot waits
    for that pass, then reopens the app so a fresh boot publishes from the bars just written — the same bars
-   every device reads. It then opens the Smart Bet tab so the app seeds the day's shared slips. It NEVER
+   every device reads. It then opens the Smart Bet tab so the app issues the day's shared slips (from build
+   325 only the publisher may), and asks the app to write the one engine record every device shows. It NEVER
    computes, writes or edits a pick or a bar itself: the engine that publishes is the engine users run,
    so there is no second copy to drift (the signature defect: one correction, two surfaces).
 
@@ -33,7 +34,8 @@ const DRY_RUN  = process.env.MM_DRY_RUN === '1';
 const TIMEZONE = 'Africa/Lagos';               // the day the app computes is the day its readers live in
 const LOAD_TIMEOUT_MS = 20 * 60 * 1000;        // a cold profile reads five seasons of history
 const MEASURE_TIMEOUT_MS = 70 * 60 * 1000;     // build 324: a full measurement pass over every competition
-const QUIET_MS = 60 * 1000;                    // settled = loaded, backfill idle, queues empty, for a full minute
+const SLIPS_TIMEOUT_MS = 5 * 60 * 1000;        // build 325: shared history + today's rows + prices
+const QUIET_MS = 60 * 1000;                   // settled = loaded, backfill idle, queues empty, for a full minute
 const POLL_MS = 5 * 1000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -93,7 +95,24 @@ function readState() {
     measuresPassDone: shared ? _measuresPassDone : 0,
     measuresWritten: shared ? _measuresWritten : 0,
     measuresWriteFailed: shared ? _measuresWriteFailed : 0,
+    // build 325 — the shared records
+    sharedRecords: typeof sharedRecordsPublish === 'function',
+    slipsReady: typeof _slipHist !== 'undefined'
+      ? (!!_slipHist.loaded && !!_sharedSlips.loaded && !!_dailyOdds.loaded) : false,
+    issuedRowsToday: (typeof _sharedSlips !== 'undefined' && _sharedSlips.loaded) ? (_sharedSlips.rows || []).length : null,
   };
+}
+
+/* BUILD 325 — the Smart Bet tab issues a card only once the shared history, today's rows and today's prices
+   are in hand; until then it paints a waiting state and seeds nothing. */
+async function waitSlips(page) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < SLIPS_TIMEOUT_MS) {
+    const s = await page.evaluate(readState);
+    if (s.slipsReady) { log('slips: ready', { secs: Math.round((Date.now() - t0) / 1000), issuedRowsToday: s.issuedRowsToday }); return s; }
+    await sleep(POLL_MS);
+  }
+  throw new Error(`the Smart Bet tab did not finish loading within ${SLIPS_TIMEOUT_MS / 60000} minutes`);
 }
 
 async function waitSettled(page, label) {
@@ -192,6 +211,7 @@ async function main() {
     if (!DRY_RUN) {
       if (!boot.sharedBars) throw new Error('the live app is older than build 324: it has no shared bars to write');
       if (!boot.publisher) throw new Error('signed in, but not as the publisher account, so the shared bars cannot be written');
+      if (!boot.sharedRecords) throw new Error('the live app is older than build 325: it has no shared record to write');
       /* Build 324 — measure and write every competition's bar, then publish from what was written. */
       const measured = await waitMeasured(page);
       if (measured.measuresWriteFailed) throw new Error(measured.measuresWriteFailed + ' shared measurement write(s) failed');
@@ -206,9 +226,19 @@ async function main() {
       /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
          the app's own state and render call, exactly as a tap on the tab does. */
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
+      await waitSlips(page);
       await sleep(15000);
     }
     const end = await waitSettled(page, 'after slips');
+
+    /* BUILD 325 — the engine record every device shows: graded by the app's own function, written by the
+       publisher, read back by the app before this returns. */
+    let record = null;
+    if (!DRY_RUN) {
+      record = await page.evaluate(() => sharedRecordsPublish());
+      log('shared engine record', record);
+      if (!record || !record.ok) throw new Error('the shared engine record was not written: ' + (record && record.error));
+    }
 
     const after = { predictions: await restCount('predictions', 'fxid=not.is.null'),
                     slipsToday: await restCount('daily_slips', `day=eq.${today}`),
@@ -220,6 +250,7 @@ async function main() {
       measuresState: end.measuresState, sharedRows: end.sharedRows, engineComps: end.engineComps,
       newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
       slipsToday: after.slipsToday, sharedBarsInTable: after.sharedBars, bootMatches: boot.matches,
+      issuedRowsToday: end.issuedRowsToday, engineRecord: record,
     };
     log('summary', summary);
 
