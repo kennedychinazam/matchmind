@@ -1,0 +1,56 @@
+# MatchMind — the publisher robot (2026-09-14, Ken's ruling "go with A").
+# Opens the live app twice a day, signed in as the publisher account, so the app's own code publishes
+# the picks a signed-in device would. It never computes a pick. See robot/publish.mjs.
+name: Publish picks
+
+on:
+  schedule:
+    - cron: '17 5 * * *'     # 06:17 in Lagos
+    - cron: '17 17 * * *'    # 18:17 in Lagos
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-picks
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The browser profile is kept between runs so each open reads only what is new, not five seasons.
+      - name: Restore the browser profile
+        uses: actions/cache/restore@v4
+        with:
+          path: mm-profile
+          key: mm-profile-${{ github.run_id }}
+          restore-keys: mm-profile-
+
+      - name: Install the browser driver
+        working-directory: robot
+        run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+
+      - name: Open the app as the publisher
+        working-directory: robot
+        env:
+          MM_PUBLISHER_EMAIL: ${{ secrets.MM_PUBLISHER_EMAIL }}
+          MM_PUBLISHER_PASSWORD: ${{ secrets.MM_PUBLISHER_PASSWORD }}
+          MM_PROFILE_DIR: ${{ github.workspace }}/mm-profile
+          MM_CHANNEL: chrome
+        run: node publish.mjs
+
+      - name: Save the browser profile
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: mm-profile
+          key: mm-profile-${{ github.run_id }}
