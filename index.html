@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 323;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 324;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3638,6 +3638,51 @@ function gateEdgeFor(L){
   const g = (L && afState.gate) ? afState.gate[L.id] : null;
   return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
 }
+/* ══ BUILD 324 — ONE BAR PER COMPETITION, THE SAME ON EVERY DEVICE ═══════════════════════════════
+   Ken, 2026-09-15: *"the competition real bar should be the same for all device. no info should
+   differ per device, it is not acceptable."*
+
+   MEASURED THE SAME MORNING: every device fitted and saved its OWN bar (`refreshSkills` -> `autoGate`,
+   after the boot load), and a device with no saved bars published at the 0.70 fallback before its own
+   existed. The publisher robot's first 14 picks were ALL below their competition's fitted bar (12 at
+   0.75, 2 at 0.80); a warm device withheld them 7 minutes later; the archive holds 133 picks withheld
+   within an hour of publication. `MatchMind-BUILD-324-SHARED-BARS.md`.
+
+   THE RULE: a competition's bar and skill measurement live in `competition_measures`, written ONLY by
+   the publisher account (the database enforces it - SQL ledger), and read by every device before its
+   gate pass. A competition with no shared row, or a session in which the table could not be read,
+   publishes nothing and withholds nothing. It never falls back on a guess. */
+const PUBLISHER_EMAIL = 'kennedychinazam+robot@gmail.com';
+const MEASURES_TABLE  = 'competition_measures';
+const SHARED_MEASURES = {};            // lid -> the shared row, filled ONLY from the server
+let _measuresState = 'pending';        // 'pending' | 'loaded' | 'failed'
+let _measuresWritten = 0, _measuresWriteFailed = 0, _measuresPassDone = 0;   // the publisher's pass, for verification
+function isPublisher(){
+  return !!(authUser && String(authUser.email || '').toLowerCase() === PUBLISHER_EMAIL);
+}
+function sharedBarKnown(L){
+  return _measuresState === 'loaded' && !!(L && SHARED_MEASURES[String(L.id)]);
+}
+async function loadSharedMeasures(){
+  if(!supa){ _measuresState = 'failed'; return; }
+  try{
+    const q = await supa.from(MEASURES_TABLE).select('lid,gate,skill,data_size,build,computed_at');
+    if(q.error) throw q.error;
+    for(const k of Object.keys(SHARED_MEASURES)) delete SHARED_MEASURES[k];
+    const gate = {}, skill = {};
+    for(const r of (q.data || [])){
+      SHARED_MEASURES[String(r.lid)] = r;
+      if(r.gate && r.gate.ready) gate[String(r.lid)] = r.gate;
+      if(r.skill) skill[String(r.lid)] = r.skill;
+    }
+    afState.gate = gate; afState.skill = skill;
+    _measuresState = 'loaded';
+  }catch(e){
+    for(const k of Object.keys(SHARED_MEASURES)) delete SHARED_MEASURES[k];
+    afState.gate = {}; afState.skill = {};
+    _measuresState = 'failed';
+  }
+}
 
 /* ══ BUILD 248 — DID THIS COMPETITION ACTUALLY REACH THE TARGET? ════════════════════════════════
    `autoGate` has computed `met` since build 129 and NOTHING HAS EVER READ IT — one occurrence in the
@@ -3764,6 +3809,7 @@ async function autoGate(L){
    shown to the user — a fixture that says nothing must say WHY it says nothing (build 110). */
 function gateReason(L, f, code, prob){
   if(prob == null || !code) return 'unpriced';
+  if(!sharedBarKnown(L)) return 'unmeasured';   // build 324 — no shared bar: nothing publishes, on any device
   if(prob < gateBarFor(L)) return 'low';   // build 128 — this competition's measured bar
   if(PICK_GATE.NEED_EDGE){
     /* build 120 — a goals pick is measured against the goals base rate of an average match in this
@@ -3815,7 +3861,7 @@ function gateCensusReset(){
   _gateCensus = { at: new Date().toISOString(), build: APP_BUILD,
                   window: PUBLISH_AHEAD_DAYS, by: {} };
 }
-const GATE_BUCKETS = ['started','published','low','nobase','unpriced','far','publishable',
+const GATE_BUCKETS = ['started','published','unmeasured','low','nobase','unpriced','far','publishable',
                       'nomodel','noengine'];
 function gateCensusAdd(L, bucket){
   if(!_gateCensus || !L) return;
@@ -3824,6 +3870,7 @@ function gateCensusAdd(L, bucket){
   c[bucket] = (c[bucket] || 0) + 1;
 }
 const GATE_TEXT = {
+  unmeasured: 'Bar not loaded',   // build 324
   low:    'No strong read',
   nobase: 'No edge here',
   unpriced:'Not priced'
@@ -3838,7 +3885,9 @@ const GATE_WHY = {
     ? `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. That bar is not a guess — it is the lowest level at which this league's own past predictions actually delivered ${pct(GATE_TARGET)}, measured match by match. Below it, calls like this one land about two times in three, which is not often enough to put in front of you as a tip.`
     : `The engine's best call here is ${pct(p)}, under the ${pct(bar==null?PICK_GATE.MIN_PROB:bar)} it has to clear in this competition. ⚠ In this league the engine has never reached ${pct(GATE_TARGET)} at any threshold tested — that bar is the best level its own past predictions managed, not a level they delivered. So calls here are withheld more readily, and this competition carries no measured edge.`,
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
-  unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`
+  unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`,
+  /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
+  unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`
 };
 
 /* ── THE LADDER (build 119) ────────────────────────────────────────────────────
@@ -13613,6 +13662,7 @@ function skillProven(L){ const s = skillOf(L); return !!(s && s.ready && s.prove
 let _skillTimer = null;
 function refreshSkills(){
   if(_skillTimer) return;
+  if(!isPublisher()) return;   // build 324 — devices read the shared record; only the publisher measures
   afState.skill = afState.skill || {};
   afState.gate  = afState.gate  || {};   // build 128 — each competition's own measured publish bar
   /* ⚠ BUILD 281 — `historyLeagues()`, NOT `footballLeagues()`. The latter filters on
@@ -13624,16 +13674,20 @@ function refreshSkills(){
      A-League (678), Coppa Italia and DFB Pokal — every one of them out of season, not short of
      data. The 150-match floor below is the real guard and it is unchanged. */
   const todo = historyLeagues().filter(L=>{
-    const s = afState.skill[L.id], g = afState.gate[L.id], size = (L.matches||[]).length;
+    const row = SHARED_MEASURES[String(L.id)], s = row && row.skill, size = (L.matches||[]).length;
     /* build 283 — `s.v !== SKILL_STAT_V` forces a recompute when the STATISTIC changed, which the
-       size comparison alone can never detect. */
-    return size >= 150 && (!s || !g || s.v !== SKILL_STAT_V
-                           || Math.abs((s.size||0) - size) > 20 || Math.abs((g.size||0) - size) > 20);
+       size comparison alone can never detect.
+       BUILD 324 — compared against the SHARED row. Every competition with an engine (15+ matches) gets
+       one, so a competition too thin to fit a bar carries that fact to every device instead of each
+       device falling back on its own; computeSkill (150) and autoGate (200) keep their own floors. A new
+       build re-measures, because the engine may have moved. */
+    return size >= 15 && (!row || !s || s.v !== SKILL_STAT_V || row.build !== APP_BUILD
+                          || Math.abs((row.data_size||0) - size) > 20);
   }).map(L=>L.id);
-  if(!todo.length) return;
+  if(!todo.length){ _measuresPassDone = Date.now(); return; }   // build 324 — nothing stale: the pass is complete
   const step = async ()=>{
     const id = todo.shift();
-    if(id == null){ _skillTimer = null; saveState();
+    if(id == null){ _skillTimer = null; _measuresPassDone = Date.now(); saveState();
       /* BUILD 311 — `lastTab` is only ever assigned from `navTo(t)`, and `t` comes from
          `NAV_VIEWS = ['scores','predict','tips','favs','data','detail']`. **There is no 'analysis'.**
          So this branch has never once run, and the accuracy record it re-renders has never refreshed
@@ -13644,11 +13698,27 @@ function refreshSkills(){
       return; }
     const L = afState.leagues[id];
     if(L) {
-      try{ afState.skill[id] = await computeSkill(L); }catch(e){}
       /* build 128 — the bar is measured in the same background pass as the skill badge, on the same
-         history, so the two can never describe different data. A competition that cannot measure one
-         keeps the global fallback rather than being handed an invented number. */
-      try{ const g = await autoGate(L); if(g && g.ready) afState.gate[id] = g; else delete afState.gate[id]; }catch(e){}
+         history, so the two can never describe different data.
+         BUILD 324 — and it is WRITTEN to the shared record, the only place any device reads it. A
+         competition that cannot fit a bar is written as `ready:false`, a shared fact, so every device
+         applies the same fallback. Nothing is kept in memory unless the write landed. */
+      let sk = null, g = null;
+      try{ sk = await computeSkill(L); }catch(e){}
+      try{ g = await autoGate(L); }catch(e){}
+      if(sk && g){
+        const gate = Object.assign({}, g); delete gate.cells;
+        const row = { lid: +id, gate: gate, skill: sk, data_size: (g.size != null ? g.size : (L.matches||[]).length),
+                      build: APP_BUILD, computed_at: new Date().toISOString() };
+        try{
+          const w = await supa.from(MEASURES_TABLE).upsert(row, { onConflict: 'lid' });
+          if(w && w.error) throw w.error;
+          _measuresWritten++;
+          SHARED_MEASURES[String(id)] = row;
+          afState.skill[id] = sk;
+          if(gate.ready) afState.gate[id] = gate; else delete afState.gate[id];
+        }catch(e){ _measuresWriteFailed++; }
+      } else _measuresWriteFailed++;
     }
     _skillTimer = setTimeout(step, 120);
   };
@@ -16628,7 +16698,7 @@ function applyGatePass(L, display){
       // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
       const p = f._fin
         ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
-        : tmp.predict(f.home, f.away);
+        : xcAdjust(L, f, tmp.predict(f.home, f.away), tmp);   // build 324 — the record prices as the screens do
       if(p){
         const hp = headlinePick(p, f.home, f.away);
         /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
@@ -16689,7 +16759,8 @@ function applyGatePass(L, display){
            grading — they are the honest label on a claim the app is standing behind. */
         f.moved = null; f.unbacked = null;
         if(arch && !started){
-          const nowGate = lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
+          const nowGate = !sharedBarKnown(L) ? null   // build 324 — no shared bar, no verdict: never withhold on a guess
+                        : lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
           if(lp && lp.code !== arch.pick) f.moved = { pick:lp.code, prob:lp.prob, market:lp.market };
           if(nowGate || arch.withheldAt) f.unbacked = nowGate || 'withdrawn earlier';
         }
@@ -16723,7 +16794,9 @@ function applyGatePass(L, display){
              again; a published one can only ever have its `final_*` columns moved, and only
              when they actually changed. */
           if(!arch) archivePrediction(L, f, p);
-          else      recordDrift(f, lp);
+          /* build 324 — the model's current view is written to the shared archive only against a shared bar;
+             without one `lp` came from the 0.70 guess (found by acceptance check A2: 48 queued). */
+          else if(sharedBarKnown(L)) recordDrift(f, lp);
         }
         if(!f._fin && arch && f.unbacked) markWithheld(f);
         /* BUILD 257 — counted HERE, after the decision, using the same variables the decision
@@ -16754,6 +16827,7 @@ async function loadCloudLeagues(force){
      replaces. A failure leaves the map empty and the league keeps its own name, which is the
      pre-298 behaviour rather than a blank screen. */
   await loadCompMeta();
+  await loadSharedMeasures();   // build 324 — every bar comes from the shared record, before any gate pass
   try{
     const today = todayStrLocal();
     /* build 279 — opened BEFORE the requests are built, because it decides how far back each one
@@ -18577,7 +18651,7 @@ function saveState(){
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       prefs, notif,
-      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, skill: afState.skill, gate: afState.gate, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab, favAt: afState.favAt, favDel: afState.favDel}
+      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab, favAt: afState.favAt, favDel: afState.favDel}
     }, dropExtras));
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
@@ -18610,6 +18684,7 @@ function onAuth(user){
   const was = authUser; authUser = user || null;
   renderAccount();
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
+  if(isPublisher() && _leaguesLoadedAt){ try{ refreshSkills(); }catch(e){} }   // build 324 — the publisher measures once signed in
 }
 async function authSignup(){
   if(!supa) return;
@@ -18741,8 +18816,8 @@ function restoreState(){
       afState.logos = s.af.logos || {};
       afState.scores = s.af.scores || null;
       afState.record = s.af.record || [];
-      afState.skill  = s.af.skill  || {};   // measured per competition, build 65
-      afState.gate   = s.af.gate   || {};   // measured publish bar per competition, build 128
+      afState.skill  = {};   // build 324 — never restored: skill comes only from the shared record (was build 65's saved copy)
+      afState.gate   = {};   // build 324 — never restored: every bar comes only from the shared record (was build 128's saved copy)
       afState.archiveDate = null;   // always open on today, never on a date left over from last time
       afState.favL = s.af.favL || [];
       afState.favT = s.af.favT || [];
