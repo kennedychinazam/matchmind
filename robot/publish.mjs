@@ -1,0 +1,186 @@
+/* MatchMind — THE PUBLISHER ROBOT (2026-09-14, Ken's ruling "go with A").
+
+   WHY IT EXISTS. A pick reaches the public record (`predictions`) only when a SIGNED-IN device opens
+   the app: INSERT is `authenticated` only, on purpose (SQL ledger row 25), because anonymous inserts
+   would let anyone forge the audit record M15 rests on. So the CLV sample grew with Ken's app opens,
+   not with time: 129 picks archived on 2026-09-08, three on 2026-09-14.
+
+   WHAT IT DOES, AND WHAT IT NEVER DOES. It opens the LIVE app in a headless browser, signed in as a
+   dedicated publisher account, and waits while the app's own boot publishes exactly what any signed-in
+   device would. It then opens the Smart Bet tab so the app seeds the day's shared slips. It NEVER
+   computes, writes or edits a pick itself: the engine that publishes is the engine users run, so there
+   is no second copy to drift (the signature defect: one correction, two surfaces).
+
+   CREDENTIALS come only from the environment (GitHub Actions secrets) and are never printed.
+
+   EXIT CODE: 0 when the app loaded and published without an archive error (zero new picks can be a
+   correct answer). Non-zero when it could not sign in, could not load, found duplicates, or the app
+   reported an archive failure. MM_DRY_RUN=1 runs signed out for local testing and fails only if the
+   app does not load. */
+import { chromium } from 'playwright-core';
+
+const APP_URL  = process.env.MM_APP_URL || 'https://kennedychinazam.github.io/matchmind/';
+const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';
+const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';   // the public key the app itself ships
+const EMAIL    = process.env.MM_PUBLISHER_EMAIL || '';
+const PASSWORD = process.env.MM_PUBLISHER_PASSWORD || '';
+const PROFILE  = process.env.MM_PROFILE_DIR || './mm-profile';
+const CHANNEL  = process.env.MM_CHANNEL || 'chrome';
+const DRY_RUN  = process.env.MM_DRY_RUN === '1';
+const TIMEZONE = 'Africa/Lagos';               // the day the app computes is the day its readers live in
+const LOAD_TIMEOUT_MS = 20 * 60 * 1000;        // a cold profile reads five seasons of history
+const QUIET_MS = 60 * 1000;                    // settled = loaded, backfill idle, queues empty, for a full minute
+const POLL_MS = 5 * 1000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (msg, extra) => console.log(new Date().toISOString() + '  ' + msg + (extra ? '  ' + JSON.stringify(extra) : ''));
+
+async function restCount(table, query) {
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?select=*&${query}&limit=1`, {
+      method: 'HEAD',
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'count=exact' },
+    });
+    const cr = r.headers.get('content-range');
+    return cr ? Number(cr.split('/')[1]) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function openApp(page) {
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForFunction(() => typeof APP_BUILD !== 'undefined' && typeof supa !== 'undefined' && !!supa,
+    null, { timeout: 120000, polling: 1000 });
+}
+
+/* The app's own globals, read, never written. */
+function readState() {
+  let matches = 0, duplicates = 0;
+  for (const L of Object.values(afState.leagues || {})) {
+    const seen = new Set();
+    for (const m of (L.matches || [])) {
+      matches++;
+      const k = m.date + '|' + m.home + '|' + m.away;
+      if (seen.has(k)) duplicates++; else seen.add(k);
+    }
+  }
+  return {
+    build: APP_BUILD,
+    competitions: Object.keys(afState.leagues || {}).length,
+    expected: COMP_IDS.length,
+    matches, duplicates,
+    backfillRunning: !!_histBackfillRunning,
+    loadedAt: typeof _leaguesLoadedAt !== 'undefined' ? _leaguesLoadedAt : 0,
+    queued: archiveQueue.size, drift: driftQueue.size,
+    signedIn: !!authUser,
+    archiveFailed: archiveFailed || null,
+    archiveDenied: !!archiveDenied,
+    archiveRows: afState.archive ? Object.keys(afState.archive).length : null,
+  };
+}
+
+async function waitSettled(page, label) {
+  const t0 = Date.now();
+  let quietSince = null, s = null;
+  while (Date.now() - t0 < LOAD_TIMEOUT_MS) {
+    s = await page.evaluate(readState);
+    /* A REFUSED ARCHIVE ENDS THE WAIT. Once the database refuses a write, the app stops flushing for the
+       session (`archiveWritable()` is false) and its queue never drains, so waiting for an empty queue
+       would sit out the whole timeout and then fail with the wrong reason. Found by the signed-out dry
+       run, 2026-09-14. The caller reports `archiveDenied` as the failure. */
+    if (s.archiveDenied) {
+      log(`${label}: the database refused the archive write; not waiting for the queue`, { queued: s.queued });
+      return s;
+    }
+    const settled = s.loadedAt > 0 && !s.backfillRunning && s.queued === 0 && s.drift === 0
+      && s.competitions >= Math.floor(s.expected * 0.9);
+    if (settled) {
+      if (quietSince == null) quietSince = Date.now();
+      if (Date.now() - quietSince >= QUIET_MS) {
+        log(`${label}: settled`, { secs: Math.round((Date.now() - t0) / 1000), competitions: s.competitions, matches: s.matches });
+        return s;
+      }
+    } else {
+      quietSince = null;
+    }
+    await sleep(POLL_MS);
+  }
+  throw new Error(`${label}: the app did not settle within ${LOAD_TIMEOUT_MS / 60000} minutes: ` + JSON.stringify(s));
+}
+
+async function main() {
+  if (!DRY_RUN && (!EMAIL || !PASSWORD)) throw new Error('MM_PUBLISHER_EMAIL and MM_PUBLISHER_PASSWORD must be set');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+  const before = { predictions: await restCount('predictions', 'fxid=not.is.null'),
+                   slipsToday: await restCount('daily_slips', `day=eq.${today}`) };
+  log('start', { app: APP_URL, dryRun: DRY_RUN, channel: CHANNEL, today, before });
+
+  const ctx = await chromium.launchPersistentContext(PROFILE, {
+    channel: CHANNEL, headless: true, timezoneId: TIMEZONE, viewport: { width: 412, height: 915 },
+  });
+  let code = 0;
+  try {
+    const page = ctx.pages()[0] || await ctx.newPage();
+    page.on('pageerror', (e) => log('page error: ' + String((e && e.message) || e).slice(0, 300)));
+    await openApp(page);
+
+    if (!DRY_RUN) {
+      const hasSession = await page.evaluate(async () => {
+        const { data } = await supa.auth.getSession();
+        return !!(data && data.session);
+      });
+      if (!hasSession) {
+        const err = await page.evaluate(async ([e, p]) => {
+          const { error } = await supa.auth.signInWithPassword({ email: e, password: p });
+          return error ? String(error.message) : null;
+        }, [EMAIL, PASSWORD]);
+        if (err) throw new Error('sign-in refused: ' + err);
+        log('signed in; reopening so the whole boot runs as the publisher');
+        await openApp(page);
+      }
+      await page.waitForFunction(() => !!authUser, null, { timeout: 60000, polling: 1000 });
+    }
+
+    const boot = await waitSettled(page, 'boot');
+
+    if (!DRY_RUN) {
+      /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
+         the app's own state and render call, exactly as a tap on the tab does. */
+      await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
+      await sleep(15000);
+    }
+    const end = await waitSettled(page, 'after slips');
+
+    const after = { predictions: await restCount('predictions', 'fxid=not.is.null'),
+                    slipsToday: await restCount('daily_slips', `day=eq.${today}`) };
+    const summary = {
+      build: end.build, competitions: end.competitions, expected: end.expected, matches: end.matches,
+      duplicates: end.duplicates, signedIn: end.signedIn, archiveFailed: end.archiveFailed,
+      archiveDenied: end.archiveDenied, archiveRows: end.archiveRows,
+      newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
+      slipsToday: after.slipsToday, bootMatches: boot.matches,
+    };
+    log('summary', summary);
+
+    if (!DRY_RUN) {
+      const problems = [];
+      if (!end.signedIn) problems.push('not signed in at the end');
+      if (end.archiveFailed) problems.push('the app reported an archive failure');
+      if (end.archiveDenied) problems.push('the database refused the archive write');
+      if (end.duplicates) problems.push(end.duplicates + ' duplicate matches in memory');
+      if (problems.length) { log('FAILED: ' + problems.join('; ')); code = 1; }
+      else log('OK');
+    } else {
+      log('DRY RUN complete (signed out: nothing is expected to publish)');
+    }
+  } finally {
+    await ctx.close();
+  }
+  return code;
+}
+
+main().then((code) => process.exit(code)).catch((e) => {
+  log('FAILED: ' + String((e && e.message) || e).slice(0, 500));
+  process.exit(1);
+});
