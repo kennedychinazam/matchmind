@@ -172,6 +172,58 @@ async function waitMeasured(page) {
   throw new Error(`the shared measurement pass did not finish within ${MEASURE_TIMEOUT_MS / 60000} minutes: ` + JSON.stringify(s));
 }
 
+/* BUILD 326 FIX (Ken, 2026-09-16: "both fixes"). The scheduled run of 2026-09-15 20:17 UTC died here: after the
+   measurement pass it reopened the app, allowed the session 60 s to come back, and threw when it had not — having
+   already signed in, published a pick and written all 53 bars. A reopen is exactly when a cookie jar can come back
+   empty, so this waits longer and, if the session is still missing, signs in again through the app's own client
+   before giving up. It never prints the credentials. */
+const AUTH_WAIT_MS = 3 * 60 * 1000;
+async function ensureSignedIn(page, label) {
+  try {
+    await page.waitForFunction(() => !!authUser, null, { timeout: AUTH_WAIT_MS, polling: 1000 });
+    return 'session restored';
+  } catch (e) {
+    if (!EMAIL || !PASSWORD) throw new Error(`${label}: no session, and no credentials to sign in with`);
+    log(`${label}: no session after ${AUTH_WAIT_MS / 60000} min; signing in again`);
+    const err = await page.evaluate(async ([e2, p]) => {
+      const { error } = await supa.auth.signInWithPassword({ email: e2, password: p });
+      return error ? String(error.message) : null;
+    }, [EMAIL, PASSWORD]);
+    if (err) throw new Error(`${label}: sign-in refused: ` + err);
+    await openApp(page);
+    await page.waitForFunction(() => !!authUser, null, { timeout: 60000, polling: 1000 });
+    return 'signed in again';
+  }
+}
+
+/* BUILD 326 FIX, CORRECTED BY THE RUN LOG (Ken pasted it 2026-09-16). The 2026-09-15 20:17 UTC run did NOT fail waiting
+   for the session: its reopen's `page.goto` never reached `domcontentloaded` in 120 s. The app has no `beforeunload`
+   handler, so the cause is not a blocked unload; the same reopen worked in the next two runs, so it is intermittent (a
+   slow response, or an old page that would not let go). Whatever the cause, one stalled navigation must not throw away a
+   run that has already written every bar: the reopen retries, and from the second attempt on it uses a brand-new page
+   and closes the old one. */
+const REOPEN_ATTEMPTS = 3;
+function watchPage(p) {
+  p.on('pageerror', (e) => log('page error: ' + String((e && e.message) || e).slice(0, 300)));
+  return p;
+}
+async function reopenApp(ctx, page, label) {
+  let last = null;
+  for (let attempt = 1; attempt <= REOPEN_ATTEMPTS; attempt++) {
+    try {
+      if (attempt === 1) { await openApp(page); return page; }
+      log(`${label}: reopen attempt ${attempt} of ${REOPEN_ATTEMPTS} on a fresh page`, { error: String((last && last.message) || last).slice(0, 200) });
+      const fresh = watchPage(await ctx.newPage());
+      await openApp(fresh);
+      try { await page.close(); } catch (e) { /* the stalled page may already be gone */ }
+      return fresh;
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw new Error(`${label}: the app did not reopen after ${REOPEN_ATTEMPTS} attempts: ` + String((last && last.message) || last).slice(0, 300));
+}
+
 async function main() {
   if (!DRY_RUN && (!EMAIL || !PASSWORD)) throw new Error('MM_PUBLISHER_EMAIL and MM_PUBLISHER_PASSWORD must be set');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TIMEZONE });
@@ -185,8 +237,7 @@ async function main() {
   });
   let code = 0;
   try {
-    const page = ctx.pages()[0] || await ctx.newPage();
-    page.on('pageerror', (e) => log('page error: ' + String((e && e.message) || e).slice(0, 300)));
+    let page = watchPage(ctx.pages()[0] || await ctx.newPage());
     await openApp(page);
 
     if (!DRY_RUN) {
@@ -203,9 +254,10 @@ async function main() {
         log('signed in; reopening so the whole boot runs as the publisher');
         await openApp(page);
       }
-      await page.waitForFunction(() => !!authUser, null, { timeout: 60000, polling: 1000 });
+      await ensureSignedIn(page, 'boot');
     }
 
+    let record = null;
     const boot = await waitSettled(page, 'boot');
 
     if (!DRY_RUN) {
@@ -216,13 +268,19 @@ async function main() {
       const measured = await waitMeasured(page);
       if (measured.measuresWriteFailed) throw new Error(measured.measuresWriteFailed + ' shared measurement write(s) failed');
       log('reopening so a fresh boot publishes from the shared bars just written', { written: measured.measuresWritten });
-      await openApp(page);
-      await page.waitForFunction(() => !!authUser, null, { timeout: 60000, polling: 1000 });
+      page = await reopenApp(ctx, page, 'republish');
+      await ensureSignedIn(page, 'republish');
       const republish = await waitSettled(page, 'republish');
       if (republish.measuresState !== 'loaded') throw new Error('the shared bars did not load on the republish boot: ' + republish.measuresState);
       if (republish.sharedRows < republish.engineComps) {
         throw new Error(`only ${republish.sharedRows} shared bars for ${republish.engineComps} competitions with an engine`);
       }
+      /* BUILD 326 FIX — THE RECORD IS WRITTEN HERE, BEFORE THE SMART BET STEP, and that order is the fix. It depends
+         only on the archive, not on the slips, and on 2026-09-15 a failure after this point left every device reading a
+         record 13 hours stale. Whatever happens to the slips, the record every device shows is already current. */
+      record = await page.evaluate(() => sharedRecordsPublish());
+      log('shared engine record', record);
+      if (!record || !record.ok) throw new Error('the shared engine record was not written: ' + (record && record.error));
       /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
          the app's own state and render call, exactly as a tap on the tab does. */
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
@@ -230,15 +288,6 @@ async function main() {
       await sleep(15000);
     }
     const end = await waitSettled(page, 'after slips');
-
-    /* BUILD 325 — the engine record every device shows: graded by the app's own function, written by the
-       publisher, read back by the app before this returns. */
-    let record = null;
-    if (!DRY_RUN) {
-      record = await page.evaluate(() => sharedRecordsPublish());
-      log('shared engine record', record);
-      if (!record || !record.ok) throw new Error('the shared engine record was not written: ' + (record && record.error));
-    }
 
     const after = { predictions: await restCount('predictions', 'fxid=not.is.null'),
                     slipsToday: await restCount('daily_slips', `day=eq.${today}`),
