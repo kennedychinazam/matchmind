@@ -6987,7 +6987,9 @@ function renderDailySlips(){
      localStorage per render for the same answer is the kind of waste that only shows up on a slow
      phone. */
   const _frozen = {};
-  for(const r of _log) if(r.day === _today) _frozen[r.tier] = r;
+  /* build 328 - a remembered card whose legs are no longer predicted is dropped here, so the
+     publisher neither republishes nor re-renders it and falls through to building a fresh one. */
+  for(const r of _log) if(r.day === _today && frozenCardStillAllowed(r)) _frozen[r.tier] = r;
 
   /* 🚨 BUILD 297 — THE SHARED ROW OUTRANKS THE LOCAL ONE, ALWAYS. Build 293's freeze made the
      device's own `localStorage` authoritative, which is precisely how two of Ken's phones ended up
@@ -16025,6 +16027,30 @@ const LEAGUE_UNFITTED = [13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,
    `MatchMind-BUILD-327-LEAGUE-SCOPE.md`. */
 const NO_PREDICT_COMPS = [42,43,50,51,58,59,60,931];
 function predictsComp(L){ return !!L && NO_PREDICT_COMPS.indexOf(+L.id) < 0; }
+/* == BUILD 328 - WHICH COMPETITION A STORED LEG BELONGS TO ======================================
+   A stored leg carries only `fxid`, so the competition has to be looked up. Upcoming fixtures
+   first; a leg that has already kicked off has left `upcoming`, and `afState.cloudFix` carries
+   its `lid`. (`openFixtureById` also searches `L.played`, which no league object actually has -
+   that second list has always been dead. Not relied on here.) */
+function legCompId(fxid){
+  const key = String(fxid);
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(L && (L.upcoming || []).some(f => String(f.fxid) === key)) return +L.id;
+  }
+  const s = (afState.cloudFix || {})[fxid] || (afState.cloudFix || {})[key];
+  return (s && s.lid != null) ? +s.lid : null;
+}
+/* CONSERVATIVE ON PURPOSE: a leg whose competition cannot be resolved counts as IN scope. On a
+   cold boot nothing resolves, and treating unknown as out would discard every remembered card and
+   undo build 293 entirely. Only a leg POSITIVELY identified as out-of-scope drops the card. */
+function frozenCardStillAllowed(r){
+  if(!r || !Array.isArray(r.legs) || !r.legs.length) return false;
+  return !r.legs.some(l => {
+    const id = legCompId(l.fxid);
+    return id != null && NO_PREDICT_COMPS.indexOf(id) >= 0;
+  });
+}
 
 /* BUILD 159 — 13 (CONMEBOL Libertadores) JOINS THE PREDICTION SET. It reached Scores in 158 and
    Ken asked for predictions on it. It qualifies: 133 finished matches on 2026-08-15, well past the
