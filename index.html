@@ -524,7 +524,8 @@
       <!-- build 268 — shown only on the O/U and BTTS tabs; see DAILY_MARKETS for the measurement -->
       <div class="subnote hidden" id="tipNoEdge" style="border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin:2px 0 8px"></div>
       <div class="sfilters" style="margin:2px 0 8px">
-        <button class="sfchip" id="tipFairToggle">Show fair odds</button>
+        <!-- build 329 - the "Show fair odds" toggle is gone: a tip is priced at a bookmaker's
+             odds or it is not priced, so there is no second basis to switch to. -->
       </div>
       <!-- build 85: says what the tab you're on actually ranks by, so a 93% here and a 65% on the
            match page read as two questions rather than a contradiction -->
@@ -856,7 +857,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 328;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 329;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -2861,7 +2862,6 @@ const I18N = {
   'Today':"Aujourd'hui",'Yesterday':'Hier','Tomorrow':'Demain','Draw':'Nul',
   'Home':'Domicile','Away':'Extérieur','Loading matches…':'Chargement des matchs…',
   'No matches today.':"Aucun match aujourd'hui.",'No matches on this date.':'Aucun match à cette date.',
-  'Show fair odds':'Afficher les cotes','Show %':'Afficher les %',
   'Sign in to use AI analysis.':"Connectez-vous pour utiliser l'analyse IA.",
   'Search':'Rechercher','Competitions':'Compétitions','Matches':'Matchs','Teams':'Équipes'
  },
@@ -2881,7 +2881,6 @@ const I18N = {
   'Today':'Hoje','Yesterday':'Ontem','Tomorrow':'Amanhã','Draw':'Empate',
   'Home':'Casa','Away':'Fora','Loading matches…':'A carregar jogos…',
   'No matches today.':'Sem jogos hoje.','No matches on this date.':'Sem jogos nesta data.',
-  'Show fair odds':'Mostrar odds','Show %':'Mostrar %',
   'Sign in to use AI analysis.':'Inicie sessão para usar a análise de IA.',
   'Search':'Pesquisar','Competitions':'Competições','Matches':'Jogos','Teams':'Equipas'
  },
@@ -2901,7 +2900,6 @@ const I18N = {
   'Today':'Hoy','Yesterday':'Ayer','Tomorrow':'Mañana','Draw':'Empate',
   'Home':'Local','Away':'Visitante','Loading matches…':'Cargando partidos…',
   'No matches today.':'No hay partidos hoy.','No matches on this date.':'No hay partidos en esta fecha.',
-  'Show fair odds':'Mostrar cuotas','Show %':'Mostrar %',
   'Sign in to use AI analysis.':'Inicia sesión para usar el análisis con IA.',
   'Search':'Buscar','Competitions':'Competiciones','Matches':'Partidos','Teams':'Equipos'
  },
@@ -2921,7 +2919,6 @@ const I18N = {
   'Today':'اليوم','Yesterday':'أمس','Tomorrow':'غداً','Draw':'تعادل',
   'Home':'المضيف','Away':'الضيف','Loading matches…':'جارٍ تحميل المباريات…',
   'No matches today.':'لا توجد مباريات اليوم.','No matches on this date.':'لا توجد مباريات في هذا التاريخ.',
-  'Show fair odds':'عرض الاحتمالات','Show %':'عرض النسبة',
   'Sign in to use AI analysis.':'سجّل الدخول لاستخدام التحليل بالذكاء الاصطناعي.',
   'Search':'بحث','Competitions':'البطولات','Matches':'المباريات','Teams':'الفرق'
  }
@@ -4428,7 +4425,29 @@ function allSelections(P,f,L){
   if(P.topScores&&P.topScores[0]) add('Correct score', P.topScores[0].score, P.topScores[0].p);   // key = the scoreline, see above
   return S;
 }
-function fairOdds(p){ return p>0 ? (1/p).toFixed(2) : '—'; }
+/* == BUILD 329 - A TIP IS PRICED AT A BOOKMAKER'S ODDS OR IT IS NOT PRICED ======================
+   Ken, 2026-09-19: *"i do not want any tip shown in fair price. i only want bookmarker's odd."*
+
+   `fairOdds(p)` returned 1/p and was printed beside five different tips. A fair price is what the
+   bet would pay if the model were exactly right and the bookmaker took no margin; it is not a price
+   anyone can take, and showing it as "@ 2.35" invited the reading that it was. Ken had already said
+   as much once, at build 301: *"how can i preach 2 odds but give less than that"*.
+
+   **`fairOdds` IS DELETED, not merely unused**, so nothing can print one again without adding it
+   back deliberately. In its place, ONE helper, which returns a chip or an empty string:
+
+     - a real bookmaker price exists  ->  the chip, at that price;
+     - none exists                    ->  NOTHING. No chip, no dash, no stand-in.
+
+   WHY "NOTHING" AND NOT A PLACEHOLDER. `_dailyOdds` holds prices for TODAY's slate only, so a tip
+   three days out genuinely has no price yet, and the HT/FT doubles have no market collected at all
+   (`odds_latest` carries 1X2, DC, DNB, O/U and BTTS - there is no HT/FT column). Printing "—" where
+   a price used to be reads as a missing value; printing nothing reads as what it is, a tip quoted by
+   probability. The percentage is always shown and is the honest number. */
+function realOddsChip(fxid, code){
+  const px = dailyRealPrice(fxid, code);
+  return (px && px > 1) ? '<span class="predchip sm">@ ' + px.toFixed(2) + '</span>' : '';
+}
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 /* ---------- detail-header meta: competition + date/time + score (#16) ---------- */
@@ -4777,7 +4796,7 @@ function openTeam(name){
 /* ---------- Tips market tabs (#9) ---------- */
 /* `days` is the horizon in days from today: 0 = today only. It is NOT persisted — a betting tab
    should open on today every time, not on whatever window the user last browsed. */
-const tipState={ tab:'winner', fair:false, days:0 };
+const tipState={ tab:'winner', days:0 };   // build 329 - `fair` removed with the toggle
 const TIP_HORIZONS = () => [[0, t('Today')], [3, t('Next 3 days')], [7, t('Next 7 days')]];
 /* BUILD 243 — ALL FIVE TABS ARE BACK, AND THE ROUND TRIP IS THE POINT.
    Build 242 removed Winner, O/U 2.5 and BTTS on Ken's "remove the bet option tabs under there". That
@@ -5938,6 +5957,7 @@ async function dailySharedSeed(day, tier, legs, reached, step){
                 step: step || 'primary',
                 legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
                                        code: l.code, market: l.market, p: +l.prob.toFixed(4),
+                                       lid: l.L ? +l.L.id : null,   // build 329
                                        o: +dailyLegOdds(l).toFixed(4) })) };
   const q = await supa.from('daily_slips').insert(row);
   return !q.error;
@@ -6117,7 +6137,11 @@ function tipsSharedRow(tier){
 function tipsFrozenLegs(tab){
   const r = tipsSharedRow('tips');
   if(!r || !Array.isArray(r.legs)) return null;
-  const legs = r.legs.filter(l => l && l.tab === tab).sort((a,b) => (a.rank||0) - (b.rank||0));
+  /* build 329 - a leg frozen before the division rule is dropped here, the one place all three
+     frozen tab lists read. `engineBacksFixture` guards only the LIVE path. */
+  const legs = r.legs.filter(l => l && l.tab === tab
+      && !(function(){ const id = legCompId(l); return id != null && NO_PREDICT_COMPS.indexOf(id) >= 0; })())
+    .sort((a,b) => (a.rank||0) - (b.rank||0));
   return legs.length ? legs : null;
 }
 /* A stored leg is identified by date|home|away, which is what a match row actually carries - build
@@ -6155,6 +6179,10 @@ async function tipsFrozenSeed(day){
       if(r.prob == null || !r.code) return;          // ungradeable, so never published as issued
       legs.push({ tab: tab, rank: i, fxid: r.f.fxid, d: r.f.date, t: r.f.time || '',
                   h: r.f.home, a: r.f.away, code: r.code, sel: r.sel,
+                  /* build 329 - stamped at the one moment the competition is certain. Resolving
+                     it later fails for a match that is in play: gone from `upcoming`, not yet
+                     in `matches`. */
+                  lid: r.L ? +r.L.id : null,
                   market: r.tag || '', p: +r.prob.toFixed(4) });
     });
   }
@@ -6188,7 +6216,11 @@ async function bankerFrozenSeed(day){
   const q = await supa.from('daily_slips').insert(
     { day: day, tier: 'banker', odds: +(1 / b.prob).toFixed(4), build: APP_BUILD, step: 'banker',
       legs: [{ fxid: b.f.fxid, d: b.f.date, t: b.f.time || '', h: b.f.home, a: b.f.away,
-               code: b.pick, market: b.market || 'Winner', p: +b.prob.toFixed(4) }] });
+               code: b.pick, market: b.market || 'Winner', p: +b.prob.toFixed(4),
+               /* build 329 - the price a bookmaker actually showed when the card was issued,
+                  frozen with it exactly as a slip leg's `o` is (build 305). Null on a day with
+                  no market price, and the card then shows no price rather than a fair one. */
+               o: dailyRealPrice(b.f.fxid, b.pick) }] });
   return !q.error;
 }
 /* One attempt per day per tab session. A conflict is the SUCCESS case - another device issued the
@@ -6298,6 +6330,7 @@ function dailyLogRecord(tier, legs, reached, floorStep, effort){
                  has twice said he does not want.** */
               legs: legs.map(l => ({ fxid: l.f.fxid, d: l.f.date, h: l.f.home, a: l.f.away,
                                      code: l.code, market: l.market, p: +l.prob.toFixed(4),
+                                     lid: l.L ? +l.L.id : null,
                                      o: +dailyLegOdds(l).toFixed(4) })) });
   dailyLogWrite(rows);
 }
@@ -7143,7 +7176,7 @@ function renderDailySlips(){
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
                + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
            + '<div class="subnote">' + legs.length + ' legs, all must win · '
-           + 'win chance is exactly 1 ÷ odds at fair prices</div>'
+           + 'win chance is the product of the legs, and the price is the bookmaker\'s</div>'
            /* 🚨 BUILD 296 — THE STEP IS NOW SAID ON THE CARD, AND UNTIL THIS BUILD IT WAS NOT.
               The ladder's own comment claims "which step answered is carried through to the card,
               because a slip built from the wider range is a different claim from one built at the
@@ -7195,7 +7228,8 @@ function renderDailySlips(){
     + 'fixtures. If the primary floors cannot fill a tier, a wider calibrated range is tried and the '
     + 'card says so. Draw No Bet is excluded because a voided leg makes the payout indeterminate; '
     + 'BTTS No is excluded because it has no honest threshold at any confidence. BTTS and Over rank '
-    + 'ahead of Under. Odds are the engine fair price, so a tier target IS its win chance; a '
+    + 'ahead of Under. Odds are real bookmaker prices, so a tier target is a PRICE and not a win '
+    + 'chance; the two differ by the bookmaker\'s margin. '
     + 'bookmaker price will differ. Tiers are a product choice, not a measured result.</details>';
   wire();
   try{ renderDailyTracker(); }catch(e){ try{ console.warn('tracker:', e); }catch(_){ } }
@@ -7223,7 +7257,8 @@ function renderBankerFrozen(row, label, box){
     + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
     + '<b style="color:var(--gold)">' + escapeHtml(String(chipCode(l.code))) + '</b></span>'
     + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
-    + '<span class="predchip sm">@ ' + fairOdds(l.p) + '</span></span></div>'
+    + (l.o && l.o > 1 ? '<span class="predchip sm">@ ' + (+l.o).toFixed(2) + '</span>'
+                  : realOddsChip(l.fxid, l.code)) + '</span></div>'   // build 329
     + '<div class="frow"><span class="muted">Result</span><span>' + status
     + (g.score ? ' <span class="muted">' + escapeHtml(String(g.score)) + '</span>' : '') + '</span></div>'
     + (r ? '<button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>' : '')
@@ -7269,7 +7304,7 @@ function renderBanker(){
       <div style="font-weight:700;margin:4px 0">${crest(f.home)}${escapeHtml(f.home)} v ${crest(f.away)}${escapeHtml(f.away)}</div>
       <div class="frow"><span>${escapeHtml(mk)}: <b style="color:var(--gold)">${escapeHtml(chipCode(b.pick))}</b></span>
         <span><span class="predchip sm">${(100*b.prob).toFixed(0)}%</span>
-              <span class="predchip sm">@ ${fairOdds(b.prob)}</span></span></div>
+              ${realOddsChip(f.fxid, b.pick)}</span></div>
       <button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>
     </div>`;
   const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));
@@ -7312,7 +7347,6 @@ function renderTips(){
   $('dailySlips').classList.toggle('hidden', t!=='smart');
   $('dailyTracker').classList.toggle('hidden', t!=='smart');
   $('valueLadder').classList.toggle('hidden', t!=='smart');   // build 328
-  $('tipFairToggle').textContent = tipState.fair?'Show %':'Show fair odds';
   if(t==='slip'){ renderSlipUI(); return; }
   renderStrongPicks();                                      // the accuracy record, always
   if(t==='smart') renderDailySlips();
@@ -7531,8 +7565,9 @@ function renderTipListFrozen(market, legs, box){
   const refs = [];
   box.innerHTML = graded.map(g => {
     const l = g.leg, i = refs.length; refs.push(tipsResolveFixture(l.d, l.h, l.a));
-    const val = tipState.fair ? '<span class="predchip sm">@ ' + fairOdds(l.p) + '</span>'
-                              : '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>';
+    /* build 329 - the percentage always, and a price only when a bookmaker actually quoted one. */
+    const val = '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+              + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : null, l.code);
     const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
                : g.grade === 'void' ? '<span style="color:var(--gold)">VOID</span>' : '';
@@ -7582,7 +7617,7 @@ function renderTipList(market){
     return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
-    const val = tipState.fair ? `<span class="predchip sm">@ ${fairOdds(r.prob)}</span>` : `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>`;
+    const val = `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>` + realOddsChip(r.f && r.f.fxid, r.code);   // build 329
     // "+18 vs avg" = how far this sits from the same bet in an average match — the actual insight
     const edgeTag = (market==='smart' && r.edge!=null)
       ? ` <span class="muted" style="font-size:.66rem">${r.edge>=0?'+':''}${(100*r.edge).toFixed(0)} vs avg</span>` : '';
@@ -8043,7 +8078,7 @@ function renderHTFT(L, f){
       <b style="width:46px;color:var(--gold);font-size:.95rem">${d.code}</b>
       <span style="flex:1;font-size:.84rem;color:${strong?'var(--text)':'var(--muted)'}">${d.text}</span>
       <span style="width:52px;text-align:right;font-weight:${strong?800:600};color:${strong?'var(--green2)':'var(--muted)'}">${pct(d.prob)}</span>
-      <span style="width:46px;text-align:right;font-size:.78rem;color:var(--muted)">@ ${fairOdds(d.prob)}</span>
+      <!-- build 329 - no HT/FT market is collected, so there was never a real price to show here -->
     </div>`;
   }).join('');
 
@@ -16000,7 +16035,7 @@ async function loadCloudResults(){
    falls back safely: `gateBarFor`/`gateEdgeFor` to the global bar, `dampenFor` to the engine
    default, and `autoGate` measures a new competition's own bar once it has history. Verified at
    build 257 rather than trusted from the note. */
-const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
 /* ⚠ EVERY COMPETITION MUST BE A DECISION: fitted by id in LEAGUE_FIT_NAME, or listed here as
    deliberately unfitted. The lock asserts `COMP_IDS == fitted ∪ unfitted`, so a league added with
    no decision either way fails the suite rather than quietly predicting on a constant nobody chose.
@@ -16011,7 +16046,7 @@ const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,
    Inventing a value to fill the row is §17e's exact habit, and it is why 13 has sat here unfitted
    since build 159 rather than being given a plausible number. They become candidates for fitting
    when they have the history to support one — which is a measurement, not this build. */
-const LEAGUE_UNFITTED = [13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const LEAGUE_UNFITTED = [3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
 
 /* == BUILD 327 - KEN'S DIVISION RULE: WHICH COMPETITIONS MATCHMIND PREDICTS ======================
    Ken, 2026-09-16: *"We will remove from our analysis and tips section, all prediction from any league
@@ -16032,13 +16067,34 @@ function predictsComp(L){ return !!L && NO_PREDICT_COMPS.indexOf(+L.id) < 0; }
    first; a leg that has already kicked off has left `upcoming`, and `afState.cloudFix` carries
    its `lid`. (`openFixtureById` also searches `L.played`, which no league object actually has -
    that second list has always been dead. Not relied on here.) */
-function legCompId(fxid){
-  const key = String(fxid);
+let _legCompIdx = null, _legCompIdxAt = -1;
+function legCompIndex(){
+  if(_legCompIdx && _legCompIdxAt === _leaguesLoadedAt) return _legCompIdx;
+  const m = new Map();
   for(const id of Object.keys(afState.leagues || {})){
-    const L = afState.leagues[id];
-    if(L && (L.upcoming || []).some(f => String(f.fxid) === key)) return +L.id;
+    const L = afState.leagues[id]; if(!L) continue;
+    const lid = +L.id;
+    for(const f of (L.upcoming || [])){
+      if(f.fxid != null) m.set('x' + f.fxid, lid);
+      m.set(f.date + '|' + f.home + '|' + f.away, lid);
+    }
+    for(const f of (L.matches || [])) m.set(f.date + '|' + f.home + '|' + f.away, lid);
   }
-  const s = (afState.cloudFix || {})[fxid] || (afState.cloudFix || {})[key];
+  _legCompIdx = m; _legCompIdxAt = _leaguesLoadedAt;
+  return m;
+}
+function legCompId(leg){
+  if(!leg) return null;
+  /* The leg's OWN record first. Stamped when it was frozen, so it is right even for a match
+     that is in play - which no lookup can resolve, because the loader has dropped it from
+     `upcoming` and it has not yet finished into `matches`. Legs written before build 329 carry
+     no `lid` and fall through to the index. */
+  if(leg.lid != null) return +leg.lid;
+  const ix = legCompIndex();
+  if(leg.fxid != null && ix.has('x' + leg.fxid)) return ix.get('x' + leg.fxid);
+  const k = leg.d + '|' + leg.h + '|' + leg.a;
+  if(ix.has(k)) return ix.get(k);
+  const s = (afState.cloudFix || {})[leg.fxid];
   return (s && s.lid != null) ? +s.lid : null;
 }
 /* CONSERVATIVE ON PURPOSE: a leg whose competition cannot be resolved counts as IN scope. On a
@@ -16047,7 +16103,7 @@ function legCompId(fxid){
 function frozenCardStillAllowed(r){
   if(!r || !Array.isArray(r.legs) || !r.legs.length) return false;
   return !r.legs.some(l => {
-    const id = legCompId(l.fxid);
+    const id = legCompId(l);
     return id != null && NO_PREDICT_COMPS.indexOf(id) >= 0;
   });
 }
@@ -19374,7 +19430,6 @@ document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>
 $('searchOpen').addEventListener('click', openSearch);
 $('searchClose').addEventListener('click', closeSearch);
 $('searchInput').addEventListener('input', e=>renderSearch(e.target.value));
-$('tipFairToggle').addEventListener('click', ()=>{ tipState.fair=!tipState.fair; renderTips(); });
 $('goFavs').addEventListener('click', ()=>navTo('favs'));
 
 /* ── Settings added in build 88 ─────────────────────────────────────────────── */
