@@ -852,7 +852,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 326;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 327;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3862,7 +3862,7 @@ function gateCensusReset(){
                   window: PUBLISH_AHEAD_DAYS, by: {} };
 }
 const GATE_BUCKETS = ['started','published','unmeasured','low','nobase','unpriced','far','publishable',
-                      'nomodel','noengine'];
+                      'nomodel','noengine','outofscope'];
 function gateCensusAdd(L, bucket){
   if(!_gateCensus || !L) return;
   const c = _gateCensus.by[L.id] || (_gateCensus.by[L.id] = { lname: L.name, seen: 0 });
@@ -3871,6 +3871,7 @@ function gateCensusAdd(L, bucket){
 }
 const GATE_TEXT = {
   unmeasured: 'Bar not loaded',   // build 324
+  outofscope: 'Not predicted here',   // build 327
   low:    'No strong read',
   nobase: 'No edge here',
   unpriced:'Not priced'
@@ -3887,6 +3888,7 @@ const GATE_WHY = {
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`,
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
+  outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
   unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`
 };
 
@@ -4931,6 +4933,7 @@ function engineBacksFixture(L, f){
      drew: a price computed from the division's average instead of from these two teams is not a
      read, and a tip is a read. */
   if(!f) return false;
+  if(!predictsComp(L)) return false;   // build 327 - Ken's division rule
   if(f.unbacked) return false;      // build 288 — withdrawn stays withdrawn
   if(f.provisional) return false;   // build 309 — the no-information prior is not a read
   return !gateNow(L, f);            // build 310 — asked now, not read from the load-time snapshot
@@ -7438,6 +7441,7 @@ const SLIP_MARKETS=[['1X2','Winner'],['DC','Double Ch.'],['DNB','DNB'],['OU25','
 function slipCountryGroups(){
   const g=[], idx={};
   for(const L of footballLeagues()){
+    if(!predictsComp(L)) continue;   // build 327
     const key = (L.country && L.country!=='International') ? L.country : '🌍 World / International';
     if(idx[key]==null){ idx[key]=g.length; g.push({country:key, Ls:[]}); }
     g[idx[key]].Ls.push(L);
@@ -14644,7 +14648,7 @@ function visibleLeagues(){
      Filtering on history rather than on a list of IDs means it fixes itself if we ever train it
      (build 81). Scores still shows everything; that tab only needs results. */
   let Ls = order.map(id=>afState.leagues[id])
-    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15);
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
@@ -14781,7 +14785,10 @@ function showNoAnalysis(home, away, info){
   const box = $('analysisText');
   if(box) box.innerHTML =
       `<p><b>There is no prediction for this fixture, and that is deliberate.</b></p>`
-    + (info && info.thin
+    + (info && info.outOfScope
+        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> is not a competition MatchMind predicts.</p>
+           <p>Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two divisions elsewhere, and the cups. The fixture, kick-off time and result still work here.</p>`
+      : info && info.thin
         ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> has only <b>${info.n}</b> completed match${info.n===1?'':'es'} loaded so far — the engine needs at least 15 before it will price a fixture. In early August that simply means the season has just started and the results have not arrived yet.</p>
            <p><b>Why the engine waits.</b> It rates a team from the goals it has scored and conceded against the specific opponents it has faced. With a handful of matches, the competition's own scoring average is not yet known either, so every number would be built on top of a guess about the league itself. It will start predicting these fixtures on its own once the results are in — nothing needs to be switched on.</p>
            <p class="subnote">Until then the fixture, kick-off time and result all still work normally. Only the prediction is withheld.</p>`
@@ -15847,6 +15854,21 @@ const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,13,141,136,79,62,89,95,307,292,
    when they have the history to support one — which is a measurement, not this build. */
 const LEAGUE_UNFITTED = [13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
 
+/* == BUILD 327 - KEN'S DIVISION RULE: WHICH COMPETITIONS MATCHMIND PREDICTS ======================
+   Ken, 2026-09-16: *"We will remove from our analysis and tips section, all prediction from any league
+   lower than the second league divisions ... from all country leagues outside England, Spain,
+   Netherland, Italy, France and Portugal (do same for these mentioned countries for leagues lower than
+   their 3rd division)."* Confirmed the same day: Germany is one of those countries; cups and continental
+   competitions stay; removed leagues stay in Scores; picks already published stay in the record.
+
+   So divisions 1-3 in England, Spain, the Netherlands, Italy, France, Portugal and Germany, divisions 1-2
+   everywhere else, and every cup. On today's 53 competitions that removes exactly England's divisions
+   4-7. They keep LOADING - Scores shows them, and a National League side's league record is what prices
+   it in an FA Cup tie (`xcAdjust`) - but no screen offers a pick for them and nothing new is published.
+   `MatchMind-BUILD-327-LEAGUE-SCOPE.md`. */
+const NO_PREDICT_COMPS = [42,43,50,51,58,59,60,931];
+function predictsComp(L){ return !!L && NO_PREDICT_COMPS.indexOf(+L.id) < 0; }
+
 /* BUILD 159 — 13 (CONMEBOL Libertadores) JOINS THE PREDICTION SET. It reached Scores in 158 and
    Ken asked for predictions on it. It qualifies: 133 finished matches on 2026-08-15, well past the
    15 the engine needs to price a fixture.
@@ -16845,6 +16867,24 @@ const _gateThin = new Set();
 const _histLanded = new Set();
 function applyGatePass(L, display){
   if(!L || !display || !display.length) return false;
+  /* BUILD 327 - a competition MatchMind does not predict gets no pick, no archive write, no drift and no
+     withhold. A pick already published for one of its fixtures is still shown as published (Ken: "they
+     can stay"), because nothing shown is unsaid (build 199) - it is simply never re-gated or re-priced. */
+  if(!predictsComp(L)){
+    for(const f of display){
+      const arch = afState.archive ? afState.archive[f.fxid] : null;
+      if(arch){
+        f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL;
+        if(arch.market) f.market = arch.market;
+        f.frozen = true; f.publishedAt = arch.at || null; f.gated = null;
+      } else {
+        f.pick = null; f.prob = null; f.frozen = false; f.gated = 'outofscope';
+      }
+      f.moved = null; f.unbacked = null;
+      gateCensusAdd(L, 'outofscope');
+    }
+    return true;
+  }
   // predictions from the engine (needs enough history)
   if(L.matches.length>=15){
     const tmp=Object.create(footballEngine); tmp.matches=L.matches;
@@ -17989,7 +18029,9 @@ async function openFixture(leagueId, f, btn){
     } }
   /* The team-list check used to gate this too, which is what sent promoted sides down the
      API-Football path and produced a message about a provider this app no longer uses (build 77). */
-  if(L.matches.length>=15){
+  if(!predictsComp(L)){
+    showNoAnalysis(f.home, f.away, {outOfScope:true, comp:L.name});   // build 327
+  } else if(L.matches.length>=15){
     await afEnsureScorers(leagueId);
     setTeamSelect('homeTeam', f.home); setTeamSelect('awayTeam', f.away);   // build 111 — see below
     await analyze();
@@ -18133,7 +18175,7 @@ function buildCompsDrop(boxId){
      Predict's own competition list either. The World Cup was still listed here with 20 fixtures and
      no prediction behind any of them (build 84). */
   const all = order.map(id=>afState.leagues[id])
-    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15);
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
   const fb = all.filter(l=>(l.sport||'football')==='football').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const predicted = l => (l.upcoming||[]).filter(f=>f.pick).length;
