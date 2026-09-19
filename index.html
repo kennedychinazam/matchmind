@@ -514,6 +514,10 @@
          screenshot, and only one of them is fixed by deleting something. */ -->
     <div id="dailySlips"></div>
     <div id="dailyTracker"></div>
+    <!-- build 328 - Ken: "its own calculator should be separate, below the engine performance in
+         the smart bet tab". Rendered from renderDailyTracker, the only place that knows the
+         graded rows have moved. -->
+    <div id="valueLadder"></div>
 
     <!-- market list (Winner / O-U / BTTS / Smart Bet) -->
     <div id="tipListWrap">
@@ -852,7 +856,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 327;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 328;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -6392,10 +6396,149 @@ function dailyTrackerState(){
   return window.__dt;
 }
 
+/* == BUILD 328 - THE VALUE CARD'S STEP-STAKE LEDGER =============================================
+   Ken, 2026-09-19: *"Use B to build the Value bet. adding the same stakes after each failed bet, it
+   should be for 5 times. The Martingale is more risky, that is, can require very large stake which
+   is more risks. build it for only value bet."*
+
+   $10, then $10 more after each losing day, five steps, then back to $10. A win resets it too.
+   **Martingale (doubling) is rejected on its stake size and is NOT built.**
+
+   WHY THE VALUE CARD MAKES THIS HONEST AND THE BANKER WOULD NOT. The banker is stored at its FAIR
+   price (1/prob), so a profit ledger on it would overstate returns - Milestone 16's open blocker.
+   Every Value leg carries `o`, a REAL bookmaker price (builds 301/305), so this is priced at market
+   from its first day. `MatchMind-BUILD-328-VALUE-LADDER.md`.
+
+   It shares RECORD_START with the engine record and the tracker: one day, three panels. */
+const VLADDER_UNIT  = 10;             /* the same $10 the tracker stakes, so one scale reads everywhere */
+const VLADDER_STEPS = 5;              /* Ken: "it should be for 5 times" */
+
+function valueLadderState(){ window.__vl = window.__vl || { unit: VLADDER_UNIT }; return window.__vl; }
+
+/* The settled Value cards this ledger may see, oldest first. The SAME rows, grader and shared results
+   the tracker uses - so the walk below is deterministic and every device computes the same ledger
+   without a `shared_records` row to write, read or fail. */
+function valueLadderRows(){
+  return dailyLogGrade(dailySharedAllRows())
+    .filter(r => r.tier === 'value' && r.complete && r.day >= RECORD_START)
+    .sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
+}
+
+/* The walk. `unit` exists so the CALCULATOR can price the same ladder at the reader's own stake; the
+   ledger on screen is always run at VLADDER_UNIT, because that is the number being published. */
+function valueLadderLedger(unit){
+  const u = (unit != null && unit > 0) ? unit : VLADDER_UNIT;
+  let step = 1, staked = 0, returned = 0, bank = 0, peak = 0, drawdown = 0;
+  let maxStake = 0, wins = 0, cycles = 0;
+  const entries = valueLadderRows().map(r => {
+    const stake = u * step;
+    /* BUILD 248's rule - the REALISED price, so a void leg drops to 1.00 instead of being paid at the
+       price printed on the card. */
+    const odds = (r.realisedOdds != null) ? r.realisedOdds : r.odds;
+    const back = r.hit ? stake * odds : 0;
+    staked += stake; returned += back; bank += back - stake;
+    if(stake > maxStake) maxStake = stake;
+    if(bank > peak) peak = bank;
+    if(peak - bank > drawdown) drawdown = peak - bank;
+    if(r.hit) wins++;
+    const e = { day: r.day, step: step, stake: stake, odds: odds, hit: !!r.hit,
+                profit: back - stake, bank: bank, reset: false };
+    /* Reset on a win, AND on the fifth loss - the cycle's whole stake is booked as a loss and the
+       ladder starts again. There is never a sixth step, and that cap is the entire reason Ken chose
+       this progression over doubling. */
+    if(r.hit || step >= VLADDER_STEPS){ step = 1; e.reset = true; cycles++; }
+    else step++;
+    return e;
+  });
+  return { entries: entries, days: entries.length, wins: wins, staked: staked, returned: returned,
+           net: returned - staked, roi: staked ? ((returned - staked) / staked) * 100 : 0,
+           maxStake: maxStake, drawdown: drawdown, cycles: cycles,
+           nextStep: step, nextStake: u * step, unit: u };
+}
+
+/* Ken, 2026-09-19: *"its own calculator should be separate, below the engine performance in the smart
+   bet tab. all explanation should be brief and all text alignment margins justified."* Three short
+   lines, each `ctxprose` - build 87's own justify rule, `hyphens:auto` and all, because justifying a
+   narrow phone column without it opens visible white rivers. No new style. */
+function renderValueLadder(){
+  const box = $('valueLadder'); if(!box) return;
+  const st = valueLadderState(), led = valueLadderLedger(VLADDER_UNIT);
+  const tier = DAILY_TIERS.filter(t => t.key === 'value')[0] || { target: 5 };
+  const money  = v => '$' + Math.abs(v).toFixed(2);
+  const signed = v => (v >= 0 ? '+' : '−') + money(v);
+  const cell = (k, v, c) => '<div class="shcell"><span class="k">' + k + '</span>'
+    + '<span class="v"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</span></div>';
+
+  let metrics;
+  if(!led.days){
+    metrics = '<div class="subnote ctxprose"><b style="color:var(--gold)">No settled Value card yet.</b> '
+      + 'Counting from ' + escapeHtml(recordStartText()) + '.</div>';
+  } else {
+    const col = led.net >= 0 ? 'var(--green2)' : 'var(--red)';
+    metrics = '<div class="sliphead">'
+      + cell('Win rate', led.wins + ' / ' + led.days + ' · ' + Math.round(100 * led.wins / led.days) + '%')
+      + cell('Net profit', signed(led.net), col)
+      + cell('ROI', (led.roi >= 0 ? '+' : '−') + Math.abs(led.roi).toFixed(1) + '%', col)
+      + '</div>'
+      + '<div class="sliphead" style="margin-top:1px">'
+      + cell('Staked', money(led.staked))
+      + cell('Biggest stake', money(led.maxStake))
+      + cell('Worst drawdown', '−' + money(led.drawdown), led.drawdown ? 'var(--red)' : '')
+      + '</div>'
+      + '<div class="subnote ctxprose">Next settled day stakes <b>' + money(led.nextStake)
+      + '</b>, step ' + led.nextStep + ' of ' + VLADDER_STEPS + '.</div>';
+  }
+
+  let grid = '<div style="display:grid; grid-template-columns:auto auto auto auto; gap:7px 10px; '
+    + 'font-size:.82rem; align-items:center; padding-top:8px">'
+    + '<span style="color:var(--muted)">Step</span>'
+    + '<span style="color:var(--muted); text-align:right">Stake</span>'
+    + '<span style="color:var(--muted); text-align:right">Risked</span>'
+    + '<span style="color:var(--muted); text-align:right">If it lands</span>';
+  let cum = 0;
+  for(let i = 1; i <= VLADDER_STEPS; i++){
+    const s = st.unit * i; cum += s;
+    const net = s * tier.target - cum;
+    grid += '<span>' + i + '</span>'
+      + '<span style="text-align:right; font-weight:700">' + money(s) + '</span>'
+      + '<span style="text-align:right; color:var(--muted)">' + money(cum) + '</span>'
+      + '<span style="text-align:right; color:' + (net >= 0 ? 'var(--green2)' : 'var(--red)') + '">'
+      + signed(net) + '</span>';
+  }
+  grid += '</div>';
+
+  /* 💰 rather than the ladder glyph: U+1FA9C is Unicode 13 and still tofu on older Android. */
+  box.innerHTML = '<div class="card"><h2>💰 Value step-stake ledger</h2>'
+    + '<div class="subnote ctxprose" style="padding-top:0">$' + VLADDER_UNIT + ' on the Value card, $'
+    + VLADDER_UNIT + ' more after each losing day, ' + VLADDER_STEPS
+    + ' steps, then back to $' + VLADDER_UNIT + '. A win resets it.</div>'
+    + metrics
+    + '<div class="sec-label" style="margin-top:14px">Step calculator</div>'
+    + '<div class="field"><label>Your base stake ($)</label>'
+    + '<input type="number" id="vlUnit" inputmode="decimal" min="1" max="100000" step="1" value="'
+    + escapeHtml(String(st.unit)) + '"></div>'
+    + grid
+    + '<div class="subnote ctxprose"><b style="color:var(--gold)">Staking more after a loss creates no '
+    + 'edge.</b> A full cycle risks ' + money(cum) + '. MatchMind has no measured edge over the '
+    + 'bookmakers yet, so expect this to lose until it does.</div>'
+    + '</div>';
+
+  /* `change` rather than `input`: this render replaces the field, so reacting to every keystroke would
+     take the caret with it on the first digit typed. */
+  const inp = $('vlUnit');
+  if(inp) inp.addEventListener('change', () => {
+    const v = parseFloat(inp.value);
+    st.unit = (isFinite(v) && v > 0) ? v : VLADDER_UNIT;
+    renderValueLadder();
+  });
+}
+
 function renderDailyTracker(){
   const box = $('dailyTracker'); if(!box) return;
   const st = dailyTrackerState();
-  const graded = dailyLogGrade(dailySharedAllRows());   // build 325 - the same rows on every device
+  /* build 328 - one start date with the engine record, so the two panels cannot describe different
+     spans. Cards before it stay in the past-day viewer; they are simply not counted here. */
+  const graded = dailyLogGrade(dailySharedAllRows()).filter(r => r.day >= RECORD_START);
   const cut = (() => { const d = new Date(); d.setDate(d.getDate() - st.days); return d.toISOString().slice(0,10); })();
   const rows = graded.filter(r => r.tier === st.tier && (st.days === 0 || r.day >= cut));
   const done = rows.filter(r => r.complete);
@@ -6406,26 +6549,33 @@ function renderDailyTracker(){
      at its cap it has already dropped older entries, and saying "All time" over that is a claim
      the data does not support. `allLog` is every tier, not the selected one, because the CAP is
      shared: 400 rows is ~133 days at three tiers, and filtering first would overstate the span. */
-  const allLog  = dailySharedAllRows();
+  const allLog  = dailySharedAllRows().filter(r => r.day >= RECORD_START);   // build 328
   const earliest = allLog.length ? allLog.map(r => r.day).sort()[0] : null;
   const capped  = !!_slipHist.capped;                  // build 325 - older issued days exist beyond the window
-  const allLabel = earliest ? (capped ? 'Since ' + earliest : 'All recorded') : 'All recorded';
+  /* 🚨 BUILD 328 - "All recorded" WAS AN OVER-CLAIM AND KEN CAUGHT IT. `capped` only turns on when
+     `daily_slips` holds rows OLDER than the 120-day window, and it never will, because the table
+     itself begins 2026-09-07 - everything before that was a device-local log build 325 stopped
+     reading. So the chip asserted completeness over a record with a silent start. It now names the
+     start date, which is build 252's own rule: label FROM the data, never assert a span.
+     It still reads the EARLIEST DAY ACTUALLY HELD when there is one, so the label and the rows can
+     never disagree; RECORD_START is only the fallback before any card has settled. */
+  const allLabel = 'Since ' + (earliest ? shortDay(earliest) : recordStartText());
   /* When the cap has bitten, say so where the rate is read rather than only in the chip label. A
      span that silently shortened is how a long-run figure quietly becomes a short-run one. */
-  const capNote = capped
-    ? '<div class="subnote">Only the last ' + SLIP_HISTORY_DAYS + ' days are read, so days before '
-      + escapeHtml(String(earliest)) + ' have been dropped. This is not a lifetime record.</div>'
-    : '';
+  /* build 328 - ALWAYS rendered, not only when the log is capped. It carries the two facts a reader
+     cannot infer from the figures: where the count starts, and that it is the same on every device.
+     The old empty-state paragraph said the first of those and only when there was nothing to show. */
+  const capNote = '<div class="subnote">Counting from ' + escapeHtml(recordStartText())
+    + ' · the same record on every device.'
+    + (capped ? ' Only the last ' + SLIP_HISTORY_DAYS + ' days are read, so earlier days have been dropped.' : '')
+    + '</div>';
   const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,allLabel]]
                     .map(([d,l]) => chip(escapeHtml(l), st.days === d, 'data-dt-days="' + d + '"')).join('');
 
   let metrics;
   if(!done.length){
     metrics = '<div class="subnote"><b style="color:var(--gold)">No settled slips yet'
-      + (rows.length ? ' — ' + rows.length + ' recorded and still awaiting results.' : '.')
-      + '</b> This ledger starts the day it was built and is never back-filled: reconstructing past '
-      + 'cards would score today’s rules against the very fixtures they were designed on. '
-      + 'It becomes a real number as the days accumulate.</div>';
+      + (rows.length ? ' — ' + rows.length + ' awaiting results.' : '.') + '</b></div>';   // build 328
   } else {
     /* Ken's formulae, exactly. Staked counts SETTLED days only - charging for a day whose result is
        not in yet would report a loss that has not happened. */
@@ -6462,13 +6612,19 @@ function renderDailyTracker(){
     /* BUILD 305 - THIS LINE HAD BECOME FALSE. It described slips priced at the engine's fair odds;
        every slip issued since build 301 is priced at market, so the caption was contradicting the
        cards it summarised. */
-    + '<div class="subnote">Issued cards graded from shared results — the same record on every device.</div>'
+    + ''   // build 328 - the caption said what the numbers already say
     + '</div>';
 
   box.querySelectorAll('[data-dt-tier]').forEach(b =>
     b.addEventListener('click', () => { st.tier = b.getAttribute('data-dt-tier'); renderDailyTracker(); }));
   box.querySelectorAll('[data-dt-days]').forEach(b =>
     b.addEventListener('click', () => { st.days = +b.getAttribute('data-dt-days'); renderDailyTracker(); }));
+  /* BUILD 328 - the step-stake ledger reads the SAME graded rows this tracker does, so it refreshes
+     HERE and nowhere else. `renderDailySlips` has three exits and each already refreshes this tracker,
+     and `slipHistoryLoad` re-enters `renderDailySlips` rather than `renderTips` - so a ladder wired to
+     `renderTips` would paint before the history landed and never refresh. Guarded, so a fault in the
+     ledger cannot take this tracker's numbers off the screen. */
+  try{ renderValueLadder(); }catch(e){ try{ console.warn('value ladder:', e); }catch(_){ } }
 }
 
 /* ══ BUILD 250 — A RECORDED DAY, REPLAYED FROM THE LEDGER ═══════════════════════════════════════
@@ -7153,6 +7309,7 @@ function renderTips(){
   $('strongCard').classList.add('hidden');                  // its list is replaced by the slips
   $('dailySlips').classList.toggle('hidden', t!=='smart');
   $('dailyTracker').classList.toggle('hidden', t!=='smart');
+  $('valueLadder').classList.toggle('hidden', t!=='smart');   // build 328
   $('tipFairToggle').textContent = tipState.fair?'Show %':'Show fair odds';
   if(t==='slip'){ renderSlipUI(); return; }
   renderStrongPicks();                                      // the accuracy record, always
@@ -17560,11 +17717,37 @@ function loadSharedRecords(){
 }
 /* ONE tally over the shared row: hits, misses and voids per day per market. A void returned the stake,
    so it leaves the denominator exactly as `tallyPicks` has always done (build 119). */
+/* == BUILD 328 - EVERY RECORD IN THIS APP STARTS ON ONE DAY =====================================
+   Ken, 2026-09-19: *"I want all record for engine performance to be formatted and new count start
+   today for smartbet."* Ruling the same day: reset the engine record to start today, reformat it,
+   and say in one line that the earlier count was retired.
+
+   WHY RESETTING IS THE HONEST CHOICE AND NOT A LOSS OF EVIDENCE. `PUBLISHED-CLAIM` (09-15) measured
+   the published record over-claiming by +4.2 points and named the cause: it is ENTIRELY the engine
+   version. 824 of 826 matched picks were published before build 318, and today's engine re-pricing
+   the same fixtures claims -1.6. So the lifetime headline was a number produced by engines that no
+   longer exist. Nothing is deleted: `predictions` keeps every row and the shared payload keeps every
+   day, so moving this one constant back restores the old figure exactly.
+
+   ONE CONSTANT, CLAMPED IN ONE PLACE. The headline, Yesterday, Last 7 days and the per-market table
+   all reach the payload through `sharedTally`, so the clamp lives HERE rather than at each caller.
+   Build 229's lesson, exactly: that table was added later, brought its own counting, and read 100%
+   in every market while the headline admitted 20 of 28. A fourth caller added tomorrow inherits the
+   start date instead of forgetting it. */
+const RECORD_START = '2026-09-19';
+function shortDay(iso){
+  const d = new Date(String(iso) + 'T00:00:00');
+  return isNaN(d) ? String(iso) : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+function recordStartText(){ return shortDay(RECORD_START); }
 function sharedTally(from, to, market){
   const p = _engineRecord.payload;
   if(!p || !p.days) return null;
+  /* The caller's window may narrow the start but may never widen it past RECORD_START. */
+  const f0 = (from && from > RECORD_START) ? from : RECORD_START;
   let hits = 0, misses = 0, voids = 0;
   for(const day of Object.keys(p.days)){
+    if(day < f0) continue;
     if(from && day < from) continue;
     if(to && day > to) continue;
     const dd = p.days[day] || {};
@@ -17601,7 +17784,9 @@ function engineRecordPayload(preds, res, today){
     const done = f && ['FINISHED','FT','AET','PEN'].includes(f.status) && f.gh!=null && f.ga!=null;
     const g = done ? gradePick(r.pick, actualCode(f.gh,f.ga), f.gh, f.ga) : null;
     if(g === 'hit' || g === 'miss' || g === 'void'){
-      const day = String(r.kickoff || '').slice(0, 10), mk = r.market || pickMarket(r.pick) || 'Other';
+      /* build 328 - the fixture's own date first; the stored kickoff only when the fixture has
+         none. A rescheduled match never rewrites the pick, so the stored value drifts. */
+      const day = String((f && f.date) || r.kickoff || '').slice(0, 10), mk = r.market || pickMarket(r.pick) || 'Other';
       const dd = (days[day] = days[day] || {}), c = (dd[mk] = dd[mk] || [0, 0, 0]);
       c[g === 'hit' ? 0 : g === 'miss' ? 1 : 2]++;
       graded++;
@@ -17627,7 +17812,7 @@ async function sharedRecordsPublish(){
     const ids = (preds || []).map(r => r.fxid), res = {};
     for(let i = 0; i < ids.length; i += 200){
       const { data: fx, error: fe } = await supa.from('fixtures')
-        .select('fxid,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));
+        .select('fxid,date,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));   // build 328
       if(fe) throw fe;
       for(const f of (fx || [])) res[f.fxid] = settledRow(f);
     }
@@ -18062,7 +18247,7 @@ function renderMoreRecord(){
   if(!stats || !stats.n){
     line.textContent = _engineRecord.state === 'pending' ? 'Reading the shared record…'
       : _engineRecord.state === 'failed' ? 'Could not read the shared record. It is tried again when this tab is reopened.'
-      : 'No graded predictions yet. Every published pick is frozen at kick-off and counted here once its match finishes.';
+      : 'No graded picks since ' + recordStartText() + ' yet.';   // build 328
     const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
     return;
   }
@@ -18080,20 +18265,25 @@ function renderMoreRecord(){
   const yday = ymdLocal(Date.now()-86400000);
   const y = recordBetween(yday, yday);
   const w = recordBetween(ymdLocal(Date.now()-7*86400000), ymdLocal(Date.now()));
-  const cell = (label, t) => {
-    const body = t.n
-      ? `<b style="color:${(+t.pct)>=50?'var(--green2)':'var(--red)'}">${t.hits}/${t.n} · ${t.pct}%</b>`
-      : `<span class="muted">no graded picks</span>`;
-    return `<span style="flex:1"><span class="muted" style="font-size:.62rem;letter-spacing:.08em;text-transform:uppercase">${label}</span><br>${body}</span>`;
-  };
-  line.innerHTML = `<b style="color:var(--green2);font-size:1.05rem">${stats.hits}/${stats.n} correct · ${stats.pct}%</b>`
-    + `<div class="frow" style="margin-top:8px">${cell('Yesterday', y)}${cell('Last 7 days', w)}</div>`
-    + `<div class="subnote" style="margin-top:4px">Each pick is frozen at kick-off and graded when the result arrives.`
-    + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out rather than called a loss.` : '')
-    + (stats.legacy ? ` ${stats.legacy} older result${stats.legacy===1?'':'s'} predate the freeze rule and are not counted.` : '')
-    + ` Yesterday and the last seven days count the same picks as the total above, narrowed by date.`
-    + ` The same record on every device: every published pick, graded once by MatchMind${recordUpdatedText()}.`
-    + `</div>`;
+  /* BUILD 328 - formatted figures, and the four sentences that used to sit under them are gone.
+     Ken: *"I do not want too much writings in this app."* What survives is the one fact a reader
+     cannot infer from the numbers: when the count starts. */
+  const shc = (k, t) => `<div class="shcell"><span class="k">${k}</span><span class="v"`
+    + (t.n ? ` style="color:${(+t.pct)>=50?'var(--green2)':'var(--red)'}">${t.hits}/${t.n} · ${t.pct}%` : `>—`)
+    + `</span></div>`;
+  line.innerHTML = `<div class="sliphead">`
+      + `<div class="shcell"><span class="k">Correct</span><span class="v" style="color:var(--green2)">${stats.hits}/${stats.n}</span></div>`
+      + `<div class="shcell"><span class="k">Rate</span><span class="v" style="color:${(+stats.pct)>=50?'var(--green2)':'var(--red)'}">${stats.pct}%</span></div>`
+    + `</div>`
+    + `<div class="sliphead" style="margin-top:1px">${shc('Yesterday', y)}${shc('Last 7 days', w)}</div>`
+    + `<div class="subnote">From ${escapeHtml(recordStartText())}`
+    /* Build 119's rule, kept: a void is disclosed WITH its reason. Dropping it from the denominator
+       silently would overstate nothing, but saying nothing about money that came back is the kind of
+       omission this record exists to avoid. Six words instead of a sentence. */
+    + (stats.voids ? ` · ${stats.voids} void${stats.voids===1?'':'s'} excluded, had the stake returned` : '')
+    /* The same record on every device — Ken's build-325 requirement, kept because it is a promise
+       about OTHER devices that a reader cannot infer from the numbers in front of them. */
+    + ` · the same record on every device${recordUpdatedText()}.</div>`;
 
   const box = $('moreRecordBreak'); if(!box) return;
   /* BUILD 229 - THIS TABLE COUNTED EVERY PICK AS CORRECT, AND KEN FOUND IT ON HIS PHONE.
@@ -18145,10 +18335,10 @@ function renderStrongPicks(){
   const legacyNote = stats && stats.legacy
     ? `<div class="subnote" style="margin-top:4px">${stats.legacy} older result${stats.legacy===1?'':'s'} ${stats.legacy===1?'is':'are'} not counted. Until build 62 the app re-priced past matches every time it loaded, so those picks changed after the final whistle and the tally stopped describing anything real. <a href="#" id="recordReset" style="color:var(--gold)">Clear them</a>.</div>`
     : '';
+  /* build 328 - the same two numbers, without the paragraph that used to follow them. */
   $('recordLine').innerHTML = (stats && stats.n
-    ? `Engine record: <b style="color:var(--green2)">${stats.hits}/${stats.n} correct (${stats.pct}%)</b> — each pick is frozen at kick-off and graded when the result arrives.`
-      + (stats.voids ? ` ${stats.voids} Draw No Bet pick${stats.voids===1?'':'s'} ended level and had the stake returned, so ${stats.voids===1?'it is':'they are'} left out of the count rather than called a loss.` : '')
-    : 'Every prediction is frozen at kick-off and graded once its match finishes — your accuracy record builds here.') + legacyNote;
+    ? `<b style="color:var(--green2)">${stats.hits}/${stats.n} correct · ${stats.pct}%</b> <span class="muted">from ${escapeHtml(recordStartText())}</span>`
+    : `<span class="muted">No graded picks since ${escapeHtml(recordStartText())} yet.</span>`) + legacyNote;
   { const rr=$('recordReset'); if(rr) rr.onclick = e=>{ e.preventDefault(); clearLegacyRecord(); }; }
 }
 
