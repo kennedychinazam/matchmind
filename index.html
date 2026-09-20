@@ -862,7 +862,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 331;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 332;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5230,7 +5230,33 @@ const DAILY_FLOORS = { 'Winner':0.75, 'Double Chance':0.76, 'Draw No Bet':0.65, 
    signature of a broken price rather than a thin sample. It was live, admitted by the 60% BTTS floor,
    and claiming 62.3% while landing 52.7%. */
 const DAILY_FLOOR_PRIMARY = {
-  '1':0.75, 'X':0.75, '2':0.75,          // draw: peaks at 43.5%, so never eligible — recorded, not hidden
+  /* == BUILD 332 - `1` MOVES TO 0.70. ONE FLOOR, MEASURED FIRST ===============================
+     Ken, 2026-09-20: *"instead of just 1x, it can also print 1, straight win where suitable"*, then
+     *"SHIP 0.70 AS BUILD 332"*. `MatchMind-WINFLOOR-PREREG.md` was filed before a figure existed.
+
+     13,108 legs, held out from 2025-04-25, the engine restricted at every row to matches preceding
+     it, anchored 41/41 against the app's own probabilities:
+
+         floor   n     claimed   actual    gap      |gap|/SE
+         0.75    183   80.07%    86.34%    +6.27    2.469
+         0.72    269   77.98%    84.01%    +6.03    2.704
+         0.70    354   76.33%    80.51%    +4.18    1.981   <- the only floor passing P1
+         0.68    448   74.80%    78.79%    +4.00    2.073
+
+     EVERY FLOOR UNDER-CLAIMS. Straight home wins land MORE often than the engine says, not less -
+     the opposite of the prior filed that morning. The legs 0.70 ADDS are n 171, claimed 72.33%,
+     actual 74.27%, sigma 0.58: calibrated on their own terms.
+
+     ⚠ IT PASSES BY 0.019 SIGMA, AND THE RULE THAT PASSED IT IS FAULTY. P1 was written two-sided
+     (|gap| < 2 SE), so it fails a floor for UNDER-claiming as hard as for over-claiming - and
+     applied as written it rejects 0.75, the floor this replaces. That defect was noticed only after
+     the data was seen, so it was recorded and NOT rewritten. This floor is PROVISIONAL and carries
+     a filed prospective look.
+
+     🚩 BUILD 251 IS NOT REVERSED. It tested `1` at 0.55 and every lowering failed. This is 0.70,
+     and it is the only entry that moves: `X` and `2` stay at 0.75 and no other line in this table
+     changes. The lock pins that. */
+  '1':0.70, 'X':0.75, '2':0.75,          // draw: peaks at 43.5%, so never eligible — recorded, not hidden
   '1X':0.76, 'X2':0.85,                  // X2 raised: -2.0 ±1.8 at 0.76; clean (-0.5 ±2.6) from 0.85
   /* BUILD 248 — null, not a number: Draw No Bet cannot be priced as one fixed slip return.
      See DAILY_MARKETS above. `null` is the same 'never offered' mechanism BTTS No uses. */
