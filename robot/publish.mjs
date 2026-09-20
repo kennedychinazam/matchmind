@@ -11,8 +11,17 @@
    for that pass, then reopens the app so a fresh boot publishes from the bars just written — the same bars
    every device reads. It then opens the Smart Bet tab so the app issues the day's shared slips (from build
    325 only the publisher may), and asks the app to write the one engine record every device shows. It NEVER
-   computes, writes or edits a pick or a bar itself: the engine that publishes is the engine users run,
-   so there is no second copy to drift (the signature defect: one correction, two surfaces).
+   computes, writes or edits a pick, a bar or a figure itself: the engine that publishes is the engine
+   users run, so there is no second copy to drift (the signature defect: one correction, two surfaces).
+
+   BUILD 330 adds one step: it also asks the app to write the CLOSING-LINE record (`shared_records` key
+   `clv`), computed by the app's own `m15Fetch`/`m15Build` - the implementation M15's seven reads were
+   validated against (893 of 893 rows at read 7).
+
+   THE CLOSING-LINE STEP IS NON-FATAL, ON PURPOSE. It runs after the picks, the bars and the engine
+   record are already published. A display figure that failed to compute must not mark a run that
+   published correctly as failed - and the app draws NOTHING rather than something stale, so the
+   failure is visible in the product too, not only in this log.
 
    CREDENTIALS come only from the environment (GitHub Actions secrets) and are never printed.
 
@@ -97,6 +106,7 @@ function readState() {
     measuresWriteFailed: shared ? _measuresWriteFailed : 0,
     // build 325 — the shared records
     sharedRecords: typeof sharedRecordsPublish === 'function',
+    sharedClv: typeof sharedClvPublish === 'function',          // build 330
     slipsReady: typeof _slipHist !== 'undefined'
       ? (!!_slipHist.loaded && !!_sharedSlips.loaded && !!_dailyOdds.loaded) : false,
     issuedRowsToday: (typeof _sharedSlips !== 'undefined' && _sharedSlips.loaded) ? (_sharedSlips.rows || []).length : null,
@@ -257,7 +267,7 @@ async function main() {
       await ensureSignedIn(page, 'boot');
     }
 
-    let record = null;
+    let record = null, clv = null;
     const boot = await waitSettled(page, 'boot');
 
     if (!DRY_RUN) {
@@ -281,6 +291,16 @@ async function main() {
       record = await page.evaluate(() => sharedRecordsPublish());
       log('shared engine record', record);
       if (!record || !record.ok) throw new Error('the shared engine record was not written: ' + (record && record.error));
+      /* BUILD 330 - the closing-line number every device shows. Ken's ruling of 2026-09-20 took M17 off
+         M15 and required this figure to be published instead of gated on, so the app must be able to say
+         it. Guarded on the function existing, because this script also runs against an older live app. */
+      if (boot.sharedClv) {
+        clv = await page.evaluate(() => sharedClvPublish());
+        if (clv && clv.ok) log('shared CLV record', clv);
+        else log('WARN: the closing-line record was not written (the run continues): ' + (clv && clv.error));
+      } else {
+        log('WARN: the live app is older than build 330; no closing-line record to write');
+      }
       /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
          the app's own state and render call, exactly as a tap on the tab does. */
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
@@ -299,7 +319,7 @@ async function main() {
       measuresState: end.measuresState, sharedRows: end.sharedRows, engineComps: end.engineComps,
       newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
       slipsToday: after.slipsToday, sharedBarsInTable: after.sharedBars, bootMatches: boot.matches,
-      issuedRowsToday: end.issuedRowsToday, engineRecord: record,
+      issuedRowsToday: end.issuedRowsToday, engineRecord: record, clvRecord: clv,
     };
     log('summary', summary);
 
