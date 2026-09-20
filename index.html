@@ -514,10 +514,6 @@
          screenshot, and only one of them is fixed by deleting something. */ -->
     <div id="dailySlips"></div>
     <div id="dailyTracker"></div>
-    <!-- build 330 - the closing-line number, between engine performance and the ladder. It is the
-         measure that would show an edge over bookmakers, so under Ken's ruling of 2026-09-20 it is
-         published rather than kept behind the dev fence. -->
-    <div id="clvLine"></div>
     <!-- build 328 - Ken: "its own calculator should be separate, below the engine performance in
          the smart bet tab". Rendered from renderDailyTracker, the only place that knows the
          graded rows have moved. -->
@@ -791,6 +787,11 @@
       <h2>🎯 How the engine is doing</h2>
       <div class="muted" id="moreRecordLine" style="line-height:1.5"></div>
       <div id="moreRecordBreak" style="margin-top:10px"></div>
+      <!-- build 331 - Ken: "Remove that Closing-line value, i don't need it there." It leaves the
+           Smart Bet tab and sits with the record it belongs to. It is NOT deleted: it is condition
+           4 of the 2026-09-20 ruling that took Milestone 17 off Milestone 15, and deleting it puts
+           that dependency back. -->
+      <div id="clvLine" style="margin-top:10px"></div>
     </div>
 
         <div id="devStub" hidden aria-hidden="true">
@@ -861,7 +862,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 330;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 331;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5616,6 +5617,46 @@ const DAILY_MARKET_RANK = (c) => {
    to 100%, at ZERO API cost. When that lands, `historyCounts` is the ONE function that changes and
    this floor follows it automatically. It is deliberately the only place that counts. */
 const DAILY_MIN_TEAM_HISTORY = 10;
+/* == BUILD 331 - EVIDENCE COUNTS ONLY WHERE IT WAS EARNED =====================================
+   Ken, 2026-09-20: *"For the cup door, we may not close it but we need to introduce more strict
+   condition in which it must meet before it can print on smart bet."*
+
+   `fixtureEvidence` above counts a team's matches INSIDE THE COMPETITION BEING PLAYED. For a cup
+   tie that is the team's cup record, and a non-league club with 21 FA Cup appearances clears a
+   minimum of 10 while the engine knows it almost entirely from divisions build 327 already ruled
+   unfit to predict in. That is how 2026-09-19's Value and Bold cards came to rest on Walton &
+   Hersham, Buxton and Weston-super-Mare, and both cards lost on them.
+
+   BUILD 327 REMOVED THE FIXTURES AND NOT THE RATINGS. This is the other half of that rule: a team
+   must be KNOWN from competitions we are willing to predict in, whatever competition it turns up
+   in today. `predictsComp` is build 327's own list, reused rather than restated.
+
+   ⚠ THE CUP IS NOT CLOSED, AND THAT IS THE POINT. A non-league side that builds a real record
+   against ranked opposition accumulates backable evidence and qualifies on its own merit. What it
+   may not do is arrive with a rating made of matches we do not trust. */
+const DAILY_MIN_BACKABLE_HISTORY = 35;
+let _backable = null, _backableAt = -1;
+function backableCounts(){
+  if(_backable && _backableAt === _leaguesLoadedAt) return _backable;
+  const c = new Map();
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L || !predictsComp(L)) continue;          // build 327's list, not a second copy of it
+    for(const m of (L.matches || [])){
+      c.set(m.home, (c.get(m.home) || 0) + 1);
+      c.set(m.away, (c.get(m.away) || 0) + 1);
+    }
+  }
+  _backable = c; _backableAt = _leaguesLoadedAt;
+  return c;
+}
+/* The WEAKER of the two sides, exactly as `fixtureEvidence` does: a tie is only as readable as the
+   team we know least about. */
+function backableEvidence(f){
+  if(!f) return 0;
+  const c = backableCounts();
+  return Math.min(c.get(f.home) || 0, c.get(f.away) || 0);
+}
 /* Keyed on the matches ARRAY, not the league id — the same reason DAMPEN_OF_MATCHES is. A cache
    restore builds fresh arrays, and a count map that outlived its matches would be silently wrong. */
 const HIST_OF_MATCHES = new WeakMap();
@@ -5649,6 +5690,10 @@ function dailyEligible(cands, floors){
        actually seen. Applied at SELECTION and ahead of the floor, so a lowered floor step can never
        readmit a fixture the engine knows nothing about. */
     if(fixtureEvidence(c.L, c.f) < DAILY_MIN_TEAM_HISTORY) continue;
+    /* BUILD 331 - and the history has to have been earned somewhere we predict. Measured on the
+       live pool: yesterday's three losing cup legs score 17, 15 and 16; today's thinnest legitimate
+       fixture scores 40. The minimum sits in that gap. */
+    if(backableEvidence(c.f) < DAILY_MIN_BACKABLE_HISTORY) continue;
     /* build 274 — a winner leg is a claim about relative strength; only a competition that has
        PROVEN it beats "home or draw" may make one on a daily slip. */
     if(DAILY_WINNER_CODES.has(c.code) && !skillProven(c.L)) continue;
@@ -6690,7 +6735,6 @@ function renderDailyTracker(){
      and `slipHistoryLoad` re-enters `renderDailySlips` rather than `renderTips` - so a ladder wired to
      `renderTips` would paint before the history landed and never refresh. Guarded, so a fault in the
      ledger cannot take this tracker's numbers off the screen. */
-  try{ renderClvLine(); }catch(e){ try{ console.warn('clv line:', e); }catch(_){ } }
   try{ renderValueLadder(); }catch(e){ try{ console.warn('value ladder:', e); }catch(_){ } }
 }
 
@@ -7380,7 +7424,6 @@ function renderTips(){
   $('strongCard').classList.add('hidden');                  // its list is replaced by the slips
   $('dailySlips').classList.toggle('hidden', t!=='smart');
   $('dailyTracker').classList.toggle('hidden', t!=='smart');
-  $('clvLine').classList.toggle('hidden', t!=='smart');       // build 330
   $('valueLadder').classList.toggle('hidden', t!=='smart');   // build 328
   if(t==='slip'){ renderSlipUI(); return; }
   renderStrongPicks();                                      // the accuracy record, always
@@ -18445,6 +18488,9 @@ async function openFixture(leagueId, f, btn){
    carrying the record while the goals markets are dragging it, and that is exactly the question
    the new 70% floor was meant to act on. */
 function renderMoreRecord(){
+  /* BUILD 331 - drawn here, with the record it qualifies. Guarded, so a fault in the closing-line
+     card cannot take the published record off the screen. */
+  try{ renderClvLine(); }catch(e){ try{ console.warn('clv line:', e); }catch(_){ } }
   const line = $('moreRecordLine'); if(!line) return;
   if(_engineRecord.state !== 'pending' && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();   // build 325
   const stats = recordStats();
