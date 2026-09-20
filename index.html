@@ -218,7 +218,12 @@
   .scrow{display:flex; align-items:center; gap:7px; padding:11px 0; border-bottom:1px solid var(--border);}
   .scrow:last-child{border-bottom:none;}
   .scstat{width:42px; font-size:.71rem; color:var(--muted); font-weight:700; flex-shrink:0;}
-  .livedot{color:var(--red); margin-right:3px; animation:pulse 1.4s infinite;}
+  .livechip{display:inline-flex;align-items:center;gap:3px;font-size:.66rem;font-weight:700;
+  color:var(--red);background:rgba(229,57,53,.10);border:1px solid rgba(229,57,53,.35);
+  border-radius:999px;padding:1px 6px;margin-right:5px;white-space:nowrap}
+.livechip .livedot{animation:livepulse 1.6s ease-in-out infinite}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.35}}
+.livedot{color:var(--red); margin-right:3px; animation:pulse 1.4s infinite;}
   @keyframes pulse{50%{opacity:.35}}
   .scscore{width:52px; text-align:center; font-weight:800; font-size:.98rem; color:var(--muted); flex-shrink:0;}
   .scscore.final{color:var(--text);}
@@ -862,7 +867,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 333;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 334;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3062,6 +3067,31 @@ function freshRows(rows){
 // bump when the shape of the cached scores list changes, to force one refresh on upgrade
 const SCORES_CACHE_V = 40;   // build 320 — a cached list from before it carries unsettled cup scores
 function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(const s of afState.scores.list) m[s.fxid]=s; return m; }
+
+/* == BUILD 334 - A LIVE MATCH CARRIES ITS SCORE WHEREVER IT APPEARS ============================
+   Ken, 2026-09-20: *"any match in the tips including smart bet which has started playing should
+   show the current scoreline with 'live'."*
+
+   THE CLOCK WAS NEVER THE APP'S PROBLEM. `LIVE_CODES` has carried '1H','HT','2H','ET' since it was
+   written and the Scores row has always rendered `s.elapsed`. The COLLECTOR was collapsing every
+   live code to "LIVE" and never writing `elapsed`, so the app read a field that was always null.
+   Collector af-42 fixed the data; this build only puts the badge where Ken asked for it. */
+function liveRowFor(fxid){
+  if(fxid == null || fxid === '') return null;
+  return scoreMap()[fxid] || null;
+}
+/* Returns a chip or an EMPTY STRING, so every caller concatenates it unconditionally and none needs
+   its own `if`. A fixture that has not kicked off adds nothing to the row. */
+function liveChip(fxid){
+  const s = liveRowFor(fxid);
+  if(!s || !LIVE_CODES.includes(s.status)) return '';
+  /* Half-time is a STATE, not a minute. af-42 sends it as its own status with elapsed 45, and "HT"
+     is what a reader expects - not "45'" on a match where nothing is happening. */
+  const when = s.status === 'HT' ? 'HT'
+             : (s.elapsed != null ? s.elapsed + "'" : 'LIVE');
+  const sc = (s.gh != null && s.ga != null) ? ' ' + s.gh + '-' + s.ga : '';
+  return '<span class="livechip"><span class="livedot">&#9679;</span>' + when + sc + '</span>';
+}
 function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!=null && s.ga!=null); }
 // final result for a fixture: today's scores by id, else league history by teams+date
 function fixtureResult(L,f,smap){
@@ -6270,6 +6300,17 @@ function tipsResolveFixture(d, h, a){
     const L = afState.leagues[id]; if(!L) continue;
     for(const f of (L.upcoming || [])) if(f.date === d && f.home === h && f.away === a) return {L, f};
   }
+  /* BUILD 334 - A MATCH THAT HAS KICKED OFF IS IN NEITHER LIST. It leaves `upcoming` at kick-off
+     and does not reach `played` until it finishes, so this returned null for the whole 90 minutes:
+     the row lost its star and its tap did nothing. Ken: *"they all open when tapped, but when the
+     match it predicts goes live, tapping on it stops opening."*
+
+     🚩 THE SAME BLIND SPOT AS BUILD 329's `legCompId`, which the trap list already records in these
+     words - it works every morning and fails every afternoon. The scores feed still carries the
+     match, and `ensureLeagueFromScore` is what the Scores tab itself uses to turn one back into a
+     fixture, so it is reused rather than reimplemented. */
+  const list = (afState.scores && afState.scores.list) || [];
+  for(const s of list) if(s.date === d && s.home === h && s.away === a) return ensureLeagueFromScore(s);
   return null;
 }
 /* Grading REUSES `dailyLogGrade` rather than re-implementing it: the legs are handed over as one
@@ -6880,7 +6921,8 @@ function dailyFrozenCard(tier, r, isShared){
                    : '<span style="color:var(--muted)">&middot;</span>';
         return '<button type="button" class="slipleg" data-leg-fx="'
         + escapeHtml(String(l.fxid != null ? l.fxid : '')) + '">'
-        + '<div class="lgtop"><span class="lgteams">' + mark + ' ' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span></div>'
+        + '<div class="lgtop"><span class="lgteams">' + mark + ' ' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span>'
+        + liveChip(l.fxid) + '</div>'
         + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
         + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
         + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
@@ -6952,6 +6994,7 @@ function dailyPastCards(day){
              return (fx ? '<button type="button" class="slipleg" data-leg-fx="' + escapeHtml(fx) + '">'
                         : '<div class="slipleg" style="cursor:default">')
                + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span>'
+               + liveChip(l.fxid)
                + (sc ? '<span class="lgscore">' + escapeHtml(String(sc)) + '</span>' : '')
                + '</div>'
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String(chipCode(l.code) || l.code || '')) + '</span>'
@@ -7317,6 +7360,7 @@ function renderDailySlips(){
            + legs.map(l => '<button type="button" class="slipleg" data-leg-fx="'
                + escapeHtml(String((l.f && l.f.fxid != null) ? l.f.fxid : '')) + '">'
                + '<div class="lgtop"><span class="lgteams">' + escapeHtml(String(l.f.home + ' v ' + l.f.away)) + '</span>'
+               + liveChip(l.f && l.f.fxid)
                + '<span class="lgko">' + escapeHtml(String(l.f.ktime || l.f.time || '')) + '</span></div>'
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.sel || '')) + '</span>'
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
@@ -7713,7 +7757,8 @@ function renderTipListFrozen(market, legs, box){
   box.innerHTML = graded.map(g => {
     const l = g.leg, i = refs.length; refs.push(tipsResolveFixture(l.d, l.h, l.a));
     /* build 329 - the percentage always, and a price only when a bookmaker actually quoted one. */
-    const val = '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+    const val = liveChip(refs[i] && refs[i].f ? refs[i].f.fxid : null)
+              + '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
               + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : null, l.code);
     const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
@@ -7764,7 +7809,8 @@ function renderTipList(market){
     return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
-    const val = `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>` + realOddsChip(r.f && r.f.fxid, r.code);   // build 329
+    const val = liveChip(r.f && r.f.fxid)
+              + `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>` + realOddsChip(r.f && r.f.fxid, r.code);   // build 329
     // "+18 vs avg" = how far this sits from the same bet in an average match — the actual insight
     const edgeTag = (market==='smart' && r.edge!=null)
       ? ` <span class="muted" style="font-size:.66rem">${r.edge>=0?'+':''}${(100*r.edge).toFixed(0)} vs avg</span>` : '';
@@ -18455,7 +18501,18 @@ function openFixtureById(fxid){
       if(f){ openFixture(L.id, f); return true; }
     }
   }
-  // not loaded yet — land them on Scores rather than a blank screen
+  /* BUILD 334 - BEFORE THIS, A LIVE MATCH LANDED HERE AND LOOKED LIKE AN ERROR. The loop above
+     searches `upcoming` and `played`; a match in progress is in neither, so every tap on a live leg
+     fell through to the not-loaded-yet path and bounced the reader to Scores with a toast. Measured
+     on the live site: five live matches, all five missing from both lists.
+     The scores feed still has it, so it is resolved the way the Scores tab resolves one. */
+  const sLive = scoreMap()[fxid];
+  if(sLive && sLive.lid != null){
+    const { L, f } = ensureLeagueFromScore(sLive);
+    openFixture(L.id, f);
+    return true;
+  }
+  // genuinely not loaded yet — land them on Scores rather than a blank screen
   navTo('scores');
   toast('Opening that match — give it a moment to load');
   return false;
