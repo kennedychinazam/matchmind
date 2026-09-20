@@ -514,6 +514,10 @@
          screenshot, and only one of them is fixed by deleting something. */ -->
     <div id="dailySlips"></div>
     <div id="dailyTracker"></div>
+    <!-- build 330 - the closing-line number, between engine performance and the ladder. It is the
+         measure that would show an edge over bookmakers, so under Ken's ruling of 2026-09-20 it is
+         published rather than kept behind the dev fence. -->
+    <div id="clvLine"></div>
     <!-- build 328 - Ken: "its own calculator should be separate, below the engine performance in
          the smart bet tab". Rendered from renderDailyTracker, the only place that knows the
          graded rows have moved. -->
@@ -857,7 +861,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 329;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 330;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -6493,6 +6497,35 @@ function valueLadderLedger(unit){
    bet tab. all explanation should be brief and all text alignment margins justified."* Three short
    lines, each `ctxprose` - build 87's own justify rule, `hyphens:auto` and all, because justifying a
    narrow phone column without it opens visible white rivers. No new style. */
+/* == BUILD 330 - THE NUMBER THAT DECIDES WHETHER CHARGING IS HONEST ============================
+   Ken, 2026-09-20: "file A and do C too."
+
+   ABSENT, NEVER ZERO. No record, an empty record, a failed read, or zero usable rows and this
+   draws NOTHING. "+0.00% over 0 picks" is the silent-zero fault this project has been caught by
+   more than once, and it would be at its worst on the one number a paying reader is owed.
+
+   ONE FIGURE, NOT TWO. The payload carries the de-vigged mean as well, and the screen shows only
+   the raw one. Two numbers side by side invite quoting whichever reads better; the raw move is the
+   honest headline and the pair stays in the record for the filings.
+
+   NO THRESHOLD, NO SIGMA, NO VERDICT - see `clvSummary`. Amendment 2 allows three looks, and a
+   screen is not one of them. */
+function renderClvLine(){
+  const box = $('clvLine'); if(!box) return;
+  const p = (typeof _clvRecord !== 'undefined' && _clvRecord.state === 'loaded') ? _clvRecord.payload : null;
+  const r = p && p.raw;
+  if(!r || !r.n){ box.innerHTML = ''; return; }
+  const mv = r.mean;
+  box.innerHTML = '<div class="card"><h2>\ud83d\udcd0 Closing-line value</h2>'
+    + '<div class="frow"><span class="muted">Mean move after we published</span><b>'
+    + (mv >= 0 ? '+' : '\u2212') + Math.abs(mv).toFixed(2) + '%</b></div>'
+    + '<div class="frow"><span class="muted">Published picks measured'
+    + (p.from ? ' since ' + escapeHtml(shortDay(p.from)) : '') + '</span><b>' + r.n + '</b></div>'
+    + '<div class="subnote ctxprose">Not statistically significant. <b style="color:var(--gold)">'
+    + 'MatchMind has not shown that it beats bookmakers\u2019 closing prices.</b></div>'
+    + '</div>';
+}
+
 function renderValueLadder(){
   const box = $('valueLadder'); if(!box) return;
   const st = valueLadderState(), led = valueLadderLedger(VLADDER_UNIT);
@@ -6553,7 +6586,7 @@ function renderValueLadder(){
     + grid
     + '<div class="subnote ctxprose"><b style="color:var(--gold)">Staking more after a loss creates no '
     + 'edge.</b> A full cycle risks ' + money(cum) + '. MatchMind has no measured edge over the '
-    + 'bookmakers yet, so expect this to lose until it does.</div>'
+    + 'bookmakers, so expect this to lose.</div>'
     + '</div>';
 
   /* `change` rather than `input`: this render replaces the field, so reacting to every keystroke would
@@ -6657,6 +6690,7 @@ function renderDailyTracker(){
      and `slipHistoryLoad` re-enters `renderDailySlips` rather than `renderTips` - so a ladder wired to
      `renderTips` would paint before the history landed and never refresh. Guarded, so a fault in the
      ledger cannot take this tracker's numbers off the screen. */
+  try{ renderClvLine(); }catch(e){ try{ console.warn('clv line:', e); }catch(_){ } }
   try{ renderValueLadder(); }catch(e){ try{ console.warn('value ladder:', e); }catch(_){ } }
 }
 
@@ -7346,6 +7380,7 @@ function renderTips(){
   $('strongCard').classList.add('hidden');                  // its list is replaced by the slips
   $('dailySlips').classList.toggle('hidden', t!=='smart');
   $('dailyTracker').classList.toggle('hidden', t!=='smart');
+  $('clvLine').classList.toggle('hidden', t!=='smart');       // build 330
   $('valueLadder').classList.toggle('hidden', t!=='smart');   // build 328
   if(t==='slip'){ renderSlipUI(); return; }
   renderStrongPicks();                                      // the accuracy record, always
@@ -11422,10 +11457,17 @@ function m15Build(preds, snaps, fx){
     if(grade === 'void'){ skip.voided++; continue; }
     if(grade !== 'hit' && grade !== 'miss'){ skip.notFinished++; continue; }
     pubSrc[pubVia || 'none']++;
+    /* BUILD 330 - the de-vigged move travels with the raw one. Amendment 1 (2026-09-14)
+       defines it as close.p / pub.p - 1 and excludes rows whose publication side is only the
+       stored `odds_at_pick`; those carry pub.p === null, so this expression returns null for
+       exactly the rows the amendment excludes, rather than imputing anything. `day` is carried
+       so the published line can say what period it covers. */
     rows.push({ fxid: p.fxid, pick: p.pick, market: pickMarket(p.pick), ourP: p.pick_prob,
+                day: String(p.kickoff || '').slice(0, 10),
                 mktP: fair.p, price: fair.price, margin: fair.margin,
                 edge: p.pick_prob - fair.p, hit: grade === 'hit',
                 clv: pub ? (pub.price / fair.price - 1) : null, clvVia: pubVia,
+                clvDv: (pub && pub.p != null && fair.p) ? (fair.p / pub.p - 1) : null,
                 mtk: close.mins_to_kick });
   }
   return { rows: rows, skip: skip, pubSrc: pubSrc };
@@ -11438,6 +11480,47 @@ function m15Rate(rs, get){
   const n = rs.length; if(!n) return null;
   const k = rs.filter(get).length, p = k / n;
   return { n: n, k: k, pct: 100 * p, se: 100 * Math.sqrt(p * (1 - p) / n) };
+}
+
+/* == BUILD 330 - THE CLOSING-LINE NUMBER, AS A PUBLISHABLE ROW =================================
+   Ken, 2026-09-20: "file A and do C too."
+
+   C decouples Milestone 17 from Milestone 15. Payments no longer wait on a demonstrated edge over
+   the closing line; instead the app must SAY what the measurement found. Milestone 8's done-when is
+   "every number on screen is either measured or absent", and this is the number that decides
+   whether charging for picks is honest - so it cannot be the one that lives only behind a dev fence.
+
+   A SAMPLE STANDARD ERROR, NOT A BINOMIAL ONE. `m15Rate` above measures a RATE and its se is
+   sqrt(p(1-p)/n). CLV is a mean of continuous per-row moves, so its spread has to come from the
+   rows themselves (n-1 in the denominator; null at n = 1, where there is no spread to report).
+
+   WHAT IS DELIBERATELY NOT IN THIS PAYLOAD: any threshold, any sigma, any verdict. Amendment 2
+   (`MatchMind-CLV-PREREG.md`, 2026-09-20) allows the decisive test exactly THREE looks, and a
+   screen that showed a running figure against a boundary would take an interim look on every
+   device every day. A glance is a look whether or not it is written up. This row describes the
+   record; it does not test it. */
+function clvSummary(rows){
+  const stat = (rs, get) => {
+    const n = rs.length; if(!n) return null;
+    let s = 0; for(const r of rs) s += get(r);
+    const m = s / n;
+    let v = 0; for(const r of rs){ const d = get(r) - m; v += d * d; }
+    const sd = n > 1 ? Math.sqrt(v / (n - 1)) : 0;
+    return { n: n, mean: 100 * m, se: n > 1 ? 100 * sd / Math.sqrt(n) : null };
+  };
+  const raw = rows.filter(r => r.clv != null);
+  const dv  = rows.filter(r => r.clvDv != null);
+  let from = null, to = null;
+  for(const r of raw){
+    if(!r.day) continue;
+    if(!from || r.day < from) from = r.day;
+    if(!to || r.day > to) to = r.day;
+  }
+  return { v: 1, raw: stat(raw, r => r.clv), devig: stat(dv, r => r.clvDv),
+           beat: raw.filter(r => r.clv > 0).length,
+           tie:  raw.filter(r => r.clv === 0).length,
+           lost: raw.filter(r => r.clv < 0).length,
+           from: from, to: to };
 }
 
 function renderM15Audit(){
@@ -17773,8 +17856,13 @@ function recordBetween(from, to){
    once, on purpose: they now count every published pick, not those a device happened to show. */
 const RECORDS_TABLE = 'shared_records';
 const ENGINE_RECORD_KEY = 'engine';
+/* BUILD 330 - a SECOND key in the same table. `shared_records` is keyed (`key text primary key`)
+   and its policies check the publisher's email rather than the key, so this needs no SQL and no
+   schema change: one more row, written by the same account, read in the same request. */
+const CLV_RECORD_KEY = 'clv';
 const RECORD_TTL_MS = 10 * 60 * 1000;
 let _engineRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
+let _clvRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _engineRecordLoading = null;
 function loadSharedRecords(){
   if(_engineRecordLoading) return _engineRecordLoading;
@@ -17782,17 +17870,25 @@ function loadSharedRecords(){
   _engineRecordLoading = (async () => {
     try{
       if(!supa) throw new Error('offline');
-      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at').eq('key', ENGINE_RECORD_KEY).limit(1);
+      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at')
+        .in('key', [ENGINE_RECORD_KEY, CLV_RECORD_KEY]).limit(4);
       if(q.error) throw q.error;
-      const r = (q.data || [])[0] || null;
+      const byKey = k => ((q.data || []).filter(x => x.key === k)[0] || null);
+      const r = byKey(ENGINE_RECORD_KEY);
       _engineRecord = { state: r ? 'loaded' : 'empty', payload: r ? r.payload : null,
                         computedAt: r ? r.computed_at : null, build: r ? r.build : null, at: Date.now() };
+      const c = byKey(CLV_RECORD_KEY);
+      _clvRecord = { state: c ? 'loaded' : 'empty', payload: c ? c.payload : null,
+                     computedAt: c ? c.computed_at : null, build: c ? c.build : null, at: Date.now() };
     }catch(e){
       /* A failed read keeps nothing from before: an old figure shown as current is the defect. */
       _engineRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
+      _clvRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
     }
     _engineRecordLoading = null;
     try{ renderStrongPicks(); renderMoreRecord(); }catch(e){}
+    /* Guarded separately: a fault in the closing-line line must not stop the record above painting. */
+    try{ renderClvLine(); }catch(e){}
     return _engineRecord;
   })();
   return _engineRecordLoading;
@@ -17906,6 +18002,32 @@ async function sharedRecordsPublish(){
     await loadSharedRecords();
     return { ok: _engineRecord.state === 'loaded', rows: payload.total, graded: payload.graded,
              excluded: payload.excluded, pending: payload.pending };
+  }catch(e){
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+/* BUILD 330 - the same contract for the closing-line number: the publisher computes it with the
+   APP'S OWN `m15Fetch`/`m15Build`, which is the implementation M15's reads were validated against
+   (893 of 893 rows at read 7), and every device reads the one row. This is heavy - it pages the
+   whole archive and every odds capture - which is exactly why it runs here, once a day, and never
+   on a user's device. */
+async function sharedClvPublish(){
+  if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher writes the shared record' };
+  try{
+    const data = await m15Fetch();
+    const built = m15Build(data.preds, data.snaps, data.fx);
+    const payload = clvSummary(built.rows);
+    const w = await supa.from(RECORDS_TABLE).upsert(
+      { key: CLV_RECORD_KEY, payload: payload, build: APP_BUILD, computed_at: new Date().toISOString() },
+      { onConflict: 'key' });
+    if(w.error) throw w.error;
+    await loadSharedRecords();
+    return { ok: _clvRecord.state === 'loaded',
+             n: payload.raw ? payload.raw.n : 0,
+             mean: payload.raw ? +payload.raw.mean.toFixed(3) : null,
+             devigN: payload.devig ? payload.devig.n : 0,
+             devig: payload.devig ? +payload.devig.mean.toFixed(3) : null,
+             beat: payload.beat, tie: payload.tie, lost: payload.lost };
   }catch(e){
     return { ok: false, error: String((e && e.message) || e) };
   }
