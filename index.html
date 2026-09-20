@@ -862,7 +862,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 332;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 333;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5148,7 +5148,11 @@ function nextMatchday(){
    would have saved the day."* A 1.20 Double Chance leg that loses costs the whole slip; a 1.80 BTTS
    leg that wins carries it. **Hit rate is not the only axis and the tiers are priced, not ranked.**
    The goals markets are restored to the daily set. */
-const DAILY_MARKETS = new Set(['1X2','DC','OU25','OU35','BTTS']);
+/* BUILD 333 - `OU15` and `HTFT` join the pool. `slipMarketMatch` has understood both since
+   build 239; only this set kept them out. Over 1.5 ships on its own measured floor (0.70); HT/FT
+   is floored `null` below and re-admitted for BOLD ONLY at 0.45, so adding it here does not put it
+   on a Safe or Value card. */
+const DAILY_MARKETS = new Set(['1X2','DC','OU25','OU35','BTTS','OU15','HTFT']);
 
 /* ══ BUILD 239 — TRUE ACCUMULATOR TARGETS, PER-MARKET FLOORS, AND AN EXACT BAND SEARCH ══════════
    Ken: "You set the tier targets as single-leg odds limits rather than combined slip multiplier
@@ -5262,7 +5266,18 @@ const DAILY_FLOOR_PRIMARY = {
      See DAILY_MARKETS above. `null` is the same 'never offered' mechanism BTTS No uses. */
   '1D':null, '2D':null,
   'BTS':0.60, 'NBT':null,                // null = never eligible. No calibrated threshold exists.
-  'O15':0.60, 'O25':0.60, 'O35':0.60,
+  /* BUILD 333 - `O15` 0.60 -> 0.70 on a pre-registered holdout (`MatchMind-NEWMARKETS-PREREG.md`):
+     8,854 held-out legs, claimed 76.65% against an actual 78.30%, and every floor tested UNDER-claims.
+     0.60 was never measured - it was inherited alongside O25 and O35, and build 251 tested only those
+     two. It admitted 96.7% of candidates, which is not a gate. `O25` and `O35` do NOT move. */
+  'O15':0.70, 'O25':0.60, 'O35':0.60,
+  /* BUILD 333 - THE NINE HT/FT DOUBLES ARE `null` HERE, WHICH MEANS NEVER ELIGIBLE, exactly as
+     `NBT` and `U25` are. Every band of them OVER-claims (-1.20, -2.66, -1.66, -0.39). They are
+     re-admitted for the BOLD tier alone, at 0.45, in DAILY_TIER_FLOORS - so Safe and Value cannot
+     carry one by construction rather than by convention. */
+  '1/1':null, '1/X':null, '1/2':null,
+  'X/1':null, 'X/X':null, 'X/2':null,
+  '2/1':null, '2/X':null, '2/2':null,
   /* 🚨 BUILD 270 — UNDER 2.5 IS NEVER OFFERED. Ken: "no BTTS NO and no Under 2.5 but rather
      under 3.5.. my priority is btts yes and over 2.5 before under 3.5."
      `NBT` was already null since build 245. `U25` joins it, and `U35` stays at 0.80.
@@ -5339,7 +5354,17 @@ const DAILY_FLOOR_PRIMARY = {
    afterwards would DROP a fixture whose BTTS came in at 0.62; rebuilding the pool per tier lets that
    fixture fall through to its next-best selection instead, which is the whole point of having a
    ranked ladder. That is why the pools move inside the tier loop below. */
-const DAILY_TIER_FLOORS = { safe: { BTS: 0.65 } };
+/* BUILD 333 - Ken: "ht/ft was only meant for the bold". The per-tier override table already
+   existed for Safe's BTS 0.65; HT/FT reuses it rather than adding a second mechanism.
+   0.45 is the only floor whose measured gap is not materially negative (-0.39, sigma -0.22), and on
+   n 803 that is not decisive either way - which is why Amendment 1 files a prospective look at
+   n 150 BEFORE this ships, with reversion as the recorded expectation. */
+const DAILY_TIER_FLOORS = {
+  safe: { BTS: 0.65 },
+  bold: { '1/1':0.45, '1/X':0.45, '1/2':0.45,
+          'X/1':0.45, 'X/X':0.45, 'X/2':0.45,
+          '2/1':0.45, '2/X':0.45, '2/2':0.45 }
+};
 function floorsForTier(base, tier){
   const ov = DAILY_TIER_FLOORS[tier && tier.key];
   return ov ? Object.assign({}, base, ov) : base;
@@ -5810,7 +5835,13 @@ async function dailyOddsLoad(day, fxids){
     let q = null;
     try{
       q = await supa.from(ODDS_LATEST_VIEW)
-            .select('fxid,mins_to_kick,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba')
+            /* BUILD 333 - `o15`,`u15` for everyone (+12% on this request, measured); `htft` ONLY
+               where a card is actually built. Measured on 150 fixtures: 30,546 -> 34,067 bytes with
+               o15/u15, -> 60,140 with htft, so htft nearly DOUBLES it - nine prices per fixture as
+               JSON. Build 325's D1 means only the publisher builds a card and every other device
+               reads the shared row, so no user pays for a column only the publisher can use. */
+            .select('fxid,mins_to_kick,h,d,a,o15,u15,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba'
+                    + (isPublisher() ? ',htft' : ''))
             .in('fxid', fxids.slice(i, i + 150));
     }catch(e){ q = null; }
     if(!q || q.error) continue;
@@ -5826,9 +5857,21 @@ async function dailyOddsLoad(day, fxids){
 /* `m15Fair` is the app's own price reader and is REUSED rather than reimplemented - the same rule
    that made `tipsGradeLegs` hand its legs to `dailyLogGrade`. Two readers of one odds row would
    eventually disagree, and the one on the slip is the one that quotes a number to a user. */
+/* BUILD 333 - HT/FT is stored as ONE JSON object keyed the way the provider writes it
+   ("home/home", "draw/away", ...), not as flat columns, so `m15Fair` cannot read it and is not
+   asked to. The app's own codes are '1/X' style, so the two vocabularies are mapped here in one
+   place rather than at each call site. */
+const HTFT_SIDE = { '1':'home', 'X':'draw', '2':'away' };
+function htftRealPrice(sn, code){
+  if(!sn || !sn.htft || !/^[1X2]\/[1X2]$/.test(code)) return null;
+  const p = String(code).split('/');
+  const v = sn.htft[HTFT_SIDE[p[0]] + '/' + HTFT_SIDE[p[1]]];
+  return (typeof v === 'number' && v > 1) ? v : null;
+}
 function dailyRealPrice(fxid, code){
   if(fxid == null || !_dailyOdds.loaded) return null;
   const sn = _dailyOdds.byFx[fxid]; if(!sn) return null;
+  const ht = htftRealPrice(sn, code); if(ht != null) return ht;
   const g = m15Fair(sn, code);
   return (g && g.price > 1) ? g.price : null;
 }
@@ -11425,6 +11468,7 @@ const M15_SEL = {
   '2':  ['a',    ['h','d','a'],         1],
   '1D': ['dnbh', ['dnbh','dnba'],       1], '2D': ['dnba', ['dnbh','dnba'],       1],
   '1X': ['dc1x', ['dc1x','dc12','dcx2'],2], 'X2': ['dcx2', ['dc1x','dc12','dcx2'],2],
+  'O15':['o15',  ['o15','u15'],         1], 'U15':['u15',  ['o15','u15'],         1],
   'O25':['o25',  ['o25','u25'],         1], 'U25':['u25',  ['o25','u25'],         1],
   'U35':['u35',  ['o35','u35'],         1],
   'BTS':['bttsy',['bttsy','bttsn'],     1], 'NBT':['bttsn',['bttsy','bttsn'],     1]
