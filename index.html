@@ -867,7 +867,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 337;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 338;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -18098,6 +18098,17 @@ function boardTakeOver(f){
              market: f.market || null, gated: f.gated || null, frozen: !!f.frozen,
              pW: (f.pW != null ? f.pW : null), pD: (f.pD != null ? f.pD : null),
              pL: (f.pL != null ? f.pL : null) };
+  /* 🚩 BUILD 338 - A PLAYED FIXTURE IS NOT THE BOARD'S BUSINESS, AND 337 FORGOT IT.
+     The board carries only what has NOT kicked off, so a match already played is never on it - and
+     337's rule "not on the board means no pick" then deleted the pick from every fixture the app
+     had ALREADY PUBLISHED. Measured when Ken asked why past predictions were blank: 920 kicked-off
+     fixtures still sat in `upcoming`, 644 carried a published pick, and all 644 lost it on screen.
+
+     Nothing reached the database - `predictions` was untouched throughout - but build 199's rule
+     was broken in reverse: nothing shown is unsaid, and **nothing said may become unshown**. A
+     published pick is a claim the app made at a moment in time; the robot's horizon has no
+     authority over history. */
+  if(kickoffPassed(f)){ f.fromBoard = false; return; }
   /* NO BOARD, NO TAKEOVER. A failed read must not blank the app - build 330's rule is that a stale
      record is the defect, not an empty one, and the same applies here in reverse: with nothing to
      show from the robot, the device keeps what it worked out and says so through `fromBoard`. */
