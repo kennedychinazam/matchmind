@@ -107,6 +107,7 @@ function readState() {
     // build 325 — the shared records
     sharedRecords: typeof sharedRecordsPublish === 'function',
     sharedClv: typeof sharedClvPublish === 'function',          // build 330
+    sharedBoard: typeof boardPublish === 'function',            // build 336
     slipsReady: typeof _slipHist !== 'undefined'
       ? (!!_slipHist.loaded && !!_sharedSlips.loaded && !!_dailyOdds.loaded) : false,
     issuedRowsToday: (typeof _sharedSlips !== 'undefined' && _sharedSlips.loaded) ? (_sharedSlips.rows || []).length : null,
@@ -267,7 +268,7 @@ async function main() {
       await ensureSignedIn(page, 'boot');
     }
 
-    let record = null, clv = null;
+    let record = null, clv = null, board = null;
     const boot = await waitSettled(page, 'boot');
 
     if (!DRY_RUN) {
@@ -301,6 +302,28 @@ async function main() {
       } else {
         log('WARN: the live app is older than build 330; no closing-line record to write');
       }
+      /* BUILD 336 - THE 7-DAY BOARD. Ken: "everything must be printed from the robot... not individual
+         devices." This writes the board every device will read; the drafts deliberately do NOT go into
+         `predictions`, because `sharedRecordsPublish` above grades every row of that table.
+
+         A BOARD FAILURE DOES NOT END THE RUN, and that is deliberate for exactly one build: nothing
+         renders from the board yet, so a fault here reaches no user. The moment a device reads it, this
+         becomes a throw like the record above it. Guarded on the function existing, like the CLV step,
+         because this script also runs against an older live app. */
+      if (boot.sharedBoard) {
+        board = await page.evaluate(() => boardPublish());
+        if (board && board.ok) {
+          log('shared board', board);
+          /* `notPassed` counts fixtures inside the horizon that the gate pass never reached, which are
+             NOT the same as fixtures it deliberately withheld. A non-zero count means the board is
+             short of what the app would show, so it is surfaced rather than averaged away. */
+          if (board.notPassed) log(`WARN: ${board.notPassed} fixtures in the horizon were never priced`);
+        } else {
+          log('WARN: the board was not written (the run continues): ' + (board && board.error));
+        }
+      } else {
+        log('WARN: the live app is older than build 336; no board to write');
+      }
       /* The Smart Bet tab is where the app seeds the day's shared slips (build 297/300). Opened through
          the app's own state and render call, exactly as a tap on the tab does. */
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
@@ -319,7 +342,7 @@ async function main() {
       measuresState: end.measuresState, sharedRows: end.sharedRows, engineComps: end.engineComps,
       newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
       slipsToday: after.slipsToday, sharedBarsInTable: after.sharedBars, bootMatches: boot.matches,
-      issuedRowsToday: end.issuedRowsToday, engineRecord: record, clvRecord: clv,
+      issuedRowsToday: end.issuedRowsToday, engineRecord: record, clvRecord: clv, board: board,
     };
     log('summary', summary);
 
