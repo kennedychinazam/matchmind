@@ -18113,7 +18113,7 @@ function loadBoard(){
 function boardBuild(){
   const now = Date.now(), horizon = now + BOARD_AHEAD_DAYS * 86400000;
   const rows = [];
-  let notPassed = 0;
+  let notPassed = 0, noBars = 0;
   for(const id of Object.keys(afState.leagues || {})){
     const L = afState.leagues[id];
     if(!L) continue;
@@ -18125,20 +18125,38 @@ function boardBuild(){
          not this board's business. Both ends are closed here so the payload cannot quietly grow. */
       if(!ms || isNaN(ms) || ms < now || ms > horizon) continue;
       if(!Object.prototype.hasOwnProperty.call(f, 'pick')){ notPassed++; continue; }
+      /* 🚩 THE BARS COME FROM THE ARCHIVE WHEN THE PICK IS FROZEN, AND FROM `fxPredict`
+         OTHERWISE. Measured before anything read this board: the gate pass copies pW/pD/pL onto the
+         fixture only on its FROZEN arm, so 62 of the 81 rows a user would see carried no bars at
+         all. A board that cannot render a match is a board step 3 would have had to come back and
+         fix. `fxPredict` is the SAME cached call the match screen makes - it does not touch the
+         gate census and it is not a second pricing path, it is the path. A frozen row keeps the
+         archive's own numbers, because those are what was published. */
+      let pw = f.pW, pd = f.pD, pq = f.pL, xh = null, xa = null;
+      if(pw == null || pd == null || pq == null){
+        const P = fxPredict(L, f);
+        if(P){ pw = P.pW; pd = P.pD; pq = P.pL; xh = P.lambdaH; xa = P.lambdaA; }
+      } else {
+        const P2 = fxPredict(L, f);
+        if(P2){ xh = P2.lambdaH; xa = P2.lambdaA; }
+      }
+      if(pw == null || pd == null || pq == null) noBars++;
       rows.push({ f: f.fxid, l: L.id, n: L.name, d: f.date, t: f.time || null,
                   h: f.home, a: f.away,
                   p: f.pick || null, q: (f.prob != null ? +(+f.prob).toFixed(4) : null),
                   m: f.market || null, g: f.gated || null, z: !!f.frozen,
-                  pw: (f.pW != null ? +(+f.pW).toFixed(4) : null),
-                  pd: (f.pD != null ? +(+f.pD).toFixed(4) : null),
-                  pq: (f.pL != null ? +(+f.pL).toFixed(4) : null) });
+                  pw: (pw != null ? +(+pw).toFixed(4) : null),
+                  pd: (pd != null ? +(+pd).toFixed(4) : null),
+                  pq: (pq != null ? +(+pq).toFixed(4) : null),
+                  xh: (xh != null ? +(+xh).toFixed(3) : null),
+                  xa: (xa != null ? +(+xa).toFixed(3) : null) });
     }
   }
   rows.sort((x, y) => ((x.d || '') + (x.t || '')) < ((y.d || '') + (y.t || '')) ? -1 : 1);
   /* `v` is the hedge: the reader checks it, so a later build may add a field without breaking a
      device still holding an older copy. */
   return { v: 1, ahead: BOARD_AHEAD_DAYS, builtAt: new Date().toISOString(),
-           n: rows.length, notPassed: notPassed, rows: rows };
+           n: rows.length, notPassed: notPassed, noBars: noBars, rows: rows };
 }
 /* Run by the publisher robot, exactly like the record and the closing-line number above it. The
    database refuses this write from anyone else; this gate is the app saying so too, so a non
@@ -18153,7 +18171,7 @@ async function boardPublish(){
     if(w.error) throw w.error;
     await loadBoard();
     return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead,
-             notPassed: payload.notPassed };
+             notPassed: payload.notPassed, noBars: payload.noBars };
   }catch(e){
     return { ok: false, error: String((e && e.message) || e) };
   }
