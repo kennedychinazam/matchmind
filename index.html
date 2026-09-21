@@ -867,7 +867,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 336;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 337;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8781,7 +8781,7 @@ function kickoffPassed(f){
    collector fires on a 10-minute cron and the app fires when a human opens it, so the capture is
    almost always first. When it is not, the stamp is null — never a later price wearing the name
    `odds_at_pick`, which is the fault build 165 was corrected for. */
-const PUBLISH_AHEAD_DAYS = 4;
+const PUBLISH_AHEAD_DAYS = 3;
 function tooFarAheadToPublish(f){
   if(!f || !f.date) return false;
   const d = kickoffUTC(f.date, f.time);
@@ -17389,6 +17389,7 @@ function applyGatePass(L, display){
       }
       f.moved = null; f.unbacked = null;
       gateCensusAdd(L, 'outofscope');
+      boardTakeOver(f);
     }
     return true;
   }
@@ -17508,6 +17509,7 @@ function applyGatePass(L, display){
                        : f.gated ? f.gated
                        : tooFarAheadToPublish(f) ? 'far'
                        : 'publishable');
+        boardTakeOver(f);
       } else gateCensusAdd(L, 'nomodel');
     }
     return true;                                 // build 316 — the engine ran; the caller may clear `_fin`
@@ -17529,6 +17531,7 @@ async function loadCloudLeagues(force){
      pre-298 behaviour rather than a blank screen. */
   await loadCompMeta();
   await loadSharedMeasures();   // build 324 — every bar comes from the shared record, before any gate pass
+  await loadBoard();            // build 337 — and the robot's board, for the same reason
   loadSharedRecords();          // build 325 - one engine record for every device, not awaited
   try{
     const today = todayStrLocal();
@@ -18067,6 +18070,52 @@ const CLV_RECORD_KEY = 'clv';
    ⚠ THIS BUILD ONLY PUBLISHES IT. Nothing renders from the board yet, so no screen changes and a
    fault here cannot reach a user. The switch is a later build, once the board is proven live. */
 const BOARD_RECORD_KEY = 'board';
+/* ══ BUILD 337 — THE DEVICE STOPS ANSWERING IN THE ROBOT'S PLACE ═════════════════════════
+   Ken: *"everything must be printed from the robot... not individual devices."* This is the switch.
+   One named constant, so it can be turned off in one line if the board ever fails us. */
+const BOARD_TAKEOVER = true;
+let _boardIx = null, _boardIxAt = -1;
+function boardRowFor(fxid){
+  if(_boardRecord.state !== 'loaded' || !_boardRecord.payload) return null;
+  if(!_boardIx || _boardIxAt !== _boardRecord.at){
+    _boardIx = {};
+    for(const r of (_boardRecord.payload.rows || [])) _boardIx[r.f] = r;
+    _boardIxAt = _boardRecord.at;
+  }
+  return (fxid == null || fxid === '') ? null : (_boardIx[fxid] || null);
+}
+/* 🚩 `f.calc` IS WHY THIS DOES NOT EAT ITSELF. `boardBuild` reads the device's OWN answer to make
+   the next board. If the overlay wrote over `f.pick` with no copy kept, the publisher would publish
+   the board back onto itself and it would never move again - the fixture would be frozen at
+   whatever the first board said, for ever, with nothing in the record to show why.
+
+   ⚠ AND THE CAPTURE HAPPENS FIRST, UNCONDITIONALLY. Putting it after any early return would leave
+   `calc` missing on exactly the fixtures that took that path, and `boardBuild` would count them as
+   never priced. */
+function boardTakeOver(f){
+  if(!f) return;
+  f.calc = { pick: f.pick || null, prob: (f.prob != null ? f.prob : null),
+             market: f.market || null, gated: f.gated || null, frozen: !!f.frozen,
+             pW: (f.pW != null ? f.pW : null), pD: (f.pD != null ? f.pD : null),
+             pL: (f.pL != null ? f.pL : null) };
+  /* NO BOARD, NO TAKEOVER. A failed read must not blank the app - build 330's rule is that a stale
+     record is the defect, not an empty one, and the same applies here in reverse: with nothing to
+     show from the robot, the device keeps what it worked out and says so through `fromBoard`. */
+  if(!BOARD_TAKEOVER || _boardRecord.state !== 'loaded'){ f.fromBoard = false; return; }
+  const p = _boardRecord.payload;
+  if(!p || p.v !== 1){ f.fromBoard = false; return; }
+  const row = boardRowFor(f.fxid);
+  if(row){
+    f.pick = row.p || null; f.prob = (row.q != null ? row.q : null);
+    f.market = row.m || null; f.gated = row.g || null; f.frozen = !!row.z;
+    if(row.pw != null){ f.pW = row.pw; f.pD = row.pd; f.pL = row.pq; }
+    f.fromBoard = true;
+    return;
+  }
+  /* On the board's watch and not on the board: the robot did not issue it, or it lies beyond the
+     7-day horizon. Either way this device does not get to answer instead. */
+  f.pick = null; f.prob = null; f.fromBoard = false;
+}
 const BOARD_AHEAD_DAYS = 7;                 // Ken's horizon; the lock at 72h is PUBLISH_AHEAD_DAYS
 let _boardRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _boardLoading = null;
@@ -18124,7 +18173,7 @@ function boardBuild(){
       /* A fixture that has kicked off is not a prediction any more, and one beyond the horizon is
          not this board's business. Both ends are closed here so the payload cannot quietly grow. */
       if(!ms || isNaN(ms) || ms < now || ms > horizon) continue;
-      if(!Object.prototype.hasOwnProperty.call(f, 'pick')){ notPassed++; continue; }
+      if(!Object.prototype.hasOwnProperty.call(f, 'calc')){ notPassed++; continue; }
       /* 🚩 THE BARS COME FROM THE ARCHIVE WHEN THE PICK IS FROZEN, AND FROM `fxPredict`
          OTHERWISE. Measured before anything read this board: the gate pass copies pW/pD/pL onto the
          fixture only on its FROZEN arm, so 62 of the 81 rows a user would see carried no bars at
@@ -18132,7 +18181,7 @@ function boardBuild(){
          fix. `fxPredict` is the SAME cached call the match screen makes - it does not touch the
          gate census and it is not a second pricing path, it is the path. A frozen row keeps the
          archive's own numbers, because those are what was published. */
-      let pw = f.pW, pd = f.pD, pq = f.pL, xh = null, xa = null;
+      let pw = f.calc.pW, pd = f.calc.pD, pq = f.calc.pL, xh = null, xa = null;
       if(pw == null || pd == null || pq == null){
         const P = fxPredict(L, f);
         if(P){ pw = P.pW; pd = P.pD; pq = P.pL; xh = P.lambdaH; xa = P.lambdaA; }
@@ -18143,8 +18192,9 @@ function boardBuild(){
       if(pw == null || pd == null || pq == null) noBars++;
       rows.push({ f: f.fxid, l: L.id, n: L.name, d: f.date, t: f.time || null,
                   h: f.home, a: f.away,
-                  p: f.pick || null, q: (f.prob != null ? +(+f.prob).toFixed(4) : null),
-                  m: f.market || null, g: f.gated || null, z: !!f.frozen,
+                  p: f.calc.pick || null,
+                  q: (f.calc.prob != null ? +(+f.calc.prob).toFixed(4) : null),
+                  m: f.calc.market || null, g: f.calc.gated || null, z: !!f.calc.frozen,
                   pw: (pw != null ? +(+pw).toFixed(4) : null),
                   pd: (pd != null ? +(+pd).toFixed(4) : null),
                   pq: (pq != null ? +(+pq).toFixed(4) : null),
