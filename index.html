@@ -867,7 +867,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 335;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 336;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -18045,6 +18045,119 @@ const ENGINE_RECORD_KEY = 'engine';
    and its policies check the publisher's email rather than the key, so this needs no SQL and no
    schema change: one more row, written by the same account, read in the same request. */
 const CLV_RECORD_KEY = 'clv';
+/* ══ BUILD 336 — THE ROBOT PUBLISHES A 7-DAY BOARD, AND NOTHING READS IT YET ════════════════
+   Ken, 2026-09-21: *"everything must be printed from the robot... the robot should load the league
+   data, it should access the history and print prediction not individual devices."* Then the shape:
+   **a 7-day horizon, locked at 72 hours, new predictions daily for the seventh day.**
+
+   🚩 WHY THE DRAFTS DO NOT GO IN `predictions`, WHICH IS THE WHOLE DESIGN.
+   `sharedRecordsPublish` builds the published win rate by reading EVERY ROW of `predictions`, and
+   `sharedClvPublish` reads the same table for the closing-line number. A draft written there would
+   be graded. Keeping drafts out means `predictions` goes on meaning exactly what it has always
+   meant — a pick the app COMMITTED to, inserted once, never rewritten — and **every existing
+   reader of the record needs no change at all.** The alternative, a `locked` flag on the same
+   table, would need a filter added to each of them, and any reader missed would silently count
+   drafts into the published record. That is the most sensitive code in this app to be wrong in.
+
+   So: drafts live in `shared_records` under a third key. No new table, no schema change, and no new
+   policy — that table already enforces `only the publisher inserts`, `only the publisher updates`
+   and `readable by everyone`, so "only the robot may print a prediction" is enforced by the
+   DATABASE rather than by app discipline, which is what Ken asked for.
+
+   ⚠ THIS BUILD ONLY PUBLISHES IT. Nothing renders from the board yet, so no screen changes and a
+   fault here cannot reach a user. The switch is a later build, once the board is proven live. */
+const BOARD_RECORD_KEY = 'board';
+const BOARD_AHEAD_DAYS = 7;                 // Ken's horizon; the lock at 72h is PUBLISH_AHEAD_DAYS
+let _boardRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
+let _boardLoading = null;
+/* Read on its own request, NOT folded into `loadSharedRecords`. The record and the closing-line
+   payloads are a few hundred bytes; the board is tens of kilobytes, and the screens that want the
+   record must not start paying for the board before anything reads it. */
+function loadBoard(){
+  if(_boardLoading) return _boardLoading;
+  _boardLoading = (async () => {
+    try{
+      if(!supa) throw new Error('offline');
+      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at')
+        .eq('key', BOARD_RECORD_KEY).limit(1);
+      if(q.error) throw q.error;
+      const r = (q.data || [])[0] || null;
+      _boardRecord = { state: r ? 'loaded' : 'empty', payload: r ? r.payload : null,
+                       computedAt: r ? r.computed_at : null, build: r ? r.build : null, at: Date.now() };
+    }catch(e){
+      /* Build 330's rule: a failed read keeps NOTHING from before. A stale board shown as current
+         is the defect, not the empty state. */
+      _boardRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
+    }
+    _boardLoading = null;
+    return _boardRecord;
+  })();
+  return _boardLoading;
+}
+/* ⚠ THE BOARD READS THE GATE PASS'S OUTPUT AND NEITHER PRICES NOR RE-RUNS IT.
+   `applyGatePass` is what the tips screens run, so reading what it already put on the fixture is
+   the only way the board and the screens cannot disagree. A private pricing loop here would be
+   build 92's fault — one correction, two surfaces — and it would drift the first time a floor
+   moved.
+
+   🚩 AND IT MUST NOT CALL THE PASS EITHER, WHICH THE LOCK CAUGHT IN THE FIRST CUT OF THIS BUILD.
+   Build 316 pins `applyGatePass(` at four occurrences — one definition, three call sites — and
+   says why in as many words: *"the RULE was never 'one call site' — it is that `archivePrediction`
+   is insert-once, so no fixture may be passed twice."* A fourth call would also put every fixture
+   through `gateCensusAdd` a second time and inflate the census the analysis tab reports.
+
+   ⚠ `hasOwnProperty` IS LOAD-BEARING. A fixture the pass has SEEN and withheld carries
+   `pick = null`; one the pass has never reached carries no `pick` at all. Both read as falsy, and
+   publishing the second as an absence would print "no pick today" for a competition that simply
+   had not been priced yet. They are counted separately and the robot is told. */
+function boardBuild(){
+  const now = Date.now(), horizon = now + BOARD_AHEAD_DAYS * 86400000;
+  const rows = [];
+  let notPassed = 0;
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L) continue;
+    for(const f of (L.upcoming || [])){
+      if(!f || f.fxid == null || f.fxid === '') continue;
+      const d = kickoffUTC(f.date, f.time);
+      const ms = d ? d.getTime() : Date.parse((f.date || '') + 'T00:00:00Z');
+      /* A fixture that has kicked off is not a prediction any more, and one beyond the horizon is
+         not this board's business. Both ends are closed here so the payload cannot quietly grow. */
+      if(!ms || isNaN(ms) || ms < now || ms > horizon) continue;
+      if(!Object.prototype.hasOwnProperty.call(f, 'pick')){ notPassed++; continue; }
+      rows.push({ f: f.fxid, l: L.id, n: L.name, d: f.date, t: f.time || null,
+                  h: f.home, a: f.away,
+                  p: f.pick || null, q: (f.prob != null ? +(+f.prob).toFixed(4) : null),
+                  m: f.market || null, g: f.gated || null, z: !!f.frozen,
+                  pw: (f.pW != null ? +(+f.pW).toFixed(4) : null),
+                  pd: (f.pD != null ? +(+f.pD).toFixed(4) : null),
+                  pq: (f.pL != null ? +(+f.pL).toFixed(4) : null) });
+    }
+  }
+  rows.sort((x, y) => ((x.d || '') + (x.t || '')) < ((y.d || '') + (y.t || '')) ? -1 : 1);
+  /* `v` is the hedge: the reader checks it, so a later build may add a field without breaking a
+     device still holding an older copy. */
+  return { v: 1, ahead: BOARD_AHEAD_DAYS, builtAt: new Date().toISOString(),
+           n: rows.length, notPassed: notPassed, rows: rows };
+}
+/* Run by the publisher robot, exactly like the record and the closing-line number above it. The
+   database refuses this write from anyone else; this gate is the app saying so too, so a non
+   publisher gets a reason instead of a rejected request. */
+async function boardPublish(){
+  if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher writes the board' };
+  try{
+    const payload = boardBuild();
+    const w = await supa.from(RECORDS_TABLE).upsert(
+      { key: BOARD_RECORD_KEY, payload: payload, build: APP_BUILD,
+        computed_at: new Date().toISOString() }, { onConflict: 'key' });
+    if(w.error) throw w.error;
+    await loadBoard();
+    return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead,
+             notPassed: payload.notPassed };
+  }catch(e){
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
 const RECORD_TTL_MS = 10 * 60 * 1000;
 let _engineRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _clvRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
