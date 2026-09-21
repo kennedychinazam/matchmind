@@ -867,7 +867,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 334;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 335;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4259,6 +4259,16 @@ const XC_SHAPE = {
   A: 0.5833, B: 0.5152,     // level conversion yhat(x) = A + B·x, fitted on ≤2024-25 team-seasons
   MIN_SRC: 10,              // appearances required in the concurrent league
   RECENT_DAYS: 180,         // "concurrent" — most recent source appearance within this many days
+  /* BUILD 335 — ONE WEIGHT PER STRATUM, FITTED BEFORE 2025-07-01 AND SCORED AFTER IT.
+     Held out on 1,256 fixtures the fit never saw: log loss +0.00630 ± 0.00145 (4.34σ), goals MAE
+     BETTER at 5.02σ, drop-one positive in all nine competitions (1.89–5.28σ).
+     🚩 THE GAIN IS NOT WHERE THE HYPOTHESIS SAID. Damping CROSS — the whole reason the filing
+     exists — returned +0.00031 at 0.20σ, a flat null. ONE carries it at +0.01084 (4.97σ): the
+     newcomer facing an established cup side, AMPLIFIED rather than damped.
+     ⚠ SAME and ONE sit on the EDGE of the fitted grid and are LOWER BOUNDS, not optima. The
+     holdout is spent and cannot be re-used to widen it. `MatchMind-XCWEIGHT-PREREG.md`;
+     the binding reversion rule is in `MatchMind-XCWEIGHT-PROSPECTIVE.md`. */
+  K: { SAME: 1.50, CROSS: 0.75, ONE: 1.50 },
   COMPS: [2,13,45,66,81,90,96,137,143]
 };
 const _XC_COMPS = new Set(XC_SHAPE.COMPS.map(String));
@@ -4297,7 +4307,12 @@ function _xcBefore(arr, date){          // count of entries strictly before `dat
 /* This team's goals-for per game in the league it is CONCURRENTLY playing, normalised by that
    league's own goals per game, using only matches strictly before `date`. Null when there is no
    such league — and null is not zero: a side with no concurrent record keeps the incumbent prior. */
-function xcAttack(name, date){
+/* ══ BUILD 335 — THE SELECTION LOOP BECOMES ITS OWN FUNCTION, WITH ONE SURFACE ═══════════════
+   `xcAdjust` now needs the source league's IDENTITY as well as its level, to know whether the two
+   sides come from the same competition. Copying this loop to get the id would be build 92's fault
+   — one correction, two surfaces — so the loop moves here and `xcAttack` reads it. Exactly one
+   place decides what a team's concurrent league is, and the lock asserts there is only one. */
+function xcSource(name, date){
   const ix = xcIndex();
   let best = null;
   for(const cid in ix){
@@ -4309,6 +4324,11 @@ function xcAttack(name, date){
     if(!(gap <= XC_SHAPE.RECENT_DAYS)) continue;       // concurrent, not a competition it has left
     if(!best || k > best.k) best = { cid, k };
   }
+  return best;
+}
+function xcAttack(name, date){
+  const ix = xcIndex();
+  const best = xcSource(name, date);
   if(!best) return null;
   const T = ix[best.cid].team[name], L = ix[best.cid];
   const j = _xcBefore(L.dates, date); if(j < 1) return null;
@@ -4328,6 +4348,7 @@ function xcAdjust(L, f, P, eng){
      competition AND carrying a concurrent league record. */
   const appsH = here.team[f.home] ? _xcBefore(here.team[f.home].d, date) : 0;
   const appsA = here.team[f.away] ? _xcBefore(here.team[f.away].d, date) : 0;
+  const srcH = xcSource(f.home, date), srcA = xcSource(f.away, date);
   const xh = xcAttack(f.home, date), xa = xcAttack(f.away, date);
   const qualifies = (appsH < NEWCOMER.FULL && xh != null) || (appsA < NEWCOMER.FULL && xa != null);
   if(!qualifies) return P;
@@ -4339,7 +4360,12 @@ function xcAdjust(L, f, P, eng){
   if(!isFinite(z) || z === 0) return P;
   const T = P.lambdaH + P.lambdaA, sh = P.lambdaH / T;
   if(!(T > 0) || !(sh > 0 && sh < 1)) return P;
-  const s2 = 1 / (1 + Math.exp(-(Math.log(sh / (1 - sh)) + XC_SHAPE.W * z)));
+  /* BUILD 335 — the weight depends on WHERE the two records come from. Both sides in the same
+     league is the case the normalisation was built for; across tiers it compares each club's
+     standing in its own division, which is why that arm earns almost nothing. */
+  const kx = (srcH && srcA) ? (String(srcH.cid) === String(srcA.cid) ? XC_SHAPE.K.SAME : XC_SHAPE.K.CROSS)
+           : (srcH || srcA) ? XC_SHAPE.K.ONE : 1;
+  const s2 = 1 / (1 + Math.exp(-(Math.log(sh / (1 - sh)) + XC_SHAPE.W * kx * z)));
   if(!isFinite(s2) || !(s2 > 0 && s2 < 1)) return P;
   /* THE TOTAL IS REBUILT FROM THE SAME T. Any edit here that lets T move reintroduces the exact
      failure that vetoed CROSSCOMP Part B, and the lock asserts this line. */
