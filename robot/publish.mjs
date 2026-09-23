@@ -108,6 +108,7 @@ function readState() {
     sharedRecords: typeof sharedRecordsPublish === 'function',
     sharedClv: typeof sharedClvPublish === 'function',          // build 330
     sharedBoard: typeof boardPublish === 'function',            // build 336
+    aiShadow: typeof aiShadowRun === 'function',                // build 339
     slipsReady: typeof _slipHist !== 'undefined'
       ? (!!_slipHist.loaded && !!_sharedSlips.loaded && !!_dailyOdds.loaded) : false,
     issuedRowsToday: (typeof _sharedSlips !== 'undefined' && _sharedSlips.loaded) ? (_sharedSlips.rows || []).length : null,
@@ -268,7 +269,7 @@ async function main() {
       await ensureSignedIn(page, 'boot');
     }
 
-    let record = null, clv = null, board = null;
+    let record = null, clv = null, board = null, aiShadow = null;
     const boot = await waitSettled(page, 'boot');
 
     if (!DRY_RUN) {
@@ -335,6 +336,20 @@ async function main() {
       await page.evaluate(() => { tipState.tab = 'smart'; renderTips(); });
       await waitSlips(page);
       await sleep(15000);
+      /* BUILD 339 - THE AI-SHADOW TEST (MatchMind-AI-SHADOW-PREREG.md). It runs LAST, after everything a
+         user sees has been published, and it is NON-FATAL: the test is invisible to users, so a refused or
+         slow AI answer must never mark a run that published correctly as failed. */
+      if (boot.aiShadow) {
+        try {
+          aiShadow = await page.evaluate(() => aiShadowRun());
+          if (aiShadow && aiShadow.ok) log('AI shadow test', aiShadow);
+          else log('WARN: the AI shadow test did not run (the run continues): ' + (aiShadow && aiShadow.error));
+        } catch (e) {
+          log('WARN: the AI shadow test failed (the run continues): ' + String((e && e.message) || e).slice(0, 300));
+        }
+      } else {
+        log('WARN: the live app is older than build 339; no AI shadow test to run');
+      }
     }
     const end = await waitSettled(page, 'after slips');
 
@@ -348,7 +363,7 @@ async function main() {
       measuresState: end.measuresState, sharedRows: end.sharedRows, engineComps: end.engineComps,
       newPredictions: (before.predictions != null && after.predictions != null) ? after.predictions - before.predictions : null,
       slipsToday: after.slipsToday, sharedBarsInTable: after.sharedBars, bootMatches: boot.matches,
-      issuedRowsToday: end.issuedRowsToday, engineRecord: record, clvRecord: clv, board: board,
+      issuedRowsToday: end.issuedRowsToday, engineRecord: record, clvRecord: clv, board: board, aiShadow: aiShadow,
     };
     log('summary', summary);
 
