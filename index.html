@@ -799,6 +799,18 @@
       <div id="clvLine" style="margin-top:10px"></div>
     </div>
 
+    <!-- BUILD 339 - the AI shadow test. Hidden for everyone; opened only for an account whose own
+         mm_roles row says 'owner'. The database, not this markup, is what keeps the rows private. -->
+    <div id="aiShadowCard" class="hidden">
+      <div class="sec-label">Owner only</div>
+      <div class="card">
+        <h2>🧪 AI shadow test</h2>
+        <div class="subnote" style="margin-top:0">Four ways to make a pick, run side by side on the same matches and published nowhere. Only your account can see this.</div>
+        <div id="aiShadowBox" style="margin-top:10px"></div>
+        <button class="btn" id="aiShadowBtn" style="margin-top:10px">Refresh</button>
+      </div>
+    </div>
+
         <div id="devStub" hidden aria-hidden="true">
       <span id="compCount"></span>
       <select id="homeTeam"></select><select id="awayTeam"></select>
@@ -867,7 +879,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 338;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 339;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -18237,6 +18249,303 @@ async function boardPublish(){
     return { ok: false, error: String((e && e.message) || e) };
   }
 }
+/* ══ BUILD 339 - THE AI-SHADOW TEST: FOUR WAYS TO MAKE A PICK, SEEN ONLY BY KEN ════════════════
+   Ken, 2026-09-23: *"i want this to be tested so i can see the win rate of each mode. a place where
+   only i can see it and no user."* Filed BEFORE any code or data: `MatchMind-AI-SHADOW-PREREG.md`.
+
+       E   the engine, exactly as the robot publishes it - read from `f.calc`, the device's own answer
+       A1  the engine re-priced with the AI scout's capped multipliers, then the SAME ladder and bar
+       A2  E's published picks minus the ones the scout vetoes on specific, sourced news
+       A3  Ken's design: the AI decider, handed the engine's output and the news, makes the final call
+
+   NOTHING HERE IS PUBLISHED. The only write is one insert per fixture into `ai_shadow`, which the
+   database lets the publisher insert into and nobody update or delete, and lets only accounts listed in
+   `mm_roles` read. It never touches `predictions`, `shared_records` or anything a user sees.
+
+   🚩 TIMING PARITY IS THE WHOLE TEST. The AI arms are computed in the same robot run that locks E's
+   pick, so no arm sees later news than the engine did. A fixture whose pick was already frozen before
+   the run that scouted it carries `e.frozen` and is reported, never scored. */
+const AI_SHADOW_TABLE = 'ai_shadow';
+const AI_SHADOW_PROMPT_V = 1;          // frozen by the filing; any change is an amendment and a new arm
+const AI_SHADOW_MAX_PER_RUN = 40;      // the first run meets a backlog; steady state is about 8 a run
+const AI_SHADOW_GAP_MS = 4000;         // well inside the free tier's per-minute limit
+function aiShadowCandidates(){
+  const out = [];
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id];
+    if(!L || !predictsComp(L)) continue;
+    for(const f of (L.upcoming || [])){
+      if(!f || f.fxid == null || f.fxid === '') continue;
+      if(kickoffPassed(f) || tooFarAheadToPublish(f)) continue;
+      if(!Object.prototype.hasOwnProperty.call(f, 'calc')) continue;
+      const d = kickoffUTC(f.date, f.time);
+      out.push({ L: L, f: f, ms: d ? d.getTime() : Date.parse(f.date + 'T00:00:00Z') });
+    }
+  }
+  out.sort((a, b) => a.ms - b.ms);
+  return out;
+}
+/* E is what the robot publishes: the gate pass's own answer, captured in `f.calc` before the board
+   overlay (build 337). Reading `f.pick` here would read the overlay, which is the board's copy. */
+function aiShadowEngine(L, f, P){
+  const c = f.calc || {};
+  const unknown = P.unknownTeams || 0;
+  return {
+    pick: c.pick || null, prob: (c.prob != null ? +c.prob : null), market: c.market || null,
+    gated: c.gated || null, frozen: !!c.frozen, unknown: unknown,
+    published: !!c.pick && !c.gated && !unknown,
+    pW: +P.pW.toFixed(4), pD: +P.pD.toFixed(4), pL: +P.pL.toFixed(4),
+    lh: +P.lambdaH.toFixed(3), la: +P.lambdaA.toFixed(3),
+    o25: P.over ? +P.over[2.5].toFixed(4) : null,
+    u35: P.over ? +(1 - P.over[3.5]).toFixed(4) : null,
+    btts: P.btts != null ? +P.btts.toFixed(4) : null,
+    bar: +gateBarFor(L).toFixed(4)
+  };
+}
+function aiShadowForm(L, team, date){
+  return (L.matches || [])
+    .filter(m => m.date < date && m.hg != null && m.ag != null && (m.home === team || m.away === team))
+    .sort((a, b) => a.date < b.date ? -1 : 1)
+    .slice(-5).reverse()
+    .map(m => {
+      const home = m.home === team, gf = home ? m.hg : m.ag, ga = home ? m.ag : m.hg;
+      return (gf > ga ? 'W' : gf < ga ? 'L' : 'D') + ' ' + gf + '-' + ga + (home ? ' v ' : ' at ') + (home ? m.away : m.home);
+    });
+}
+/* A1 is the engine with the news folded in, and NOTHING else changed: the same ladder, the same bar,
+   the same edge floor, and the same refusal to publish a side the competition has never seen. */
+function aiShadowA1(L, f, P, hm, am){
+  const adj = (hm === 1 && am === 1) ? P : applyContextToPrediction(L, P, hm, am);
+  if(!adj) return null;
+  const lp = ladderPick(adj, f.home, f.away, L);
+  const hp = headlinePick(adj, f.home, f.away);
+  const pick = lp ? lp.code : (hp ? hp.code : null);
+  const prob = lp ? lp.prob : (hp ? +hp.prob.toFixed(3) : null);
+  const gated = P.unknownTeams ? 'low' : gateReason(L, f, pick, prob);
+  return { hm: hm, am: am, pick: pick, prob: prob, gated: gated || null,
+           published: !!pick && !gated,
+           pW: +adj.pW.toFixed(4), pD: +adj.pD.toFixed(4), pL: +adj.pL.toFixed(4) };
+}
+async function aiShadowRun(){
+  if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher runs the AI shadow test' };
+  const cands = aiShadowCandidates();
+  const have = new Set();
+  const ids = cands.map(c => +c.f.fxid);
+  for(let i = 0; i < ids.length; i += 150){
+    const q = await supa.from(AI_SHADOW_TABLE).select('fxid').in('fxid', ids.slice(i, i + 150));
+    if(q.error) return { ok: false, error: 'could not read ai_shadow: ' + q.error.message };
+    for(const r of (q.data || [])) have.add(+r.fxid);
+  }
+  const todo = cands.filter(c => !have.has(+c.f.fxid)).slice(0, AI_SHADOW_MAX_PER_RUN);
+  let written = 0, aiErrors = 0, writeFailed = 0, grounded = 0;
+  const errs = [];
+  for(const c of todo){
+    const L = c.L, f = c.f;
+    const P = fxPredict(L, f);
+    if(!P) continue;
+    const e = aiShadowEngine(L, f, P);
+    const fx = { fxid: +f.fxid, comp: L.name, country: L.country || '', date: f.date, time: f.time || '',
+                 home: f.home, away: f.away,
+                 e: Object.assign({ pickLabel: e.pick ? pickLabel(e.pick, f.home, f.away) : null }, e),
+                 formH: aiShadowForm(L, f.home, f.date), formA: aiShadowForm(L, f.away, f.date) };
+    let j = null, status = 0;
+    for(let attempt = 0; attempt < 2 && !(j && j.ok); attempt++){
+      if(attempt) await new Promise(r => setTimeout(r, 20000));
+      try{
+        const session = await proxySession();
+        if(!session) break;
+        const res = await fetch(SUPA_URL + '/functions/v1/ai-shadow', { method: 'POST',
+          headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_KEY },
+          body: JSON.stringify({ mode: 'fixture', fx: fx }) });
+        status = res.status;
+        try{ j = await res.json(); }catch(_){ j = null; }
+      }catch(err){ j = null; }
+    }
+    const scout = (j && j.scout) || null, judge = (j && j.judge) || null;
+    const errText = !(j && j.ok) ? ('HTTP ' + status + ((j && j.error) ? ': ' + j.error : ''))
+      : ([scout && !scout.ok ? 'scout: ' + (scout.err || 'failed') : null,
+          judge && !judge.ok ? 'decider: ' + (judge.err || 'failed') : null].filter(Boolean).join('; ') || null);
+    const row = {
+      fxid: +f.fxid, lid: +L.id, kickoff: new Date(c.ms).toISOString(), home: f.home, away: f.away,
+      build: APP_BUILD, prompt_v: AI_SHADOW_PROMPT_V, e: e,
+      a1: (scout && scout.ok) ? aiShadowA1(L, f, P, scout.hm, scout.am) : null,
+      a2: (scout && scout.ok) ? { veto: !!scout.veto, reason: scout.vetoReason || '' } : null,
+      a3: (judge && judge.ok) ? { pW: judge.pW, pD: judge.pD, pL: judge.pL, pick: judge.pick, conf: judge.conf,
+                                  agree: judge.agree, reasons: judge.reasons } : null,
+      scout: scout ? { notes: scout.notes, sources: scout.sources, queries: scout.queries, flags: scout.flags,
+                       confidence: scout.confidence, uncited: !!scout.uncited } : null,
+      models: j ? { fn: j.fn || null, model: j.model || null, http: j.http || null, ms: j.ms || null } : null,
+      err: errText
+    };
+    const ins = await supa.from(AI_SHADOW_TABLE).insert(row);
+    if(ins.error){ writeFailed++; errs.push(String(ins.error.message || ins.error).slice(0, 120)); }
+    else {
+      written++;
+      if(errText) aiErrors++;
+      if(scout && scout.sources && scout.sources.length) grounded++;
+    }
+    await new Promise(r => setTimeout(r, AI_SHADOW_GAP_MS));
+  }
+  return { ok: true, candidates: cands.length, alreadyRecorded: have.size, attempted: todo.length,
+           written: written, grounded: grounded, aiErrors: aiErrors, writeFailed: writeFailed,
+           deferred: Math.max(0, cands.length - have.size - todo.length), errors: errs.slice(0, 5) };
+}
+/* THE SCORING, PURE: rows plus a map of settled 90-minute results. verify-aishadow-339.js runs it on
+   known cases, because a check that pins the shape of this function would pass while it counted the
+   wrong things. A void (a drawn DNB) leaves the denominator, exactly as the record has since build 119.
+   Rows the AI failed on, and rows recorded after the pick froze, are excluded - and counted. */
+function aiShadowStats(rows, results){
+  const arms = { E: [], A1: [], A2: [], A3: [] };
+  const ll = { n: 0, E: 0, A1: 0, A3: 0, dA1: [], dA3: [] };
+  const veto = { vetoed: { n: 0, hit: 0 }, kept: { n: 0, hit: 0 } };
+  let graded = 0, pending = 0, excluded = 0;
+  for(const r of (rows || [])){
+    if(!r || !r.e) continue;
+    if(r.err || r.e.frozen){ excluded++; continue; }
+    const res = results[r.fxid];
+    if(!res){ pending++; continue; }
+    graded++;
+    const gh = res.gh, ga = res.ga, act = actualCode(gh, ga);
+    const add = (arm, code, claim) => {
+      if(!code) return;
+      const g = gradePick(code, act, gh, ga);
+      if(g) arms[arm].push({ g: g, claim: claim });
+    };
+    if(r.e.published) add('E', r.e.pick, r.e.prob);
+    if(r.a1 && r.a1.published) add('A1', r.a1.pick, r.a1.prob);
+    if(r.e.published && r.a2 && !r.a2.veto) add('A2', r.e.pick, r.e.prob);
+    if(r.a3 && r.a3.pick) add('A3', r.a3.pick, r.a3.conf);
+    if(r.e.published && r.a2){
+      const g = gradePick(r.e.pick, act, gh, ga);
+      const b = r.a2.veto ? veto.vetoed : veto.kept;
+      if(g === 'hit' || g === 'miss'){ b.n++; if(g === 'hit') b.hit++; }
+    }
+    const pr = o => (o && o.pW != null) ? (act === '1' ? o.pW : act === 'X' ? o.pD : o.pL) : null;
+    const pE = pr(r.e), p1 = pr(r.a1), p3 = pr(r.a3);
+    if(pE != null && p1 != null && p3 != null){
+      const nl = p => -Math.log(Math.max(1e-6, p));
+      const lE = nl(pE), l1 = nl(p1), l3 = nl(p3);
+      ll.n++; ll.E += lE; ll.A1 += l1; ll.A3 += l3;
+      ll.dA1.push(lE - l1); ll.dA3.push(lE - l3);
+    }
+  }
+  const sum = list => {
+    const counted = list.filter(x => x.g !== 'void');
+    const n = counted.length, hit = counted.filter(x => x.g === 'hit').length;
+    const claims = counted.filter(x => x.claim != null).map(x => x.claim);
+    const claim = claims.length ? claims.reduce((a, b) => a + b, 0) / claims.length : null;
+    return { n: n, hit: hit, voids: list.length - n, rate: n ? hit / n : null, claim: claim,
+             gap: (n && claim != null) ? hit / n - claim : null };
+  };
+  const paired = d => {
+    if(d.length < 2) return null;
+    const mu = d.reduce((a, b) => a + b, 0) / d.length;
+    const v = d.reduce((a, b) => a + (b - mu) * (b - mu), 0) / (d.length - 1);
+    const se = Math.sqrt(v / d.length);
+    return { mean: mu, se: se, z: se > 0 ? mu / se : null };
+  };
+  return { graded: graded, pending: pending, excluded: excluded,
+           arms: { E: sum(arms.E), A1: sum(arms.A1), A2: sum(arms.A2), A3: sum(arms.A3) },
+           logloss: { n: ll.n, E: ll.n ? ll.E / ll.n : null, A1: ll.n ? ll.A1 / ll.n : null,
+                      A3: ll.n ? ll.A3 / ll.n : null, dA1: paired(ll.dA1), dA3: paired(ll.dA3) },
+           veto: veto };
+}
+/* THE OWNER CARD. Hidden for everyone. It opens only when the signed-in account's OWN `mm_roles` row
+   says 'owner' - no email is written into this public file, and the database, not this code, is what
+   keeps the rows private: a stranger who unhides the card reads nothing. */
+let _aiShadowOwner = false, _aiShadowOwnerFor = null, _aiShadowLoading = false, _aiShadowLoadedAt = 0;
+async function aiShadowGate(){
+  const card = $('aiShadowCard'); if(!card) return;
+  if(!authUser || !supa){ card.classList.add('hidden'); _aiShadowOwner = false; _aiShadowOwnerFor = null; return; }
+  if(_aiShadowOwnerFor !== authUser.id){
+    _aiShadowOwnerFor = authUser.id; _aiShadowOwner = false; _aiShadowLoadedAt = 0;
+    try{
+      const q = await supa.from('mm_roles').select('role');
+      _aiShadowOwner = !q.error && (q.data || []).some(r => r.role === 'owner');
+    }catch(e){ _aiShadowOwner = false; }
+  }
+  if(!_aiShadowOwner){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  loadAiShadow(false);
+}
+async function loadAiShadow(force){
+  const box = $('aiShadowBox'); if(!box || !supa || !_aiShadowOwner) return;
+  if(_aiShadowLoading) return;
+  if(!force && _aiShadowLoadedAt && Date.now() - _aiShadowLoadedAt < 5 * 60 * 1000) return;
+  _aiShadowLoading = true;
+  box.innerHTML = '<div class="subnote"><span class="spinner"></span>Loading the shadow test…</div>';
+  try{
+    const rows = [];
+    for(let from = 0; ; from += 1000){
+      const q = await supa.from(AI_SHADOW_TABLE).select('*').order('kickoff', { ascending: false }).range(from, from + 999);
+      if(q.error) throw q.error;
+      rows.push(...(q.data || []));
+      if(!q.data || q.data.length < 1000) break;
+    }
+    const results = {};
+    const ids = rows.map(r => r.fxid);
+    for(let i = 0; i < ids.length; i += 150){
+      const q = await supa.from('fixtures').select('fxid,status,gh,ga,ft_h,ft_a').in('fxid', ids.slice(i, i + 150));
+      if(q.error) throw q.error;
+      for(const x of (q.data || [])){
+        if(!isFin(x.status)) continue;
+        const s = settledScore(x);
+        if(s.gh == null || s.ga == null) continue;
+        results[x.fxid] = { gh: s.gh, ga: s.ga };
+      }
+    }
+    box.innerHTML = aiShadowHtml(rows, results, aiShadowStats(rows, results));
+    _aiShadowLoadedAt = Date.now();
+  }catch(e){
+    box.innerHTML = '<div class="subnote">Could not load the shadow test: ' + escapeHtml(String((e && e.message) || e)) + '</div>';
+  }
+  _aiShadowLoading = false;
+}
+function aiShadowHtml(rows, results, S){
+  const pc = v => v == null ? '–' : (v * 100).toFixed(1) + '%';
+  const pts = v => v == null ? '–' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1);
+  const f4 = v => v == null ? '–' : v.toFixed(4);
+  const zs = d => (d && d.z != null) ? (d.z >= 0 ? '+' : '') + d.z.toFixed(2) : '–';
+  const cell = (w, s) => '<span style="width:' + w + ';text-align:right">' + s + '</span>';
+  const MODES = [['E', 'Engine alone'], ['A1', 'Engine + AI news'], ['A2', 'Engine, AI veto'], ['A3', 'AI decides']];
+  const head = '<div class="frow" style="font-size:.66rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">'
+    + '<span style="flex:1">Mode</span>' + cell('12%', 'Picks') + cell('12%', 'Won') + cell('17%', 'Win rate')
+    + cell('17%', 'Claimed') + cell('12%', 'Gap') + '</div>';
+  const body = MODES.map(m => {
+    const a = S.arms[m[0]];
+    return '<div class="frow"><span style="flex:1">' + m[1] + '</span>' + cell('12%', a.n) + cell('12%', a.hit)
+      + cell('17%', '<b>' + pc(a.rate) + '</b>') + cell('17%', pc(a.claim)) + cell('12%', pts(a.gap)) + '</div>';
+  }).join('');
+  const LL = S.logloss, V = S.veto;
+  const vr = b => b.n ? pc(b.hit / b.n) : '–';
+  const chip = code => code ? escapeHtml(chipCode(code)) : '·';
+  const rhead = '<div class="frow" style="font-size:.62rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">'
+    + '<span style="flex:1">Match</span>' + cell('13%', 'Engine') + cell('13%', 'AI news') + cell('9%', 'Veto')
+    + cell('13%', 'AI decides') + cell('14%', 'Score') + '</div>';
+  const recent = (rows || []).slice(0, 15).map(r => {
+    const res = results[r.fxid], e = r.e || {}, a1 = r.a1 || {}, a2 = r.a2 || {}, a3 = r.a3 || {};
+    const score = res ? (res.gh + '–' + res.ga) : (r.err ? 'AI error' : 'pending');
+    return '<div class="frow" style="font-size:.8rem"><span style="flex:1">'
+      + escapeHtml(String(r.kickoff || '').slice(5, 10)) + ' ' + escapeHtml(r.home) + ' v ' + escapeHtml(r.away) + '</span>'
+      + cell('13%', e.published ? chip(e.pick) : '·') + cell('13%', a1.published ? chip(a1.pick) : '·')
+      + cell('9%', a2.veto ? '✗' : '') + cell('13%', chip(a3.pick)) + cell('14%', score) + '</div>';
+  }).join('');
+  return head + body
+    + '<div class="subnote">Win rate alone does not decide: the modes pick different markets, so read each win rate '
+    + 'against the confidence it claimed. Gap is win rate minus claimed, in points.</div>'
+    + '<div class="sec-label" style="margin-top:14px">Accuracy on every match (1X2 log loss, lower is better)</div>'
+    + '<div class="subnote" style="margin-top:0">' + (LL.n
+        ? ('Over ' + LL.n + ' matches: engine ' + f4(LL.E) + ' · AI news ' + f4(LL.A1) + ' (z ' + zs(LL.dA1)
+           + ') · AI decides ' + f4(LL.A3) + ' (z ' + zs(LL.dA3) + '). A positive z means that mode beat the engine.')
+        : 'No finished matches yet.') + '</div>'
+    + '<div class="sec-label" style="margin-top:14px">The veto</div>'
+    + '<div class="subnote" style="margin-top:0">Engine picks the AI vetoed: ' + V.vetoed.n + ' graded, ' + vr(V.vetoed)
+    + ' won. Picks it kept: ' + V.kept.n + ', ' + vr(V.kept) + ' won.</div>'
+    + '<div class="sec-label" style="margin-top:14px">Latest matches</div>' + rhead + recent
+    + '<div class="subnote">' + (rows || []).length + ' matches recorded · ' + S.graded + ' graded · ' + S.pending
+    + ' waiting for a result · ' + S.excluded + ' left out (AI error, or recorded after the pick locked). '
+    + 'The decision looks are at 500 and 1,000 graded matches; until then these numbers decide nothing.</div>';
+}
 const RECORD_TTL_MS = 10 * 60 * 1000;
 let _engineRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _clvRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
@@ -19859,6 +20168,7 @@ function cloudPush(){
   }, 1200);
 }
 function renderAccount(){
+  try{ aiShadowGate().catch(()=>{}); }catch(e){}   // build 339 - the owner card follows the account
   const box=$('acctBox'); if(!box) return;
   const sb=$('acctSynced'); if(sb) sb.innerHTML = (cloudEnabled() && authUser) ? '<span class="syncbadge"><span class="dot"></span>synced</span>' : '';
   if(!cloudEnabled()){
@@ -20191,6 +20501,7 @@ $('tzSel').addEventListener('change', ()=>{
      2. it asks them to type DELETE, so it cannot be done by a mis-tap or a pocket press.
    The typed word is also what the server checks — the same confirmation, not a separate one that
    the browser could skip. */
+$('aiShadowBtn').addEventListener('click', ()=>{ loadAiShadow(true); });   // build 339
 $('delAcctBtn').addEventListener('click', async ()=>{
   const note = $('delAcctNote');
   if(!supa || !authUser){ note.textContent = 'You are not signed in, so there is no account to delete.'; return; }
