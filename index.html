@@ -879,7 +879,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 339;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 340;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8854,8 +8854,17 @@ function tooFarAheadToPublish(f){
    The consequence, stated rather than discovered: A PICK IS PUBLISHED THE FIRST TIME ANYONE OPENS
    THE APP ON IT. If nobody looks, nothing is committed — which is correct, because nobody could
    have acted on it. This app already said so in the archive panel; it is now the rule. */
+/* ══ BUILD 340 — ONLY THE PUBLISHER WRITES THE RECORD, AND THE DATABASE NOW SAYS SO TOO (WO-02) ════
+   Build 337 made the robot the only device that PRINTS a pick; it never stopped the others WRITING one.
+   All four writers of `predictions` — this insert, `recordDrift`, `markWithheld` and the 60-day
+   `backfillPredictions` — checked only that a client existed, and the policies accepted any signed-in
+   account, so a stranger with a login could add rows to the published record or move a pick's `final_*`
+   and `withheld_at`. Each writer now refuses at its entry unless `isPublisher()`, before it queues, stamps
+   or sends anything, and the INSERT/UPDATE policies test the robot's email (SQL ledger, 2026-09-23).
+   A guest or a user's device therefore sends no write at all — which also retires build 280's one
+   refused probe per guest boot. The app gate is the courtesy; the policy is the rule. */
 function archivePrediction(L, f, p){
-  if(!supa || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
+  if(!supa || !isPublisher() || !f || !f.fxid || archiveQueue.has(f.fxid)) return;
   if(!f.pick || f.prob == null) return;          // nothing was published — nothing to archive
   /* After kick-off nothing is written at all, which is what has made the record un-rewritable since
      build 62 and is unchanged. What build 199 changes is the window BEFORE kick-off, which used to
@@ -8886,7 +8895,7 @@ function archivePrediction(L, f, p){
    ONLY when it differs from what is already recorded — otherwise steady state is one request per
    fixture per load, forever, to store a value that has not changed. */
 function recordDrift(f, now){
-  if(!supa || !f || !f.fxid || !now || driftQueue.has(f.fxid)) return;
+  if(!supa || !isPublisher() || !f || !f.fxid || !now || driftQueue.has(f.fxid)) return;   // build 340
   if(kickoffPassed(f)) return;
   const a = afState.archive ? afState.archive[f.fxid] : null;
   if(!a) return;                                   // nothing published — nothing to drift from
@@ -9206,7 +9215,7 @@ async function renderLedger(){
    stamps `withheld_at`, the row stays, the pick stays on screen, and the fixture is labelled as one
    the model has stopped backing. Nothing is ever told to a user and then unsaid. */
 function markWithheld(f){
-  if(!f || !f.fxid) return;
+  if(!f || !f.fxid || !isPublisher()) return;   // build 340 — no local stamp either: it would be a label no write backs
   /* NOT removed from afState.archive — the display reads it, and a published pick must survive the
      bar rising. That single line is the whole of Ken's bug. */
   /* build 280 — `archiveWritable()` rather than `supa`: this is the call that fired 130 refused
@@ -14795,6 +14804,7 @@ const BACKFILL_DAYS = 60;   // build 143 — Ken: "Fill in the last 60 days"
 async function backfillPredictions(){
   const out = $('archOut'); if(!out) return;
   if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend.</div>'; return; }
+  if(!isPublisher()){ out.innerHTML = '<div class="subnote">Only the publisher account can fill the record.</div>'; return; }   // build 340
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Rebuilding the last 60 days, one match at a time…</div>';
   try{
     /* build 143 — 60 days, on Ken's instruction. The fixtures table retains back to
@@ -20169,6 +20179,7 @@ function cloudPush(){
 }
 function renderAccount(){
   try{ aiShadowGate().catch(()=>{}); }catch(e){}   // build 339 - the owner card follows the account
+  const fillBtn = $('archFillBtn'); if(fillBtn) fillBtn.classList.toggle('hidden', !isPublisher());   // build 340
   const box=$('acctBox'); if(!box) return;
   const sb=$('acctSynced'); if(sb) sb.innerHTML = (cloudEnabled() && authUser) ? '<span class="syncbadge"><span class="dot"></span>synced</span>' : '';
   if(!cloudEnabled()){
