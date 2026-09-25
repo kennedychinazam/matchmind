@@ -879,7 +879,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 340;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 341;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -1271,10 +1271,24 @@ const DAMPEN_OF_MATCHES = new WeakMap();
    ninth call site to forget, which is this project's signature defect (311, 316, 317). It is set
    BEFORE the dampen early-out, because a competition with no fitted DAMPEN still has a type. */
 const SHRINK_OF_MATCHES = new WeakMap();
+/* ══ BUILD 341 — ONE DEFINITION OF A CUP (WO-05) ═══════════════════════════════════════════════
+   "Is this a cup?" was asked of `XC_SHAPE.COMPS`, the nine competitions the XC filings SCORED. That list is a
+   population, not a definition: when build 329 added the Europa League (3) and the Conference League (848) it was
+   rightly left alone, and so both were shrunk as leagues (K 8, not 32) and a club's Europa or Conference record
+   could be borrowed by `xcSource` as its "league form" — 120 Champions League ties adjusted by it in 2024–26.
+
+   `CUP_COMPS` is the provider's own cup set (`type: "Cup"`, read for all 55 competitions on 2026-09-25 by
+   `cupdef-types.mjs`): the nine plus 3 and 848. `shrinkKFor` and `xcSource` read it. `xcAdjust` does NOT — the
+   competitions it ADJUSTS stay the nine it was scored on, and adding one needs its own filing. `histSettledOk` also
+   stays on the nine: its question is which caches predate build 320, and 3 and 848 postdate it.
+   K for 3 and 848 is the cup value, by `MatchMind-CUP-DEF-PREREG.md` (filed before scoring; 32 is the default and
+   8 did not clear its drop-one). */
+const CUP_COMPS = [2, 13, 45, 66, 81, 90, 96, 137, 143, 3, 848];
+const _CUP_COMPS = new Set(CUP_COMPS.map(String));
 function shrinkKFor(L){
   if(!L || L.id == null) return ENGINE2.SHRINK_K;
-  return XC_SHAPE.COMPS.some(id => String(id) === String(L.id)) ? ENGINE2.SHRINK_K_CUP
-                                                                 : ENGINE2.SHRINK_K_LEAGUE;
+  return _CUP_COMPS.has(String(L.id)) ? ENGINE2.SHRINK_K_CUP
+                                      : ENGINE2.SHRINK_K_LEAGUE;
 }
 function registerLeagueDampen(L){
   if(!L || !Array.isArray(L.matches)) return;
@@ -4328,7 +4342,7 @@ function xcSource(name, date){
   const ix = xcIndex();
   let best = null;
   for(const cid in ix){
-    if(_XC_COMPS.has(String(cid))) continue;           // the source must be a LEAGUE, not the cup
+    if(_CUP_COMPS.has(String(cid))) continue;          // the source must be a LEAGUE, never any cup (build 341)
     const T = ix[cid].team[name]; if(!T) continue;
     const k = _xcBefore(T.d, date);
     if(k < XC_SHAPE.MIN_SRC) continue;
