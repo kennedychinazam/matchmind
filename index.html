@@ -303,6 +303,12 @@
   .favrow .fxteams .lname{display:block; font-size:.66rem; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .favright{display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:6px; margin-left:8px; flex-shrink:0; min-width:40px;}
   .favright .mstar{font-size:1.25rem; width:auto;}
+  /* build 342 (WO-35) - Ken: "you can put time played above the date and time of fixtures or below it." On the Tips lists
+     the live minute sits UNDER the kick-off date and time, in the 42px time column, and the right column carries only the
+     % chip, the price and the star. The chip may wrap onto two lines inside the column; it may not widen it. */
+  .fxtime .livechip{display:inline-block; max-width:100%; box-sizing:border-box;
+    margin:4px 0 0; padding:1px 4px; font-size:.58rem; line-height:1.25; white-space:normal; text-align:center;}
+  .fxtime .livechip .livedot{margin-right:2px;}
   .predchip.sm{font-size:.6rem; padding:3px 7px;}
   /* build 118 — a withheld pick. Deliberately grey and quiet: it must not read as a third kind of
      tip sitting alongside the green ones, it must read as the absence of one. */
@@ -879,7 +885,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 341;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 342;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3113,9 +3119,12 @@ function liveChip(fxid){
   if(!s || !LIVE_CODES.includes(s.status)) return '';
   /* Half-time is a STATE, not a minute. af-42 sends it as its own status with elapsed 45, and "HT"
      is what a reader expects - not "45'" on a match where nothing is happening. */
+  /* build 342 - Ken: "during penalty shootouts, write 'PEN' instead of '120'". `P` is the provider's shootout-in-progress
+     status (af-42); like half-time it is a state, and the minute it carries (120) says nothing about it. */
   const when = s.status === 'HT' ? 'HT'
+             : s.status === 'P' ? 'PEN'
              : (s.elapsed != null ? s.elapsed + "'" : 'LIVE');
-  const sc = (s.gh != null && s.ga != null) ? ' ' + s.gh + '-' + s.ga : '';
+  const sc = (s.gh != null && s.ga != null) ? ' <span style="white-space:nowrap">' + s.gh + '-' + s.ga + '</span>' : '';   // build 342 - a wrapped chip never splits "1-0"
   return '<span class="livechip"><span class="livedot">&#9679;</span>' + when + sc + '</span>';
 }
 function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!=null && s.ga!=null); }
@@ -5936,6 +5945,40 @@ async function dailyOddsLoad(day, fxids){
   _dailyOdds = { day: day, byFx: byFx, loaded: true };
   return _dailyOdds;
 }
+/* ══ BUILD 342 — TODAY'S PRICES HAVE ONE STARTER, AND EVERY TIPS VIEW USES IT (WO-35) ════════════
+   Ken, on mobile data: no prices on Winner until he had opened Smart Bet and come back. The only
+   caller of `dailyOddsLoad` was `renderDailySlips`, and `realOddsChip` prints nothing until the
+   prices land — so Winner, O/U 2.5, BTTS and the strongest-read card showed a price only by luck of
+   tab order. Now `renderTips` and `renderDailySlips` both ask `dailyOddsEnsure`, which starts ONE
+   fetch per day and hands every later caller the same in-flight promise: one request set, whichever
+   tab is opened first (the project is over its egress quota, so a second fetch is not free).
+   `loaded` is set even on failure, so a re-render that follows the load can never start it again.
+
+   THE IDS FETCHED: every fixture dated today (local) in `upcoming`, plus every leg of today's
+   issued rows (`_sharedSlips`: the Tips lists, the strongest read and the slips). The legs matter
+   because a frozen leg can be a match that has kicked off; its pre-kick-off price is still the one
+   a reader could have taken (`mins_to_kick >= 0`), and it is still on screen. */
+let _dailyOddsInflight = null;
+function dailyOddsIds(){
+  const day = todayStrLocal(), seen = new Set(), ids = [];
+  const add = id => { if(id == null || id === '' || seen.has(String(id))) return; seen.add(String(id)); ids.push(id); };
+  for(const lid of Object.keys(afState.leagues)){
+    const L = afState.leagues[lid]; if(!L) continue;
+    for(const f of (L.upcoming || [])) if(f && f.date === day) add(f.fxid);
+  }
+  if(_sharedSlips.loaded && _sharedSlips.day === day)
+    for(const r of (_sharedSlips.rows || [])) for(const l of ((r && r.legs) || [])) if(l) add(l.fxid);
+  return ids;
+}
+function dailyOddsEnsure(){
+  const day = todayStrLocal();
+  if(_dailyOdds.loaded && _dailyOdds.day === day) return Promise.resolve(_dailyOdds);
+  if(_dailyOddsInflight && _dailyOddsInflight.day === day) return _dailyOddsInflight.p;
+  const p = dailyOddsLoad(day, dailyOddsIds())
+    .catch(() => (_dailyOdds = { day: day, byFx: {}, loaded: true }));
+  _dailyOddsInflight = { day: day, p: p };
+  return p;
+}
 /* `m15Fair` is the app's own price reader and is REUSED rather than reimplemented - the same rule
    that made `tipsGradeLegs` hand its legs to `dailyLogGrade`. Two readers of one odds row would
    eventually disagree, and the one on the slip is the one that quotes a number to a user. */
@@ -7190,13 +7233,7 @@ function renderDailySlips(){
      still carries the day navigation (build 256). `loaded` is set even on failure, so an outage
      falls through to engine prices - labelled - rather than waiting forever. */
   if(!_dailyOdds.loaded || _dailyOdds.day !== todayStrLocal()){
-    const _ids = [];
-    for(const _lid of Object.keys(afState.leagues)){
-      const _L = afState.leagues[_lid]; if(!_L) continue;
-      for(const _f of (_L.upcoming || []))
-        if(_f.date === todayStrLocal() && _f.fxid != null && _ids.indexOf(_f.fxid) < 0) _ids.push(_f.fxid);
-    }
-    dailyOddsLoad(todayStrLocal(), _ids).then(() => renderDailySlips());
+    dailyOddsEnsure().then(() => renderDailySlips());   // build 342 - the shared starter, never a second fetch
     box.innerHTML = '<div class="sec-label" style="margin-top:6px">Today’s slips</div>' + navBar
       + '<div class="subnote"><span class="spinner"></span>Reading today’s bookmaker prices…</div>';
     wire();
@@ -7499,7 +7536,7 @@ function renderBankerFrozen(row, label, box){
     + ' v ' + crest(l.a) + escapeHtml(String(l.a)) + '</div>'
     + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
     + '<b style="color:var(--gold)">' + escapeHtml(String(chipCode(l.code))) + '</b></span>'
-    + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+    + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span> '   // build 342 - a gap, as the live card has
     + (l.o && l.o > 1 ? '<span class="predchip sm">@ ' + (+l.o).toFixed(2) + '</span>'
                   : realOddsChip(l.fxid, l.code)) + '</span></div>'   // build 329
     + '<div class="frow"><span class="muted">Result</span><span>' + status
@@ -7564,6 +7601,11 @@ function renderTips(){
   if(!_sharedSlips.loaded || _sharedSlips.day !== todayStrLocal())
     dailySharedLoad(todayStrLocal()).then(() => { tipsFrozenEnsure(); renderTips(); }).catch(() => {});
   else tipsFrozenEnsure();
+  /* build 342 - today's prices, for every Tips view and not only Smart Bet. Started once the issued rows
+     are in hand, so their legs are in the id list; the re-render cannot loop because `loaded` is set. */
+  if(_sharedSlips.loaded && _sharedSlips.day === todayStrLocal()
+     && !(_dailyOdds.loaded && _dailyOdds.day === todayStrLocal()))
+    dailyOddsEnsure().then(() => renderTips()).catch(() => {});
   if(_sharedSlips.loaded) sharedResultsTick(() => renderTips());   // build 325
   renderTipHorizon();
   renderBanker();
@@ -7809,9 +7851,9 @@ function renderTipListFrozen(market, legs, box){
   box.innerHTML = graded.map(g => {
     const l = g.leg, i = refs.length; refs.push(tipsResolveFixture(l.d, l.h, l.a));
     /* build 329 - the percentage always, and a price only when a bookmaker actually quoted one. */
-    const val = liveChip(refs[i] && refs[i].f ? refs[i].f.fxid : null)
-              + '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
-              + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : null, l.code);
+    const live = liveChip(refs[i] && refs[i].f ? refs[i].f.fxid : l.fxid);   // build 342 - under the kick-off time
+    const val = '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+              + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : l.fxid, l.code);   // build 342 - the leg's own id if unresolved
     const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
                : g.grade === 'void' ? '<span style="color:var(--gold)">VOID</span>' : '';
@@ -7819,7 +7861,7 @@ function renderTipListFrozen(market, legs, box){
     const on = refs[i] ? isFavMatch(refs[i].f.fxid) : false;
     const star = refs[i] ? '<span class="mstar' + (on?'':' off') + '" data-star="' + i + '">' + (on?'★':'☆') + '</span>' : '';
     return '<div class="fxrow favrow" data-i="' + i + '"><span class="fxtime">'
-      + escapeHtml(String(l.d||'').slice(5).replace('-','/')) + '<br>' + escapeHtml(String(localHM(l.d, l.t||''))) + '</span>'
+      + escapeHtml(String(l.d||'').slice(5).replace('-','/')) + '<br>' + escapeHtml(String(localHM(l.d, l.t||''))) + live + '</span>'
       + '<span class="fxteams"><span class="tline">' + crest(l.h) + escapeHtml(String(l.h)) + '</span>'
       + '<span class="tline">' + crest(l.a) + escapeHtml(String(l.a)) + '</span>'
       + '<span class="lname">' + (l.market ? escapeHtml(String(l.market)) + ': ' : '')
@@ -7861,13 +7903,13 @@ function renderTipList(market){
     return; }
   const refs=[];
   box.innerHTML=rows.slice(0,30).map(r=>{ const i=refs.length; refs.push(r);
-    const val = liveChip(r.f && r.f.fxid)
-              + `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>` + realOddsChip(r.f && r.f.fxid, r.code);   // build 329
+    const live = liveChip(r.f && r.f.fxid);   // build 342 - under the kick-off time, not in the right column
+    const val = `<span class="predchip sm">${(100*r.prob).toFixed(0)}%</span>` + realOddsChip(r.f && r.f.fxid, r.code);   // build 329
     // "+18 vs avg" = how far this sits from the same bet in an average match — the actual insight
     const edgeTag = (market==='smart' && r.edge!=null)
       ? ` <span class="muted" style="font-size:.66rem">${r.edge>=0?'+':''}${(100*r.edge).toFixed(0)} vs avg</span>` : '';
     const on=isFavMatch(r.f.fxid);
-    return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${localHM(r.f.date, r.f.time)}</span>
+    return `<div class="fxrow favrow" data-i="${i}"><span class="fxtime">${(r.f.date||'').slice(5).replace('-','/')}<br>${localHM(r.f.date, r.f.time)}${live}</span>
       <span class="fxteams"><span class="tline">${crest(r.f.home)}${r.f.home}</span><span class="tline">${crest(r.f.away)}${r.f.away}</span>
       <span class="lname">${r.tag?r.tag+': ':''}<b style="color:var(--gold)">${r.sel}</b>${edgeTag}</span></span>
       <span class="favright">${val}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`; }).join('');
