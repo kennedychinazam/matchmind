@@ -885,7 +885,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 342;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 343;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3921,6 +3921,8 @@ function gateReason(L, f, code, prob){
      low          under this competition's MEASURED probability bar
      nobase       prices, but says nothing the league's base rate does not already say
      unpriced     the engine could not price this fixture at all
+     newteam      a side has never played in this competition, so it is priced as an average side and
+                  never published (build 311's rule, recorded as its own reason at build 343)
      far          would publish, but sits beyond PUBLISH_AHEAD_DAYS — NOT a refusal, and the
                   distinction matters: build 255 narrowed that window from 7 days to 4, so this
                   bucket is expected to be non-empty and must never read as the gate rejecting
@@ -3932,7 +3934,7 @@ function gateCensusReset(){
   _gateCensus = { at: new Date().toISOString(), build: APP_BUILD,
                   window: PUBLISH_AHEAD_DAYS, by: {} };
 }
-const GATE_BUCKETS = ['started','published','unmeasured','low','nobase','unpriced','far','publishable',
+const GATE_BUCKETS = ['started','published','unmeasured','low','nobase','unpriced','newteam','far','publishable',
                       'nomodel','noengine','outofscope'];
 function gateCensusAdd(L, bucket){
   if(!_gateCensus || !L) return;
@@ -3945,7 +3947,8 @@ const GATE_TEXT = {
   outofscope: 'Not predicted here',   // build 327
   low:    'No strong read',
   nobase: 'No edge here',
-  unpriced:'Not priced'
+  unpriced:'Not priced',
+  newteam: 'New to this competition'   // build 343 (WO-37)
 };
 const GATE_WHY = {
   /* BUILD 248 — TWO SENTENCES, BECAUSE ONLY ONE OF THEM IS TRUE AT A TIME. The original claimed the
@@ -3960,7 +3963,15 @@ const GATE_WHY = {
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`,
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
   outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
-  unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`
+  unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`,
+  /* BUILD 343 (WO-37) - the only reason that names a team, so it takes the prediction as a fourth argument;
+     the other reasons ignore it. Ken's wording, from the WO-36 review. */
+  newteam: (p, bar, met, P) => {
+    const n = (P && P.unknownNames) || [];
+    return (P && P.unknownTeams === 1 && n[0])
+      ? `${n[0]} has not played in this competition yet, so the engine can only price them as an average side. That is not a read on this match, so no pick is published.`
+      : `Neither side has played in this competition yet, so the engine can only price them as average sides. That is not a read on this match, so no pick is published.`;
+  }
 };
 
 /* ── THE LADDER (build 119) ────────────────────────────────────────────────────
@@ -5015,11 +5026,32 @@ function gateNow(L, f){
   if(!P) return f.gated || null;
   /* BUILD 309's term, asked live rather than read from the load-time snapshot. A price computed
      from the division's average instead of from these two teams is not a read. */
-  if(P.unknownTeams) return 'low';
+  if(P.unknownTeams) return 'newteam';   // build 343 - its own reason, the one the pass records
   const lp = ladderPick(P, f.home, f.away, L);
   if(!lp) return f.gated || null;
   /* The SAME two calls the match page makes, in the same order. One question, one answer. */
   return gateReason(L, {}, lp.code, lp.prob);
+}
+/* BUILD 343 (WO-37) - THE MATCH PAGE ASKS WHAT THE PASS ASKS. `gateReason` knows the bar and the edge; it has
+   never known whether both sides have played here, which is how the page printed and shared a pick the record
+   had refused (Wydad AC v Widad Temara, 71.0%). A fixture already published keeps its pick: nothing said is
+   unsaid (build 199). */
+function heroNewTeam(P, fxid){
+  if(!P || !P.unknownTeams) return false;
+  return !(fxid != null && afState.archive && afState.archive[fxid]);
+}
+/* BUILD 343 - the note under the bars. "Newly promoted" and "this division" are league words; in a cup the
+   side is simply new to the competition (Tavernes in the Copa del Rey), so a cup gets its own sentences. */
+function noHistoryNote(L, P){
+  if(!P || !P.unknownTeams) return '';
+  const cup = !!(L && _CUP_COMPS.has(String(L.id)));
+  if(P.unknownTeams === 2) return cup
+    ? 'Neither side has played in this competition before, so these are the competition\'s own averages rather than a read on these two teams.'
+    : 'Neither side has played in this competition before, so these are the league\'s own averages rather than a read on these two teams.';
+  const n = escapeHtml(String((P.unknownNames && P.unknownNames[0]) || 'One side'));
+  return cup
+    ? n + ' has not played in this competition before. They are priced as an average side of this competition until they have played a few ties here.'
+    : n + ' has no history in this competition — newly promoted, most likely. They are priced as an average team of this division until they have played a few.';
 }
 function engineBacksFixture(L, f){
   /* ONE decision, read by both forward-looking screens rather than each recomputing the rule —
@@ -8080,11 +8112,14 @@ async function analyze(){
                     solo: lp.rung === 0 };
               $('heroPick').textContent = hp.label;
               $('heroConf').textContent = pct(hp.prob) + ' confidence'; }
-      const gr = (!pendingMetaPlayed && sport==='football') ? gateReason(sL, {}, hp.code, hp.prob) : null;
+      /* build 343 (WO-37) - a side new to this competition gets the reason the record already applies: no pick,
+         no confidence, no share card. The bars and the note below stay (build 309). */
+      const gr = (!pendingMetaPlayed && sport==='football')
+        ? (heroNewTeam(pred, pendingMetaFxid) ? 'newteam' : gateReason(sL, {}, hp.code, hp.prob)) : null;
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
-        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL));
+        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL), pred);
       } else {
         const baseLine = hp.solo
           ? "The engine's headline call for this match"
@@ -8119,9 +8154,7 @@ async function analyze(){
     $('outcomeRows').innerHTML =
       probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) +
       (pred.unknownTeams
-        ? `<div class="subnote">${pred.unknownTeams===2
-             ? 'Neither side has played in this competition before, so these are the league\'s own averages rather than a read on these two teams.'
-             : escapeHtml(pred.unknownNames[0]) + ' has no history in this competition — newly promoted, most likely. They are priced as an average team of this division until they have played a few.'}</div>`
+        ? `<div class="subnote">${noHistoryNote(afState.leagues[afState.activeLeagueId] || null, pred)}</div>`   // build 343
         : '') +
       (pendingMetaPlayed
         ? `<div class="subnote">${pendingMetaPW!=null
@@ -9041,16 +9074,17 @@ function renderGateCensus(){
     + '<th style="padding:2px 6px">seen</th><th style="padding:2px 6px">started</th>'
     + '<th style="padding:2px 6px">published</th><th style="padding:2px 6px">low</th>'
     + '<th style="padding:2px 6px">nobase</th><th style="padding:2px 6px">unpriced</th>'
+    + '<th style="padding:2px 6px">new team</th>'   // build 343
     + '<th style="padding:2px 6px">not yet</th><th style="padding:2px 6px">eligible</th></tr>';
   for(const id of ids){
     const c = _gateCensus.by[id];
     html += '<tr><td style="padding:2px 6px">' + escapeHtml(c.lname || String(id)) + '</td>'
       + cell(c.seen) + cell(c.started) + cell(c.published) + cell(c.low) + cell(c.nobase)
-      + cell(c.unpriced) + cell(c.far) + cell(c.publishable) + '</tr>';
+      + cell(c.unpriced) + cell(c.newteam) + cell(c.far) + cell(c.publishable) + '</tr>';
   }
   html += '<tr style="border-top:1px solid var(--line);font-weight:700"><td style="padding:2px 6px">total</td>'
     + cell(seen) + cell(tot.started) + cell(tot.published) + cell(tot.low) + cell(tot.nobase)
-    + cell(tot.unpriced) + cell(tot.far) + cell(tot.publishable) + '</tr></table></div>';
+    + cell(tot.unpriced) + cell(tot.newteam) + cell(tot.far) + cell(tot.publishable) + '</tr></table></div>';
   if(tot.noengine || tot.nomodel){
     html += '<div class="subnote">' + tot.noengine + ' fixture(s) in competitions with under 15 '
       + 'finished matches, so no engine at all, and ' + tot.nomodel + ' the engine could not price. '
@@ -9058,7 +9092,7 @@ function renderGateCensus(){
   }
   /* THE VERDICT NAMES WHAT THE NUMBERS SUPPORT AND NOTHING MORE. Milestone 8's rule applied to a
      diagnostic: a panel with a conclusion slot that must be filled will invent one. */
-  const refused = tot.low + tot.nobase + tot.unpriced;
+  const refused = tot.low + tot.nobase + tot.unpriced + tot.newteam;
   const live = tot.publishable + tot.far;
   let verdict;
   if(neverLoaded.length){
@@ -9072,7 +9106,8 @@ function renderGateCensus(){
     verdict = 'Eleven competitions loaded and no upcoming fixture was examined. That is a fixture '
       + 'supply question, not a gate one.';
   } else if(refused && !live){
-    const top = tot.low >= tot.nobase && tot.low >= tot.unpriced ? 'under the competition bar'
+    const top = (tot.newteam > tot.low && tot.newteam > tot.nobase && tot.newteam > tot.unpriced) ? 'a side new to its competition'
+              : tot.low >= tot.nobase && tot.low >= tot.unpriced ? 'under the competition bar'
               : tot.nobase >= tot.unpriced ? 'no edge over the league base rate' : 'unpriceable';
     verdict = '<b>Every eligible fixture was refused</b>, mostly ' + top + '. The gate is the whole '
       + 'explanation for the archive not growing, and whether that is right is a question about the '
@@ -15336,7 +15371,7 @@ function showNoAnalysis(home, away, info){
         ? `<p>One of the two sides has not been decided yet — ${H ? escapeHtml(String(A||'the away side')) : 'the home side'} is still to be determined. This is normal for cup rounds and qualifiers, where the fixture is scheduled before the teams that will play it are known.</p>
            <p><b>Why nothing is shown instead of a rough guess.</b> The engine rates a team from the goals it has scored and conceded against the specific opponents it has faced. An undecided side has no record to read, so any number here would be the competition's average dressed up as an opinion about a team nobody has named. The app used to do exactly that — it once priced a fixture at 74% against a blank crest — and it was changed to say nothing instead.</p>`
         : `<p>The engine could not produce a prediction for <b>${H}</b> against <b>${A}</b>. That normally means this competition has not loaded enough completed matches yet for the model to read.</p>
-           <p><b>How the app handles thin data when it can.</b> A team with few or no matches is not refused outright: it is pulled toward the competition's own average, and a side with no history at all comes out at exactly average — the honest starting point for a team nobody has seen. That is why newly promoted clubs still get a prediction in August. What it will not do is invent a rating where there is nothing to read at all.</p>`)
+           <p><b>How the app handles thin data when it can.</b> A team with few or no matches is not refused outright: it is pulled toward the competition's own average, and a side with no history at all comes out at exactly average — the honest starting point for a team nobody has seen. That is why newly promoted clubs still get probabilities in August; a pick is published for them once they have played in the competition. What it will not do is invent a rating where there is nothing to read at all.</p>`)
     + `<p class="subnote">Come back once the fixture is decided, or once the competition has more completed matches loaded. Everything else in the app is unaffected.</p>`;
 
   navTo('detail');
@@ -17533,6 +17568,16 @@ function applyGatePass(L, display){
            a user who had already backed it. So the gate now applies only to fixtures that have
            never been published. */
         f.gated = (started || arch) ? null : gateReason(L, f, f.pick, f.prob);
+        /* ══ BUILD 343 — A SIDE NEW TO ITS COMPETITION IS A REASON OF ITS OWN, RECORDED HERE (WO-37) ══
+           Build 311 withheld this fixture from the record through `f.provisional`, and nothing else read that
+           field: the board stored `g: null`, Top Matches billed it, the census called it "publishable" and the
+           match page printed and shared a pick that was never published (MatchMind-WO36-UNPUBLISHED-FINDING.md).
+           The refusal now lives in `f.gated`, which every one of those readers already asks. The publication
+           rule is unchanged, and `!f.provisional` stays in the write guard below as a second lock.
+           ⚠ `gatedBar` keeps the bar's own answer for the AI shadow test alone, whose filed inputs must stay
+           exactly build 342's (aiShadowEngine). It exists only on these fixtures, so the device cache does not grow. */
+        if(!started && !arch && p.unknownTeams){ f.gatedBar = f.gated; f.gated = 'newteam'; }
+        else delete f.gatedBar;
         /* WHAT THE MODEL THINKS NOW, WHICH IS A DIFFERENT QUESTION FROM WHAT WAS PUBLISHED.
            Both are shown. `moved` is the model having walked to another rung; `unbacked` is it
            no longer clearing the bar at all. Neither changes the pick, the record or the
@@ -18176,6 +18221,7 @@ function boardTakeOver(f){
              market: f.market || null, gated: f.gated || null, frozen: !!f.frozen,
              pW: (f.pW != null ? f.pW : null), pD: (f.pD != null ? f.pD : null),
              pL: (f.pL != null ? f.pL : null) };
+  if(f.gated === 'newteam') f.calc.gatedBar = (f.gatedBar != null ? f.gatedBar : null);   // build 343 - read by aiShadowEngine only
   /* 🚩 BUILD 338 - A PLAYED FIXTURE IS NOT THE BOARD'S BUSINESS, AND 337 FORGOT IT.
      The board carries only what has NOT kicked off, so a match already played is never on it - and
      337's rule "not on the board means no pick" then deleted the pick from every fixture the app
@@ -18356,10 +18402,14 @@ function aiShadowCandidates(){
 function aiShadowEngine(L, f, P){
   const c = f.calc || {};
   const unknown = P.unknownTeams || 0;
+  /* BUILD 343 - THE FILED INSTRUMENT KEEPS BUILD 342's INPUT. `c.gated` can now read 'newteam'. The AI-SHADOW
+     filing froze what E carries and what the prompt says, so E is handed the bar's own answer, exactly as 342
+     captured it. verify-newteam-343.js byte-compares this payload with 342's. */
+  const g = c.gated === 'newteam' ? (c.gatedBar || null) : (c.gated || null);
   return {
     pick: c.pick || null, prob: (c.prob != null ? +c.prob : null), market: c.market || null,
-    gated: c.gated || null, frozen: !!c.frozen, unknown: unknown,
-    published: !!c.pick && !c.gated && !unknown,
+    gated: g, frozen: !!c.frozen, unknown: unknown,
+    published: !!c.pick && !g && !unknown,
     pW: +P.pW.toFixed(4), pD: +P.pD.toFixed(4), pL: +P.pL.toFixed(4),
     lh: +P.lambdaH.toFixed(3), la: +P.lambdaA.toFixed(3),
     o25: P.over ? +P.over[2.5].toFixed(4) : null,
