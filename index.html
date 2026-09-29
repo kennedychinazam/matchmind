@@ -885,7 +885,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 343;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 344;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -17060,6 +17060,48 @@ function histSettledOk(key, meta){
   if(!XC_SHAPE.COMPS.map(String).includes(String(id))) return true;
   return !!(meta && meta.ftv === HIST_FT_V);
 }
+/* ══ BUILD 344 (WO-40) — A RETURNING DEVICE NEVER READ WHAT SETTLED WHILE IT WAS AWAY ══════════════════
+   Every boot read each competition from `settleAt` (today − 10) and the cache held `date < settleAt` OF THE
+   BOOT THAT WROTE IT, so the days between the two were read by nobody. WO-39 measured it on the publisher
+   robot, whose cached profile makes it a returning device: **1,060 finished matches (09-05..09-17) in 47 of
+   55 competitions** missing, and 41 published picks proven to have been priced without them.
+
+   1. THE READ STARTS WHERE THE CACHE ENDS. `meta.to` is the `settleAt` a cache was saved under, stamped at
+      both save sites. A cache written before 344 has no `to`, so its last cached date stands in (that day
+      is re-read; `joinHistory` de-duplicates on date|home|away). Never earlier than `cacheCutoff()`, never
+      later than `settleAt`. A competition with no cache keeps `settleAt` and goes to the backfill as before.
+   2. THE WINDOW IS TODAY'S. `joinHistory` drops rows dated before `cacheCutoff()`, so a returning device holds
+      the five seasons a fresh one loads, not those plus every day since its first load (974 rows on the robot).
+   2a. THE ONE-OFF REFILL. The collector's season backfill of 2026-09-21 04:33–04:34 UTC wrote rows INTO ranges
+      already cached (832 matches in 14 competitions, dated 2026-02-21..08-22), and a cached range is never
+      re-read. `meta.readAt` is when a settled range was read from the server: set by the backfill, carried
+      unchanged by the re-cache. A competition the batch touched whose cache was read before the marker goes
+      through `backfillSettledHistory` once; its new `readAt` stops a repeat. The set is every competition with
+      a row written in that batch (21, read from the table: the 14 short ones and 7 it only rewrote), because
+      a cache from before the batch cannot be re-created to prove the rewrite-only ones identical.
+      ⚠ A STOPGAP UNTIL WO-41. After any later season backfill, move `HIST_REFILL_MARK` (and the set) forward in
+      the next build — `MatchMind-FIXTURE-WINDOW.md` carries that checklist line. */
+const HIST_REFILL_MARK = '2026-09-21T04:35:00Z';
+const HIST_REFILL_IDS = [13, 45, 62, 66, 79, 89, 90, 95, 96, 98, 136, 141, 169, 186, 188, 233, 253, 288, 292, 305, 307];
+let _histTrimmed = 0;   // build 344 — rows older than cacheCutoff() dropped on join this session; read it to verify
+let _histRefilled = []; // build 344 — competitions sent to the one-off refill this session
+function histCacheEnd(rec){
+  if(!rec || !rec.m || !rec.m.length) return null;
+  if(rec.meta && rec.meta.to) return rec.meta.to;
+  let last = null;
+  for(const x of rec.m){ const d = x && x.date; if(d && (last === null || d > last)) last = d; }
+  return last;
+}
+function histReadFrom(rec, settleAt, cut){
+  const end = histCacheEnd(rec);
+  if(!end || end >= settleAt) return settleAt;
+  return end < cut ? cut : end;
+}
+function histNeedsRefill(id, rec){
+  if(HIST_REFILL_IDS.indexOf(+id) < 0) return false;
+  const at = rec && rec.meta && rec.meta.readAt ? Date.parse(rec.meta.readAt) : NaN;
+  return !(at >= Date.parse(HIST_REFILL_MARK));
+}
 /* ⚠ BUILD 281 — THE RESTORE PASS WAS NOT IDEMPOTENT, AND 279 SHIPPED THAT WAY.
    `loadCloudLeagues` runs more than once in a session — boot, throttle expiry, manual refresh. A
    competition that is FETCHED gets a brand-new object each run holding only recent rows, so
@@ -17109,12 +17151,15 @@ function joinHistory(L, block, keep){
   const seen = new Set(), kept = [], other = [];
   for(const x of primary){ const k = key(x); if(seen.has(k)) continue; seen.add(k); kept.push(x); }
   for(const x of secondary){ const k = key(x); if(seen.has(k)) continue; seen.add(k); other.push(x); }
-  const joined = keep === 'existing' ? other.concat(kept) : kept.concat(other);
-  joined.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const all = keep === 'existing' ? other.concat(kept) : kept.concat(other);
+  all.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const cut = cacheCutoff();   // build 344 — today's window, not the window of the day the cache was first filled
+  const joined = all.filter(x => !(x && x.date && x.date < cut));
+  _histTrimmed += all.length - joined.length;
   L.matches = joined;
   HIST_JOINED.add(L);
   registerLeagueDampen(L);
-  return before - joined.length;
+  return before - all.length;
 }
 let _histJoinDropped = 0;   // build 319 — duplicates the join refused this session; read it to verify
 function historySettleCutoff(){
@@ -17343,6 +17388,7 @@ async function backfillSettledHistory(ids){
   try{
     for(const id of ids){
       let L = afState.leagues[id];
+      const readAt = new Date().toISOString();   // build 344 — stamped BEFORE the read: a row written during it is re-read next time
       const { data, error } = await fetchLeagueFixtures(id, from, settleAt, true);
       if(error || !data || !data.length) continue;
       /* ⚠ BUILD 286, SECOND PASS — AN OUT-OF-SEASON COMPETITION HAS NOTHING IN THE RECENT WINDOW,
@@ -17395,9 +17441,13 @@ async function backfillSettledHistory(ids){
          THE FIX IS A SORT, NOT A BETTER INVARIANT. The order is what the engine depends on, so it is
          established here rather than assumed of the inputs — the same reason build 183 keys fitted
          constants on ids rather than trusting names to be unique. */
+      /* build 344 — the block IS [from, settleAt) as the server holds it now, so whatever memory held before settleAt (a
+         pre-344 cache, the forward read) gives way to it: a row renamed or removed since it was cached must not survive a refill. */
+      if(L.matches && L.matches.length) L.matches = L.matches.filter(x => !(x && x.date && x.date < settleAt));
       _histJoinDropped += joinHistory(L, add, 'block');   // build 319 — the freshly fetched rows win an overlap
       histSave({ [String(id)]: { m: add, meta: { id: L.id, name: L.name, country: L.country,
-                 flag: L.flag, logo: L.logo, sport: L.sport, ftv: _leanFt === true ? HIST_FT_V : null, season: L.season, from } } });
+                 flag: L.flag, logo: L.logo, sport: L.sport, ftv: _leanFt === true ? HIST_FT_V : null, season: L.season, from,
+                 to: settleAt, readAt } } });   // build 344 — where this cache ends, and when it was read
       filled++;
       /* BUILD 322 — priced now, on the full array, and only if the merge deferred it. Removed from `_gateThin`
          BEFORE the pass, so the catch-all loop can never pass it a second time (`archivePrediction` is
@@ -17675,7 +17725,9 @@ async function loadCloudLeagues(force){
        The settled half is fetched afterwards, one competition at a time, and only if the reader is
        still here to want it. A user who bounces after ten seconds costs 72 KB instead of 808. */
     _histSince = {};
-    for(const k of COMP_IDS) _histSince[k] = settleAt;
+    /* build 344 — from where each competition's cache ENDS, so what settled while the device was away is read. */
+    { const _cut = cacheCutoff();
+      for(const k of COMP_IDS) _histSince[k] = histReadFrom(histCache[String(k)], settleAt, _cut); }
     /* BUILD 123 — a competition that fails to load must never vanish silently.
        Ken: "i notice i am no longer seeing prediction from the brazil league, why?" The cause was
        findable before he even asked, because it was written down and never fixed: 12 requests fire
@@ -17726,6 +17778,10 @@ async function loadCloudLeagues(force){
       const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(COMP_IDS[i])));
       retryIdx.forEach((i,k)=>{ results[i] = retried[k]; });
     }
+    /* build 344 — a competition whose read FAILED did not receive [cache end, settleAt), so its cache is not
+       re-written with a later `to` (that would skip the gap for good). It keeps the cache it had. */
+    const _readOk = {};
+    COMP_IDS.forEach((id, i) => { const r = results[i]; if(r && !r.error) _readOk[id] = 1; });
     /* ══ BUILD 215 — A COMPETITION COULD VANISH SILENTLY ON A COLD START ═════════════════════════
        Build 123's promise is "a competition that fails to load must never vanish silently", and it
        was only half-kept. The old line required `afState.leagues[id]` — meaning "it was there last
@@ -17799,7 +17855,7 @@ async function loadCloudLeagues(force){
     const winStart = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // "More" can reach back a month (build 72)
     for(const {data, error} of results){
       if(error || !data || !data.length) continue;
-      const f0 = data[0];
+      const f0 = (!LEAGUE_BLOBS && data.find(r => r.date >= settleAt)) || data[0];   // build 344 — the forward read starts earlier
       const L = { id:f0.lid, name:f0.lname, country:f0.lcountry||'', flag:'', logo:f0.llogo||'', sport:'football', season:f0.season, matches:[], upcoming:[], teamIds:{}, scorerText:'' };
       const display = [];
       for(const r of data){
@@ -17815,7 +17871,7 @@ async function loadCloudLeagues(force){
                  cf[r.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
         if(!r.home || !r.away || !String(r.home).trim() || !String(r.away).trim()) continue;   // unnamed side (build 84)
-        if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart)){
+        if((canonStatus(r.status)==='NS' && r.date>=today) || (fin && r.date>=winStart && (LEAGUE_BLOBS || r.date>=settleAt))){   // build 344
           /* BUILD 191 — the season rides along. Without it the app cannot know a new season has
              started until a match in it has been PLAYED: `L.season` is taken from `data[0]`, the
              oldest row in the query, and the match list only holds finished fixtures. So on the
@@ -17942,6 +17998,7 @@ async function loadCloudLeagues(force){
         if(!rec) return true;                       // nothing cached at all - build 286's case
         const ms = rec.m;
         if(!ms || !ms.length) return true;          // a cache with no matches covers nothing
+        if(histNeedsRefill(id, rec)){ _histRefilled.push(id); return true; }   // build 344 — read before the 09-21 season backfill
         if(rec.meta && rec.meta.from && rec.meta.from <= cacheCutoff()) return false;   // build 319 — the read that filled it started inside the window
         let first = null;
         for(const x of ms){ const d = x && x.date; if(d && (first === null || d < first)) first = d; }
@@ -18025,6 +18082,7 @@ async function loadCloudLeagues(force){
       try{
         const toCache = {};
         for(const id in merged){
+          if(!_readOk[id]) continue;   // build 344 — the gap was not read, so the old cache (and its `to`) stands
           const L2 = merged[id];
           const ms = (L2.matches || []).filter(m => m.date && m.date < settleAt);
           /* The metadata rides with the matches. Without it an OUT-OF-SEASON competition cannot be
@@ -18033,7 +18091,9 @@ async function loadCloudLeagues(force){
           if(ms.length) toCache[id] = { m: ms, meta: { id: L2.id, name: L2.name, country: L2.country,
               flag: L2.flag, logo: L2.logo, sport: L2.sport, season: L2.season,
               ftv: (_leanFt === true && (leagues[id] || histSettledOk(String(id), histCache[String(id)] && histCache[String(id)].meta))) ? HIST_FT_V : null,
-              from: (histCache[String(id)] && histCache[String(id)].meta && histCache[String(id)].meta.from) || null } };
+              from: (histCache[String(id)] && histCache[String(id)].meta && histCache[String(id)].meta.from) || null,
+              to: settleAt,   // build 344 — everything before this was read (the cache, then this boot's forward read)
+              readAt: (histCache[String(id)] && histCache[String(id)].meta && histCache[String(id)].meta.readAt) || null } };   // carried, never set here
         }
         if(Object.keys(toCache).length) histSave(toCache);
       }catch(e){}
