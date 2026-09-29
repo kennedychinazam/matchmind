@@ -859,6 +859,7 @@
       <div id="m15Out"></div>
       <div id="gateBtn"></div>
       <div id="gateOut"></div>
+      <div id="gateBoardOut"></div>
     </div>
 
     </div>
@@ -885,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 344;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 345;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3948,9 +3949,11 @@ const GATE_TEXT = {
   low:    'No strong read',
   nobase: 'No edge here',
   unpriced:'Not priced',
-  newteam: 'New to this competition'   // build 343 (WO-37)
+  newteam: 'New to this competition',   // build 343 (WO-37)
+  notyet: 'Not priced yet'   // build 345 (WO-38) - no board row: past the robot's horizon, or the board not read
 };
 const GATE_WHY = {
+  notyet: () => 'Picks appear up to 7 days ahead.',   // build 345 (WO-38)
   /* BUILD 248 — TWO SENTENCES, BECAUSE ONLY ONE OF THEM IS TRUE AT A TIME. The original claimed the
      bar is where this league "actually delivered" the target. That holds only when `met` is true;
      when the search found no cell reaching it, the bar is the best level OBSERVED and the target was
@@ -7583,8 +7586,12 @@ function renderBanker(){
   const label = tipState.days===0 ? t('Today') : (tipState.days===3 ? t('Next 3 days') : t('Next 7 days'));
   const fz = (tipState.days === 0) ? tipsSharedRow('banker') : null;
   if(fz && Array.isArray(fz.legs) && fz.legs.length){ renderBankerFrozen(fz, label, box); return; }
+  if(tipState.days !== 0 && !boardReady()){   // build 345 - no board, no forward card; never the phone's
+    box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2><div class="subnote">${BOARD_UNREAD_TEXT}</div></div>`;
+    return;
+  }
   const inWindow = collectUpcoming(tipState.days).length;
-  const b = bankerOf();
+  const b = (tipState.days === 0) ? bankerOf() : boardBankerOf(tipState.days);   // build 345 - the forward card is the board's
   /* build 241 — the slips are the Smart Bet tab's content now and render from the tab dispatch. */
 
   if(!inWindow){
@@ -7791,7 +7798,8 @@ function smartRanked(P, f, L){
      2. different pool — Smart Bet excludes Double Chance and DNB, which is often what the
         headline itself is;
      3. different ranking — by edge, not by size of the number. */
-function renderSmartBet(L, f, P, played, hp){
+function renderSmartBet(L, f, P, played, hp, gold){
+  if(gold === undefined) gold = true;
   const card = $('acc-smart'), box = $('smartRows'), side = $('smartSide');
   if(!card || !box) return;
   const hide = ()=>{ card.classList.add('hidden'); box.innerHTML=''; if(side) side.textContent=''; };
@@ -7803,10 +7811,10 @@ function renderSmartBet(L, f, P, played, hp){
   if(!ranked.length) return hide();
   const top = ranked[0];
   card.classList.remove('hidden');
-  if(side) side.textContent = top.sel;
+  if(side) side.textContent = gold ? top.sel : '';   // build 345 - no billing on a fixture the robot did not pass
 
   const rows = ranked.slice(0,3).map((s,i)=>{
-    const g = i===0;
+    const g = i===0 && gold;   // build 345
     return `<div class="prow"><span class="plabel">${g?'<b style="color:var(--gold)">':''}${escapeHtml(s.sel)}${g?'</b>':''} <span class="muted" style="font-size:.7rem">${escapeHtml(s.m)}</span></span>
       <div class="ptrack"><div class="pfill${g?' gold':''}" style="width:${Math.max(3,100*s.prob).toFixed(1)}%"></div></div>
       <span class="pval${g?' gold':''}">${pct(s.prob)}</span></div>`
@@ -7816,13 +7824,14 @@ function renderSmartBet(L, f, P, played, hp){
   }).join('');
 
   const headline = hp ? `${escapeHtml(hp.label)} at ${pct(hp.prob)}` : 'the headline above';
-  box.innerHTML = rows +
-    `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why this doesn't match the headline.</b>
+  box.innerHTML = rows + (!gold
+    ? `<div class="subnote" style="margin-top:12px">The robot has not passed this fixture, so these are the engine's numbers across the markets, not a pick.</div>`
+    : `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why this doesn't match the headline.</b>
       The headline answers <b>who wins</b> — here, ${headline}. Smart Bet answers a different question:
       <b>across every market, where does this fixture depart most from an average match in this competition?</b>
       So ${pct(top.prob)} here and ${hp?pct(hp.prob):'a lower number'} above are not in conflict, and neither is
       "more confident" than the other. They are different bets. Smart Bet also leaves out Double Chance and
-      Draw No Bet, which is frequently what the headline itself is.</div>` +
+      Draw No Bet, which is frequently what the headline itself is.</div>`) +
     (top.base!=null ? ''
       : `<div class="subnote">This competition has too little history for the engine to build an "average match", so the ranking above falls back to a flat 50% baseline. Treat it as provisional.</div>`);
 }
@@ -7877,7 +7886,7 @@ function tipRankedRows(market, days){
 /* The issued list for today, drawn from the row every device shares rather than rebuilt. The order
    is the order it was issued in: a list that reshuffles under a reader during the afternoon is the
    same complaint as one that empties. */
-function renderTipListFrozen(market, legs, box){
+function renderTipListFrozen(market, legs, box, footer){
   const graded = tipsGradeLegs(legs);
   const refs = [];
   box.innerHTML = graded.map(g => {
@@ -7904,8 +7913,8 @@ function renderTipListFrozen(market, legs, box){
   const settled = graded.filter(g => g.grade).length;
   const _row = tipsSharedRow('tips');
   const _part = _row ? /^tips-partial-([0-9]+)$/.exec(String(_row.step || '')) : null;
-  box.insertAdjacentHTML('beforeend',
-    '<div class="subnote">Issued and held for the day, never re-priced · '
+  box.insertAdjacentHTML('beforeend', footer != null ? '<div class="subnote">' + footer + '</div>'   // build 345 - the forward list
+    : '<div class="subnote">Issued and held for the day, never re-priced · '
     + settled + ' of ' + graded.length + ' settled'
     + (_part ? ' · ' + _part[1] + ' had already kicked off when the day was issued' : '')
     + '</div>');
@@ -7917,7 +7926,8 @@ function renderTipListFrozen(market, legs, box){
 }
 function renderTipList(market){
   { const n=$('tipTabNote');
-    if(n){ const t=TIP_TAB_NOTES[market]; n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
+    if(n){ const t = (tipState.days !== 0 && TIP_INFO_TABS.indexOf(market) >= 0) ? TIP_INFO_NOTE : TIP_TAB_NOTES[market];   // build 345
+           n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
   const box=$('tipList'); if(!box) return;
   /* BUILD 299 - TODAY IS DRAWN FROM THE ISSUED ROW, NOT REBUILT. Only the Today window: the 3- and
      7-day settings are a forward look at fixtures nobody has issued a card for, so they stay live
@@ -7925,6 +7935,7 @@ function renderTipList(market){
      that makes re-pricing a played fixture unacceptable. */
   const frozen = (tipState.days === 0) ? tipsFrozenLegs(market) : null;
   if(frozen){ renderTipListFrozen(market, frozen, box); return; }
+  if(tipState.days !== 0){ renderTipListForward(market, box); return; }   // build 345 - the forward look is the robot's board
   const rows = tipRankedRows(market, tipState.days);
   if(!rows.length){
     /* Build 201 — this used to say "no priceable fixtures yet", which read as a broken app on any
@@ -7947,6 +7958,57 @@ function renderTipList(market){
       <span class="favright">${val}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`; }).join('');
   box.querySelectorAll('.fxrow.favrow').forEach(row=>row.addEventListener('click',()=>{ const r=refs[+row.dataset.i]; openFixture(r.L.id,r.f); }));
   box.querySelectorAll('.mstar[data-star]').forEach(st=>st.addEventListener('click',e=>{ e.stopPropagation(); const r=refs[+st.dataset.star]; toggleFavMatch(r.f,{lid:r.L.id,lname:r.L.name}); renderTipList(market); }));
+}
+
+/* BUILD 345 (WO-38) — Next 3 / Next 7 days. Winner: the board's passed picks in its four markets, drawn by Today's own row
+   renderer (build 299: one renderer, so the wording cannot drift), every row, no cap. O/U 2.5 and BTTS: only board-passed
+   fixtures, and the phone's number for that market as plain information — both sides, no gold, no price, no star. */
+function renderTipListForward(market, box){
+  if(!boardReady()){ box.innerHTML = '<div class="subnote">' + BOARD_UNREAD_TEXT + '</div>'; return; }
+  const rows = boardForwardRows(tipState.days);
+  if(market === 'winner'){
+    const legs = rows.filter(x => BOARD_WINNER_TAB_MARKETS.indexOf(x.r.m) >= 0).map((x, i) => boardLeg(x, 'winner', i));
+    if(!legs.length){ box.innerHTML = '<div class="subnote">' + BOARD_FORWARD_EMPTY + '</div>'; return; }
+    renderTipListFrozen(market, legs, box, "From the robot's board, every fixture it passed in this window · " + legs.length);
+    return;
+  }
+  const info = [];
+  for(const x of rows){
+    const P = fxPredict(x.L, x.f); if(!P) continue;
+    const yes = market === 'ou' ? P.over[2.5] : P.btts;
+    if(yes == null) continue;
+    info.push({ L: x.L, f: x.f, yes: yes, top: Math.max(yes, 1 - yes) });
+  }
+  if(!info.length){ box.innerHTML = '<div class="subnote">' + BOARD_FORWARD_EMPTY + '</div>'; return; }
+  info.sort((a, b) => b.top - a.top);
+  const lab = market === 'ou' ? ['Over 2.5', 'Under 2.5'] : ['Both score', 'Not both'];
+  const refs = [];
+  box.innerHTML = info.map(x => { const i = refs.length; refs.push(x);
+    return '<div class="fxrow favrow" data-i="' + i + '"><span class="fxtime">' + escapeHtml(String(x.f.date || '').slice(5).replace('-','/'))
+      + '<br>' + escapeHtml(String(localHM(x.f.date, x.f.time || ''))) + '</span>'
+      + '<span class="fxteams"><span class="tline">' + crest(x.f.home) + escapeHtml(String(x.f.home)) + '</span>'
+      + '<span class="tline">' + crest(x.f.away) + escapeHtml(String(x.f.away)) + '</span>'
+      + '<span class="lname muted">' + lab[0] + ' ' + (100 * x.yes).toFixed(0) + '% · ' + lab[1] + ' ' + (100 * (1 - x.yes)).toFixed(0) + '%</span></span>'
+      + '<span class="favright"><span class="muted" style="font-size:.7rem">info</span></span></div>'; }).join('')
+    + '<div class="subnote">Fixtures the robot passed in this window · ' + info.length + '</div>';
+  box.querySelectorAll('.fxrow.favrow').forEach(row => row.addEventListener('click', () => {
+    const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f); }));
+}
+/* BUILD 345 (WO-38) — the forward top card: the board's highest passed row that Today's banker rule admits
+   (`DAILY_MARKETS` through `slipMarketMatch`, then `dailyEligible`). ⚠ That rule has no Draw No Bet, so a DNB pick is
+   never the forward card, exactly as it is never Today's. It never falls back to the phone's `bankerOf`. */
+function boardBankerOf(days){
+  const cands = [];
+  for(const x of boardForwardRows(days)){
+    const r = x.r, sel = { m: r.m, sel: r.m === 'Goals' ? boardGoalsSel(r.p) : pickLabel(r.p, x.f.home, x.f.away) };
+    let ok = false; for(const k of DAILY_MARKETS) if(slipMarketMatch(k, sel)){ ok = true; break; }
+    if(!ok) continue;
+    cands.push({ key: x.f.fxid, L: x.L, f: x.f, market: r.m, sel: sel.sel, code: r.p, prob: r.q, pDraw: r.pd });
+  }
+  let elig; try{ elig = dailyEligible(cands, null) || []; }catch(e){ return null; }
+  let best = null;
+  for(const c of elig){ if(c.prob == null) continue; if(!best || c.prob > best.prob) best = c; }
+  return best ? { L: best.L, f: best.f, pick: best.code, prob: best.prob, market: best.market } : null;
 }
 
 /* ---------- slip generator: markets + country groups (#6) ---------- */
@@ -8056,6 +8118,7 @@ async function analyze(){
   { const meta = pendingMeta; pendingMeta = null;
     pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
     pendingMetaFxid = meta ? (meta.fxid||null) : null;
+    pendingMetaStarted = meta ? kickoffPassed({ date: meta.date, time: meta.time }) : false;   // build 345
     pendingMetaPick = meta ? (meta.pick||null) : null; pendingMetaProb = meta ? (meta.prob||null) : null;
     pendingMetaPW = meta ? (meta.pW??null) : null; pendingMetaPD = meta ? (meta.pD??null) : null; pendingMetaPL = meta ? (meta.pL??null) : null;
     pendingMetaPlayed = false;
@@ -8145,6 +8208,31 @@ async function analyze(){
         comp: pendingMetaComp || '',
         date: pendingMetaDate ? shareDateText(pendingMetaDate) : ''
       });
+      /* build 345 (WO-38) - THE ROBOT HAS THE LAST WORD for a fixture that has not kicked off: its pick and q, its named
+         reason, or "Not priced yet" - the hero, the confidence, resultSide and the share card are re-set from the board here.
+         The phone's own pick and gate above still serve a played or live fixture and a matchup typed in by hand, and they
+         are left exactly as build 343 wrote them (its tests run that block). */
+      const bv = heroBoardVerdict(pendingMetaFxid, home, away, !pendingMetaPlayed && !pendingMetaStarted && sport==='football');
+      _heroBoardGold = !bv || bv.kind === 'passed';
+      if(bv){
+        if(bv.kind === 'passed'){
+          hp = {...hp, code: bv.code, prob: bv.prob, label: bv.label, solo: bv.solo};
+          $('heroPick').textContent = hp.label;
+          $('heroConf').textContent = pct(hp.prob) + ' confidence';
+          $('heroStrong').textContent = (sk && sk.ready && !sk.proven && hp.code === '1X')
+            ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
+            : hp.solo ? "The engine's headline call for this match"
+            : 'Draw is live here — this covers it (a straight win pays more but lands less often)';
+        } else {
+          const bg = bv.kind === 'withheld' ? bv.g : 'notyet';
+          $('heroPick').textContent = GATE_TEXT[bg] || GATE_TEXT.low;
+          $('heroConf').textContent = '';
+          $('heroStrong').textContent = (GATE_WHY[bg] || GATE_WHY.low)(bv.prob != null ? bv.prob : hp.prob, gateBarFor(sL), gateMetFor(sL), pred);
+        }
+        $('resultSide').textContent = bv.kind === 'passed' ? hp.label.replace(' WIN','') : '—';
+        setShareCard(bv.kind === 'passed', { home, away, pick: hp.label, conf: pct(hp.prob),
+          comp: pendingMetaComp || '', date: pendingMetaDate ? shareDateText(pendingMetaDate) : '' });
+      }
     }
 
     /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
@@ -8183,7 +8271,7 @@ async function analyze(){
     }
 
     // build 85 — same ranking the Tips tab uses, so the two pages can no longer disagree silently
-    renderSmartBet(afState.leagues[afState.activeLeagueId] || null, {home, away}, pred, !!pendingMetaPlayed, hp);
+    renderSmartBet(afState.leagues[afState.activeLeagueId] || null, {home, away}, pred, !!pendingMetaPlayed, hp, _heroBoardGold);   // build 345
 
     $('acc-goals').classList.remove('hidden');
     $('goalsRows').innerHTML =
@@ -8616,6 +8704,8 @@ function statusWord(code){
 let ctxFixture = null, pendingMetaComp = '', pendingMetaDate = '', pendingMetaFxid = null, pendingMetaPlayed = false;
 let pendingMetaPick = null, pendingMetaProb = null, pendingMetaDead = null;
 let pendingMetaPW = null, pendingMetaPD = null, pendingMetaPL = null;
+let pendingMetaStarted = false;
+let _heroBoardGold = true;        // build 345 - the Smart Bet card bills a selection only where the board passed the fixture   // build 345 - a live or played fixture keeps what it showed; the board speaks only for unplayed ones
 let lastAdjusted = null;
 
 function applyContextToPrediction(L, pred, homeMult, awayMult){
@@ -9031,6 +9121,18 @@ function recordDrift(f, now){
    is ambiguous: how many competitions actually reached the browser, and what the gate did to the
    fixtures inside them. "One competition published today" is a gate story if eleven loaded and a
    league-read story if one did. Nothing here fetches; it reads the load already in memory. */
+/* BUILD 345 (WO-38) — beside the phone's own counts, what the robot's board says: passed, and withheld by reason. */
+function boardCensusHtml(){
+  if(!boardReady()) return '<div class="subnote"><b>Robot\'s board:</b> not read.</div>';
+  const rows = _boardRecord.payload.rows || [], by = {};
+  let passed = 0;
+  for(const r of rows){ if(r.g) by[r.g] = (by[r.g] || 0) + 1; else if(r.p) passed++; }
+  const parts = Object.keys(by).sort().map(k => escapeHtml(GATE_TEXT[k] || k) + ' ' + by[k]);
+  return '<div class="frow" style="margin-top:8px"><span class="muted">Robot\'s board (' + escapeHtml(String(_boardRecord.computedAt || '').slice(0, 16).replace('T', ' '))
+    + ' UTC) &middot; ' + rows.length + ' fixtures</span><b>' + passed + ' passed</b></div>'
+    + '<div class="subnote">Withheld: ' + (parts.length ? parts.join(' &middot; ') : 'none') + '</div>';
+}
+function renderBoardCensus(){ const b = $('gateBoardOut'); if(b) b.innerHTML = boardCensusHtml(); }
 function renderGateCensus(){
   const box = $('gateOut'); if(!box) return;
   if(!_gateCensus){
@@ -9075,16 +9177,17 @@ function renderGateCensus(){
     + '<th style="padding:2px 6px">published</th><th style="padding:2px 6px">low</th>'
     + '<th style="padding:2px 6px">nobase</th><th style="padding:2px 6px">unpriced</th>'
     + '<th style="padding:2px 6px">new team</th>'   // build 343
+    + '<th style="padding:2px 6px">no bar</th><th style="padding:2px 6px">out of scope</th>'   // build 345
     + '<th style="padding:2px 6px">not yet</th><th style="padding:2px 6px">eligible</th></tr>';
   for(const id of ids){
     const c = _gateCensus.by[id];
     html += '<tr><td style="padding:2px 6px">' + escapeHtml(c.lname || String(id)) + '</td>'
       + cell(c.seen) + cell(c.started) + cell(c.published) + cell(c.low) + cell(c.nobase)
-      + cell(c.unpriced) + cell(c.newteam) + cell(c.far) + cell(c.publishable) + '</tr>';
+      + cell(c.unpriced) + cell(c.newteam) + cell(c.unmeasured) + cell(c.outofscope) + cell(c.far) + cell(c.publishable) + '</tr>';
   }
   html += '<tr style="border-top:1px solid var(--line);font-weight:700"><td style="padding:2px 6px">total</td>'
     + cell(seen) + cell(tot.started) + cell(tot.published) + cell(tot.low) + cell(tot.nobase)
-    + cell(tot.unpriced) + cell(tot.newteam) + cell(tot.far) + cell(tot.publishable) + '</tr></table></div>';
+    + cell(tot.unpriced) + cell(tot.newteam) + cell(tot.unmeasured) + cell(tot.outofscope) + cell(tot.far) + cell(tot.publishable) + '</tr></table></div>';
   if(tot.noengine || tot.nomodel){
     html += '<div class="subnote">' + tot.noengine + ' fixture(s) in competitions with under 15 '
       + 'finished matches, so no engine at all, and ' + tot.nomodel + ' the engine could not price. '
@@ -18267,6 +18370,70 @@ function boardRowFor(fxid){
   }
   return (fxid == null || fxid === '') ? null : (_boardIx[fxid] || null);
 }
+/* ══ BUILD 345 (WO-38) — EVERY SCREEN SHOWS THE ROBOT'S ANSWER, NOT THE PHONE'S OWN ══════════════════════
+   Build 337 put the board on the FIXTURE (`boardTakeOver`), so the feed, Favs and Top Matches agreed. Every screen that
+   asked the engine itself did not. Measured on live 344 (WO-38 Part 1, 2026-09-29 20:01 UTC): Tips "Next 7 days" Winner
+   7 of 30 rows a different pick; O/U 2.5 and BTTS 30 of 30 (the board never picks those markets); the 7-day top card a
+   different pick; the match page's Smart Bet card a gold selection on 80 fixtures the robot withheld; two heroes with
+   Share on fixtures past the board's horizon.
+   Ken's ruling (option A): for a fixture that has not kicked off, no screen shows a pick, a confidence, a Share or a gold
+   Smart Bet selection unless the robot's board passed it. Under 3.5 picks sit on the Winner tab as "Goals: Under 3.5";
+   O/U 2.5 and BTTS keep their forward lists as information only.
+   ⚠ THE PUBLISHER STILL ISSUES TODAY WITH `tipRankedRows(tab, 0)` AND `bankerOf()`, so neither is touched: the forward
+   windows branch to the board before they are reached. And unlike `boardTakeOver`, which lets the feed chip keep the
+   phone's answer when the board is not loaded, these surfaces show NO pick then — they say the board could not be read. */
+const BOARD_WINNER_TAB_MARKETS = ['Winner', 'Double Chance', 'Draw No Bet', 'Goals'];
+const TIP_INFO_TABS = ['ou', 'btts'];
+const TIP_INFO_NOTE = 'Information only. The robot does not issue picks in this market.';
+const BOARD_FORWARD_EMPTY = 'The robot has not passed any fixture in this window yet. Picks appear up to 7 days ahead, once the engine clears the bar.';
+const BOARD_UNREAD_TEXT = "The robot's board could not be read, so no picks are shown here. They return when it loads.";
+function boardReady(){
+  return _boardRecord.state === 'loaded' && !!_boardRecord.payload && _boardRecord.payload.v === 1;
+}
+/* The one verdict every forward surface reads: passed (with the row), withheld (with its reason), or none. */
+function boardVerdict(fxid){
+  if(!boardReady()) return { kind: 'none', unread: true };
+  const r = boardRowFor(fxid);
+  if(!r) return { kind: 'none', unread: false };
+  if(r.g) return { kind: 'withheld', g: r.g, row: r };
+  if(!r.p || r.q == null) return { kind: 'none', unread: false };
+  return { kind: 'passed', row: r };
+}
+/* Board-passed fixtures in the forward window, highest `q` first. The window and the not-yet-played test are
+   `collectUpcoming`'s, the same the lists always used; the pick and its probability are the board's. */
+function boardForwardRows(days){
+  const out = [];
+  if(!boardReady()) return out;
+  for(const x of collectUpcoming(days)){
+    if(kickoffPassed(x.f)) continue;
+    const v = boardVerdict(x.f.fxid);
+    if(v.kind === 'passed') out.push({ L: x.L, f: x.f, r: v.row });
+  }
+  out.sort((a, b) => b.r.q - a.r.q);
+  return out;
+}
+function boardGoalsSel(code){
+  return String((GOAL_MARKETS[code] && GOAL_MARKETS[code].label) || code).replace(/ goals$/, '');
+}
+/* A board row in the shape of an issued leg, so the forward Winner list is drawn by Today's own renderer. */
+function boardLeg(x, tab, rank){
+  const r = x.r, f = x.f, goals = r.m === 'Goals';
+  return { tab: tab, rank: rank, fxid: f.fxid, d: f.date, t: f.time || '', h: f.home, a: f.away, lid: +x.L.id, code: r.p, p: r.q,
+           market: goals ? 'Goals' : '', sel: goals ? boardGoalsSel(r.p) : pickLabel(r.p, f.home, f.away) };
+}
+/* The match page's verdict for an unplayed fixture. `applies` is false for a played or live fixture and for a matchup
+   typed into Analysis by hand, which keep what they always showed. */
+function heroBoardVerdict(fxid, home, away, applies){
+  if(!applies || fxid == null) return null;
+  const v = boardVerdict(fxid);
+  if(v.kind === 'withheld') return { kind: 'withheld', g: v.g, prob: v.row.q != null ? v.row.q : null };
+  if(v.kind === 'none') return { kind: 'none', unread: v.unread };
+  const code = v.row.p;
+  return { kind: 'passed', code: code, prob: v.row.q,
+           label: pickLabel(code, home, away).replace(' to win',' WIN').toUpperCase()
+                    .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or ').replace('(DRAW NO BET)','(DNB)'),
+           solo: ['1X', 'X2', '1D', '2D'].indexOf(code) < 0 };
+}
 /* 🚩 `f.calc` IS WHY THIS DOES NOT EAT ITSELF. `boardBuild` reads the device's OWN answer to make
    the next board. If the overlay wrote over `f.pick` with no copy kept, the publisher would publish
    the board back onto itself and it would never move again - the fixture would be frozen at
@@ -21447,7 +21614,7 @@ $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
 $('backtestBtn').addEventListener('click', runBacktest);
 if($('ledgerBtn')) $('ledgerBtn').addEventListener('click', renderLedger);
-if($('gateBtn')) $('gateBtn').addEventListener('click', renderGateCensus);   // build 257
+if($('gateBtn')) $('gateBtn').addEventListener('click', () => { renderGateCensus(); renderBoardCensus(); });   // build 257; build 345 adds the board
 if($('archBtn')) $('archBtn').addEventListener('click', renderArchiveDay);
 if($('archFillBtn')) $('archFillBtn').addEventListener('click', backfillPredictions);
 if($('archDate')) $('archDate').value = new Date(Date.now()-86400000).toISOString().slice(0,10);   // yesterday
