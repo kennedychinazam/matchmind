@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 345;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 346;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7807,6 +7807,7 @@ function renderSmartBet(L, f, P, played, hp, gold){
      match" it would be compared against is rebuilt from today's history and keeps moving. A gap
      that drifts beside a pick that cannot is precisely the contradiction build 62 removed. */
   if(!P || played) return hide();
+  if(!gold) return hide();   // build 346 (WO-43) - Ken: a match with no strong read never gets to the Smart Bet
   const ranked = smartRanked(P, f, L);
   if(!ranked.length) return hide();
   const top = ranked[0];
@@ -7824,14 +7825,13 @@ function renderSmartBet(L, f, P, played, hp, gold){
   }).join('');
 
   const headline = hp ? `${escapeHtml(hp.label)} at ${pct(hp.prob)}` : 'the headline above';
-  box.innerHTML = rows + (!gold
-    ? `<div class="subnote" style="margin-top:12px">The robot has not passed this fixture, so these are the engine's numbers across the markets, not a pick.</div>`
-    : `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why this doesn't match the headline.</b>
+  box.innerHTML = rows +
+    `<div class="subnote" style="margin-top:12px"><b style="color:var(--text)">Why this doesn't match the headline.</b>
       The headline answers <b>who wins</b> — here, ${headline}. Smart Bet answers a different question:
       <b>across every market, where does this fixture depart most from an average match in this competition?</b>
       So ${pct(top.prob)} here and ${hp?pct(hp.prob):'a lower number'} above are not in conflict, and neither is
       "more confident" than the other. They are different bets. Smart Bet also leaves out Double Chance and
-      Draw No Bet, which is frequently what the headline itself is.</div>`) +
+      Draw No Bet, which is frequently what the headline itself is.</div>` +
     (top.base!=null ? ''
       : `<div class="subnote">This competition has too little history for the engine to build an "average match", so the ranking above falls back to a flat 50% baseline. Treat it as provisional.</div>`);
 }
@@ -7930,9 +7930,9 @@ function renderTipList(market){
            n.innerHTML = t||''; n.classList.toggle('hidden', !t); } }
   const box=$('tipList'); if(!box) return;
   /* BUILD 299 - TODAY IS DRAWN FROM THE ISSUED ROW, NOT REBUILT. Only the Today window: the 3- and
-     7-day settings are a forward look at fixtures nobody has issued a card for, so they stay live
-     and keep the old behaviour exactly. The block above `TIPS_FREEZE_TABS` carries the measurement
-     that makes re-pricing a played fixture unacceptable. */
+     7-day settings are a forward look at fixtures nobody has issued a card for. Since build 345 (WO-38)
+     they are the robot's board, not the phone's ranking: `renderTipListForward` below. The block above
+     `TIPS_FREEZE_TABS` carries the measurement that makes re-pricing a played fixture unacceptable. */
   const frozen = (tipState.days === 0) ? tipsFrozenLegs(market) : null;
   if(frozen){ renderTipListFrozen(market, frozen, box); return; }
   if(tipState.days !== 0){ renderTipListForward(market, box); return; }   // build 345 - the forward look is the robot's board
@@ -15775,12 +15775,44 @@ function renderSlipUI(){
     if(!slipState.leagues.size) slipState.leagues=null; renderSlipUI();
   }));
   // bet types
-  $('slipMarkets').innerHTML = SLIP_MARKETS.map(([v,l])=>`<button class="sfchip${slipState.markets.has(v)?' active':''}" data-m="${v}">${l}</button>`).join('');
+  $('slipMarkets').innerHTML = SLIP_MARKETS.filter(([v]) => SLIP_BOARD_MARKETS.indexOf(v) >= 0)   // build 346 - only what the robot issues
+      .map(([v,l])=>`<button class="sfchip${slipState.markets.has(v)?' active':''}" data-m="${v}">${l}</button>`).join('')
+    + `<div class="subnote" style="width:100%;margin:4px 0 0">${SLIP_BOARD_NOTE}</div>`;
   $('slipMarkets').querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{
     const m=b.dataset.m;
     if(slipState.markets.has(m) && slipState.markets.size>1) slipState.markets.delete(m); else slipState.markets.add(m);
     renderSlipUI();
   }));
+}
+/* ══ BUILD 346 (WO-43) — "BUILD A SLIP" OFFERS ONLY THE ROBOT'S OWN PICKS ════════════════════════════════
+   Ken, 2026-09-29: *"make Build a slip use the robot's list only."* After WO-38 it was the last forward surface pricing on the
+   phone: `slipCandidates` offers every selection the phone's engine backs, in every market, on every fixture - including
+   fixtures the robot withheld. This returns ONE candidate per board-PASSED, not-yet-played fixture: the board's code and q,
+   labelled as the Tips lists label it. A board row whose fixture is not loaded is skipped and counted, never guessed.
+   ⚠ `slipCandidates` IS NOT TOUCHED: `bankerOf` and `renderDailySlips` use it, and the robot publishes through them.
+   Returns null when the board is not read, so the caller can say so instead of falling back to the phone. */
+const SLIP_BOARD_MARKETS = ['1X2', 'DC', 'DNB', 'OU35'];   // the markets the board carries: Winner, Double Chance, DNB, Goals U3.5
+const SLIP_BOARD_NOTE = "Only the robot's own picks are offered here, so markets it does not issue are not listed.";
+const SLIP_BOARD_EMPTY = 'The robot has not passed any fixture inside this limit yet. Picks appear up to 7 days ahead, once the engine clears the bar.';
+const SLIP_BOARD_UNREAD = "The robot's board could not be read, so no slip can be built. It returns when the board loads.";
+let _slipBoardSkipped = 0;   // board rows whose fixture is not loaded on this device, last build of a slip
+function slipCandidatesFromBoard(opt){
+  if(!boardReady()) return null;
+  const today = todayStrLocal(), out = [];
+  _slipBoardSkipped = 0;
+  for(const r of (_boardRecord.payload.rows || [])){
+    if(r.g || !r.p || r.q == null) continue;                       // passed rows only
+    const L = afState.leagues[r.l], f = L ? (L.upcoming || []).find(u => u.fxid === r.f) : null;
+    if(!L || !f){ _slipBoardSkipped++; continue; }
+    if(opt.leagues && !opt.leagues.has(+r.l)) continue;
+    if(f.date < today || kickoffPassed(f)) continue;
+    if(opt.todayOnly && f.date !== today) continue;
+    const sel = { m: r.m, sel: r.m === 'Goals' ? boardGoalsSel(r.p) : pickLabel(r.p, f.home, f.away) };
+    let ok = false; for(const k of opt.markets) if(slipMarketMatch(k, sel)){ ok = true; break; }
+    if(!ok) continue;
+    out.push({ key: f.fxid, L: L, f: f, market: r.m, sel: sel.sel, code: r.p, prob: r.q, pDraw: (r.pd != null ? r.pd : null) });
+  }
+  return out;
 }
 /* ══ BUILD 235 — THE SELECTION IS EXTRACTED SO TWO CALLERS CANNOT DRIFT ══════════════════════════
    The daily slips need exactly what genSlip needs: every priceable selection on the fixtures in
@@ -15859,8 +15891,10 @@ function slipPool(cands, riskPct){
    why Double Chance was safe to give codes to at build 237. */
 
 function genSlip(){
-  const cands = slipCandidates({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });
+  const cands = slipCandidatesFromBoard({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });   // build 346 - the robot's picks only
+  if(cands === null){ $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">${SLIP_BOARD_UNREAD}</div>`; return; }
   const byFx  = slipPool(cands, slipState.riskPct);
+  if(!Object.keys(byFx).length){ $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">${SLIP_BOARD_EMPTY}</div>`; return; }
   /* BUILD 218 — a target, when set, decides the legs; otherwise this is build 47 untouched. */
   const _target = slipState.targetOdds;
   let legs, _aim = null;
