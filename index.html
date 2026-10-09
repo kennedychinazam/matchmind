@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 346;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 347;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -18642,6 +18642,17 @@ const AI_SHADOW_TABLE = 'ai_shadow';
 const AI_SHADOW_PROMPT_V = 1;          // frozen by the filing; any change is an amendment and a new arm
 const AI_SHADOW_MAX_PER_RUN = 40;      // the first run meets a backlog; steady state is about 8 a run
 const AI_SHADOW_GAP_MS = 4000;         // well inside the free tier's per-minute limit
+/* BUILD 347 (WO-45) - THE TEST IS PAUSED UNTIL THE PAID AI TIER IS ON. Ken, 2026-10-09: *"pause the AI step now."*
+   Google refuses the free-tier model (HTTP 404, AI-SHADOW Amendment 1), and `aiShadowRun` inserted a row for every
+   match it tried all the same: 625 rows by 2026-10-09, every one an error, not one a genuine answer. The table is
+   keyed on the fixture alone and nothing may update or delete a row, so each failed row takes that match's only slot.
+   While this is `true`, `aiShadowRun` returns before it reads the table, asks the function or writes anything. The
+   robot still prints its line, now with `paused: true`, so the pause shows in every run. The owner card keeps
+   reading the rows already there and says the test is paused beside its count.
+   TO LIFT IT (WO-06): change `true` to `false`. Nothing else moved: verify-aipause-347.js runs both settings and
+   compares the lifted one with build 346 on the same input. */
+const AI_SHADOW_PAUSED = true;
+const AI_SHADOW_PAUSED_NOTE = 'Paused until the paid AI tier is on';
 function aiShadowCandidates(){
   const out = [];
   for(const id of Object.keys(afState.leagues || {})){
@@ -18705,6 +18716,8 @@ function aiShadowA1(L, f, P, hm, am){
 }
 async function aiShadowRun(){
   if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher runs the AI shadow test' };
+  /* build 347 (WO-45) - paused: nothing below runs, so no table read, no call to the function, no row */
+  if(AI_SHADOW_PAUSED) return { ok: true, paused: true, candidates: 0, attempted: 0, written: 0 };
   const cands = aiShadowCandidates();
   const have = new Set();
   const ids = cands.map(c => +c.f.fxid);
@@ -18919,7 +18932,8 @@ function aiShadowHtml(rows, results, S){
     + '<div class="subnote" style="margin-top:0">Engine picks the AI vetoed: ' + V.vetoed.n + ' graded, ' + vr(V.vetoed)
     + ' won. Picks it kept: ' + V.kept.n + ', ' + vr(V.kept) + ' won.</div>'
     + '<div class="sec-label" style="margin-top:14px">Latest matches</div>' + rhead + recent
-    + '<div class="subnote">' + (rows || []).length + ' matches recorded · ' + S.graded + ' graded · ' + S.pending
+    + '<div class="subnote">' + (AI_SHADOW_PAUSED ? '<b style="color:var(--text)">' + AI_SHADOW_PAUSED_NOTE + '.</b> ' : '')
+    + (rows || []).length + ' matches recorded · ' + S.graded + ' graded · ' + S.pending
     + ' waiting for a result · ' + S.excluded + ' left out (AI error, or recorded after the pick locked). '
     + 'The decision looks are at 500 and 1,000 graded matches; until then these numbers decide nothing.</div>';
 }
