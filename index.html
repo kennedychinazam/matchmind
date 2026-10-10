@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 347;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 348;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4111,9 +4111,19 @@ function ladderPick(P, home, away, L){
 /* build 120 — every goals code, in one place, so the grader, the labeller and the baseline lookup
    cannot disagree about what a code means. `won` takes the final score, which is why gradeRecord
    now has to keep the goals and not just the 1/X/2 result. */
+/* BUILD 348 (WO-47) - `O15`, `U15` AND `O35` JOIN THE TABLE. Build 333 let the daily cards carry Over 1.5 and never
+   told the grader, so `gradePick` fell through to its text match: "O15" contains "1", and an Over 1.5 leg was marked
+   won when the home side won and lost on a draw or an away win. 14 of the 34 settled Over 1.5 legs were wrong by
+   2026-10-09 and two Safe cards that won (09-27, 10-07) were shown as lost. A bet type was added to what the app
+   ISSUES without being added to what it GRADES: the "one correction, two surfaces" defect again.
+   The three new lines keep the chip text the cards have shown since build 333 (`short` is the code itself), so this
+   build changes marks and nothing else on screen. */
 const GOAL_MARKETS = {
+  O15: {label:'Over 1.5 goals',  short:'O15',  won:(h,a)=>h+a>1.5,  base:NP=>NP.over[1.5]},
+  U15: {label:'Under 1.5 goals', short:'U15',  won:(h,a)=>h+a<1.5,  base:NP=>1-NP.over[1.5]},
   O25: {label:'Over 2.5 goals',  short:'O2.5', won:(h,a)=>h+a>2.5,  base:NP=>NP.over[2.5]},
   U25: {label:'Under 2.5 goals', short:'U2.5', won:(h,a)=>h+a<2.5,  base:NP=>1-NP.over[2.5]},
+  O35: {label:'Over 3.5 goals',  short:'O35',  won:(h,a)=>h+a>3.5,  base:NP=>NP.over[3.5]},
   U35: {label:'Under 3.5 goals', short:'U3.5', won:(h,a)=>h+a<3.5,  base:NP=>1-NP.over[3.5]},
   BTS: {label:'Both teams to score',     short:'BTTS',  won:(h,a)=>h>0&&a>0,   base:NP=>NP.btts},
   NBT: {label:'Not both teams to score', short:'NoBTTS',won:(h,a)=>!(h>0&&a>0),base:NP=>1-NP.btts}
@@ -4151,16 +4161,54 @@ function pickHit(pick, actual){ return !!pick && !!actual && String(pick).includ
    1-0 are the same result and opposite answers on Over 2.5. Every caller that grades a published
    pick now has to hand over the score, which is why gradeRecord stores it. The 1X2 path is
    unchanged, so nothing already graded moves. */
-function gradePick(code, actual, gh, ga){
+/* BUILD 348 (WO-47) - EVERY CODE HAS A RULE WRITTEN FOR IT, AND A CODE WITHOUT ONE IS NOT GRADED.
+   Ken, 2026-10-09: *"i see some matches of yesterday where a match played 1-4 and their prediction was o15 but they
+   are marked as lost, especially in smartbet"*.
+   The last line of this function used to be `c.includes(actual)`: any code it did not know was graded by whether its
+   TEXT contained the result. That is a guess, and it looked like a grade. Now:
+     - goals and both-teams-to-score: `GOAL_MARKETS`, by the score;
+     - the result bets: `RESULT_MARKETS`, an explicit list of the results each one covers;
+     - Draw No Bet: the two lines below, void on a draw, as since build 119;
+     - the nine HT/FT doubles: `HTFT_MARKETS`, from the half-time score AND the 90-minute score. Without a half-time
+       score the leg is not graded;
+     - anything else: null. The caller shows "not graded" and counts nothing.
+   `hth`/`hta` are optional. The cards pass them (`dailyLogGrade`, from `fixtures.ht_h`/`ht_a`); the graders of the
+   published record do not, because the ladder cannot publish an HT/FT pick.
+   send-push.ts carries the same tables and the same function (verify-sendpush-grade.js, in the lock).
+   verify-grader-348.js enumerates every code the app can issue from the tables it issues from, and fails on one
+   with no rule here. */
+const RESULT_MARKETS = {
+  '1':  ['1'],      'X':  ['X'],      '2':  ['2'],
+  '1X': ['1','X'],  'X2': ['X','2'],  '12': ['1','2']
+};
+const HTFT_MARKETS = {
+  '1/1': ['1','1'], '1/X': ['1','X'], '1/2': ['1','2'],
+  'X/1': ['X','1'], 'X/X': ['X','X'], 'X/2': ['X','2'],
+  '2/1': ['2','1'], '2/X': ['2','X'], '2/2': ['2','2']
+};
+function gradeRule(table, c){ return Object.prototype.hasOwnProperty.call(table, c) ? table[c] : null; }
+function gradePick(code, actual, gh, ga, hth, hta){
   if(!code) return null;
   const c = String(code);
-  const gm = GOAL_MARKETS[c];
+  const gm = gradeRule(GOAL_MARKETS, c);
   if(gm) return (gh==null || ga==null) ? null : (gm.won(gh, ga) ? 'hit' : 'miss');
-  if(!actual) return null;
+  if(actual !== '1' && actual !== 'X' && actual !== '2') return null;
   if(c === '1D') return actual==='1' ? 'hit' : actual==='X' ? 'void' : 'miss';
   if(c === '2D') return actual==='2' ? 'hit' : actual==='X' ? 'void' : 'miss';
-  return c.includes(actual) ? 'hit' : 'miss';
+  const rm = gradeRule(RESULT_MARKETS, c);
+  if(rm) return rm.indexOf(actual) >= 0 ? 'hit' : 'miss';
+  const hf = gradeRule(HTFT_MARKETS, c);
+  if(hf){
+    if(!Number.isInteger(gh) || !Number.isInteger(ga) || !Number.isInteger(hth) || !Number.isInteger(hta)) return null;
+    if(hth < 0 || hta < 0 || hth > gh || hta > ga) return null;
+    return (actualCode(hth, hta) === hf[0] && actualCode(gh, ga) === hf[1]) ? 'hit' : 'miss';
+  }
+  return null;
 }
+/* build 348 - a leg whose match HAS a result and which still has no grade is one the grader does not know (or an
+   HT/FT leg with no half-time score). It says so, instead of the dot of a match not yet played. */
+function legNotGraded(grade, score){ return grade == null && score != null; }
+const LEG_NOT_GRADED = '<span style="color:var(--muted)">not graded</span>';
 /* BUILD 117 — ONE phrase for "the thing being advised", used by the correct-score panel AND by the
    written analysis. They quoted different scorelines in build 116 and nothing stopped them, because
    each built its own wording from its own source. Sharing the phrase is not cosmetic: it means the
@@ -6285,7 +6333,7 @@ let _slipPublishTried = {};
 const SLIP_HISTORY_DAYS = 120;
 const SHARED_RES_TTL_MS = 3 * 60 * 1000;
 let _slipHist = { rows: [], loaded: false, capped: false, error: null };
-const _sharedResByKey = {};             // 'date|home|away' -> { hg, ag }: the key `dailyLogGrade` reads
+const _sharedResByKey = {};             // 'date|home|away' -> { hg, ag, hth, hta }: the key `dailyLogGrade` reads
 const _sharedResFinal = new Set();      // fxids already settled, never asked for again
 let _sharedResAt = 0;
 
@@ -6299,14 +6347,14 @@ async function sharedResultsLoad(rows){
   const ids = Object.keys(want);
   let added = 0;
   for(let i = 0; i < ids.length; i += 200){
-    const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 200));
+    const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,ht_h,ht_a,status').in('fxid', ids.slice(i, i + 200));
     if(q.error) throw q.error;
     for(const raw of (q.data || [])){
       if(!isFin(raw.status) || raw.gh == null || raw.ga == null) continue;
       const f = settledRow(raw);                                   // build 320 - the 90-minute score
       _sharedResFinal.add(String(f.fxid));
       for(const l of (want[String(f.fxid)] || [])){
-        _sharedResByKey[l.d + '|' + l.h + '|' + l.a] = { hg: f.gh, ag: f.ga };
+        _sharedResByKey[l.d + '|' + l.h + '|' + l.a] = { hg: f.gh, ag: f.ga, hth: f.ht_h, hta: f.ht_a };
         added++;
       }
     }
@@ -6670,7 +6718,7 @@ function dailyLogGrade(rows){
       /* Guarded on null rather than falsiness — a 0-0 draw is a real score and `0` is falsy. */
       if(m.hg != null && m.ag != null) legScores[li] = m.hg + '–' + m.ag;
       const actual = m.hg > m.ag ? '1' : m.hg === m.ag ? 'X' : '2';
-      const g = gradePick(l.code, actual, m.hg, m.ag);
+      const g = gradePick(l.code, actual, m.hg, m.ag, m.hth, m.hta);
       legGrades[li] = g;                             // build 250 — a past card shows what each leg did
       if(g === 'hit'){ settled++; won++; }
       else if(g === 'miss'){ settled++; }
@@ -6689,7 +6737,8 @@ function dailyLogGrade(rows){
     const realised = +(r.odds * voidOdds).toFixed(4);
     return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length,
                                   realisedOdds: realised, hadVoid: voidOdds !== 1,
-                                  legGrades: legGrades, legScores: legScores, settledLegs: settled });
+                                  legGrades: legGrades, legScores: legScores, settledLegs: settled,
+                                  ungradedLegs: legGrades.filter((x, i) => legNotGraded(x, legScores[i])).length });
   });
 }
 
@@ -7048,6 +7097,7 @@ function dailyFrozenCard(tier, r, isShared){
         const mark = lg === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
                    : lg === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
                    : lg === 'void' ? '<span style="color:var(--gold)">VOID</span>'
+                   : legNotGraded(lg, g.legScores ? g.legScores[i] : null) ? LEG_NOT_GRADED
                    : '<span style="color:var(--muted)">&middot;</span>';
         return '<button type="button" class="slipleg" data-leg-fx="'
         + escapeHtml(String(l.fxid != null ? l.fxid : '')) + '">'
@@ -7106,6 +7156,7 @@ function dailyPastCards(day){
              const mark = g === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
                         : g === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
                         : g === 'void' ? '<span style="color:var(--gold)">VOID</span>'
+                        : legNotGraded(g, r.legScores ? r.legScores[i] : null) ? LEG_NOT_GRADED
                         : '<span style="color:var(--muted)">&middot;</span>';
              /* build 265 — the score sits on the teams row, right-aligned, and appears ONLY when
                 the fixture actually has a result. An empty span on an unplayed leg would read as a
@@ -7561,6 +7612,7 @@ function renderBankerFrozen(row, label, box){
   const status = g.grade === 'hit'  ? '<span style="color:var(--green2)">Won</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">Lost</span>'
                : g.grade === 'void' ? '<span style="color:var(--gold)">Void</span>'
+               : legNotGraded(g.grade, g.score) ? '<span class="muted">Not graded</span>'
                : '<span class="muted">Not settled</span>';
   box.innerHTML = '<div class="card" style="border:1px solid var(--gold)">'
     + '<h2>&#9889; ' + escapeHtml(String(label)) + ' — strongest read</h2>'
@@ -7897,7 +7949,8 @@ function renderTipListFrozen(market, legs, box, footer){
               + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : l.fxid, l.code);   // build 342 - the leg's own id if unresolved
     const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
-               : g.grade === 'void' ? '<span style="color:var(--gold)">VOID</span>' : '';
+               : g.grade === 'void' ? '<span style="color:var(--gold)">VOID</span>'
+               : legNotGraded(g.grade, g.score) ? LEG_NOT_GRADED : '';
     const sc = g.score ? '<span class="muted" style="font-size:.66rem"> ' + escapeHtml(String(g.score)) + '</span>' : '';
     const on = refs[i] ? isFavMatch(refs[i].f.fxid) : false;
     const star = refs[i] ? '<span class="mstar' + (on?'':' off') + '" data-star="' + i + '">' + (on?'★':'☆') + '</span>' : '';
