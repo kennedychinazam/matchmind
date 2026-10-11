@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 349;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 350;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3109,8 +3109,17 @@ function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(con
    written and the Scores row has always rendered `s.elapsed`. The COLLECTOR was collapsing every
    live code to "LIVE" and never writing `elapsed`, so the app read a field that was always null.
    Collector af-42 fixed the data; this build only puts the badge where Ken asked for it. */
+/* build 350 — THE CARDS' OWN LIVE STORE IS ASKED FIRST, and that is the whole of WO-53's display
+   change. `scoreMap()` is `afState.scores`, the SCORES TAB's window, and the 120-second timer
+   refreshes it only while that tab is open — so on Smart Bet this function used to answer with
+   whatever boot loaded, which for an evening kick-off is `NS`, and the chip below rendered nothing
+   for ever while the reader watched. `_liveByFx` (see `liveResultsLoad`) is refreshed on the Smart
+   Bet tab itself. The Scores fallback is kept, so the Scores tab, the match page and the tips lists
+   keep reading exactly the row they read before this build. */
 function liveRowFor(fxid){
   if(fxid == null || fxid === '') return null;
+  const lv = _liveByFx[String(fxid)];
+  if(lv) return lv;
   return scoreMap()[fxid] || null;
 }
 /* Returns a chip or an EMPTY STRING, so every caller concatenates it unconditionally and none needs
@@ -6548,6 +6557,101 @@ function sharedResultsTick(rerender){
     .then(n => { if(n && rerender){ try{ rerender(); }catch(e){} } })
     .catch(() => { _sharedResAt = Date.now() - SHARED_RES_TTL_MS + 30000; });
 }
+
+/* ══ BUILD 350 — A LEG BEING PLAYED SAYS SO, AND NO GRADER EVER SEES IT (WO-53) ════════════════
+   Ken, 2026-10-10: *"Also, a match ongoing should show on the cards, even after they're played,
+   the scores should update immediately."*
+
+   MOST OF THIS WAS ALREADY BUILT, AND SAYING SO IS THE POINT. Build 334 answered Ken's earlier
+   request of the same shape: `liveChip` already renders `● 63' 1–0`, already says `HT` at half-time
+   and `PEN` in a shootout, already sits in its own chip clear of the odds column (Ken's 2026-09-25
+   rule), and is already concatenated onto every leg the cards draw. None of the wording, the layout
+   or the call sites needed building again. A second copy of that chip would have been the drift this
+   project keeps paying for.
+
+   THE ONE THING THAT WAS WRONG WAS THE DATA BEHIND IT. `liveChip` reads `liveRowFor`, which read
+   `scoreMap()` — `afState.scores`, the Scores tab's window — and the 120-second timer refreshes that
+   window only while the Scores tab is open (`if(lastTab==='scores') afScores(true)`). Sitting on
+   Smart Bet, the live row was therefore frozen at whatever boot loaded; for an evening kick-off that
+   is `NS`, so `liveChip` returned the empty string and the leg showed nothing, for ever, while the
+   reader watched it. The chip was never missing — its data never arrived.
+
+   AND THE SCORES WINDOW IS NOT THE FIX. `afScoresFromCloud` reads the whole browsable window, every
+   competition, twenty columns; the note at `SCORES_COLS` measures that at 3.2 MB an hour at this
+   cadence. Spending it on a card of about nineteen legs would be absurd, so this is the SAME by-fxid
+   read `sharedResultsLoad` already makes — five columns, and only for legs that are not yet final.
+
+   🚨 ITS OWN STORE, AND THAT IS THE ENTIRE SAFETY ARGUMENT. A live score must never settle a bet:
+   1–0 at half-time must not mark Over 1.5 lost. `dailyLogGrade` reads `_sharedResByKey` and nothing
+   else; `sharedResultsLoad` is that object's only writer and refuses every row that is not finished.
+   `_liveByFx` is a SEPARATE object that no grader, no tracker and no ladder reads — it is reached
+   only through `liveRowFor`, and `liveChip` is `liveRowFor`'s only caller. So a leg in play stays
+   `null` to `dailyLogGrade`, "waiting" to the tracker, and absent from the Value ladder, exactly as
+   before this build.
+
+   A ROW IS WRITTEN ONLY WHILE IT IS IN PLAY, AND DELETED THE MOMENT IT IS NOT. A leg that has just
+   finished must lose its chip on the same paint that gives it its tick, or the card would show a
+   live minute beside a settled verdict — two scores at once, which is worse than a late one.
+
+   WHAT IT COSTS. Nothing while the app is in the background, nothing on any other tab, and nothing
+   once every leg is final (the id list is then empty and no read is made at all). Otherwise one
+   by-id read of at most ~19 unsettled legs over five columns, spaced at least 110 seconds apart — so
+   at most about 33 reads an hour of actual Smart Bet viewing, and in steady state exactly one per
+   120-second cycle, because the cycle is what re-draws the tab. */
+const _liveByFx = {};                   // fxid -> { status, elapsed, gh, ga } — DISPLAY ONLY
+let _liveResAt = 0, _liveSig = '';
+const LIVE_RES_TTL_MS = 110 * 1000;     // deliberately just under the 120-second cycle
+
+/* The signature of what is on screen, so a re-draw happens only when something actually moved. */
+function liveSig(){
+  return Object.keys(_liveByFx).sort().map(k => {
+    const v = _liveByFx[k];
+    return k + ':' + v.status + ':' + v.elapsed + ':' + v.gh + '-' + v.ga;
+  }).join('|');
+}
+
+async function liveResultsLoad(rows){
+  if(!cloudEnabled() || !supa) return '';
+  const seen = {}, ids = [];
+  for(const r of (rows || []))
+    for(const l of (r && Array.isArray(r.legs) ? r.legs : [])){
+      if(!(l && l.fxid != null && l.fxid !== '')) continue;
+      const k = String(l.fxid);
+      /* Only legs that are NOT yet final, which is the same list `sharedResultsLoad` asks for and
+         the reason this costs one small read rather than a window. */
+      if(_sharedResFinal.has(k) || seen[k]) continue;
+      seen[k] = 1; ids.push(k);
+    }
+  if(!ids.length) return liveSig();     // every leg settled — no read at all
+  for(let i = 0; i < ids.length; i += 200){
+    const q = await supa.from('fixtures').select('fxid,status,elapsed,gh,ga').in('fxid', ids.slice(i, i + 200));
+    if(q.error) throw q.error;
+    for(const raw of (q.data || [])){
+      const k = String(raw.fxid), st = canonStatus(raw.status);
+      if(LIVE_CODES.includes(st)) _liveByFx[k] = { status: st, elapsed: raw.elapsed, gh: raw.gh, ga: raw.ga };
+      else delete _liveByFx[k];         // finished, postponed or not yet kicked off — no chip
+    }
+  }
+  return liveSig();
+}
+
+/* Nothing is read while the app is in the background — WO-53 scope 3, and the same rule the Scores
+   refresh already follows. */
+function liveResultsTick(rerender){
+  if(typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if(Date.now() - _liveResAt < LIVE_RES_TTL_MS) return;
+  _liveResAt = Date.now();
+  liveResultsLoad((_sharedSlips.rows || []).concat(_slipHist.rows || []))
+    .then(sig => {
+      /* RE-DRAWN ONLY WHEN SOMETHING ACTUALLY MOVED, which is how this avoids the risk the order
+         names: the legs are buttons, and replacing a card's innerHTML under a reader's thumb is
+         rude. An unchanged minute re-draws nothing, so an idle card is never rebuilt. */
+      if(sig === _liveSig) return;
+      _liveSig = sig;
+      if(rerender){ try{ rerender(); }catch(e){} }
+    })
+    .catch(() => { _liveResAt = Date.now() - LIVE_RES_TTL_MS + 30000; });
+}
 /* Earlier days, once a session. `loaded` is set on failure too, so an outage shows no history rather
    than a spinner forever - and never falls back to this device's own log. */
 async function slipHistoryLoad(){
@@ -6761,6 +6865,15 @@ function tipsFrozenEnsure(){
    comes back to the front. It never reloads by itself — a page that reloads under a reader is its
    own kind of rudeness — it tells them, which is all cause 2 needed. */
 let _mmNewerBuild = 0;
+/* ⚠ build 350, WO-51 — THIS IS THE REQUEST THAT FILLED THE OFFLINE STORE, AND IT IS NOT THE BUG.
+   `?cb=<Date.now()>` is unique on every call on purpose, and this function is called on boot and on
+   every return to the foreground. A Cache Storage key is the WHOLE URL including its query string,
+   so while `sw.js` cached every same-origin response each probe wrote a brand-new entry: a real
+   device held 946 entries, 941 of them these copies, having grown 169 in one session.
+   `{cache:'no-store'}` below does not prevent it — that option governs the HTTP cache, not Cache
+   Storage, and the service worker's `fetch` handler ran regardless.
+   THE CACHE-BUSTER STAYS. A version probe answered from a cache is worthless, and the writer was
+   what was wrong: `sw.js` now fetches this and never stores it. See the rule there. */
 async function mmVersionWatch(){
   try{
     const r = await fetch('./sw.js?cb=' + Date.now(), { cache: 'no-store' });
@@ -6778,6 +6891,53 @@ function mmVersionBanner(){
     + 'build ' + APP_BUILD + ', which can differ from other devices.';
   d.onclick = () => location.reload();
   document.body.appendChild(d);
+}
+
+/* ══ BUILD 350 — THE SECOND HALF OF THE OFFLINE-STORE SWEEP (WO-51 scope 3) ════════════════════
+   `sw.js` sweeps the copies on ACTIVATION. This sweeps them on ONE BOOT after the update, which
+   covers the device the order was written about: a page already controlled by a worker that does not
+   re-activate still has 941 copies sitting in its store, and nothing would remove them until the
+   next version bump. Between the two, a returning device is clean after one load.
+
+   🚨 THE CACHE ITSELF IS NEVER DELETED. `caches.delete(name)` would be one line and would cost every
+   returning user their offline copy for a load — the risk WO-51 names. Only keys whose path is
+   `sw.js` go, matched on the parsed pathname rather than on a substring, so an entry the app needs
+   offline (`./`, `index.html`, the manifest, the two icons) cannot be caught by it.
+
+   ONCE PER BUILD, not once per boot: the build number is written to storage when the sweep has run,
+   so a reader who opens the app twenty times a day pays for this on the first open only. */
+const MM_SWEPT_KEY = 'mm_swept_build';
+const MM_SW_PATH_RE = /(^|\/)sw\.js$/;
+async function mmCacheSweep(){
+  try{
+    if(typeof caches === 'undefined') return null;
+    if(localStorage.getItem(MM_SWEPT_KEY) === String(APP_BUILD)) return null;
+    const name = 'matchmind-v' + APP_BUILD;     // build-deploy.py keeps sw.js's CACHE equal to this
+    if(!(await caches.has(name))) return null;
+    const c = await caches.open(name);
+    let removed = 0;
+    for(const req of await c.keys()){
+      let p = '';
+      try{ p = new URL(req.url).pathname; }catch(_){ continue; }
+      if(MM_SW_PATH_RE.test(p)){ await c.delete(req); removed++; }
+    }
+    localStorage.setItem(MM_SWEPT_KEY, String(APP_BUILD));
+    return { removed: removed, left: (await c.keys()).length };
+  }catch(e){ return null; }
+}
+
+/* WO-51 scope 4 — the count on screen, for the publisher only, and it is cheap because the sweep
+   above has already opened the store and counted what is left. Nothing is read for a reader who is
+   not the owner, and the label is left exactly as it was if anything fails. */
+async function mmStoreCountLabel(){
+  try{
+    if(!isPublisher() || typeof caches === 'undefined') return;
+    const el = $('verLabel'); if(!el) return;
+    const name = 'matchmind-v' + APP_BUILD;
+    if(!(await caches.has(name))) return;
+    const n = (await (await caches.open(name)).keys()).length;
+    el.textContent = el.textContent + ' · store ' + n;
+  }catch(e){}
 }
 
 /* BUILD 297 — take the SHARED row into the local grading history, replacing whatever this device
@@ -7917,6 +8077,10 @@ function renderTips(){
      && !(_dailyOdds.loaded && _dailyOdds.day === todayStrLocal()))
     dailyOddsEnsure().then(() => renderTips()).catch(() => {});
   if(_sharedSlips.loaded) sharedResultsTick(() => renderTips());   // build 325
+  /* build 350 — the live minute and score for this tab's own legs. Started from the same place and
+     on the same condition as the settled read above, so the two stay in step; the 120-second cycle
+     already re-draws this tab through `loadCloudResults`, which is what makes the tick fire. */
+  if(_sharedSlips.loaded) liveResultsTick(() => renderTips());     // build 350
   renderTipHorizon();
   renderBanker();
   renderTipTabs();
@@ -22085,6 +22249,10 @@ document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibili
    uniform, and this makes the CODE uniform, which are two different halves of the same complaint. */
 mmVersionWatch();
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') mmVersionWatch(); });
+/* build 350, WO-51 — sweep the stored version-probe copies once on this build, then show the store's
+   size to the publisher. Both are awaited in that order so the count reports the swept store rather
+   than the one it found. Neither can affect what the reader sees if it fails. */
+mmCacheSweep().then(() => mmStoreCountLabel()).catch(() => {});
 /* end of app */
 
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
