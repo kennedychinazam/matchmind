@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 348;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 349;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4209,6 +4209,159 @@ function gradePick(code, actual, gh, ga, hth, hta){
    HT/FT leg with no half-time score). It says so, instead of the dot of a match not yet played. */
 function legNotGraded(grade, score){ return grade == null && score != null; }
 const LEG_NOT_GRADED = '<span style="color:var(--muted)">not graded</span>';
+
+/* ══ BUILD 349 — A PICK WHOSE MATCH WAS NOT PLAYED WITHIN 48 HOURS IS VOID ═════════════════════
+   Ken, 2026-10-10: *"WO-49: yes to the feed fix, option (b) at 48 hours, and a card is lost as soon
+   as one leg loses."*
+
+   WHAT WAS WRONG. `refresh-af` reads fixtures BY DATE ONLY, so a match the provider moves out of the
+   window stops appearing in any answer and our row freezes on the old date at "not started" — 27 of
+   them on 2026-10-10, moved 21 to 80 days later. A published pick on such a match sat in the record
+   as an ordinary "pending" pick with a date weeks old, for ever. That is a result never shown.
+
+   THE RULE. A published pick is VOID when its match was not played within 48 hours of the kick-off
+   stored on its own `predictions` row — WHENEVER the pick was published. There is no cut-off by
+   kick-off date (WO-49 Amendment 1 dropped `VOID_RULE_FROM`, which contradicted the order's own
+   goal), and there is no cut-off by grading either.
+
+   ⚠ VOID IS FINAL, AND THAT IS A RULING, NOT AN IMPLEMENTATION DETAIL. Ken, 2026-10-11:
+   *"Void is final: a match played more than 48 hours late does not count."* The build as first
+   written put `graded` ahead of the void rule, so a pick voided at the 48-hour mark went BACK to
+   being graded the moment its match was eventually played — the void was a temporary label. It is
+   not: a match played three weeks late is void and stays void, and its grade is never taken. The
+   DIRECTOR found the contradiction before the upload, because the note filed at `16eb879` and
+   approved by Ken promises in as many words that such a row "is voided at the 48-hour mark and never
+   graded", and the filing's whole purpose is to fix which rows can EVER enter the test's population.
+   It cost 7 historical picks (4 hits, 3 misses) and moved the record by eight hundredths of a point.
+
+   🚨 NOTHING IS STORED AND NO ROW IS EDITED. The void answer is DERIVED when the screen is drawn,
+   from the original kick-off and the fixture's current date and status. A published pick is inserted
+   once and never rewritten (build 199) and this does not bend that by a character — which is also
+   why a rollback to build 348 restores the old reading exactly.
+
+   "PLAYED" IS THE FIXTURE'S CURRENT DATE AND STATUS AS THE PROVIDER REPORTS THEM. There is no
+   played-at stamp anywhere in the schema, so "was it played" can only be read from the row as it
+   stands now. Said out loud because it is the one assumption the rule rests on.
+
+   A VOID PICK IS IN NEITHER THE HITS NOR THE MISSES. It is not a loss — a bookmaker returns the
+   stake on a postponed bet — and it is not a hit. It leaves the denominator exactly as a drawn Draw
+   No Bet has since build 119, and it joins the record's existing "Void (stake returned)" line. */
+const VOID_AFTER_HOURS = 48;
+const VOID_WORDS = 'Void — not played within 48 hours';
+/* The ORIGINAL kick-off, in milliseconds: the date and time frozen on the pick's own `predictions`
+   row, never the fixture's current date. A moved match must be judged against what was published,
+   not against wherever the provider has since put it.
+   `ktime` empty → midnight UTC of the stored date, which is the EARLIEST that date could have
+   kicked off, so a missing time can only ever push the deadline LATER and never void a pick early. */
+function pickOriginalKick(pred){
+  const d = String((pred && pred.kickoff) || '').slice(0, 10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const k = kickoffUTC(d, (pred && pred.ktime) || '');
+  if(k) return k.getTime();
+  const m = Date.parse(d + 'T00:00:00Z');
+  return isNaN(m) ? null : m;
+}
+/* THE FIXTURE'S CURRENT kick-off, in milliseconds, read from the SAME date-and-time pair as the
+   function above — `date` and `time` on a `fixtures` row, where a `predictions` row carries
+   `kickoff` and `ktime`. This is the half of the comparison that answers WHEN THE MATCH WAS
+   ACTUALLY PLAYED, and it is the only thing that can answer it: there is no played-at stamp
+   anywhere in the schema, so the row as it stands now is the whole evidence.
+   An empty `time` falls back to midnight UTC, the EARLIEST that date could have kicked off, so a
+   missing time can only ever make a match look LESS late. Both halves of the comparison therefore
+   fail in the same safe direction: a missing time never voids a pick that was played on time.
+   ⚠ `date` and `time` MUST be in the caller's select. Without them this reads null and every
+   late-played pick keeps its grade, which is the rule Ken replaced — so the lock asserts the
+   select by name (`void rule: the late test needs the fixture's own date and time`). */
+function fixtureCurrentKick(f){
+  if(!f) return null;
+  return pickOriginalKick({ kickoff: f.date || '', ktime: f.time || '' });
+}
+/* 🚨 WAS THE MATCH PLAYED LATE? The fixture's CURRENT kick-off against the pick's ORIGINAL one.
+   Ken, 2026-10-11: *"Void is final: a match played more than 48 hours late does not count."*
+   WHY, in one line: a bookmaker voids a postponed bet and returns the stake — it does not pay it
+   out three weeks later at a price nobody could have taken — and the note filed in
+   `MatchMind-PROSPECTIVE-318-PREREG.md` and approved by Ken promises in as many words that a row
+   like this "is voided at the 48-hour mark and never graded". A void that a replayed match could
+   undo weeks later would be a temporary label, and the filing's whole purpose is to fix which rows
+   can EVER enter the test's population. So the void is final, and this is the test that makes it so.
+   It needs no clock: it compares two stored dates, so it gives the same answer for ever.
+
+   ⚠ IT ANSWERS ONLY FOR A MATCH THAT HAS ACTUALLY BEEN PLAYED, and the first line is that guard.
+   A match the provider has MOVED but not yet played is a different question with a different
+   answer: it stays PENDING until 48 hours after its own original kick-off and is voided by the
+   clock below, exactly as build 349 was gated. Without this line a fixture re-dated an hour after
+   publication would void its pick on the spot — before the 48 hours Ken ruled on had passed at
+   all — and the lock's clock checks (1 h and 47 h read "pending") are what caught that. */
+function pickPlayedLate(pred, f){
+  if(!(f && isFin(f.status) && f.gh != null && f.ga != null)) return false;
+  const k0 = pickOriginalKick(pred);
+  if(k0 == null) return false;
+  const k1 = fixtureCurrentKick(f);
+  if(k1 == null) return false;
+  return (k1 - k0) >= VOID_AFTER_HOURS * 3600000;
+}
+/* ONE ANSWER, FOR ONE PICK: 'played', 'pending' or 'void'. Every surface that grades or counts the
+   published record reaches the void verdict through this function and `pickVerdict` below, so the
+   record panel, the shared engine record, the closing-line record, the day panels and the feed's own
+   chip cannot disagree about the same pick — which is §60's whole lesson.
+   THE LATE TEST COMES FIRST, ahead of "played": that order IS Ken's ruling, and a mutation putting
+   them back the other way is in `mut-349.json` for exactly that reason. */
+function pickPlayState(pred, f, nowMs){
+  if(pickPlayedLate(pred, f)) return 'void';
+  if(f && isFin(f.status) && f.gh != null && f.ga != null) return 'played';
+  const k = pickOriginalKick(pred);
+  if(k == null) return 'pending';
+  const now = (nowMs != null) ? nowMs : Date.now();
+  return (now - k >= VOID_AFTER_HOURS * 3600000) ? 'void' : 'pending';
+}
+/* THE FULL VERDICT for a published pick, in the published record's own vocabulary. The four states
+   that are not "void" are build 348's classification moved here unchanged, line for line, so this
+   function adds a state and reclassifies nothing else.
+
+   ⚠ THE ORDER OF PRECEDENCE IS THE WHOLE SAFETY OF THIS BUILD, so it is stated rather than implied:
+
+       orphan  >  in play  >  void (48 h)  >  graded  >  pending
+
+   · VOID AHEAD OF GRADED — Ken, 2026-10-11: *"Void is final: a match played more than 48 hours late
+     does not count."* This is the one line of the order that changed after the build was first
+     gated, and it is why `done` below is `fin && !late`: a void pick's grade is never TAKEN, so
+     `gradePick` is not called for it at all and there is no grade left in the object for a later
+     reader to pick up by mistake. A bookmaker voids a postponed bet rather than settling it weeks
+     later, and the filed note promises such a row is never graded.
+   · ORPHAN FIRST, and this one matters. 26 past picks belong to the collector this app retired at
+     Milestone 11: their rows carry `provider` null and are frozen at NS for ever. The record already
+     names them — "can never be graded", counted in neither the hit rate nor what is still to come —
+     and they are more than 48 hours past kick-off, so a void rule put ahead of them would silently
+     relabel 26 honest rows. It is not put ahead of them.
+   · IN PLAY THIRD, by the provider's own live codes, never by whether kick-off has passed.
+   · A POSTPONED pick is NOT protected from the rule: postponement is exactly what the 48 hours are
+     there to answer, so `off` is tested after the void state and only decides the wording when the
+     match is still inside its 48 hours.
+
+   `f.provider` MUST BE IN THE CALLER'S SELECT, and the two readers that did not select it (the
+   closing-line record and the two day panels) now do. Without it `provider !== 'af'` is true for
+   every fixture and every past pick reads as an orphan — so the lock asserts this directly rather
+   than leaving it to a reviewer's eye (`void rule: orphan needs the provider column`). */
+function pickVerdict(pred, f, nowMs, today){
+  const t = today || todayStrLocal();
+  const kd = String((pred && pred.kickoff) || '');
+  /* `fin` is "the fixture has a finished status and a score", which is what `done` meant in build
+     348. It is no longer the same thing as `done`: a match played more than 48 hours late is
+     finished AND void, and `done` is the narrower of the two. */
+  const fin = !!(f && isFin(f.status) && f.gh != null && f.ga != null);
+  const dead = f ? (f.provider !== 'af' && !fin && kd < t) : (kd < t);
+  const off  = !!(f && /POSTPON|CANCEL|ABAND|SUSP|AWARD/i.test(String(f.status || '')));
+  const live = !!(f && !fin && !off && !dead && /^(1H|2H|HT|ET|BT|P|LIVE|INT)$/i.test(String(f.status || '')));
+  const state = (dead || live) ? 'pending' : pickPlayState(pred, f, nowMs);
+  const late = state === 'void';
+  const done = fin && !late;
+  const g = done ? gradePick(pred.pick, actualCode(f.gh, f.ga), f.gh, f.ga) : null;
+  return { done: done, g: g, orphan: dead, off: off && !late, live: live,
+           state: state, voidLate: late,
+           /* one flag the counters read: a drawn DNB and a 48-hour void are both voids */
+           isVoid: (g === 'void') || late,
+           pending: !done && !dead && !live && !late };
+}
 /* BUILD 117 — ONE phrase for "the thing being advised", used by the correct-score panel AND by the
    written analysis. They quoted different scorelines in build 116 and nothing stopped them, because
    each built its own wording from its own source. Sharing the phrase is not cosmetic: it means the
@@ -4255,9 +4408,21 @@ function fxCells(L,f,smap){
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
     let chip='';
+    /* BUILD 349, SECOND PASS — A MATCH PLAYED MORE THAN 48 HOURS LATE IS VOID HERE TOO, and this
+       branch is why: the feed grades a finished match with `gradePick` directly, so without this
+       line the feed would show a ✓ on a pick the published record two taps away calls void. One
+       pick, two answers, which is §60's lesson and the reason the void rule has one function.
+       Measured against the kick-off FROZEN WITH THE PICK (`afState.archive`), never the fixture's
+       current date, and read from the archive rather than from a field on the fixture because
+       `applyGatePass` is pinned byte-identical to build 344. */
+    const _lateArch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
+    const _lateVoid = !!(_lateArch && _lateArch.kickoff
+                     && pickPlayedLate({ kickoff: _lateArch.kickoff, ktime: _lateArch.ktime }, f));
     /* build 119 — a drawn Draw No Bet is a VOID, not a loss. Grading it ✗ would understate the
        record against a bet that actually returned the stake. */
-    if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
+    if(f.pick && _lateVoid){
+                chip=`<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`; }
+    else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
                 const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
                 chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
@@ -4277,7 +4442,20 @@ function fxCells(L,f,smap){
      say different things about the same match. `L` has been in this function's signature since it
      was written; the chip simply never used it for the gate. */
   const _g = gateNow(L, f);
+  /* BUILD 349 — THE FEED STOPS OFFERING A PICK WHOSE MATCH WAS NEVER PLAYED. A match the provider
+     moved keeps its published pick on screen (build 199: nothing shown is unsaid), and until now it
+     kept it as LIVE ADVICE — a percentage, on a fixture whose kick-off passed weeks ago. The chip
+     now says what the record says, through the same function, so the feed and the published record
+     cannot disagree about one pick. Measured against the kick-off FROZEN WITH THE PICK, never the
+     fixture's current date. */
+  /* Read straight from `afState.archive`, NOT from a field put on the fixture by `applyGatePass`:
+     that function is pinned byte-identical to build 344 (verify-board-345.js) because it is the
+     robot's own issuing path, and a display rule has no business moving it. */
+  const _arch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
+  const _void = !!(_arch && _arch.kickoff
+                   && pickPlayState({ kickoff: _arch.kickoff, ktime: _arch.ktime }, null, null) === 'void');
   const chip = _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
+             : _void  ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`
              : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${(100*f.prob).toFixed(0)}%</span>`
              : '';
   return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
@@ -6733,9 +6911,26 @@ function dailyLogGrade(rows){
         settled++; won++; voidOdds *= (l.p != null ? l.p : 1);
       }
     }
-    const complete = settled === r.legs.length;
-    const realised = +(r.odds * voidOdds).toFixed(4);
-    return Object.assign({}, r, { complete: complete, hit: complete && won === r.legs.length,
+    /* ══ BUILD 349 — A CARD IS LOST THE MOMENT ONE LEG LOSES ══════════════════════════════════
+       Ken, 2026-10-10: *"a card is lost as soon as one leg loses."*
+
+       WHAT IT WAS, AND WHAT IT COST. `complete = settled === legs`, so a card waited for every leg
+       before it counted as anything. An accumulator is already dead when one leg fails, and on
+       2026-10-10 TWO Bold cards were in exactly that state — 09-26 with four lost legs and three
+       matches moved to October, 10-03 with two lost legs and two Algerian matches postponed —
+       counted as neither a win nor a loss, for weeks. **That flatters the record**, because the only
+       verdict a stuck card can be hiding is a loss: a win needs every leg, and a leg that has lost
+       cannot un-lose. So the old rule could only ever hold back bad news. It is the card half of the
+       same honesty fault as the void rule.
+
+       AN ALL-VOID CARD RETURNS THE STAKE. Every leg at 1.00 is a realised price of 1.00 — the stake
+       back, no profit and no loss — rather than a "win" paying a price no leg survived to earn. */
+    const lost = legGrades.some(x => x === 'miss');
+    const allVoid = r.legs.length > 0 && legGrades.every(x => x === 'void');
+    const complete = lost || settled === r.legs.length;
+    const realised = allVoid ? 1 : +(r.odds * voidOdds).toFixed(4);
+    return Object.assign({}, r, { complete: complete, lost: lost, allVoid: allVoid,
+                                  hit: complete && !lost && won === r.legs.length,
                                   realisedOdds: realised, hadVoid: voidOdds !== 1,
                                   legGrades: legGrades, legScores: legScores, settledLegs: settled,
                                   ungradedLegs: legGrades.filter((x, i) => legNotGraded(x, legScores[i])).length });
@@ -6789,9 +6984,16 @@ function valueLadderState(){ window.__vl = window.__vl || { unit: VLADDER_UNIT }
 /* The settled Value cards this ledger may see, oldest first. The SAME rows, grader and shared results
    the tracker uses - so the walk below is deterministic and every device computes the same ledger
    without a `shared_records` row to write, read or fail. */
+/* 🔑 BUILD 349 — A FULLY VOID VALUE DAY IS NEUTRAL. Ken, 2026-10-10: *"A void Value day does
+   nothing to the ladder."* So it is not in this list at all: nothing is staked, the step does not
+   advance and a win's reset does not fire. Leaving it IN would have been worse than either, because
+   an all-void card settles at 1.00 and therefore reads as `hit` — and a hit RESETS the ladder, so a
+   day on which no bet actually ran would have wiped a live losing cycle. The ladder is a sequence of
+   REAL stakes; a day that staked nothing is not one of its steps.
+   No Value card is all-void today, so no past step moves — proved in the WO-49 before/after list. */
 function valueLadderRows(){
   return dailyLogGrade(dailySharedAllRows())
-    .filter(r => r.tier === 'value' && r.complete && r.day >= RECORD_START)
+    .filter(r => r.tier === 'value' && r.complete && !r.allVoid && r.day >= RECORD_START)
     .sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
 }
 
@@ -7080,9 +7282,13 @@ function dailyFrozenCard(tier, r, isShared){
   const paid = (g.realisedOdds != null ? g.realisedOdds : odds);
   /* Same three states and the same wording the past cards use: how many have settled while it is
      still running, then WON or LOST with the money once every leg is in. */
+  /* build 349 - a fourth state, and a card that has already lost says LOST while legs are still
+     open rather than counting down to a verdict it cannot change. */
   const status = !g.complete
     ? '<span class="v" style="color:var(--muted)">' + (g.settledLegs || 0) + ' of ' + legs.length + '</span>'
       + '<span class="shsub">settled</span>'
+    : g.allVoid ? '<span class="v" style="color:var(--gold)">VOID</span>'
+              + '<span class="shsub" style="color:var(--gold)">stake returned</span>'
     : g.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
               + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
             : '<span class="v" style="color:var(--red)">LOST</span>'
@@ -7120,7 +7326,12 @@ function dailyFrozenCard(tier, r, isShared){
     /* BUILD 305 - Ken: "no writing should exceed one line". Four sentences became one clause. */
     + '<div class="subnote">Legs fixed for today — '
     + (isShared ? 'the same card on every device' : 'this device only, not published yet')
-    + '; results fill in as each match finishes.</div>';
+    + '; results fill in as each match finishes.</div>'
+    /* build 349 - the same sentence the past cards carry, for the same reason. */
+    + (g.lost && (g.settledLegs || 0) < legs.length
+         ? '<div class="subnote">A leg has lost, so the card is lost — an accumulator needs every leg. '
+           + (legs.length - (g.settledLegs || 0)) + ' leg(s) still have no result; nothing they do can change this.</div>' : '')
+    + (g.allVoid ? '<div class="subnote">Every leg voided, so the stake comes back: no profit and no loss.</div>' : '');
 }
 function dailyPastCards(day){
   const rows = dailyLogGrade(dailySharedDayRows(day));   // build 325 - never this device's log
@@ -7141,6 +7352,8 @@ function dailyPastCards(day){
     const status = !r.complete
       ? '<span class="v" style="color:var(--muted)">' + r.settledLegs + ' of ' + r.legs.length + '</span>'
         + '<span class="shsub">settled</span>'
+      : r.allVoid ? '<span class="v" style="color:var(--gold)">VOID</span>'   // build 349
+                + '<span class="shsub" style="color:var(--gold)">stake returned</span>'
       : r.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
                 + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
               : '<span class="v" style="color:var(--red)">LOST</span>'
@@ -7186,8 +7399,14 @@ function dailyPastCards(day){
            }).join('')
          /* A slip that contained a voided leg did NOT pay the price on its card. Build 248 fixed the
             arithmetic; this says so on the row itself, because a silent re-price is its own defect. */
-         + (r.hadVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
+         + (r.hadVoid && !r.allVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
                         + ', not ' + r.odds.toFixed(2) + '.</div>' : '')
+         /* build 349 - why a card reads LOST with legs still open. Said on the card itself, because
+            a verdict that arrives before the last result looks like an error unless it is explained. */
+         + (r.lost && r.settledLegs < r.legs.length
+              ? '<div class="subnote">A leg has lost, so the card is lost — an accumulator needs every leg. '
+                + (r.legs.length - r.settledLegs) + ' leg(s) still have no result; nothing they do can change this.</div>' : '')
+         + (r.allVoid ? '<div class="subnote">Every leg voided, so the stake comes back: no profit and no loss.</div>' : '')
          + '</div>';
   }
   return out;
@@ -9318,12 +9537,27 @@ function retiredNoteDay(n){
            + PUBLISH_AHEAD_DAYS + ' days before kick-off.</div>' : '';
 }
 const LEDGER_DAYS = 30;
+/* ══ BUILD 349 — THE 30-DAY WINDOW DROPPED THE VERY PICKS THE VOID RULE EXISTS FOR ════════════
+   This panel reads `predictions` by ORIGINAL kick-off over the last 30 days, which is right for a
+   record and wrong for a straggler: EFL League One moved four matches 24 to 80 days. A pick made for
+   09-05 and replayed on 11-24 ages out of the window while it is still ungraded, so it leaves the
+   list silently — the one thing build 118 forbids — and when it is finally graded its original date
+   is long past 30 days, so it never comes back either.
+
+   THE FIX IS A TAIL, NOT A WIDER WINDOW. The read goes back `LEDGER_VOID_DAYS`; everything inside
+   30 days is listed exactly as before, and a row OLDER than that is kept only when it is void and
+   ungraded — shown under its ORIGINAL date, which is the date it was published for. The 30-day
+   record itself does not grow by one row, and no straggler disappears. The tail is bounded and the
+   panel says so, because an unbounded read of the whole archive on a phone is how this panel got
+   paged in the first place (build 307). */
+const LEDGER_VOID_DAYS = 120;
 async function renderLedger(){
   const out = $('ledgerOut'); if(!out) return;
   if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend, which isn\'t configured on this device.</div>'; return; }
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading the published record…</div>';
   try{
     const from = new Date(Date.now() - LEDGER_DAYS*86400000).toISOString().slice(0,10);
+    const tail = new Date(Date.now() - LEDGER_VOID_DAYS*86400000).toISOString().slice(0,10);   // build 349
     /* BUILD 307 - PAGED, so the ledger cannot silently truncate at the server's row cap. It does
        not truncate TODAY - the 30-day window holds 643 rows against a 1,000 cap - and that headroom
        is the whole point: at ~21 predictions a day the cap is ~47 days, so a longer LEDGER_DAYS or a
@@ -9331,7 +9565,7 @@ async function renderLedger(){
        own helper and `backfillPredictions` already uses it; this read simply never did. */
     const { data: preds, error } = await fetchAllRows('predictions',
       'fxid,lid,lname,kickoff,ktime,home,away,pick,pick_prob,market,made_at,final_pick,withheld_at,build',
-      q => q.gte('kickoff', from).lte('kickoff', todayStrLocal()), 'kickoff');
+      q => q.gte('kickoff', tail).lte('kickoff', todayStrLocal()), 'kickoff');   // build 349 - the void tail
     if(error) throw error;
     if(!preds || !preds.length){
       out.innerHTML = `<div class="subnote">Nothing published in the last ${LEDGER_DAYS} days. A fixture is only recorded if someone had the app open before it kicked off.</div>`;
@@ -9344,7 +9578,7 @@ async function renderLedger(){
     const res = {};
     for(let i=0;i<ids.length;i+=200){
       const { data: fx } = await supa.from('fixtures')
-        .select('fxid,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));
+        .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));   // build 349 - date and time, for the late test
       for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320 — graded on the 90-minute score
     }
 
@@ -9354,8 +9588,11 @@ async function renderLedger(){
     for(const r of preds){
       const stale = (r.build||0) < FROZEN_FROM_BUILD || r.build === RECONSTRUCTED;
       const f = res[r.fxid];
-      const done = f && ['FINISHED','FT','AET','PEN'].includes(f.status) && f.gh!=null && f.ga!=null;
-      const g = done ? gradePick(r.pick, actualCode(f.gh,f.ga), f.gh, f.ga) : null;
+      /* build 349 - ONE function answers played / pending / void / orphan / in play, here and on
+         every other surface that counts this record. The four states that are not "void" are this
+         panel's own classification, moved into `pickVerdict` unchanged. */
+      const v = pickVerdict(r, f, null, todayStrLocal());
+      const done = v.done, g = v.g;
       /* 🚨 THREE DIFFERENT SILENCES, MEASURED ON THE REAL TABLE RATHER THAN GUESSED. Of 164 past
          picks, 34 could not be graded, and the first draft of this panel filed all 34 as "not yet
          played" — implying the app is waiting on results that are never arriving. Asking the
@@ -9372,23 +9609,30 @@ async function renderLedger(){
          as duplicates under the old provider's competition names ("Primera Division" beside
          "La Liga", "Campeonato Brasileiro Série A" beside "Serie A"). Counted and named, never
          quietly dropped — the whole point of the panel is that nothing disappears. */
-      const dead = f ? (f.provider !== 'af' && !done && r.kickoff < todayStrLocal()) : (r.kickoff < todayStrLocal());
-      const off  = !!(f && /POSTPON|CANCEL|ABAND|SUSP|AWARD/i.test(String(f.status||'')));
+      const dead = v.orphan, off = v.off;
       /* IN PLAY IS A STATUS, NOT A DATE. The first version asked whether kick-off had arrived,
          which counted every one of today's not-yet-started fixtures as live — on a panel whose
          entire purpose is that its numbers mean what they say. The provider's own live codes
          are the only thing that knows. */
-      const live = !!(f && !done && !off && !dead && /^(1H|2H|HT|ET|BT|P|LIVE|INT)$/i.test(String(f.status||'')));
+      const live = v.live;
       const orphan = dead;
-      (stale ? excluded : rows).push({ r, f, done, g, orphan, off, live,
+      /* build 349 - THE VOID TAIL. A row older than the 30-day window is listed only when it is a
+         48-hour void with no result, under its ORIGINAL date. Everything inside the window is
+         listed exactly as before, so the 30-day record does not grow by a single row. */
+      if(r.kickoff < from && !v.voidLate) continue;
+      (stale ? excluded : rows).push({ r, f, done, g, orphan, off, live, vrd: v,
         market: r.market || pickMarket(r.pick),
         moved: !!(r.final_pick && r.final_pick !== r.pick), withheld: !!r.withheld_at });
     }
 
     const graded = rows.filter(x => x.g === 'hit' || x.g === 'miss');
-    const voids  = rows.filter(x => x.g === 'void');
+    /* build 349 - a drawn Draw No Bet and a match not played within 48 hours are both voids, and
+       both belong on the one "Void (stake returned)" line. `pending` is now whatever is genuinely
+       still to come, which is what that label has always claimed. */
+    const voids  = rows.filter(x => x.vrd.isVoid);
+    const late   = rows.filter(x => x.vrd.voidLate);
     const orphans= rows.filter(x => x.orphan);
-    const pending= rows.filter(x => !x.done && !x.orphan && !x.off && !x.live);
+    const pending= rows.filter(x => x.vrd.pending);
     const hits   = graded.filter(x => x.g === 'hit').length;
 
     let html = `<div class="frow"><span class="muted">Published picks</span><b>${rows.length}</b></div>`
@@ -9426,12 +9670,16 @@ async function renderLedger(){
       const mark = x.g==='hit' ? '<span class="predchip hit">✓</span>'
                  : x.g==='miss' ? '<span class="predchip miss">✗</span>'
                  : x.g==='void' ? '<span class="predchip muted-chip">void</span>'
+                 : x.vrd.voidLate ? '<span class="predchip muted-chip">void</span>'   // build 349
                  : x.orphan ? '<span class="predchip muted-chip">no result</span>'
                  : x.off ? '<span class="predchip muted-chip">postponed</span>'
                  : x.live ? '<span class="predchip muted-chip">in play</span>'
                  : '<span class="predchip muted-chip">pending</span>';
       const flags = (x.moved ? ' <span class="muted" style="font-size:.68rem">model later moved</span>' : '')
-                  + (x.withheld ? ' <span class="muted" style="font-size:.68rem">later unbacked</span>' : '');
+                  + (x.withheld ? ' <span class="muted" style="font-size:.68rem">later unbacked</span>' : '')
+                  /* build 349 - the WORDS, not only the chip. A reader must be able to tell a void
+                     from a pending pick without hovering anything. */
+                  + (x.vrd.voidLate ? ' <span class="muted" style="font-size:.68rem">' + escapeHtml(VOID_WORDS) + '</span>' : '');
       html += `<div class="frow"><span class="muted" style="flex:1">${x.r.kickoff.slice(5)} · ${escapeHtml(x.r.lname||'')} · ${escapeHtml(x.r.home)} v ${escapeHtml(x.r.away)}<br>`
             + `<span style="font-size:.72rem">${escapeHtml(pickLabel(x.r.pick, x.r.home, x.r.away))} · ${(100*x.r.pick_prob).toFixed(0)}%${flags}</span></span>${mark}</div>`;
     }
@@ -9442,6 +9690,12 @@ async function renderLedger(){
       html += `<div class="subnote"><b>${orphans.length} pick${orphans.length===1?'':'s'} can never be graded.</b> ${orphans.length===1?'Its':'Their'} fixture belongs to the data provider this app retired at Milestone 11. The row is still there and still reads "not started", because the job that updated those fixtures was switched off and nothing has touched them since. You can spot them in the list under the old competition names — <i>Primera Division</i> beside <i>La Liga</i> — alongside their modern twins. Shown rather than hidden, and counted in neither the hit rate nor what is still to come.</div>`;
     if(excluded.length)
       html += `<div class="subnote">${excluded.length} older row${excluded.length===1?'':'s'} ${excluded.length===1?'is':'are'} left out: ${excluded.length===1?'it was':'they were'} rebuilt after the fact or predate the freeze rule, so ${excluded.length===1?'it is':'they are'} not evidence about what this app told anybody.</div>`;
+    /* build 349 - the rule, where its effect is read. Printed only when it has actually voided
+       something, because a standing paragraph about a rule nothing has triggered is noise. */
+    if(late.length)
+      html += `<div class="subnote"><b>${late.length} pick${late.length===1?'':'s'} ${late.length===1?'is':'are'} void because the match was not played within ${VOID_AFTER_HOURS} hours of kick-off.</b> `
+            + `A bookmaker returns the stake on a postponed bet, so ${late.length===1?'it counts':'they count'} in neither the hits nor the misses — and ${late.length===1?'it is':'they are'} shown here under the date ${late.length===1?'it was':'they were'} published for, whatever date the match has since been moved to. `
+            + `A void stays void: if the match is finally played weeks late it is still not graded, exactly as a bookmaker does not settle a postponed bet three weeks later. Void picks published more than ${LEDGER_DAYS} days ago are carried in from up to ${LEDGER_VOID_DAYS} days back so that none of them quietly leaves this list.</div>`;
     html += retiredNoteLedger(await retiredCount(null));   // build 326
     out.innerHTML = html;
   }catch(e){
@@ -9657,7 +9911,11 @@ async function flushPredictionArchive(){
    produce it, and a second spelling of the same row is how `fixtures.xg_h` and `predictions.xg_home`
    came to disagree. */
 function archiveRow(r){
-  return { pick:r.pick, prob:r.pick_prob, market:r.market || null,
+  /* build 349 - `kickoff`/`ktime` are the kick-off FROZEN WITH THE PICK, which is the only clock the
+     48-hour void rule may be measured against. The fixture's own date has since moved; that is the
+     whole defect. */
+  return { kickoff:r.kickoff || null, ktime:r.ktime || null,
+           pick:r.pick, prob:r.pick_prob, market:r.market || null,
            pW:r.p_home, pD:r.p_draw, pL:r.p_away, xgH:r.xg_home, xgA:r.xg_away,
            at:r.made_at || null, withheldAt:r.withheld_at || null, finalPick:r.final_pick || null,
            recon: r.build === RECONSTRUCTED };
@@ -11848,15 +12106,18 @@ async function m15Fetch(){
   };
   /* build 255 — the three publication-price columns join the read. Without them this panel would
      keep computing CLV from the `made_at` join alone, which is the thing that returns ten answers. */
+  /* build 349 - `ktime` joins the select because the void rule is measured from the ORIGINAL
+     kick-off, date AND time, and `provider` joins the fixtures read below because `pickVerdict`
+     separates a retired-collector orphan from a 48-hour void by that column. */
   const preds = await page('predictions',
-    'fxid,lid,kickoff,pick,pick_prob,market,made_at,withheld_at,odds_at_pick,odds_at_pick_at,odds_snap_id');
+    'fxid,lid,kickoff,ktime,pick,pick_prob,market,made_at,withheld_at,odds_at_pick,odds_at_pick_at,odds_snap_id');
   const snaps = await page('odds_snapshots',
     'id,fxid,captured_at,mins_to_kick,books,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba');
   const ids = [];
   for(const p of preds) if(ids.indexOf(p.fxid) < 0) ids.push(p.fxid);
   const fx = [];
   for(let i = 0; i < ids.length; i += 150){
-    const q = await supa.from('fixtures').select('fxid,status,gh,ga,ft_h,ft_a').in('fxid', ids.slice(i, i + 150));
+    const q = await supa.from('fixtures').select('fxid,date,time,status,gh,ga,ft_h,ft_a,provider').in('fxid', ids.slice(i, i + 150));   // build 349
     if(q.error) throw new Error('fixtures: ' + q.error.message);
     for(const r of q.data) fx.push(settledRow(r));   // build 320 — the grader reads the 90-minute score
   }
@@ -11872,7 +12133,12 @@ function m15Build(preds, snaps, fx){
   const pubSrc = { stamped:0, joined:0, none:0 };
   for(const p of preds){
     const f = res[p.fxid];
-    if(!f || !isFin(f.status) || f.gh == null || f.ga == null){ skip.notFinished++; continue; }
+    /* build 349 - the one void function decides this too. No CLV figure moves: a pick with no
+       result was skipped before and is skipped now. What changes is only WHICH BUCKET it is
+       counted in — a match never played is a void, not a match still to finish, and the panel's
+       own breakdown has said "unfinished" about 14 of them. */
+    const vrd = pickVerdict(p, f, null, todayStrLocal());
+    if(!vrd.done){ if(vrd.voidLate) skip.voided++; else skip.notFinished++; continue; }
     const list = (byFx[p.fxid] || []).filter(s => s.mins_to_kick != null && s.mins_to_kick >= 0);
     if(!list.length){ skip.noSnap++; continue; }
     list.sort((a, b) => a.mins_to_kick - b.mins_to_kick);
@@ -15154,7 +15420,10 @@ async function renderArchiveDay(){
          pick was frozen. Nothing new is stored: the distance is `kickoff` minus `made_at`, both of
          which were already here, which is the same "derive it, do not store it" call as builds 168
          and 188. */
-      .select('fxid,lid,lname,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build,made_at')
+      /* build 349 - `kickoff` joins it too. It equals `d` by the filter below, but `pickVerdict`
+         is given a PICK ROW and reads the original kick-off off it; handing it a row with the
+         column missing would be relying on a coincidence of this one call site. */
+      .select('fxid,lid,lname,kickoff,home,away,ktime,pick,pick_prob,p_home,p_draw,p_away,build,made_at')
       .eq('kickoff', d).order('ktime');
     if(error) throw error;
     const retiredHere = await retiredCount(d);   // build 326
@@ -15166,22 +15435,24 @@ async function renderArchiveDay(){
        'Serie A' and this panel grouped by NAME, so Brazil and Italy were pooled under one
        heading. It costs no extra round trip and it is the same collision that had the engine
        pricing Brasileirão with Italy's constant. */
-    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status,lcountry').in('fxid', preds.map(p=>p.fxid));
+    const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
     const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
 
     let graded=0, hits=0, stale=0;
     const byLeague = {};
     for(const p of preds){
-      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && isFin(f.status);   // build 160
+      const f = res[p.fxid];
+      const v = pickVerdict(p, f, null, todayStrLocal());   // build 349 - the one void function
+      const done = v.done;                                  // build 160
       const act = done ? actualCode(f.gh, f.ga) : null;
-      const hit = act ? gradePick(p.pick, act, f.gh, f.ga)==='hit' : null;   // build 120
+      const hit = act ? v.g === 'hit' : null;               // build 120
       if(act){ graded++; if(hit) hits++; }
       if((p.build||0) < FROZEN_FROM_BUILD) stale++;
       /* Keyed on the league ID. A name is not an identity — see LEAGUE_FIT_NAME. */
       const lkey = (p.lid!=null ? 'id:'+p.lid : 'nm:'+(p.lname||'—'));
       const grp = (byLeague[lkey] = byLeague[lkey] || {label:(p.lname||'—'), rows:[]});
       if(f && f.lcountry && grp.label === (p.lname||'')) grp.labelCountry = f.lcountry;
-      grp.rows.push({p, f, done, hit});
+      grp.rows.push({p, f, done, hit, vrd: v});   // build 349
     }
     let html = graded
       ? `<div class="frow"><span class="muted">Graded that day</span><b style="color:var(--green2)">${hits}/${graded} correct (${(100*hits/graded).toFixed(0)}%)</b></div>`
@@ -15245,9 +15516,14 @@ async function renderArchiveDay(){
       const heading = (labelCounts[g.label] > 1 && g.labelCountry)
         ? g.label + ' (' + g.labelCountry + ')' : g.label;
       html += `<div class="sec-label" style="margin-top:14px">${escapeHtml(heading)}</div>`;
-      for(const {p, f, done, hit} of rows){
-        const score = done ? `${f.gh}–${f.ga}${f.fgh!=null ? ' · ' + aetText(f) : ''}` : (f && f.status ? statusWord(f.status) : '—');
-        const mark = hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
+      for(const {p, f, done, hit, vrd} of rows){
+        /* build 349 - a match never played says so, instead of printing "Not started" beside a
+           date weeks old as though the app were still waiting for it. */
+        const score = done ? `${f.gh}–${f.ga}${f.fgh!=null ? ' · ' + aetText(f) : ''}`
+                    : (vrd && vrd.voidLate) ? escapeHtml(VOID_WORDS)
+                    : (f && f.status ? statusWord(f.status) : '—');
+        const mark = (vrd && vrd.voidLate) ? '<span class="predchip muted-chip">void</span>'
+                   : hit==null ? '' : hit ? '<span class="predchip hit">✓</span>' : '<span class="predchip miss">✗</span>';
         html += `<div class="frow" style="align-items:flex-start">
           <span style="flex:1">
             <b>${escapeHtml(p.home)} v ${escapeHtml(p.away)}</b>
@@ -17541,7 +17817,7 @@ async function loadArchive(){
        before kick-off; that is what made freezing on first publication a small change rather than a
        new round trip. */
     const { data, error } = await fetchAllRows('predictions',
-      'fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build',
+      'fxid,kickoff,ktime,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build',   /* build 349 - the ORIGINAL kick-off, for the void rule */
       q => q.gte('kickoff', from));
     if(error || !data) return;
     const m = {};
@@ -19085,12 +19361,15 @@ function recordUpdatedText(){
 function engineRecordPayload(preds, res, today){
   const days = {};
   let graded = 0, withheld = 0, excluded = 0, pending = 0, orphan = 0, off = 0, ungradeable = 0;
+  let voidLate = 0;   // build 349
   for(const r of preds){
     const stale = (r.build||0) < FROZEN_FROM_BUILD || r.build === RECONSTRUCTED;
     if(stale){ excluded++; continue; }
     const f = res[r.fxid];
-    const done = f && ['FINISHED','FT','AET','PEN'].includes(f.status) && f.gh!=null && f.ga!=null;
-    const g = done ? gradePick(r.pick, actualCode(f.gh,f.ga), f.gh, f.ga) : null;
+    /* build 349 - the SAME function the record panel reads, so the shared record and the screen
+       cannot differ about one pick. */
+    const v = pickVerdict(r, f, null, today);
+    const done = v.done, g = v.g;
     if(g === 'hit' || g === 'miss' || g === 'void'){
       /* build 328 - the fixture's own date first; the stored kickoff only when the fixture has
          none. A rescheduled match never rewrites the pick, so the stored value drifts. */
@@ -19102,13 +19381,16 @@ function engineRecordPayload(preds, res, today){
       continue;
     }
     if(done){ ungradeable++; continue; }
-    const dead = f ? (f.provider !== 'af' && r.kickoff < today) : (r.kickoff < today);
-    if(dead) orphan++;
-    else if(f && /POSTPON|CANCEL|ABAND|SUSP|AWARD/i.test(String(f.status || ''))) off++;
+    if(v.orphan) orphan++;
+    /* build 349 - a 48-hour void gets its OWN counter. It is not "pending" and not "postponed":
+       both of those sentences say the record is still waiting for a result that is never coming. */
+    else if(v.voidLate) voidLate++;
+    else if(v.off) off++;
     else pending++;
   }
   return { v: 1, days: days, total: preds.length, graded: graded, withheld: withheld, excluded: excluded,
-           pending: pending, orphan: orphan, off: off, ungradeable: ungradeable };
+           pending: pending, orphan: orphan, off: off, ungradeable: ungradeable,
+           voidLate: voidLate };   // build 349 - one added key; no reader tests this payload's version
 }
 /* Run by the publisher robot after it publishes. Never by any other account: the tally every device
    shows must have exactly one author, or two authors would eventually disagree. */
@@ -19120,7 +19402,7 @@ async function sharedRecordsPublish(){
     const ids = (preds || []).map(r => r.fxid), res = {};
     for(let i = 0; i < ids.length; i += 200){
       const { data: fx, error: fe } = await supa.from('fixtures')
-        .select('fxid,date,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));   // build 328
+        .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));   // build 328; `time` added at 349 for the late test
       if(fe) throw fe;
       for(const f of (fx || [])) res[f.fxid] = settledRow(f);
     }
@@ -20029,20 +20311,24 @@ async function showPredictDate(d){
   if(!supa){ $('fixtureList').innerHTML = '<div class="subnote">Needs the cloud backend.</div>'; return; }
   try{
     const { data: preds } = await supa.from('predictions')
-      .select('fxid,lname,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');
+      .select('fxid,lname,kickoff,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');   // build 349 - kickoff, for the void function
     const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
-    const { data: fx } = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', preds.map(p=>p.fxid));
+    const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
     const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
-      const f = res[p.fxid], done = f && f.gh!=null && f.ga!=null && isFin(f.status);   // build 160
-      const hit = done ? gradePick(p.pick, actualCode(f.gh, f.ga), f.gh, f.ga)==='hit' : null;   // build 120
+      const f = res[p.fxid];
+      const v = pickVerdict(p, f, null, today);   // build 349 - the one void function
+      const done = v.done;                        // build 160
+      const hit = done ? v.g === 'hit' : null;    // build 120
       if(done){ graded++; if(hit) hits++; }
       if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
       const chip = done
         ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
+        : v.voidLate
+        ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${p.pick} void</span>`   // build 349
         : `<span class="predchip">${p.pick} · ${(100*p.pick_prob).toFixed(0)}%</span>`;
       html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(d, p.ktime)}</span>
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
