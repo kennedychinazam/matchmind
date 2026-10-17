@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 351;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 352;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -8173,6 +8173,15 @@ function renderDailySlips(){
 function renderBankerFrozen(row, label, box){
   const l = row.legs[0];
   const _bkPx = storedLegPrice(l, row.build);      // build 351 - a bookmaker's price, or null
+  /* 🔑 BUILD 352 (WO-57) — THE SENTENCE MUST KNOW WHAT THE CHIP BESIDE IT IS SHOWING. Build 351
+     gated its disclosure on the STORED price alone, so on 2026-10-17 this card showed a real live
+     `@ 1.07` and said underneath that it has no bookmaker price. Both halves were true, of two
+     different numbers, and no reader can be expected to work that out. `_lvPx` is the very price
+     `realOddsChip` is about to render - the SAME call on the same arguments, so the chip and the
+     words cannot disagree. Build 351's rule is untouched: the stored figure is never printed as a
+     price, it is only named as the engine's own. */
+  const _lvPx = (_bkPx == null) ? dailyRealPrice(l.fxid, l.code) : null;   // build 352
+  const _lvShown = !!(_lvPx != null && _lvPx > 1);                         // build 352 - realOddsChip's own condition
   const g = tipsGradeLegs([l])[0] || { grade:null, score:null };
   const r = tipsResolveFixture(l.d, l.h, l.a);
   const status = g.grade === 'hit'  ? '<span style="color:var(--green2)">Won</span>'
@@ -8184,7 +8193,20 @@ function renderBankerFrozen(row, label, box){
     + '<h2>&#9889; ' + escapeHtml(String(label)) + ' — strongest read</h2>'
     + '<div class="frow"><span class="muted">' + (r ? escapeHtml(leagueTitle(r.L)) : '') + '</span>'
     + '<span class="muted">' + escapeHtml(String(l.d||'').slice(5).replace('-','/')) + ' '
-    + escapeHtml(String(localHM(l.d, l.t||''))) + '</span></div>'
+    + escapeHtml(String(localHM(l.d, l.t||'')))
+    /* 🔑 BUILD 352 (WO-57) — THE LIVE MINUTE, WHICH THIS CARD HAS NEVER CARRIED. `renderBankerFrozen`
+       has drawn its leg with no `liveChip` call since build 334, and WO-53 deliberately left the Tips
+       tab out; Ken ruled it in on 2026-10-17. It sits BESIDE THE KICK-OFF TIME, which is build 342's
+       own placement for every other list row and keeps Ken's rule of 2026-09-25 - the minute played
+       never collides with the odds, which are in the row below this one.
+       NOTHING ELSE WAS NEEDED, and that is the point: `renderTips` already runs `liveResultsTick` over
+       `_sharedSlips.rows`, which carries the `banker` row (`dailySharedFetch` selects every tier for
+       the day), so this leg's fixture is already in `_liveByFx` and the 120-second cycle already
+       re-draws this tab. A second live store would have been the drift this project keeps paying for.
+       🚨 THE SAFETY RULE IS UNCHANGED: `_liveByFx` is DISPLAY ONLY - `liveRowFor` is its only reader,
+       `liveChip` is `liveRowFor`'s only caller, and no live score can reach `_sharedResByKey`,
+       `_sharedResFinal` or a grade. A leg in play still grades null and still reads "Not settled". */
+    + liveChip(l.fxid) + '</span></div>'
     + '<div style="font-weight:700;margin:4px 0">' + crest(l.h) + escapeHtml(String(l.h))
     + ' v ' + crest(l.a) + escapeHtml(String(l.a)) + '</div>'
     + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
@@ -8202,11 +8224,19 @@ function renderBankerFrozen(row, label, box){
     /* 🔑 BUILD 351 (WO-44, Amendment 1 item 13) — THE 35 PAST BANKER ROWS ARE NOT REWRITTEN AND NOT
        PASSED OFF AS A MARKET QUOTE EITHER. Their stored `odds` is 1/probability, so where this card
        has no bookmaker's price it says in one plain line what the figure on the row actually is.
-       Nothing stored changes; only the words beside it. */
+       Nothing stored changes; only the words beside it.
+       🔑 BUILD 352 (WO-57) — SHORT, AND IT NAMES WHICH NUMBER IT MEANS. Ken, 2026-10-17:
+       *"fix the wording to be very short and give it the live minute."* 351's three clauses said
+       the card has "no bookmaker price" full stop, which read as a flat contradiction the moment
+       `realOddsChip` put a real live price on the row above it. TWO FORMS, ONE SENTENCE EACH, so
+       the card can never contradict itself again: with a live price beside the pick the line names
+       both numbers and whose each one is; with none it says plainly that the stored figure is not a
+       bookmaker's price. Each form is one clause about ONE NAMED NUMBER, which is what stops it
+       drifting back into a claim about the card as a whole. */
     + (_bkPx == null && row.odds != null && +row.odds > 1
-         ? '<div class="subnote">This card was issued before prices were attached, so it has no '
-           + 'bookmaker price. The ' + (+row.odds).toFixed(2) + ' on the row is the engine\u2019s own '
-           + 'figure, not a price any bookmaker offered.</div>' : '')
+         ? '<div class="subnote">The ' + (+row.odds).toFixed(2) + ' stored here is the engine\u2019s figure'
+           + (_lvShown ? '; the @ ' + _lvPx.toFixed(2) + ' above is a bookmaker\u2019s.</div>'
+                       : ', not a bookmaker\u2019s price.</div>') : '')
     + '</div>';
   const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));
 }
