@@ -886,7 +886,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 350;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 351;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -5767,9 +5767,14 @@ const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, { 'U35':0.65
    built first from legs a bookmaker is actually quoting, so its total is a number a user can obtain.
    Only when no such card exists does it fall back to engine prices, and then it says so. The step
    that answered travels to the card, exactly as the floor step does. */
+/* 🔑 BUILD 351 (WO-44) — THE FAIR RUNG IS DELETED. This was a LADDER: market prices first, engine
+   prices if no market-priced card existed at any floor, and the card said which it had used. Under
+   Ken's ruling the second rung is not a fallback, it is the thing being removed, and `dailyEligible`
+   now refuses an unpriced candidate so the rung could never be reached anyway. A step left in the
+   array would be exactly build 296's `DAILY_FLOOR_FALLBACK` fault: inert copy that reads as a live
+   rule. One rung, and the card no longer has to name which pricing it used because there is one. */
 const DAILY_PRICE_STEPS = [
-  { key: 'market', marketOnly: true },
-  { key: 'fair',   marketOnly: false }
+  { key: 'market', marketOnly: true }
 ];
 const DAILY_FLOOR_STEPS = [
   { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
@@ -6125,8 +6130,17 @@ function dailyEligible(cands, floors){
     const top = list[0];
     /* build 301 - the market price rides with the candidate from here on, so nothing downstream
        has to look it up again and no two places can disagree about what a leg pays. */
-    out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top),
-                                      _real: dailyRealPrice(top.f && top.f.fxid, top.code) }));
+    const _px = dailyRealPrice(top.f && top.f.fxid, top.code);
+    /* 🔑 BUILD 351 (WO-44, Amendment 1) — Ken: *"No card shows an unpriced leg."* So the rule sits
+       HERE, at the candidate, rather than on the display: a selection with no real bookmaker price
+       for ITS OWN MARKET is not eligible, and a tier that cannot be filled from what is left is not
+       issued that day. Every pool, the band search, the ceiling, the Banker's own ranking and the
+       `o` written into `daily_slips` are downstream of this one line, which is why it is the only
+       place the rule is stated. Measured 2026-10-16: 40 of today's 43 in-scope fixtures carry a
+       price, and the card markets are priced on all 40, so this removes a handful of candidates on
+       a normal day and a tier's whole pool only on a day the collector has not reached. */
+    if(_px == null) continue;
+    out.push(Object.assign({}, top, { rank: DAILY_MARKET_RANK(top), _real: _px }));
   }
   return out;
 }
@@ -6249,6 +6263,59 @@ function dailyOddsEnsure(){
   _dailyOddsInflight = { day: day, p: p };
   return p;
 }
+/* ══ 🔑 BUILD 351 (WO-44) — THE SLIP BUILDER'S OWN FIXTURES GET PRICES, IN THE SAME ONE STORE ════
+   `dailyOddsEnsure` fetches TODAY's slate. "Build a slip" offers the board's picks, which run up to
+   `PUBLISH_AHEAD_DAYS` ahead, so under this order every leg of a slip built past today would have
+   shown no price and every such slip would have shown no total. That is honest but useless, and the
+   order's own acceptance criterion expects a fully priced slip to show its total.
+
+   SO THE EXTRA IDS ARE MERGED INTO `_dailyOdds.byFx`, NEVER INTO A SECOND STORE. Scope 1 of this
+   order is that ONE function answers "what is the real price for this fixture and market", and two
+   stores behind `dailyRealPrice` would be the same drift `historyLeagues` was written to end.
+   `_dailyOdds.day` and `loaded` keep their meaning: today's slate decides them, and these extras
+   only ADD fixtures to the same map.
+
+   ⚠ ONE REQUEST SET PER DISTINCT SHORTFALL, and only for ids not already held. The project is over
+   its egress quota (build 342's note), so a slip re-generated on the same controls must not re-ask.
+   A failure leaves the store as it was, so the slip shows no total rather than a fair one. */
+let _slipOddsTried = {};
+async function slipOddsMerge(fxids){
+  const want = [];
+  const seen = {};
+  for(const id of (fxids || [])){
+    if(id == null || id === '' || seen[id]) continue;
+    seen[id] = 1;
+    if(!_dailyOdds.byFx || _dailyOdds.byFx[id] === undefined) want.push(id);
+  }
+  if(!want.length) return _dailyOdds;
+  const key = want.slice().sort().join(',');
+  if(_slipOddsTried[key]) return _slipOddsTried[key];
+  const p = (async () => {
+    for(let i = 0; i < want.length; i += 150){
+      let q = null;
+      try{
+        q = await supa.from(ODDS_LATEST_VIEW)
+              .select('fxid,mins_to_kick,h,d,a,o15,u15,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba'
+                      + (isPublisher() ? ',htft' : ''))
+              .in('fxid', want.slice(i, i + 150));
+      }catch(e){ q = null; }
+      if(!q || q.error) continue;
+      for(const sn of (q.data || [])){
+        if(sn.mins_to_kick == null || sn.mins_to_kick < 0) continue;   // never a price taken after kick-off
+        _dailyOdds.byFx[sn.fxid] = sn;
+      }
+    }
+    return _dailyOdds;
+  })();
+  _slipOddsTried[key] = p;
+  return p;
+}
+/* Today's slate first - it sets `loaded`, without which `dailyRealPrice` answers null by design -
+   then the slip's own extra fixtures. */
+function slipOddsEnsure(fxids){
+  return dailyOddsEnsure().then(() => (cloudEnabled() && supa) ? slipOddsMerge(fxids) : _dailyOdds)
+                          .catch(() => _dailyOdds);
+}
 /* `m15Fair` is the app's own price reader and is REUSED rather than reimplemented - the same rule
    that made `tipsGradeLegs` hand its legs to `dailyLogGrade`. Two readers of one odds row would
    eventually disagree, and the one on the slip is the one that quotes a number to a user. */
@@ -6270,11 +6337,60 @@ function dailyRealPrice(fxid, code){
   const g = m15Fair(sn, code);
   return (g && g.price > 1) ? g.price : null;
 }
+/* ══ 🔑 BUILD 351 (WO-44) — A REAL BOOKMAKER PRICE, OR NO PRICE AT ALL ══════════════════════════
+   Ken, 2026-10-10: *"show a real bookmaker price where one exists, and no odds otherwise. Apply it
+   to the cards too."* And, stronger, the same day: *"No card shows an unpriced leg."*
+
+   BUILD 329 DID THIS FOR THE TIPS AND LEFT IT IN TWO OTHER PLACES. `fairOdds` was deleted and
+   `realOddsChip` put in its place, so a tip is priced by a bookmaker or not priced. But:
+     - the slip builder still printed `1/prob` as "ODDS", "TO LAND" and "$10 RETURNS", disclosed only
+       under "Why?" as "Fair odds come from the engine's own probabilities";
+     - `dailyLegOdds`'s fallback below returned `1/c.prob` whenever no market price was on file, and
+       that number went into the band search, the ceiling, the card's headline AND the `o` STORED on
+       the leg in `daily_slips`. 23 issued legs carry such a price, 13 of them on build 329 or later.
+   One correction, three surfaces — this project's signature defect, for the fourth time.
+
+   THE FALLBACK IS GONE, NOT MERELY UNUSED. `dailyLegOdds` returns null where there is no real
+   price, and `dailyEligible` now refuses a candidate that has none, so no pool, no search, no
+   ceiling and no stored leg can ever contain one. That is structural rather than conditional — the
+   same reason build 251 deleted `SLIP_RECORD_MARKETS` instead of leaving it unread.
+
+   ⚠ WHY A STORED LEG NEEDS ITS OWN TEST. Prices are loaded for TODAY's slate only, so a card from
+   three weeks ago cannot be re-checked against `odds_snapshots` without a query per past leg. It
+   does not need one. From this build the issuer writes `o` only when it is a bookmaker's price, so a
+   row at build >= 351 is trusted outright. Below that, `o` may be a fair price, and a fair price is
+   identifiable from the row alone: it is 1/p. `p` is stored rounded to four decimals while `o` was
+   computed from the unrounded probability, so the test is the INTERVAL 1/(p ± 0.00005) rather than
+   an equality - measured 2026-10-16 over all 377 issued legs, the interval test selects exactly the
+   23 legs whose `o` matches no capture in `odds_snapshots`, and the four-decimal equality test
+   selects only 17 of them. Two independent tests, one answer, no reads.
+
+   ⚠ AND IT IS A FLOOR, NOT A CEILING: a bookmaker's price that happens to equal 1/p is still a real
+   price, which is why rows from 351 onward are not put through this test at all. */
+const REALPRICE_BUILD = 351;
+/* The price to SHOW for a stored leg, or null. `rowBuild` is the issuing build of the row the leg
+   came from, and it is required rather than optional: a caller that does not know which build wrote
+   the row cannot know whether `o` is a bookmaker's price. */
+function storedLegPrice(l, rowBuild){
+  if(!l || l.o == null || !(+l.o > 1)) return null;
+  if(+rowBuild >= REALPRICE_BUILD) return +l.o;
+  if(l.p == null || !(+l.p > 0)) return null;      // nothing to test against -> not asserted as real
+  const lo = 1 / (+l.p + 0.00005), hi = 1 / (+l.p - 0.00005);
+  return (+l.o >= lo - 1e-4 && +l.o <= hi + 1e-4) ? null : +l.o;
+}
+/* A card may show a total, a "to land" and a return ONLY if every one of its legs carries a real
+   price. One unpriced leg and the card's arithmetic is not a bookmaker's arithmetic, so there is no
+   honest total to print. Ken's rule applied to the headline as well as to the legs. */
+function cardTotalIsReal(row){
+  const legs = (row && row.legs) || [];
+  if(!legs.length) return false;
+  for(const l of legs) if(storedLegPrice(l, row.build) == null) return false;
+  return true;
+}
 /* THE ONE PLACE A LEG'S PRICE IS DECIDED. Every search, every ceiling and every total goes through
    this, so the card's headline and the legs under it can never be priced on different bases. */
 function dailyLegOdds(c){
-  if(c && c._real != null) return c._real;
-  return 1 / c.prob;
+  return (c && c._real != null) ? c._real : null;
 }
 
 /* ══ BUILD 245 — WHEN NO BAND IS REACHABLE AT ANY HONEST FLOOR ═══════════════════════════════════
@@ -6826,20 +6942,33 @@ async function tipsFrozenSeed(day){
 }
 /* The strongest read is one leg, so it is its own row rather than a fourth list. It is the card the
    app leads with, which makes it the most visible version of Ken's complaint when it changes under
-   a reader during the afternoon. `odds` is the fair price of the pick, so the row is self-
-   describing rather than carrying the 0 the list row has to. */
+   a reader during the afternoon.
+   🔑 BUILD 351 (WO-44, Amendment 1 item 12) — `odds` IS THE BOOKMAKER'S PRICE, NOT 1/p. It was the
+   fair price, on all 35 Banker cards ever issued, and the Banker is the card the app leads with.
+   Ken: *"No card shows an unpriced leg."* So no price on file means NO ROW, and the day has no
+   Banker card rather than one headlined by a number no bookmaker quotes.
+   🚩 AND THE PRICES ARE AWAITED FIRST, WHICH IS THE WHOLE REASON THIS WAS BROKEN. `o:
+   dailyRealPrice(...)` has been written here since build 329 and every one of the 35 rows carries
+   `o: null`. `dailyRealPrice` answers only when `_dailyOdds.loaded`, and `tipsFrozenEnsure` is
+   called BEFORE `dailyOddsEnsure` is started - in `renderTips` and again on the boot path - so the
+   price had never landed at the moment it was read. Build 165's rule for the fourth time: an
+   instrument that exists and is never read is not an instrument. It is read now, after the one
+   fetch `dailyOddsEnsure` already owns, so this costs no extra request. */
 async function bankerFrozenSeed(day){
   if(!cloudEnabled() || !supa || !authUser || !isPublisher() || !_leaguesLoadedAt) return false;
+  try{ await dailyOddsEnsure(); }catch(e){ return false; }
   let b = null; try{ b = bankerOf(); }catch(e){ return false; }
   if(!b || b.prob == null || !b.pick || !b.f) return false;
+  const px = dailyRealPrice(b.f.fxid, b.pick);
+  if(px == null || !(px > 1)) return false;        // no real price -> no Banker card today
   const q = await supa.from('daily_slips').insert(
-    { day: day, tier: 'banker', odds: +(1 / b.prob).toFixed(4), build: APP_BUILD, step: 'banker',
+    { day: day, tier: 'banker', odds: +(+px).toFixed(4), build: APP_BUILD, step: 'banker',
       legs: [{ fxid: b.f.fxid, d: b.f.date, t: b.f.time || '', h: b.f.home, a: b.f.away,
                code: b.pick, market: b.market || 'Winner', p: +b.prob.toFixed(4),
                /* build 329 - the price a bookmaker actually showed when the card was issued,
-                  frozen with it exactly as a slip leg's `o` is (build 305). Null on a day with
-                  no market price, and the card then shows no price rather than a fair one. */
-               o: dailyRealPrice(b.f.fxid, b.pick) }] });
+                  frozen with it exactly as a slip leg's `o` is (build 305). Never null from build
+                  351: a leg with no price is not issued at all. */
+               o: +(+px).toFixed(4) }] });
   return !q.error;
 }
 /* One attempt per day per tab session. A conflict is the SUCCESS case - another device issued the
@@ -7341,11 +7470,21 @@ function renderDailyTracker(){
   } else {
     /* Ken's formulae, exactly. Staked counts SETTLED days only - charging for a day whose result is
        not in yet would report a loss that has not happened. */
-    const staked = done.length * DAILY_STAKE;
+    /* 🔑 BUILD 351 (WO-44 scope 5) — THE WIN RATE IS A GRADE AND IS UNTOUCHED; THE MONEY IS QUOTED
+       FROM PRICES AND COUNTS ONLY CARDS A BOOKMAKER PRICED. Staking $10 on a card whose total is
+       1/probability would report a profit nobody could have made, which is the whole of Ken's
+       complaint applied to the ledger rather than the card. Measured 2026-10-16: in the record
+       window this excludes exactly three settled cards - safe 09-21, bold 09-26 and bold 10-03 -
+       and no Value card at all, so the Value ladder's every step, stake and balance is unchanged.
+       ⚠ `done` is NOT filtered: the win rate, the counts and every verdict stay exactly as they
+       were, because prices are shown and not scored (scope 8). */
+    const priced = done.filter(r => cardTotalIsReal(r));
+    const staked = priced.length * DAILY_STAKE;
     const wonRows = done.filter(r => r.hit);
     /* BUILD 248 — the REALISED price, not the price on the card. Identical for every slip
        without a void, which is every slip written from build 248 onward. */
-    const payout = wonRows.reduce((s, r) => s + (r.realisedOdds != null ? r.realisedOdds : r.odds) * DAILY_STAKE, 0);
+    const payout = priced.filter(r => r.hit)
+                         .reduce((s, r) => s + (r.realisedOdds != null ? r.realisedOdds : r.odds) * DAILY_STAKE, 0);
     const profit = payout - staked;
     const roi = staked ? (profit / staked) * 100 : 0;
     const col = profit >= 0 ? 'var(--green2)' : 'var(--red)';
@@ -7358,13 +7497,24 @@ function renderDailyTracker(){
       + '<span class="v"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</span></div>';
     metrics = '<div class="sliphead">'
       + cell('Win rate', wonRows.length + ' / ' + done.length + ' · ' + Math.round(100 * wonRows.length / done.length) + '%')
-      + cell('Net profit', (profit >= 0 ? '+' : '−') + '$' + Math.abs(profit).toFixed(2), col)
-      + cell('ROI', (roi >= 0 ? '+' : '−') + Math.abs(roi).toFixed(1) + '%', col)
+      + (priced.length ? cell('Net profit', (profit >= 0 ? '+' : '−') + '$' + Math.abs(profit).toFixed(2), col) : '')
+      + (priced.length ? cell('ROI', (roi >= 0 ? '+' : '−') + Math.abs(roi).toFixed(1) + '%', col) : '')
       + '</div>'
-      + '<div class="subnote">$' + DAILY_STAKE + ' flat on every settled day — $' + staked.toFixed(2)
-      + ' staked, $' + payout.toFixed(2) + ' returned'
-      + (rows.length > done.length ? '. ' + (rows.length - done.length) + ' slip(s) still awaiting results and not counted.' : '.')
-      + '</div>';
+      + (priced.length
+          ? '<div class="subnote">$' + DAILY_STAKE + ' flat on every settled day a bookmaker priced — $' + staked.toFixed(2)
+            + ' staked, $' + payout.toFixed(2) + ' returned'
+            + (rows.length > done.length ? '. ' + (rows.length - done.length) + ' slip(s) still awaiting results and not counted.' : '.')
+            + '</div>'
+          : '<div class="subnote"><b style="color:var(--gold)">No money is shown.</b> None of the settled cards in this view carries a bookmaker price on every leg, so there is no total to stake against.</div>')
+      /* 🔑 BUILD 351 (WO-44) — the excluded cards are COUNTED ON SCREEN rather than silently
+         dropped. A ledger that quietly narrows its own population is how a long-run figure becomes
+         a short-run one (build 252's rule), and this exclusion is new, so it is named every time it
+         bites. */
+      + (done.length > priced.length
+          ? '<div class="subnote">' + (done.length - priced.length) + ' settled card'
+            + (done.length - priced.length === 1 ? '' : 's')
+            + ' had a leg with no bookmaker price, so ' + (done.length - priced.length === 1 ? 'it is' : 'they are')
+            + ' counted in the win rate and left out of the money.</div>' : '');
   }
 
   box.innerHTML = '<div class="card"><h2>📈 Performance &amp; profit tracker</h2>'
@@ -7440,6 +7590,13 @@ function dailyFrozenCard(tier, r, isShared){
   let comb = 1; for(const l of legs) comb *= (l.p || 0);
   const odds = g.odds || 1;
   const paid = (g.realisedOdds != null ? g.realisedOdds : odds);
+  /* 🔑 BUILD 351 (WO-44 scope 3) — A PAST CARD IS NEVER REWRITTEN, AND IT IS NEVER DRESSED UP
+     EITHER. The stored row is left exactly as it is; what changes is what is DERIVED from it on
+     screen. A card shows its total, its profit and its money only when every leg carries a real
+     bookmaker price; otherwise those cells go and one line says why. Measured 2026-10-16 over all
+     96 issued cards: on every card that keeps its total, the stored `odds` equals the product of
+     its legs' real prices to 0.000000, so nothing a reader has ever seen on a priced card moves. */
+  const realTotal = cardTotalIsReal(g);
   /* Same three states and the same wording the past cards use: how many have settled while it is
      still running, then WON or LOST with the money once every leg is in. */
   /* build 349 - a fourth state, and a card that has already lost says LOST while legs are still
@@ -7449,15 +7606,18 @@ function dailyFrozenCard(tier, r, isShared){
       + '<span class="shsub">settled</span>'
     : g.allVoid ? '<span class="v" style="color:var(--gold)">VOID</span>'
               + '<span class="shsub" style="color:var(--gold)">stake returned</span>'
+    /* build 351 - the VERDICT is a grade and is untouched (WO-44 scope 8); the MONEY beside it is
+       quoted from the card's price and goes where that price is not a bookmaker's. */
     : g.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
-              + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
+              + (cardTotalIsReal(g) ? '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>' : '')
             : '<span class="v" style="color:var(--red)">LOST</span>'
-              + '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>';
+              + (cardTotalIsReal(g) ? '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>' : '');
   return '<div class="sliphead">'
-    + '<div class="shcell"><span class="k">Odds</span><span class="v">' + odds.toFixed(2) + '</span></div>'
+    + (realTotal ? '<div class="shcell"><span class="k">Odds</span><span class="v">' + odds.toFixed(2) + '</span></div>' : '')
     + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
     + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
     + '</div>'
+    + (realTotal ? '' : '<div class="subnote"><b style="color:var(--gold)">' + SLIP_NO_PRICE + '</b></div>')
     + legs.map((l, i) => {
         const lg = g.legGrades ? g.legGrades[i] : null;
         const mark = lg === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
@@ -7472,14 +7632,20 @@ function dailyFrozenCard(tier, r, isShared){
         + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
         + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
         + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
-        + '<span class="lgodds">' + (l.o != null ? (+l.o).toFixed(2) : (1 / (l.p || 1)).toFixed(2))
+        /* 🔑 BUILD 351 (WO-44) - the fallback here printed 1/p as the leg's price on every card
+           issued before build 305 and on every Banker card ever issued. A leg with no bookmaker
+           price now shows its percentage and nothing in the price slot. */
+        + '<span class="lgodds">' + (function(px){ return px != null ? px.toFixed(2) : ''; })(storedLegPrice(l, g.build))
         + '</span></div></button>'; }).join('')
     /* BUILD 305 - one line, and it names the price basis rather than asserting the wrong one.
        `l.o` is absent only on rows issued before this build; those keep the old fair price and say
        so, instead of a market label over an engine number. */
-    + '<div class="subnote">' + legs.length + ' legs, all must win · '
-    + (legs.every(l => l.o != null) ? 'real bookmaker odds' : 'engine price')
-    + ' · engine win chance</div>'
+    /* 🔑 BUILD 351 (WO-44) - "engine price" is not a price this app may name any more, so the
+       alternative is not a second label but the absence of a total. Where every leg is priced the
+       line says so; where one is not, the line above has already said there is no price. */
+    + '<div class="subnote">' + legs.length + ' leg' + (legs.length === 1 ? '' : 's') + ', all must win · '
+    + (realTotal ? 'real bookmaker odds · ' : '')
+    + 'engine win chance</div>'
     /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
        stale screen rather than a deliberate one. Build 297 adds the second half: the LEGS are fixed
        and the RESULTS are not, which is the distinction Ken asked for in those words. */
@@ -7503,6 +7669,7 @@ function dailyPastCards(day){
     if(!r){ out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
           + '<div class="subnote">Not buildable that day.</div></div>'; continue; }
     const paid = (r.realisedOdds != null ? r.realisedOdds : r.odds);
+    const realTotal = cardTotalIsReal(r);      // build 351 (WO-44 scope 3)
     /* 🚨 BUILD 265 — THIS CELL WAS CLIPPING THE NUMBER IT EXISTS TO SHOW. `.shcell .v` is
        deliberately one line with an ellipsis, and "LOST · -$10.00" does not fit a third of a phone
        width: it rendered as "LOST · -$1…". A truncated money figure is worse than no money figure,
@@ -7514,16 +7681,18 @@ function dailyPastCards(day){
         + '<span class="shsub">settled</span>'
       : r.allVoid ? '<span class="v" style="color:var(--gold)">VOID</span>'   // build 349
                 + '<span class="shsub" style="color:var(--gold)">stake returned</span>'
+      /* build 351 - the verdict stays, the money goes where the price is not a bookmaker's */
       : r.hit ? '<span class="v" style="color:var(--green2)">WON</span>'
-                + '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>'
+                + (realTotal ? '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>' : '')
               : '<span class="v" style="color:var(--red)">LOST</span>'
-                + '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>';
+                + (realTotal ? '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>' : '');
     out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
          + '<div class="sliphead">'
-         + '<div class="shcell"><span class="k">Odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>'
+         + (realTotal ? '<div class="shcell"><span class="k">Odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>' : '')
          + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
          + '<div class="shcell"><span class="k">Legs</span><span class="v">' + r.legs.length + '</span></div>'
          + '</div>'
+         + (realTotal ? '' : '<div class="subnote"><b style="color:var(--gold)">' + SLIP_NO_PRICE + '</b></div>')
          + r.legs.map((l, i) => {
              const g = r.legGrades ? r.legGrades[i] : null;
              const mark = g === 'hit' ? '<span style="color:var(--green2)">&#10003;</span>'
@@ -7559,7 +7728,7 @@ function dailyPastCards(day){
            }).join('')
          /* A slip that contained a voided leg did NOT pay the price on its card. Build 248 fixed the
             arithmetic; this says so on the row itself, because a silent re-price is its own defect. */
-         + (r.hadVoid && !r.allVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
+         + (realTotal && r.hadVoid && !r.allVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
                         + ', not ' + r.odds.toFixed(2) + '.</div>' : '')
          /* build 349 - why a card reads LOST with legs still open. Said on the card itself, because
             a verdict that arrives before the last result looks like an error unless it is explained. */
@@ -7804,8 +7973,17 @@ function renderDailySlips(){
        none was issued; it never builds one of its own, because "no card" is uniform and "my card" is not. */
     if(!isPublisher()){
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2><div class="subnote">'
+             /* 🔑 BUILD 351 (WO-44, Amendment 1 item 11) — WHY THERE IS NO CARD, IN ONE LINE. WO-50
+                found that no user ever saw a reason: the reasons the issuer computes are written
+                only into the robot's own headless page, and "Cards are issued once, for everyone"
+                reads as if a card were still coming. Under this order a tier that cannot be filled
+                from PRICED legs is not issued, which makes an empty tier a normal outcome rather
+                than a fault, so the screen says the rule. ⚠ The per-day stored reason WO-50 asks
+                for needs a new field on `daily_slips` and would put zero-leg rows through the
+                grader, the tracker and the Value ladder; that is its own order, and this line is
+                the half that can be said truthfully without one. */
              + (_sharedSlips.error ? 'Could not read today’s issued cards. Try again shortly.'
-                                   : 'No card issued for this tier today. Cards are issued once, for everyone.')
+                                   : 'No card issued for this tier today. Cards are issued once, for everyone — and only from legs a bookmaker has priced, so a tier that cannot be filled from priced legs is not issued at all.')
              + '</div></div>';
       continue;
     }
@@ -7845,6 +8023,9 @@ function renderDailySlips(){
     let aim = null, step = null, priceStep = null;
     for(const pm of DAILY_PRICE_STEPS){
       for(let i = 0; i < DAILY_FLOOR_STEPS.length && !aim; i++){
+        /* `_real != null` on every member is now guaranteed by `dailyEligible` (build 351); the
+           filter is kept because it is the one line that still holds if a pool is ever built from
+           somewhere else, which is exactly how build 301's version of this was written. */
         const pool = pm.marketOnly ? pools[i].filter(c => c._real != null) : pools[i];
         const a = dailyBandSearch(pool, tier);
         if(a.legs && a.legs.length){ aim = a; step = DAILY_FLOOR_STEPS[i]; priceStep = pm; }
@@ -7919,7 +8100,9 @@ function renderDailySlips(){
                + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.sel || '')) + '</span>'
                + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
                + '<span class="lgprob">' + Math.round(100 * l.prob) + '%</span>'
-               + '<span class="lgodds">' + (1 / l.prob).toFixed(2) + '</span></div></button>').join('')
+               /* build 351 (WO-44) - the candidate's own real price, which `dailyEligible` has
+                  guaranteed is present; 1/prob is gone from here as it is from everywhere else. */
+               + '<span class="lgodds">' + ((l._real != null && l._real > 1) ? (+l._real).toFixed(2) : '') + '</span></div></button>').join('')
            + '<div class="subnote">' + legs.length + ' legs, all must win · '
            + 'win chance is the product of the legs, and the price is the bookmaker\'s</div>'
            /* 🚨 BUILD 296 — THE STEP IS NOW SAID ON THE CARD, AND UNTIL THIS BUILD IT WAS NOT.
@@ -7933,10 +8116,13 @@ function renderDailySlips(){
            /* BUILD 301 - THE PRICE BASIS IS ON THE CARD, EVERY TIME. Ken's complaint was not that
               the number was optimistic, it was that it was unobtainable: "how can i preach 2 odds
               but give less than that". A total the user can take, and a plain word for where it
-              came from, is the whole fix. */
-           + (priceStep && priceStep.key === 'market'
-               ? '<div class="subnote">Priced at real bookmaker odds.</div>'
-               : '<div class="subnote"><b style="color:var(--gold)">Engine prices, not bookmaker prices — the real return will be lower.</b></div>')
+              came from, is the whole fix.
+              🔑 BUILD 351 (WO-44) - THE SECOND BRANCH IS DELETED, NOT LEFT UNREACHABLE. It read
+              "Engine prices, not bookmaker prices - the real return will be lower", which was the
+              honest caption for a card this build can no longer build: `dailyEligible` refuses an
+              unpriced candidate, so `priceStep` is always 'market'. A branch that cannot be reached
+              but still reads as a live rule is exactly `DAILY_FLOOR_FALLBACK` before build 296. */
+           + '<div class="subnote">Priced at real bookmaker odds.</div>'
            + ((step && step.key !== 'primary' && step.note)
                ? '<div class="notice">' + escapeHtml(String(step.note))
                  + ' No slip cleared the primary floors today, so this card was built from the '
@@ -7986,6 +8172,7 @@ function renderDailySlips(){
    exactly the disappearance Ken reported. */
 function renderBankerFrozen(row, label, box){
   const l = row.legs[0];
+  const _bkPx = storedLegPrice(l, row.build);      // build 351 - a bookmaker's price, or null
   const g = tipsGradeLegs([l])[0] || { grade:null, score:null };
   const r = tipsResolveFixture(l.d, l.h, l.a);
   const status = g.grade === 'hit'  ? '<span style="color:var(--green2)">Won</span>'
@@ -8003,12 +8190,23 @@ function renderBankerFrozen(row, label, box){
     + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
     + '<b style="color:var(--gold)">' + escapeHtml(String(chipCode(l.code))) + '</b></span>'
     + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span> '   // build 342 - a gap, as the live card has
-    + (l.o && l.o > 1 ? '<span class="predchip sm">@ ' + (+l.o).toFixed(2) + '</span>'
+    /* 🔑 BUILD 351 (WO-44) - the stored price is shown only if it IS a bookmaker's price
+       (`storedLegPrice`); otherwise the live chip, which is a real price or nothing. A pre-351 row
+       whose `o` is 1/p shows no price at all rather than a fair one dressed as a market quote. */
+    + (_bkPx != null ? '<span class="predchip sm">@ ' + _bkPx.toFixed(2) + '</span>'
                   : realOddsChip(l.fxid, l.code)) + '</span></div>'   // build 329
     + '<div class="frow"><span class="muted">Result</span><span>' + status
     + (g.score ? ' <span class="muted">' + escapeHtml(String(g.score)) + '</span>' : '') + '</span></div>'
     + (r ? '<button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>' : '')
     + '<div class="subnote" style="margin-top:6px">Issued and held for the day, never re-priced.</div>'
+    /* 🔑 BUILD 351 (WO-44, Amendment 1 item 13) — THE 35 PAST BANKER ROWS ARE NOT REWRITTEN AND NOT
+       PASSED OFF AS A MARKET QUOTE EITHER. Their stored `odds` is 1/probability, so where this card
+       has no bookmaker's price it says in one plain line what the figure on the row actually is.
+       Nothing stored changes; only the words beside it. */
+    + (_bkPx == null && row.odds != null && +row.odds > 1
+         ? '<div class="subnote">This card was issued before prices were attached, so it has no '
+           + 'bookmaker price. The ' + (+row.odds).toFixed(2) + ' on the row is the engine\u2019s own '
+           + 'figure, not a price any bookmaker offered.</div>' : '')
     + '</div>';
   const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));
 }
@@ -16181,8 +16379,15 @@ const slipState = { n:3, riskPct:30, today:false, leagues:null, openCountry:null
    fixture and the legs are fine-grained, so greedy lands within a few percent, and a slip that is
    0.3 odds off target is not a different bet. What matters is that the number reported is the number
    ACHIEVED, never the number asked for. */
+/* 🔑 BUILD 351 (WO-44) — THE TARGET IS REACHED AT REAL PRICES OR IT IS NOT REACHED. This walked
+   `log(1/prob)`, so a target of 50 was assembled out of fair prices and the number on screen was
+   never obtainable — the exact complaint Ken made at build 301 about the card, in the one control
+   whose entire purpose is to hit a number. A leg with no bookmaker price cannot contribute to a
+   total, so it is not in the search at all, and the ceiling is the ceiling of the PRICED legs. If
+   too few carry a price the walk returns nothing and the caller says so. */
 function slipToTarget(pool, target, maxLegs){
-  const items = pool.map(c => ({ c, lg: Math.log(1 / c.prob) }))
+  const items = pool.filter(c => c && c._real != null && c._real > 1)
+                    .map(c => ({ c, lg: Math.log(c._real) }))
                     .filter(x => x.lg > 1e-6)
                     .sort((a, b) => b.lg - a.lg);
   /* The ceiling is what makes an unreachable target explainable instead of just disappointing:
@@ -16357,6 +16562,12 @@ function slipPool(cands, riskPct){
     if(c.prob < minProb) continue;                                   // riskier than the ceiling — never offer it
     if(!byFx[c.key] || c.prob < byFx[c.key].prob) byFx[c.key] = c;   // among those allowed, lowest prob pays most
   }
+  /* 🔑 BUILD 351 (WO-44) - the real bookmaker price rides with the slip's candidate exactly as it
+     rides with the card's (build 301's `dailyEligible`), from the SAME function, so the slip's legs
+     and the card's legs can never be priced on different bases. Null where there is none, and the
+     slip then shows that leg's probability and no price. */
+  for(const k in byFx)
+    byFx[k] = Object.assign({}, byFx[k], { _real: dailyRealPrice(byFx[k].f && byFx[k].f.fxid, byFx[k].code) });
   return byFx;
 }
 
@@ -16383,6 +16594,12 @@ function slipPool(cands, riskPct){
    guarantee than a market whitelist and cannot drift. The reasoning above is kept because it is
    why Double Chance was safe to give codes to at build 237. */
 
+/* 🔑 BUILD 351 (WO-44) — THE THREE SENTENCES THIS ORDER PUTS ON SCREEN, NAMED ONCE. The first is
+   the order's own wording. Named constants rather than inline strings for build 346's reason: the
+   lock pins the words a user reads, and a sentence written twice drifts. */
+const SLIP_NO_PRICE = 'No price shown \u2014 these legs are not all priced by a bookmaker yet.';
+const SLIP_NO_PRICE_WHY = 'A total, a "to land" figure and a return can only be quoted from prices a bookmaker actually offered. At least one leg here has none on file, so no total is shown. The percentage is the engine\u2019s own and is unaffected.';
+const SLIP_NO_PRICE_TARGET = 'No slip can be built to a target yet.';
 function genSlip(){
   const cands = slipCandidatesFromBoard({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });   // build 346 - the robot's picks only
   if(cands === null){ $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">${SLIP_BOARD_UNREAD}</div>`; return; }
@@ -16395,7 +16612,16 @@ function genSlip(){
     _aim = slipToTarget(Object.values(byFx), _target, SLIP_MAX_LEGS);
     legs = _aim.legs;
     if(!legs.length){
-      $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">No match sits inside a ${slipState.riskPct}% risk limit, so there is nothing to build a slip from. Raise the risk slider, add bet types or leagues, or load more competitions (Analysis → Discover).</div>`;
+      /* 🔑 BUILD 351 (WO-44) — TWO DIFFERENT REASONS, AND THEY MUST NOT READ ALIKE (build 256's
+         rule). "Nothing inside the risk limit" and "nothing inside the limit carries a bookmaker's
+         price" are not the same fact, and under this order the second one is new and will be the
+         common one on a day the collector has not reached. A target is never assembled out of fair
+         prices to avoid saying so. */
+      const _inLimit = Object.values(byFx).length;
+      const _withPrice = Object.values(byFx).filter(c => c && c._real != null && c._real > 1).length;
+      $('slipOut').innerHTML = _inLimit && !_withPrice
+        ? `<div class="subnote" style="padding-top:12px"><b style="color:var(--gold)">${SLIP_NO_PRICE_TARGET}</b> ${_inLimit} match${_inLimit===1?'':'es'} sit inside a ${slipState.riskPct}% risk limit and none of them is priced by a bookmaker yet. Prices land close to kick-off, so a slip for today usually prices and one for next week usually does not.</div>`
+        : `<div class="subnote" style="padding-top:12px">No match sits inside a ${slipState.riskPct}% risk limit, so there is nothing to build a slip from. Raise the risk slider, add bet types or leagues, or load more competitions (Analysis → Discover).</div>`;
       return;
     }
   } else {
@@ -16427,8 +16653,25 @@ function genSlip(){
       return;
     }
   }
-  let comb=1, odds=1;
-  for(const l of legs){ comb*=l.prob; odds*=1/l.prob; }
+  /* 🔑 BUILD 351 (WO-44) — THE TOTAL IS A PRODUCT OF REAL PRICES OR THERE IS NO TOTAL. Ken,
+     2026-10-10: *"show a real bookmaker price where one exists, and no odds otherwise."* This
+     multiplied `1/l.prob` and printed the result as "Odds", "To land" and "$10 returns", disclosed
+     only under "Why?". `comb` is untouched: the chance every leg lands is the engine's own number
+     and is the honest figure (build 329's reasoning), so it is still shown. */
+  let comb=1, odds=1, nPriced=0;
+  for(const l of legs){ comb*=l.prob; if(l._real != null && l._real > 1){ odds*=l._real; nPriced++; } }
+  /* ⚠ ONE GATE, NOT TWO. The first cut of this build wrote the rule twice - `allPriced`, and `odds`
+     set to null - and branched the screen on `allPriced` alone, so `odds = null` was belt-and-braces
+     that nothing could observe. `mut-351`'s "the slip keeps its total even when the gate says it has
+     none" walked straight past the suite because of it: the mutation was real, changed `odds`, and
+     changed nothing a reader or a check could see. A rule written in two places where only one of
+     them decides anything is the same defect as a check satisfied by either half of a two-part rule
+     (build 331), and it is caught by the same question: what is the smallest edit that keeps every
+     asserted string and still breaks the sentence? So `odds` CARRIES the rule - it is the total, or
+     it is null and there is no total - and `allPriced` survives only to count the priced legs and to
+     choose the Why text. */
+  const allPriced = legs.length > 0 && nPriced === legs.length;
+  odds = allPriced ? odds : null;
   const badge = comb>=0.5 ? '👍 High probability slip' : comb>=0.3 ? '⚖️ Balanced slip' : '🎲 Long-shot slip';
 
   /* Draw No Bet legs void on a draw — the stake comes back and that leg pays 1.00 — so the return
@@ -16437,16 +16680,18 @@ function genSlip(){
      (every DNB leg drawn) and the expected return across every combination. */
   const dnbLegs = legs.filter(l=>l.market==='Draw No Bet' && l.pDraw!=null);
   let dnbRange = '';
-  if(dnbLegs.length){
+  /* build 351 - the range is money, so it is quoted only when every leg carries a real price. The
+     prices are the bookmaker's, not 1/prob, for the same reason the total above is. */
+  if(dnbLegs.length && odds != null){
     let minOdds = 1;
-    for(const l of legs) if(!(l.market==='Draw No Bet' && l.pDraw!=null)) minOdds *= 1/l.prob;
+    for(const l of legs) if(!(l.market==='Draw No Bet' && l.pDraw!=null)) minOdds *= l._real;
     // expected return: each DNB leg either wins (pays its odds) or voids (pays 1.00)
     let ev = 1;
     for(const l of legs){
       if(l.market==='Draw No Bet' && l.pDraw!=null){
         const pw = l.prob*(1-l.pDraw), pv = l.pDraw;      // win outright / voided
-        ev *= pw*(1/l.prob) + pv*1;
-      } else ev *= l.prob*(1/l.prob);
+        ev *= pw*l._real + pv*1;
+      } else ev *= l.prob*l._real;
     }
     dnbRange = `<p>${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
       <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</p>`;
@@ -16457,7 +16702,7 @@ function genSlip(){
      rather than a prediction. The ceiling is quoted because it is the actionable half: it says the
      risk setting is the binding constraint, not the fixture list. */
   let targetNote = '';
-  if(_aim){
+  if(_aim && odds != null){
     const short = odds < _target * 0.995;
     const reachable = _aim.ceiling;
     targetNote = short && _target > reachable * 1.005
@@ -16475,15 +16720,32 @@ function genSlip(){
     `<p>The <b>${slipState.riskPct}%</b> risk setting caps each match on its own. Combining them is what makes the slip riskier than any single leg.</p>`
   ];
   if(dnbRange) whyBits.push(dnbRange);
-  whyBits.push(`<p>Fair odds come from the engine's own probabilities. A bookmaker's price will differ.</p>`);
+  /* 🔑 BUILD 351 (WO-44) — THE "FAIR ODDS" LINE IS DELETED WITH THE NUMBER IT EXCUSED. It read
+     "Fair odds come from the engine's own probabilities. A bookmaker's price will differ.", which
+     is a disclosure under a tap for a price printed in the headline cell. Ken's ruling replaces the
+     number, so the sentence has nothing left to explain. In its place, where a leg has no price,
+     one visible line - never a tooltip - says why there is no total. */
+  whyBits.push(allPriced
+    ? `<p>Every price here is a bookmaker's own, from the capture closest to kick-off. The percentage is the engine's.</p>`
+    : `<p>${SLIP_NO_PRICE_WHY}</p>`);
 
+  /* 🔑 BUILD 351 (WO-44) — NO TOTAL, NO "TO LAND" AND NO RETURNS UNLESS EVERY LEG IS PRICED. The
+     three cells are money, and money built on one unpriced leg is not a bookmaker's arithmetic. The
+     replacement is one plain line in the order's own words, on screen rather than under "Why?". */
   $('slipOut').innerHTML =
-    `<div class="sliphead">
+    (odds != null
+      ? `<div class="sliphead">
        <div class="shcell"><span class="k">Odds</span><span class="v">${odds.toFixed(2)}</span></div>
        <div class="shcell"><span class="k">To land</span><span class="v" style="color:${comb>=0.3?'var(--green2)':'var(--gold)'}">${(100*comb).toFixed(1)}%</span></div>
        <div class="shcell"><span class="k">$10 returns</span><span class="v">$${(10*odds).toFixed(2)}</span></div>
+     </div>`
+      : `<div class="sliphead">
+       <div class="shcell"><span class="k">To land</span><span class="v" style="color:${comb>=0.3?'var(--green2)':'var(--gold)'}">${(100*comb).toFixed(1)}%</span></div>
+       <div class="shcell"><span class="k">Priced legs</span><span class="v">${nPriced} / ${legs.length}</span></div>
      </div>
-     <div class="slipline">${badge} &middot; ${legs.length} leg${legs.length>1?'s':''} &middot; ${loseNote}
+     <div class="subnote"><b style="color:var(--gold)">${SLIP_NO_PRICE}</b></div>`)
+     +
+    `<div class="slipline">${badge} &middot; ${legs.length} leg${legs.length>1?'s':''} &middot; ${loseNote}
        <button class="whybtn" id="slipWhy" aria-expanded="false">Why?</button></div>
      <div class="slipwhy" id="slipWhyBox" hidden>${whyBits.join('')}</div>
      ${targetNote}` +
@@ -16494,7 +16756,7 @@ function genSlip(){
         <div class="lgpick"><span class="lgsel">${escapeHtml(String((l.code && chipCode(l.code)) || l.sel || ''))}</span>
           <span class="lgmkt">${escapeHtml(String(l.market || ''))}</span>
           <span class="lgprob">${(100*l.prob).toFixed(0)}%</span>
-          <span class="lgodds">${(1/l.prob).toFixed(2)}</span></div>
+          <span class="lgodds">${(l._real != null && l._real > 1) ? (+l._real).toFixed(2) : ''}</span></div>
       </button>`).join('') +
     `<button class="btn" id="reGen" style="margin-top:10px">&#8635; Regenerate</button>`;
   {
@@ -16544,8 +16806,25 @@ function genSlipWithSpinner(){
   const btn = $('genSlipBtn');
   if(btn) btn.disabled = true;
   setTimeout(()=>{
-    try{ genSlip(); }
-    finally{ const b2 = $('genSlipBtn'); if(b2) b2.disabled = false; }
+    /* 🔑 BUILD 351 (WO-44) — the slip's own fixtures are priced BEFORE it is built, in the one
+       store, so a leg's price and the total are decided from the same data. The spinner already
+       exists for exactly this kind of wait (build 219), and a failed read falls through to "no
+       price shown" rather than to a fair one. */
+    let _ids = [];
+    try{
+      const _c = slipCandidatesFromBoard({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });
+      for(const _x of (_c || [])) if(_x && _x.f && _x.f.fxid != null) _ids.push(_x.f.fxid);
+    }catch(e){ _ids = []; }
+    /* ⚠ THE BUTTON IS FREED ON EVERY PATH, including a price read that throws before it returns a
+       promise - which is why the `try` wraps the whole chain and `finally` closes it. Build 219's
+       own rule, kept: a disabled button that is never freed is a dead control. */
+    const _free = () => { const b2 = $('genSlipBtn'); if(b2) b2.disabled = false; };
+    try{
+      slipOddsEnsure(_ids)
+        .then(() => { try{ genSlip(); }catch(e){ try{ console.warn('slip:', e); }catch(_){ } } })
+        .catch(() => { try{ genSlip(); }catch(e){ } })
+        .finally(_free);
+    }catch(e){ _free(); }
   }, 30);
 }
 
