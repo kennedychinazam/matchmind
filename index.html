@@ -798,11 +798,14 @@
       <h2>🎯 How the engine is doing</h2>
       <div class="muted" id="moreRecordLine" style="line-height:1.5"></div>
       <div id="moreRecordBreak" style="margin-top:10px"></div>
-      <!-- build 331 - Ken: "Remove that Closing-line value, i don't need it there." It leaves the
-           Smart Bet tab and sits with the record it belongs to. It is NOT deleted: it is condition
-           4 of the 2026-09-20 ruling that took Milestone 17 off Milestone 15, and deleting it puts
-           that dependency back. -->
-      <div id="clvLine" style="margin-top:10px"></div>
+      <!-- BUILD 353 (WO-58) - Ken, 2026-10-17, of the closing-line panel that sat here: "ALSO
+           REMOVE THIS." The PANEL is off the screen; THE MEASUREMENT IS UNTOUCHED AND NOTHING IS
+           DELETED. m15Fetch / m15Build / clvSummary still run, sharedClvPublish still writes the
+           shared row on every publisher run, and the collector still captures the prices it is
+           computed from - because that measurement is condition 4 of Ken's own ruling of
+           2026-09-20, which took Milestone 17 off Milestone 15, and deleting it would put that
+           dependency back. Removing a panel does not touch what it was reading; where the rows can
+           be read is written down in the build notes and the WO-58 report. -->
     </div>
 
     <!-- BUILD 339 - the AI shadow test. Hidden for everyone; opened only for an account whose own
@@ -886,7 +889,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 352;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 353;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -7264,7 +7267,10 @@ function dailyTrackerState(){
    Every Value leg carries `o`, a REAL bookmaker price (builds 301/305), so this is priced at market
    from its first day. `MatchMind-BUILD-328-VALUE-LADDER.md`.
 
-   It shares RECORD_START with the engine record and the tracker: one day, three panels. */
+   It shares RECORD_START with the TRACKER: build 353 gave the engine record its own, earlier start
+   (`RECORD_MERGED_START`) on Ken's ruling and deliberately left this ladder and the tracker's money
+   on 2026-09-19, because every step, stake and balance below is his and he did not ask them to
+   move. Two dates, stated where each is read. */
 const VLADDER_UNIT  = 10;             /* the same $10 the tracker stakes, so one scale reads everywhere */
 const VLADDER_STEPS = 5;              /* Ken: "it should be for 5 times" */
 
@@ -7318,38 +7324,18 @@ function valueLadderLedger(unit){
            nextStep: step, nextStake: u * step, unit: u };
 }
 
-/* Ken, 2026-09-19: *"its own calculator should be separate, below the engine performance in the smart
-   bet tab. all explanation should be brief and all text alignment margins justified."* Three short
-   lines, each `ctxprose` - build 87's own justify rule, `hyphens:auto` and all, because justifying a
-   narrow phone column without it opens visible white rivers. No new style. */
-/* == BUILD 330 - THE NUMBER THAT DECIDES WHETHER CHARGING IS HONEST ============================
-   Ken, 2026-09-20: "file A and do C too."
+/* == BUILD 353 (WO-58) - THE CLOSING-LINE PANEL IS OFF THE SCREEN, AND THE MEASUREMENT IS NOT ===
+   Ken, 2026-10-17: "ALSO REMOVE THIS." Builds 330 and 331 put this number on screen and then moved
+   it to sit with the record it qualifies; 353 takes the panel away entirely. Its renderer is DELETED
+   rather than left unread, for the reason build 351 deleted `fairOdds`: a renderer nothing calls is
+   a panel one line away from coming back by accident.
 
-   ABSENT, NEVER ZERO. No record, an empty record, a failed read, or zero usable rows and this
-   draws NOTHING. "+0.00% over 0 picks" is the silent-zero fault this project has been caught by
-   more than once, and it would be at its worst on the one number a paying reader is owed.
-
-   ONE FIGURE, NOT TWO. The payload carries the de-vigged mean as well, and the screen shows only
-   the raw one. Two numbers side by side invite quoting whichever reads better; the raw move is the
-   honest headline and the pair stays in the record for the filings.
-
-   NO THRESHOLD, NO SIGMA, NO VERDICT - see `clvSummary`. Amendment 2 allows three looks, and a
-   screen is not one of them. */
-function renderClvLine(){
-  const box = $('clvLine'); if(!box) return;
-  const p = (typeof _clvRecord !== 'undefined' && _clvRecord.state === 'loaded') ? _clvRecord.payload : null;
-  const r = p && p.raw;
-  if(!r || !r.n){ box.innerHTML = ''; return; }
-  const mv = r.mean;
-  box.innerHTML = '<div class="card"><h2>\ud83d\udcd0 Closing-line value</h2>'
-    + '<div class="frow"><span class="muted">Mean move after we published</span><b>'
-    + (mv >= 0 ? '+' : '\u2212') + Math.abs(mv).toFixed(2) + '%</b></div>'
-    + '<div class="frow"><span class="muted">Published picks measured'
-    + (p.from ? ' since ' + escapeHtml(shortDay(p.from)) : '') + '</span><b>' + r.n + '</b></div>'
-    + '<div class="subnote ctxprose">Not statistically significant. <b style="color:var(--gold)">'
-    + 'MatchMind has not shown that it beats bookmakers\u2019 closing prices.</b></div>'
-    + '</div>';
-}
+   WHAT IS NOT TOUCHED, AND IT IS EVERYTHING THAT MEASURES. `m15Fetch`, `m15Build` and `clvSummary`
+   are unchanged; `sharedClvPublish` still computes the figure and still writes the shared row on
+   every publisher run; `_clvRecord` is still read into memory with the engine record, because the
+   two travel in one query. The rows keep accumulating and can be read again whenever they are
+   wanted - which matters because that measurement is condition 4 of Ken's ruling of 2026-09-20.
+   Deleting it, rather than its panel, would put Milestone 17's dependency on Milestone 15 back. */
 
 function renderValueLadder(){
   const box = $('valueLadder'); if(!box) return;
@@ -7427,8 +7413,10 @@ function renderValueLadder(){
 function renderDailyTracker(){
   const box = $('dailyTracker'); if(!box) return;
   const st = dailyTrackerState();
-  /* build 328 - one start date with the engine record, so the two panels cannot describe different
-     spans. Cards before it stay in the past-day viewer; they are simply not counted here. */
+  /* build 328 - cards before this date stay in the past-day viewer; they are simply not counted
+     here. 🚩 BUILD 353: the engine record now starts EARLIER (`RECORD_MERGED_START`) on Ken's
+     ruling, and this tracker keeps 2026-09-19 because its figures are money. The two panels
+     therefore describe different spans ON PURPOSE, and each one names its own start on screen. */
   const graded = dailyLogGrade(dailySharedAllRows()).filter(r => r.day >= RECORD_START);
   const cut = (() => { const d = new Date(); d.setDate(d.getDate() - st.days); return d.toISOString().slice(0,10); })();
   const rows = graded.filter(r => r.tier === st.tier && (st.days === 0 || r.day >= cut));
@@ -8173,15 +8161,17 @@ function renderDailySlips(){
 function renderBankerFrozen(row, label, box){
   const l = row.legs[0];
   const _bkPx = storedLegPrice(l, row.build);      // build 351 - a bookmaker's price, or null
-  /* 🔑 BUILD 352 (WO-57) — THE SENTENCE MUST KNOW WHAT THE CHIP BESIDE IT IS SHOWING. Build 351
-     gated its disclosure on the STORED price alone, so on 2026-10-17 this card showed a real live
-     `@ 1.07` and said underneath that it has no bookmaker price. Both halves were true, of two
-     different numbers, and no reader can be expected to work that out. `_lvPx` is the very price
-     `realOddsChip` is about to render - the SAME call on the same arguments, so the chip and the
-     words cannot disagree. Build 351's rule is untouched: the stored figure is never printed as a
-     price, it is only named as the engine's own. */
-  const _lvPx = (_bkPx == null) ? dailyRealPrice(l.fxid, l.code) : null;   // build 352
-  const _lvShown = !!(_lvPx != null && _lvPx > 1);                         // build 352 - realOddsChip's own condition
+  /* 🔑 BUILD 353 (WO-58) — BOTH SUBNOTES ARE GONE AND NOTHING REPLACES THEM. Ken, 2026-10-17,
+     of the two lines this card carried: *"REMOVE THIS, KEEP IT SIMPLE, THESE EXPLANATIONS AREN'T
+     NEEDED."* So the card is teams, market, probability, a BOOKMAKER'S price or none, the result and
+     the button - and no sentence under it at all.
+     WHAT WENT WITH THEM, AND WHY IT IS NOT A LOSS OF DISCLOSURE. The second line existed to name the
+     stored `odds` as the engine's own figure. Ken's instruction is stronger than the disclosure: no
+     figure derived from the engine's probability may be on screen to need naming. The row's stored
+     `odds` is now read by nothing this function prints, so there is nothing left to disclose - which
+     is why the line goes rather than being reworded for the third time in three builds.
+     Build 351's rule still decides the price: `_bkPx` is shown only when it IS a bookmaker's price,
+     and otherwise `realOddsChip` draws a live one or nothing. */
   const g = tipsGradeLegs([l])[0] || { grade:null, score:null };
   const r = tipsResolveFixture(l.d, l.h, l.a);
   const status = g.grade === 'hit'  ? '<span style="color:var(--green2)">Won</span>'
@@ -8220,23 +8210,10 @@ function renderBankerFrozen(row, label, box){
     + '<div class="frow"><span class="muted">Result</span><span>' + status
     + (g.score ? ' <span class="muted">' + escapeHtml(String(g.score)) + '</span>' : '') + '</span></div>'
     + (r ? '<button class="sfchip" id="bankerOpen" style="margin-top:8px">Open this match</button>' : '')
-    + '<div class="subnote" style="margin-top:6px">Issued and held for the day, never re-priced.</div>'
-    /* 🔑 BUILD 351 (WO-44, Amendment 1 item 13) — THE 35 PAST BANKER ROWS ARE NOT REWRITTEN AND NOT
-       PASSED OFF AS A MARKET QUOTE EITHER. Their stored `odds` is 1/probability, so where this card
-       has no bookmaker's price it says in one plain line what the figure on the row actually is.
-       Nothing stored changes; only the words beside it.
-       🔑 BUILD 352 (WO-57) — SHORT, AND IT NAMES WHICH NUMBER IT MEANS. Ken, 2026-10-17:
-       *"fix the wording to be very short and give it the live minute."* 351's three clauses said
-       the card has "no bookmaker price" full stop, which read as a flat contradiction the moment
-       `realOddsChip` put a real live price on the row above it. TWO FORMS, ONE SENTENCE EACH, so
-       the card can never contradict itself again: with a live price beside the pick the line names
-       both numbers and whose each one is; with none it says plainly that the stored figure is not a
-       bookmaker's price. Each form is one clause about ONE NAMED NUMBER, which is what stops it
-       drifting back into a claim about the card as a whole. */
-    + (_bkPx == null && row.odds != null && +row.odds > 1
-         ? '<div class="subnote">The ' + (+row.odds).toFixed(2) + ' stored here is the engine\u2019s figure'
-           + (_lvShown ? '; the @ ' + _lvPx.toFixed(2) + ' above is a bookmaker\u2019s.</div>'
-                       : ', not a bookmaker\u2019s price.</div>') : '')
+    /* 🔑 BUILD 353 (WO-58) — NOTHING FOLLOWS THE BUTTON. The stored `odds` of the row is not read
+       by this renderer at all any more, so the Banker's own figure cannot reach the screen even as a
+       quoted number inside a sentence. That is the rule stated structurally rather than conditionally
+       - build 351's reason for deleting `fairOdds` instead of leaving it unread. */
     + '</div>';
   const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));
 }
@@ -19766,8 +19743,6 @@ function loadSharedRecords(){
     }
     _engineRecordLoading = null;
     try{ renderStrongPicks(); renderMoreRecord(); }catch(e){}
-    /* Guarded separately: a fault in the closing-line line must not stop the record above painting. */
-    try{ renderClvLine(); }catch(e){}
     return _engineRecord;
   })();
   return _engineRecordLoading;
@@ -19792,16 +19767,72 @@ function loadSharedRecords(){
    in every market while the headline admitted 20 of 28. A fourth caller added tomorrow inherits the
    start date instead of forgetting it. */
 const RECORD_START = '2026-09-19';
+/* == 🔑 BUILD 353 (WO-58, Amendment 2) - THE RECORD COUNTS FROM THE FIRST PUBLISHED PICK =====
+   Ken, 2026-10-17, asked for the earlier scores back and then ruled on how: *"No: merge them into
+   the main record."* So the record's window starts at the oldest published pick instead of at
+   `RECORD_START`.
+
+   🚩 AND IT IS A SECOND CONSTANT RATHER THAN A CHANGE TO THE FIRST, WHICH IS THE WHOLE CARE OF THIS
+   BUILD. `RECORD_START` is read by three panels - the record, the PERFORMANCE TRACKER's money and
+   the VALUE LADDER. The ladder is stake-by-stake arithmetic with balances and a next-step figure Ken
+   reads, built on a start of 19 September; dragging it back to July would rewrite every step. He
+   asked for the record and for nothing else, so the record gets its own start and the other two keep
+   theirs. The tracker and the ladder read `RECORD_START` directly in their own filters
+   (`valueLadderRows`, `renderDailyTracker`) and never through `sharedTally`, so the two windows
+   cannot leak into each other.
+
+   ONE CLAMP, STILL IN ONE PLACE. Build 328's rule is kept as it was written: the headline,
+   Yesterday, Last 7 days and the per-market table all reach the payload through `sharedTally`, so
+   this date is applied THERE and a fifth caller added tomorrow inherits it.
+
+   NOTHING IS BACK-FILLED AND NOTHING IS RE-GRADED BY OLD RULES. The shared payload has always held
+   every day (build 328: *"the shared payload keeps every day, so moving this one constant back
+   restores the old figure exactly"*), and every row in it was graded by `engineRecordPayload` ->
+   `pickVerdict` - today's grader, with build 349's 48-hour void rule. Moving the clamp changes which
+   already-graded days are counted and nothing else.
+
+   NO SENTENCE IS ADDED TO THE CARD. The DIRECTOR proposed one line of disclosure and Ken struck it:
+   *"Strike that line - no disclosure sentence. LET IT BE THAT OUR NORMAL RULE STARTS from 19
+   September. DONT WRITE IT HOWEVER"* - recorded here and in the build notes, which is where he said
+   to put it. The card's existing "From <date>" label is not a sentence and is not new; it names the
+   first day counted, which is build 252's standing rule - label FROM the data, never assert a
+   span. */
+const RECORD_MERGED_START = '2026-07-16';
 function shortDay(iso){
   const d = new Date(String(iso) + 'T00:00:00');
   return isNaN(d) ? String(iso) : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
+/* The TRACKER's and the LADDER's start, unchanged. */
 function recordStartText(){ return shortDay(RECORD_START); }
+/* The RECORD's own start (build 353). Two functions rather than one argument, so a caller cannot
+   pass the wrong window by forgetting which panel it is drawing.
+
+   🚩 AND THE LABEL IS READ FROM THE DATA, NOT FROM THE CONSTANT. Measured 2026-10-17 on the live
+   shared row: the payload's earliest day is 2026-08-10, because the only rows dated before it are
+   the 53 reconstructed ones and `engineRecordPayload` excludes those by the build-stamp rule. A card
+   reading "From 16 Jul" over a count that begins on 10 August would assert a span the data does not
+   support - build 252's standing rule, and the very fault build 328 was caught by. Since Ken struck
+   the disclosure sentence, this label is the only thing on the card that says where the count
+   begins, so it may not be wrong by a single day.
+   The constant stays as the FLOOR and the fallback; the day shown is the earliest the record
+   actually counts. `renderDailyTracker`'s all-days chip already derives its own label this way, and
+   this is that rule applied to the panel beside it rather than a second mechanism. */
+function recordFromDay(){
+  const p = _engineRecord.payload;
+  let first = null;
+  if(p && p.days) for(const day of Object.keys(p.days)){
+    if(day < RECORD_MERGED_START) continue;          // the floor is never widened past
+    if(!first || day < first) first = day;
+  }
+  return first || RECORD_MERGED_START;
+}
+function recordFromText(){ return shortDay(recordFromDay()); }
 function sharedTally(from, to, market){
   const p = _engineRecord.payload;
   if(!p || !p.days) return null;
-  /* The caller's window may narrow the start but may never widen it past RECORD_START. */
-  const f0 = (from && from > RECORD_START) ? from : RECORD_START;
+  /* The caller's window may narrow the start but may never widen it past the record's own start
+     (build 353: RECORD_MERGED_START, which is earlier than the tracker's RECORD_START). */
+  const f0 = (from && from > RECORD_MERGED_START) ? from : RECORD_MERGED_START;
   let hits = 0, misses = 0, voids = 0;
   for(const day of Object.keys(p.days)){
     if(day < f0) continue;
@@ -20341,16 +20372,13 @@ async function openFixture(leagueId, f, btn){
    carrying the record while the goals markets are dragging it, and that is exactly the question
    the new 70% floor was meant to act on. */
 function renderMoreRecord(){
-  /* BUILD 331 - drawn here, with the record it qualifies. Guarded, so a fault in the closing-line
-     card cannot take the published record off the screen. */
-  try{ renderClvLine(); }catch(e){ try{ console.warn('clv line:', e); }catch(_){ } }
   const line = $('moreRecordLine'); if(!line) return;
   if(_engineRecord.state !== 'pending' && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();   // build 325
   const stats = recordStats();
   if(!stats || !stats.n){
     line.textContent = _engineRecord.state === 'pending' ? 'Reading the shared record…'
       : _engineRecord.state === 'failed' ? 'Could not read the shared record. It is tried again when this tab is reopened.'
-      : 'No graded picks since ' + recordStartText() + ' yet.';   // build 328
+      : 'No graded picks since ' + recordFromText() + ' yet.';   // build 328; build 353 - the record's own start
     const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
     return;
   }
@@ -20379,7 +20407,7 @@ function renderMoreRecord(){
       + `<div class="shcell"><span class="k">Rate</span><span class="v" style="color:${(+stats.pct)>=50?'var(--green2)':'var(--red)'}">${stats.pct}%</span></div>`
     + `</div>`
     + `<div class="sliphead" style="margin-top:1px">${shc('Yesterday', y)}${shc('Last 7 days', w)}</div>`
-    + `<div class="subnote">From ${escapeHtml(recordStartText())}`
+    + `<div class="subnote">From ${escapeHtml(recordFromText())}`
     /* Build 119's rule, kept: a void is disclosed WITH its reason. Dropping it from the denominator
        silently would overstate nothing, but saying nothing about money that came back is the kind of
        omission this record exists to avoid. Six words instead of a sentence. */
@@ -20439,9 +20467,11 @@ function renderStrongPicks(){
     ? `<div class="subnote" style="margin-top:4px">${stats.legacy} older result${stats.legacy===1?'':'s'} ${stats.legacy===1?'is':'are'} not counted. Until build 62 the app re-priced past matches every time it loaded, so those picks changed after the final whistle and the tally stopped describing anything real. <a href="#" id="recordReset" style="color:var(--gold)">Clear them</a>.</div>`
     : '';
   /* build 328 - the same two numbers, without the paragraph that used to follow them. */
+  /* build 353 - the same record as the card in More, so the same start date. The tracker and the
+     ladder keep `recordStartText()`. */
   $('recordLine').innerHTML = (stats && stats.n
-    ? `<b style="color:var(--green2)">${stats.hits}/${stats.n} correct · ${stats.pct}%</b> <span class="muted">from ${escapeHtml(recordStartText())}</span>`
-    : `<span class="muted">No graded picks since ${escapeHtml(recordStartText())} yet.</span>`) + legacyNote;
+    ? `<b style="color:var(--green2)">${stats.hits}/${stats.n} correct · ${stats.pct}%</b> <span class="muted">from ${escapeHtml(recordFromText())}</span>`
+    : `<span class="muted">No graded picks since ${escapeHtml(recordFromText())} yet.</span>`) + legacyNote;
   { const rr=$('recordReset'); if(rr) rr.onclick = e=>{ e.preventDefault(); clearLegacyRecord(); }; }
 }
 
