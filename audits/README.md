@@ -18,6 +18,13 @@
 | `007_shared_record_freshness.sql` | Quantify differences between the saved publisher tally and the changing live fixture table, including post-tally updates |
 | `lib/bookmaker-metrics.mjs` and `test/bookmaker-metrics.test.mjs` | Independent de-vig, time-safe snapshot selection and paired scoring regression coverage |
 | `PHASE2_FINDINGS.md` | Evidence, caveats and next-phase release gates |
+| `008_league_market_diagnostics.sql` | Sample-size-aware paired bookmaker/model performance by competition |
+| `009_asof_feature_feasibility.sql` | Conservative as-of feature feasibility: before-prediction prior-match history and update timestamps |
+| `010_historical_feature_coverage.sql` | Historical xG, shot, lineup and possession coverage by provider season |
+| `lib/research-contract.mjs` + `test/research-contract.test.mjs` | Pre-issue source provenance, chronological cohort and paired-scoring test contract |
+| `PHASE3_FINDINGS.md` | Feature timing, existing opponent/recency models and evidence-backed next steps |
+| `../docs/CODEX_PHASE3_HANDOFF.md` | Codex-only implementation task for versioned immutable feature snapshots |
+
 
 | `lib/independent-grade.mjs` | Standalone grading and proper scoring functions, used **only** in tests |
 | `test/independent-grade.test.mjs` | Regression tests for all headline/goals markets, HT/FT, DNB, 90-minute scores, postponements and probability scoring |
