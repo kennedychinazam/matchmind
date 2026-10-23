@@ -1,0 +1,25 @@
+name: MatchMind audit regression (development only)
+on:
+  push:
+    branches:
+      - feature/matchmind-quality-upgrade
+    paths:
+      - 'audits/**'
+      - '.github/workflows/audit-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-regressions:
+    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out development branch
+        uses: actions/checkout@v4
+      - name: Report runtime
+        run: node --version
+      - name: Execute isolated grading and probability tests
+        run: node --test audits/test/independent-grade.test.mjs
