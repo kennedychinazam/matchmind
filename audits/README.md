@@ -12,6 +12,13 @@
 | `001_data_quality.sql` | Source completeness for finished/upcoming fixtures, probability validity, forecast/snapshot referential integrity, model-measure age |
 | `002_ledger_reconciliation.sql` | Independently grade published picks against Build 355's 90-minute/DNB/48-hour void rules and compare with the most recently published `shared_records.engine` |
 | `003_probability_calibration.sql` | Pre-kickoff 1X2 probability Brier/log loss, most likely outcome accuracy, monthly performance, confidence buckets, uniform 1/3 benchmark |
+| `004_preissue_market_benchmark.sql` | Pairwise model versus bookmaker de-vigged 1X2 forecasts, restricting odds to a valid <=24-hour snapshot *before* each prediction |
+| `005_time_split_blend_experiment.sql` | Exploratory model/market probability blends across earlier and later time periods (no weights for release) |
+| `006_market_disagreement_diagnostics.sql` | Per-outcome average calibration and disagreement between model and market's top 1X2 selection |
+| `007_shared_record_freshness.sql` | Quantify differences between the saved publisher tally and the changing live fixture table, including post-tally updates |
+| `lib/bookmaker-metrics.mjs` and `test/bookmaker-metrics.test.mjs` | Independent de-vig, time-safe snapshot selection and paired scoring regression coverage |
+| `PHASE2_FINDINGS.md` | Evidence, caveats and next-phase release gates |
+
 | `lib/independent-grade.mjs` | Standalone grading and proper scoring functions, used **only** in tests |
 | `test/independent-grade.test.mjs` | Regression tests for all headline/goals markets, HT/FT, DNB, 90-minute scores, postponements and probability scoring |
 
