@@ -22,4 +22,4 @@ jobs:
       - name: Report runtime
         run: node --version
       - name: Execute isolated grading and probability tests
-        run: node --test audits/test/independent-grade.test.mjs
+        run: node --test audits/test/*.test.mjs
