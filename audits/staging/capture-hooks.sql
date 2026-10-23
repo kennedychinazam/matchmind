@@ -27,7 +27,7 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
  kind:=CASE WHEN pg_trigger_depth()>0 AND receipt-p.made_at<=interval '10 seconds' THEN 'at_issue' ELSE 'late_import' END;
  WITH latest AS (
   SELECT DISTINCT ON(fixture_id,field_name) observation_id,fixture_id,field_name,value
-  FROM research.observations WHERE availability='observed' AND observed_at_utc<=p.made_at
+  FROM research.observations WHERE field_name<>'odds_1x2' AND availability='observed' AND observed_at_utc<=p.made_at
    AND (played_at_utc IS NULL OR played_at_utc<observed_at_utc AND played_at_utc<p.made_at)
    AND (effective_at_utc IS NULL OR effective_at_utc<=p.made_at)
   ORDER BY fixture_id,field_name,observed_at_utc DESC,observation_id DESC
@@ -38,7 +38,7 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
  IF cardinality(ids)>500 THEN RAISE EXCEPTION 'evidence link limit exceeded' USING ERRCODE='54000';END IF;
  -- Only already-recorded server-receipt odds can qualify. Never backdate a new
  -- observation using the mutable/legacy odds table's captured_at.
- SELECT o.value INTO odds FROM research.observations o WHERE o.observation_id=ANY(ids) AND o.fixture_id=fid AND o.field_name='odds_1x2'
+ SELECT o.observation_id,o.value INTO oid,odds FROM research.observations o WHERE o.availability='observed' AND o.observed_at_utc<=p.made_at AND o.fixture_id=fid AND o.field_name='odds_1x2'
   AND o.source_kind='odds' AND o.value->>'fxid'=fid::text
   AND research.utc_instant(o.value->>'captured_at')<=p.made_at
   AND research.utc_instant(o.value->>'captured_at')>=p.made_at-interval '24 hours'
@@ -46,6 +46,8 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
   AND (o.value->>'h')::numeric>1 AND (o.value->>'d')::numeric>1 AND (o.value->>'a')::numeric>1
   AND (1/(o.value->>'h')::numeric+1/(o.value->>'d')::numeric+1/(o.value->>'a')::numeric) BETWEEN 1 AND 1.30
   ORDER BY research.utc_instant(o.value->>'captured_at') DESC,(o.value->>'id')::bigint DESC LIMIT 1;
+ IF oid IS NOT NULL THEN ids:=array_append(ids,oid);END IF;
+ IF cardinality(ids)>500 THEN RAISE EXCEPTION 'evidence link limit exceeded' USING ERRCODE='54000';END IF;
  sid:=gen_random_uuid();
  body:=jsonb_build_object('snapshot_id',sid,'fixture_id',fid::text,'prediction_build',p.build,'model_version','build'||p.build,'model_version_source','derived_from_build','run_id',gen_random_uuid(),'issue_time_utc',to_char(p.made_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'kickoff_at_utc',to_char(ko AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'probabilities',jsonb_build_array(p.p_home,p.p_draw,p.p_away),'pick',p.pick,'pick_probability',p.pick_prob,'market',p.market,'expected_goals',jsonb_build_array(p.xg_home,p.xg_away),'fixture_version_hash',encode(public.digest(original::text,'sha256'),'hex'),'feature_schema_version',1,'source_hash',encode(public.digest(original::text,'sha256'),'hex'),'settlement_policy_version','build355-90m-48h-v1','source_prediction',original,'preissue_odds',odds,'evidence_ids',to_jsonb(ids),'hash_scheme','pg-jsonb-v1','missing',jsonb_build_array('original_ordered_engine_inputs','model_configuration_manifest'));
  IF octet_length(body::text)>65536 THEN RAISE EXCEPTION 'envelope size exceeded' USING ERRCODE='54000';END IF;

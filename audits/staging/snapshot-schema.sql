@@ -94,6 +94,16 @@ DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played
   played:=CASE WHEN b->'played_at_utc'='null'::jsonb THEN null ELSE research.utc_instant(b->>'played_at_utc') END;
   effective:=CASE WHEN b->'effective_at_utc'='null'::jsonb THEN null ELSE research.utc_instant(b->>'effective_at_utc') END;
   IF played>=receipt OR effective>receipt THEN RAISE EXCEPTION 'future observation chronology';END IF;
+  IF b->>'field_name'='odds_1x2' AND b->>'availability'='observed' THEN
+   PERFORM research.check_object(b->'value',ARRAY['id','fxid','captured_at','mins_to_kick','h','d','a'],16384);
+   IF b->>'source_kind'<>'odds' OR b->'value'->>'fxid' IS DISTINCT FROM b->>'fixture_id'
+    OR jsonb_typeof(b->'value'->'id') IS DISTINCT FROM 'number' OR (b->'value'->>'id') !~ '^[1-9][0-9]*$'
+    OR jsonb_typeof(b->'value'->'mins_to_kick') IS DISTINCT FROM 'number'
+    OR jsonb_typeof(b->'value'->'h') IS DISTINCT FROM 'number' OR jsonb_typeof(b->'value'->'d') IS DISTINCT FROM 'number' OR jsonb_typeof(b->'value'->'a') IS DISTINCT FROM 'number'
+    OR (b->'value'->>'h')::numeric<=1 OR (b->'value'->>'d')::numeric<=1 OR (b->'value'->>'a')::numeric<=1
+    OR research.utc_instant(b->'value'->>'captured_at')>receipt THEN RAISE EXCEPTION 'invalid odds chronology/identity/prices';END IF;
+  END IF;
+
   INSERT INTO research.observations VALUES(oid,(b->>'fixture_id')::bigint,b->>'source_kind',b->>'source_ref',(b->>'collector_run_id')::uuid,b->>'field_name',b->'value',b->>'availability',CASE WHEN b->>'availability'='observed' THEN receipt END,receipt,effective,played,1,encode(public.digest((b->'value')::text,'sha256'),'hex'),b->>'source_hash',b);
   ids:=array_append(ids,oid);
  END LOOP;RETURN ids;

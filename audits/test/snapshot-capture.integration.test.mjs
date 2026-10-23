@@ -87,7 +87,7 @@ test('transient capture failures retry capture only, and returned backend errors
 test('pre-issue odds are preserved from server-observed evidence, never from later bookmaker data',async()=>{
  const writer=async batch=>({ids:db.sql(`set role research_collector;select research.append_observations(${literal(batch)})`).split('\n').at(-1).slice(1,-1).split(',')});
  const at=new Date(Date.now()-1000).toISOString();
- for(const [id,h] of [[100,2],[101,2.1]]) await collector.appendObservedFields({runId:randomUUID(),fixtureId:'460',sourceKind:'odds',sourceRef:'synthetic-odds',fields:{odds_1x2:{id,fxid:'460',captured_at:at,mins_to_kick:120,h,d:3,a:4}}},writer);
+ for(const [id,h] of [[101,2.1],[100,2]]) await collector.appendObservedFields({runId:randomUUID(),fixtureId:'460',sourceKind:'odds',sourceRef:'synthetic-odds',fields:{odds_1x2:{id,fxid:'460',captured_at:at,mins_to_kick:120,h,d:3,a:4}}},writer);
  await api.publishWithSnapshot({publish:sourceWriter(460),capture:capture(460)});
  let odds=JSON.parse(db.sql("select envelope->'preissue_odds' from research.prediction_snapshots where fixture_id=460"));
  assert.equal(odds.id,101);
@@ -102,4 +102,17 @@ test('SQL-deduplicated receipts return actual stored IDs to the collector',async
  const second=await collector.appendObservedFields({...input,runId:randomUUID()},writer);
  assert.deepEqual(first.observation_ids,second.observation_ids);
  assert.equal(second.observation_ids[0],db.sql('select observation_id from research.observations where fixture_id=901'));
+});
+test('invalid odds evidence cannot enter the archive or break later capture',async()=>{
+ const writer=async batch=>({ids:db.sql(`set role research_collector;select research.append_observations(${literal(batch)})`).split('\n').at(-1).slice(1,-1).split(',')});
+ for(const patch of [{captured_at:'2099-01-01T00:00:00Z'},{captured_at:'invalid'},{fxid:'other'},{h:'invalid'}]) {
+  await assert.rejects(()=>collector.appendObservedFields({runId:randomUUID(),fixtureId:'999',sourceKind:'odds',sourceRef:'synthetic-odds',fields:{odds_1x2:{id:1,fxid:'999',captured_at:new Date().toISOString(),mins_to_kick:120,h:2,d:3,a:4,...patch}}},writer));
+ }
+});
+test('evidence above 500 links refuses capture visibly without truncating or losing publication',async()=>{
+ for(let start=10000;start<10501;start+=100) db.sql(`set role research_collector;select research.append_observations((select jsonb_agg(jsonb_build_object('observation_id',gen_random_uuid(),'fixture_id',x::text,'source_kind','collector','source_ref','synthetic','collector_run_id',gen_random_uuid(),'field_name','lid','value',39,'availability','observed','feature_schema_version',1,'source_hash',repeat('a',64),'effective_at_utc',null,'played_at_utc',null))from generate_series(${start},${Math.min(start+99,10500)})x))`);
+ const r=await api.publishWithSnapshot({publish:sourceWriter(461),capture:capture(461)});
+ assert.equal(r.published,true);assert.equal(r.capture.ok,false);
+ assert.equal(db.sql('select count(*) from public.predictions where fxid=461'),'1');
+ assert.equal(db.sql('select count(*) from research.prediction_snapshots where fixture_id=461'),'0');
 });

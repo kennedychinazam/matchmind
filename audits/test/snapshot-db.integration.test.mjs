@@ -43,6 +43,8 @@ test('storage limit is enforced before appending, and no public function EXECUTE
 test('backup restores equal records; rollback disables writers without deleting data',()=>{
  const dump=db.dump();db.restore(dump);
  assert.equal(db.sql('select count(*) from research.observations','matchmind_restore'),'1');
+ assert.equal(db.sql('set role research_reader;select count(*) from research.observations','matchmind_restore'),'SET\n1');
+ assert.equal(db.sql("select has_function_privilege('anon','research.append_observations(jsonb)','EXECUTE')",'matchmind_restore'),'f');
  assert.equal(db.sql("select payload_hash from research.observations"),db.sql("select payload_hash from research.observations",'matchmind_restore'));
  db.apply('rollback.sql');
  assert.throws(()=>db.sql(`set role research_collector;select research.append_observations(${literal([observation()])})`),/permission|disabled/);

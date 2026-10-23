@@ -3,6 +3,13 @@ on:
   push:
     branches:
       - feature/matchmind-quality-upgrade
+      - codex/phase3-immutable-snapshots
+    paths:
+      - 'audits/**'
+      - '.github/workflows/audit-regression.yml'
+  pull_request:
+    branches:
+      - feature/matchmind-quality-upgrade
     paths:
       - 'audits/**'
       - '.github/workflows/audit-regression.yml'
@@ -13,13 +20,27 @@ permissions:
 
 jobs:
   audit-regressions:
-    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade'
+    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade' || github.ref == 'refs/heads/codex/phase3-immutable-snapshots' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['20.20.2', '24.19.0']
     steps:
-      - name: Check out development branch
-        uses: actions/checkout@v4
-      - name: Report runtime
-        run: node --version
-      - name: Execute isolated grading and probability tests
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install locked audit browser driver
+        run: npm ci --prefix audits --ignore-scripts --no-audit --no-fund
+      - name: Select installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Pull isolated PostgreSQL image
+        run: docker --host=unix:///var/run/docker.sock pull postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+      - name: Execute all local regressions
         run: node --test audits/test/*.test.mjs

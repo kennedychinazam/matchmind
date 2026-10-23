@@ -17,7 +17,7 @@ export function localDatabase(label) {
    throw Error('local PostgreSQL startup failed');
   },
   close(){if(started){docker(['rm','--force',name]);started=false;}},
-  dump(){return docker(['exec',name,'pg_dump','-U','postgres','-d','matchmind_test','--no-owner','--no-privileges']);},
+  dump(){return docker(['exec',name,'pg_dump','-U','postgres','-d','matchmind_test']);},
   restore(dump){sql('create database matchmind_restore');return sql(dump,'matchmind_restore');}
  };
 }

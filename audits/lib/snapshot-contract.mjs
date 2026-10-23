@@ -16,7 +16,7 @@ export function canonicalJSON(value) {
 }
 export function canonicalHash(value) { return createHash('sha256').update(canonicalJSON(value)).digest('hex'); }
 export function utcInstant(value) {
- const m=typeof value==='string' && value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/);
+ const m=typeof value==='string' && value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/);
  if(!m) throw Error('invalid timestamp: explicit UTC offset required');
  const [,ys,mos,ds,hs,ms,ss,,offset,,oh,om]=m;
  const [y,mo,d,h,mi,s]=[ys,mos,ds,hs,ms,ss].map(Number);
@@ -24,7 +24,8 @@ export function utcInstant(value) {
  const days=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
  if(y<1||mo<1||mo>12||d<1||d>days[mo-1]||h>23||mi>59||s>59||offset!=='Z'&&(Number(oh)>14||Number(om)>59||Number(oh)===14&&Number(om)!==0)) throw Error('invalid timestamp');
  const n=Date.parse(value); if(!Number.isFinite(n)) throw Error('invalid timestamp');
- return new Date(n).toISOString();
+ const iso=new Date(n).toISOString();
+ return m[7]?.length>3 ? iso.replace(/\.\d{3}Z$/,'.'+m[7].padEnd(6,'0')+'Z') : iso;
 }
 function shape(input,keys,max) {
  if(!input||Object.getPrototypeOf(input)!==Object.prototype) throw Error('object required');
@@ -55,8 +56,8 @@ export function validateObservation(input,{receiptAt}={}) {
  if(x.availability==='observed'&&x.value===null) throw Error('observed evidence needs value');
  if(Buffer.byteLength(canonicalJSON(x.value))>LIMITS.fieldBytes) throw Error('field size exceeded');
  for(const k of ['effective_at_utc','played_at_utc']) if(x[k]!==null) x[k]=utcInstant(x[k]);
- if(x.played_at_utc && x.played_at_utc>=receipt) throw Error('played time must precede receipt');
- if(x.effective_at_utc && x.effective_at_utc>receipt) throw Error('effective time is in future');
+ if(x.played_at_utc && epochMicros(x.played_at_utc)>=epochMicros(receipt)) throw Error('played time must precede receipt');
+ if(x.effective_at_utc && epochMicros(x.effective_at_utc)>epochMicros(receipt)) throw Error('effective time is in future');
  return {...x,received_at_utc:receipt,observed_at_utc:x.availability==='observed'?receipt:null,payload_hash:canonicalHash(x.value)};
 }
 export const SNAPSHOT_FIELDS=['snapshot_id','fixture_id','prediction_build','model_version','run_id','issue_time_utc','kickoff_at_utc','probabilities','pick','pick_probability','market','expected_goals','fixture_version_hash','feature_schema_version','source_hash','settlement_policy_version'];
@@ -67,10 +68,22 @@ export function validatePredictionSnapshot(input) {
  if(!Number.isInteger(x.prediction_build)||x.prediction_build<62) throw Error('invalid prediction build');
  if(!hash.test(x.fixture_version_hash)) throw Error('invalid fixture hash');
  x.issue_time_utc=utcInstant(x.issue_time_utc);x.kickoff_at_utc=utcInstant(x.kickoff_at_utc);
- if(x.issue_time_utc>=x.kickoff_at_utc) throw Error('issuance must precede kickoff');
+ if(epochMicros(x.issue_time_utc)>=epochMicros(x.kickoff_at_utc)) throw Error('issuance must precede kickoff');
  x.probabilities=probabilities(x.probabilities);
  if(typeof x.pick_probability!=='number'||!Number.isFinite(x.pick_probability)||x.pick_probability<0||x.pick_probability>1) throw Error('invalid pick probability');
  if(!Array.isArray(x.expected_goals)||x.expected_goals.length!==2||x.expected_goals.some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0)) throw Error('invalid expected goals');
  if(x.settlement_policy_version!=='build355-90m-48h-v1') throw Error('unknown settlement policy');
  return x;
+}
+
+export function epochMicros(value) {
+ const normalized=utcInstant(value),fraction=normalized.match(/\.(\d+)Z$/)[1].padEnd(6,'0');
+ return BigInt(Date.parse(normalized))*1000n+BigInt(fraction.slice(3));
+}
+export function snapshotFromCapture(envelope) {
+ const extra=['model_version_source','source_prediction','preissue_odds','evidence_ids','hash_scheme','missing'];
+ for(const key of Object.keys(envelope)) if(!SNAPSHOT_FIELDS.includes(key)&&!extra.includes(key)) throw Error('unexpected captured field');
+ if(envelope.hash_scheme!=='pg-jsonb-v1'||envelope.model_version_source!=='derived_from_build') throw Error('unknown capture provenance');
+ const x=Object.fromEntries(SNAPSHOT_FIELDS.map(k=>[k,envelope[k]]));
+ return validatePredictionSnapshot(x);
 }

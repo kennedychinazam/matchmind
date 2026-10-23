@@ -1,6 +1,7 @@
 // Isolated orchestration only. It cannot launch the live robot or issue HTTP calls.
 const TRANSIENT=new Set(['40001','40P01','08006','57014']);
 export async function publishWithSnapshot({publish,capture,timeoutMs=10000}) {
+ if(!Number.isFinite(timeoutMs)||timeoutMs<=0||timeoutMs>10000) throw Error('invalid capture timeout');
  if(typeof publish!=='function'||typeof capture!=='function') throw Error('local publisher dependencies required');
  const publication=await publish(); // Never repeated when research capture fails.
  const deadline=Date.now()+timeoutMs;
