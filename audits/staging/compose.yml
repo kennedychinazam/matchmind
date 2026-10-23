@@ -1,0 +1,12 @@
+# Synthetic local PostgreSQL only: no published port, no network, no passwords.
+services:
+  db:
+    image: postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    network_mode: none
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: matchmind_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    labels:
+      matchmind.phase3.synthetic: 'true'

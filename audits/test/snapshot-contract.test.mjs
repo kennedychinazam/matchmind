@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const api = await import('../lib/snapshot-contract.mjs').catch(() => ({}));
 const receipt='2026-10-20T12:00:00Z';
-export const observation = () => ({observation_id:'11111111-1111-4111-8111-111111111111',fixture_id:'123',source_kind:'collector',source_ref:'synthetic',collector_run_id:'22222222-2222-4222-8222-222222222222',field_name:'xg_h',value:1.2,availability:'observed',feature_schema_version:1,source_hash:'a'.repeat(64),effective_at_utc:null,played_at_utc:'2026-10-18T18:00:00Z'});
-export const snapshot = () => ({snapshot_id:'33333333-3333-4333-8333-333333333333',fixture_id:'456',prediction_build:355,model_version:'build355',run_id:'22222222-2222-4222-8222-222222222222',issue_time_utc:receipt,kickoff_at_utc:'2026-10-21T18:00:00Z',probabilities:[.5,.3,.2],pick:'1X',pick_probability:.8,market:'Double Chance',expected_goals:[1.5,1],fixture_version_hash:'b'.repeat(64),feature_schema_version:1,source_hash:'a'.repeat(64),settlement_policy_version:'build355-90m-48h-v1'});
+import {observation,snapshot} from '../test-support/synthetic.mjs';
 test('snapshot contract exports validation functions',()=>assert.equal(typeof api.validateObservation,'function'));
 test('new evidence uses authoritative receipt, rejects caller observation timestamps',()=>{
  const x=api.validateObservation(observation(),{receiptAt:receipt});
