@@ -52,7 +52,7 @@ BEGIN
 END $$;
 CREATE FUNCTION research.utc_instant(v text) RETURNS timestamptz LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE r timestamptz;BEGIN
- IF v IS NULL OR v !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$'
+ IF v IS NULL OR v !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$'
  OR substring(v,12,2)::int>23 OR substring(v,15,2)::int>59 OR substring(v,18,2)::int>59
  OR (right(v,1)<>'Z' AND (substring(v from '([0-9]{2}):[0-9]{2}$')::int>14 OR right(v,2)::int>59 OR (substring(v from '([0-9]{2}):[0-9]{2}$')::int=14 AND right(v,2)::int<>0)))
  THEN RAISE EXCEPTION 'invalid timestamp';END IF;
@@ -77,6 +77,7 @@ DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played
    OR b->>'availability' NOT IN ('unknown','observed') THEN RAISE EXCEPTION 'invalid observation identity/schema';END IF;
   IF jsonb_typeof(b->'field_name') IS DISTINCT FROM 'string' OR length(b->>'field_name') NOT BETWEEN 1 AND 256
    OR jsonb_typeof(b->'source_ref') IS DISTINCT FROM 'string' OR length(btrim(b->>'source_ref')) NOT BETWEEN 1 AND 256 THEN RAISE EXCEPTION 'invalid field/source';END IF;
+  IF b->>'field_name' NOT IN ('lid','home','away','date','time','status','gh','ga','ht_h','ht_a','ft_h','ft_a','provider','home_logo','away_logo','xg_h','xg_a','gprev_h','gprev_a','poss_h','poss_a','shots_h','shots_a','sot_h','sot_a','sib_h','sib_a','sob_h','sob_a','blocked_h','blocked_a','corners_h','corners_a','fouls_h','fouls_a','yellows_h','yellows_a','reds_h','reds_a','saves_h','saves_a','passacc_h','passacc_a','offsides_h','offsides_a','formation_h','formation_a','passes_h','passes_a','referee','venue_id','season','round','lineup_h','lineup_a','events','inj_h','inj_a','odds_1x2') THEN RAISE EXCEPTION 'unsupported observation field';END IF;
   IF octet_length((b->'value')::text)>16384 THEN RAISE EXCEPTION 'field size exceeded';END IF;
   IF (b->>'availability'='unknown') IS DISTINCT FROM (b->'value'='null'::jsonb) THEN RAISE EXCEPTION 'unknown value mismatch';END IF;
   oid:=(b->>'observation_id')::uuid;
@@ -97,7 +98,7 @@ DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played
   IF b->>'field_name'='odds_1x2' AND b->>'availability'='observed' THEN
    PERFORM research.check_object(b->'value',ARRAY['id','fxid','captured_at','mins_to_kick','h','d','a'],16384);
    IF b->>'source_kind'<>'odds' OR b->'value'->>'fxid' IS DISTINCT FROM b->>'fixture_id'
-    OR jsonb_typeof(b->'value'->'id') IS DISTINCT FROM 'number' OR (b->'value'->>'id') !~ '^[1-9][0-9]*$'
+    OR jsonb_typeof(b->'value'->'id') IS DISTINCT FROM 'number' OR (b->'value'->>'id') !~ '^[1-9][0-9]*$' OR (b->'value'->>'id')::numeric>9007199254740991
     OR jsonb_typeof(b->'value'->'mins_to_kick') IS DISTINCT FROM 'number'
     OR jsonb_typeof(b->'value'->'h') IS DISTINCT FROM 'number' OR jsonb_typeof(b->'value'->'d') IS DISTINCT FROM 'number' OR jsonb_typeof(b->'value'->'a') IS DISTINCT FROM 'number'
     OR (b->'value'->>'h')::numeric<=1 OR (b->'value'->>'d')::numeric<=1 OR (b->'value'->>'a')::numeric<=1

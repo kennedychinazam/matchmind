@@ -1,6 +1,8 @@
 import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {localDatabase,literal} from '../test-support/local-db.mjs';
 const db=localDatabase('capture');
 const api=await import('../staging/publisher-harness.mjs').catch(()=>({}));
@@ -107,6 +109,59 @@ test('invalid odds evidence cannot enter the archive or break later capture',asy
  const writer=async batch=>({ids:db.sql(`set role research_collector;select research.append_observations(${literal(batch)})`).split('\n').at(-1).slice(1,-1).split(',')});
  for(const patch of [{captured_at:'2099-01-01T00:00:00Z'},{captured_at:'invalid'},{fxid:'other'},{h:'invalid'}]) {
   await assert.rejects(()=>collector.appendObservedFields({runId:randomUUID(),fixtureId:'999',sourceKind:'odds',sourceRef:'synthetic-odds',fields:{odds_1x2:{id:1,fxid:'999',captured_at:new Date().toISOString(),mins_to_kick:120,h:2,d:3,a:4,...patch}}},writer));
+ }
+});
+test('capture retry is invariant to database session timezone',()=>{
+ const id=db.sql('select snapshot_id from research.prediction_snapshots where fixture_id=456');
+ for(const zone of ['Africa/Lagos','Pacific/Kiritimati','America/New_York']) {
+  const retry=db.sql(`set timezone='${zone}';set role research_publisher;select research.capture_prediction(456)`).split('\n').at(-1);
+  assert.equal(retry,id);
+ }
+});
+test('nonfinite expected goals cannot become accepted immutable snapshots',async()=>{
+ for(const [id,number] of [[470,'Infinity'],[471,'NaN'],[475,'-Infinity']]) {
+  db.sql('set role research_publisher;'+prediction(id).replace('1.5,1',`'${number}'::real,1`));
+  assert.equal(db.sql(`select count(*) from public.predictions where fxid=${id}`),'1');
+  await assert.rejects(capture(id));
+  assert.equal(db.sql(`select count(*) from research.prediction_snapshots where fixture_id=${id}`),'0');
+ }
+});
+test('odds identifiers outside exact JavaScript integer range cannot poison capture',async()=>{
+ const writer=async batch=>({ids:db.sql(`set role research_collector;select research.append_observations(${literal(batch)})`).split('\n').at(-1).slice(1,-1).split(',')});
+ await assert.rejects(()=>collector.appendObservedFields({runId:randomUUID(),fixtureId:'472',sourceKind:'odds',sourceRef:'synthetic-odds',fields:{odds_1x2:{id:1e19,fxid:'472',captured_at:new Date().toISOString(),mins_to_kick:120,h:2,d:3,a:4}}},writer));
+ assert.equal(db.sql('select count(*) from research.observations where fixture_id=472'),'0');
+});
+test('SQL rejects misleading shadow fallback, missing hash and wrong issuance cohort',()=>{
+ const sid=db.sql('select snapshot_id from research.prediction_snapshots where fixture_id=456');
+ const body={shadow_id:randomUUID(),snapshot_id:sid,candidate_version:'identity-final',configuration_hash:'c'.repeat(64),visibility:'shadow',probabilities:[.5,.3,.2],pick:'1X',feature_manifest_hash:'b'.repeat(64),fallback_reason:'missing_evidence',cohort:'exploratory',confirmatory_eligible:false,issued_pick_is_baseline:true};
+ for(const patch of [...['missing_evidence','adjustment_disabled','model_unavailable'].map(fallback_reason=>({fallback_reason,probabilities:[.6,.2,.2]})),{feature_manifest_hash:null},{configuration_hash:null},{cohort:'prospective'},{fallback_reason:'unknown'}]) assert.throws(()=>db.sql(`set role research_collector;select research.append_shadow(${literal({...body,...patch})})`));
+});
+test('actual trigger permission failure cannot abort publication or claim a snapshot receipt',async()=>{
+ db.sql('revoke select on public.predictions from research_owner');
+ try {
+  const r=await api.publishWithSnapshot({publish:sourceWriter(473),capture:capture(473)});
+  assert.equal(r.published,true);assert.equal(r.capture.ok,false);assert.equal(r.capture.code,'42501');
+  assert.equal(db.sql('select count(*) from public.predictions where fxid=473'),'1');
+  assert.equal(db.sql('select count(*) from research.prediction_snapshots where fixture_id=473'),'0');
+ }finally{db.sql('grant select on public.predictions to research_owner');}
+ await capture(473)();
+ assert.equal(db.sql('select count(*) from public.predictions where fxid=473'),'1');
+});
+test('concurrent publishers produce exactly one source row and one snapshot',async()=>{
+ const run=promisify(execFile),env={...process.env};
+ for(const k of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']) delete env[k];
+ const execute=command=>run('docker',['--host=unix:///var/run/docker.sock','exec',db.name,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','matchmind_test','-c',command],{env,timeout:10000});
+ await Promise.all([execute('begin;set role research_publisher;'+prediction(474)+';select pg_sleep(0.2);commit;'),execute('set role research_publisher;'+prediction(474))]);
+ assert.equal(db.sql('select count(*) from public.predictions where fxid=474'),'1');
+ assert.equal(db.sql('select count(*) from research.prediction_snapshots where fixture_id=474'),'1');
+});
+test('SQL shadow cohorts follow original issuance across timezone day boundaries',()=>{
+ for(const [id,issued,cohort] of [[478,'2026-10-01T00:30:00+01:00','development'],[479,'2026-10-01T01:00:00+01:00','exploratory']]) {
+  db.sql('set role research_publisher;'+prediction(id).replace('clock_timestamp()',`'${issued}'::timestamptz`));
+  const sid=db.sql(`select snapshot_id from research.prediction_snapshots where fixture_id=${id}`);
+  const body={shadow_id:randomUUID(),snapshot_id:sid,candidate_version:'offset-identity',configuration_hash:'d'.repeat(64),visibility:'shadow',probabilities:[.5,.3,.2],pick:'1X',feature_manifest_hash:'b'.repeat(64),fallback_reason:'adjustment_disabled',cohort,confirmatory_eligible:false,issued_pick_is_baseline:true};
+  db.sql(`set role research_collector;select research.append_shadow(${literal(body)})`);
+  assert.equal(db.sql(`select envelope->>'cohort' from research.shadow_forecasts where snapshot_id='${sid}'`),cohort);
  }
 });
 test('evidence above 500 links refuses capture visibly without truncating or losing publication',async()=>{

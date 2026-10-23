@@ -1,7 +1,7 @@
 -- Apply only to the isolated synthetic DB after snapshot-schema.sql + permissions.sql.
 BEGIN;
 SET LOCAL ROLE research_owner;
-CREATE FUNCTION research.capture_prediction(fid bigint) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+CREATE FUNCTION research.capture_prediction(fid bigint) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET timezone='UTC' AS $$
 DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction_snapshots;sid uuid;receipt timestamptz;ko timestamptz;
  ids uuid[];oid uuid;obs research.observations;kind text;odds jsonb;prob_sum numeric;BEGIN
  PERFORM research.check_budget(65536);
@@ -19,7 +19,7 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
  OR p.pick IS NULL OR p.market IS NULL OR p.home IS NULL OR p.away IS NULL OR p.lid IS NULL
  OR p.p_home IS NULL OR p.p_draw IS NULL OR p.p_away IS NULL
  OR p.p_home NOT BETWEEN 0 AND 1 OR p.p_draw NOT BETWEEN 0 AND 1 OR p.p_away NOT BETWEEN 0 AND 1
- OR p.pick_prob IS NULL OR p.pick_prob NOT BETWEEN 0 AND 1 OR p.xg_home IS NULL OR p.xg_away IS NULL OR p.xg_home<0 OR p.xg_away<0 THEN RAISE EXCEPTION 'invalid original probability/lineage';END IF;
+ OR p.pick_prob IS NULL OR p.pick_prob NOT BETWEEN 0 AND 1 OR p.xg_home IS NULL OR p.xg_away IS NULL OR p.xg_home<0 OR p.xg_away<0 OR p.xg_home::text IN ('NaN','Infinity','-Infinity') OR p.xg_away::text IN ('NaN','Infinity','-Infinity') THEN RAISE EXCEPTION 'invalid original probability/lineage';END IF;
  prob_sum:=p.p_home::numeric+p.p_draw::numeric+p.p_away::numeric;
  IF abs(prob_sum-1)>.005 THEN RAISE EXCEPTION 'invalid probability distribution';END IF;
  -- Only the INSERT trigger may classify a contemporaneous capture. Explicit repair/import
@@ -76,10 +76,16 @@ DECLARE base research.prediction_snapshots;prior jsonb;sid uuid;sum_p numeric;v 
  PERFORM research.check_object(b,ARRAY['shadow_id','snapshot_id','candidate_version','configuration_hash','visibility','probabilities','pick','feature_manifest_hash','fallback_reason','cohort','confirmatory_eligible','issued_pick_is_baseline'],65536);
  PERFORM research.check_budget(octet_length(b::text)*2);
  IF b->>'visibility' IS DISTINCT FROM 'shadow' OR b->'confirmatory_eligible' IS DISTINCT FROM 'false'::jsonb OR b->'issued_pick_is_baseline' IS DISTINCT FROM 'true'::jsonb
-  OR b->>'configuration_hash' !~ '^[0-9a-f]{64}$' OR b->>'feature_manifest_hash' !~ '^[0-9a-f]{64}$'
+  OR jsonb_typeof(b->'configuration_hash') IS DISTINCT FROM 'string' OR jsonb_typeof(b->'feature_manifest_hash') IS DISTINCT FROM 'string'
+  OR (b->>'configuration_hash' ~ '^[0-9a-f]{64}$') IS DISTINCT FROM true OR (b->>'feature_manifest_hash' ~ '^[0-9a-f]{64}$') IS DISTINCT FROM true
   OR jsonb_typeof(b->'candidate_version') IS DISTINCT FROM 'string' OR length(b->>'candidate_version') NOT BETWEEN 1 AND 256 THEN RAISE EXCEPTION 'invalid private shadow lineage';END IF;
  SELECT * INTO STRICT base FROM research.prediction_snapshots WHERE snapshot_id=(b->>'snapshot_id')::uuid;
- IF b->'pick'<>base.envelope->'pick' THEN RAISE EXCEPTION 'issued baseline pick changed';END IF;
+ IF b->>'cohort' IS DISTINCT FROM (CASE WHEN base.issue_time_utc>='2026-11-01T00:00:00Z'::timestamptz THEN 'prospective' WHEN base.issue_time_utc>='2026-10-01T00:00:00Z'::timestamptz THEN 'exploratory' ELSE 'development' END) THEN RAISE EXCEPTION 'incorrect issuance cohort';END IF;
+ IF b->'fallback_reason'<>'null'::jsonb THEN
+  IF jsonb_typeof(b->'fallback_reason') IS DISTINCT FROM 'string' OR b->>'fallback_reason' NOT IN ('adjustment_disabled','missing_evidence','model_unavailable') THEN RAISE EXCEPTION 'invalid fallback reason';END IF;
+  IF b->'probabilities' IS DISTINCT FROM base.envelope->'probabilities' THEN RAISE EXCEPTION 'fallback must equal original baseline';END IF;
+ END IF;
+ IF b->'pick' IS DISTINCT FROM base.envelope->'pick' THEN RAISE EXCEPTION 'issued baseline pick changed';END IF;
  IF jsonb_typeof(b->'probabilities') IS DISTINCT FROM 'array' OR jsonb_array_length(b->'probabilities')<>3 THEN RAISE EXCEPTION 'invalid shadow probabilities';END IF;
  sum_p:=0;
  FOR v IN SELECT * FROM jsonb_array_elements(b->'probabilities') LOOP

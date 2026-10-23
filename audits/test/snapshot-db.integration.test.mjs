@@ -24,7 +24,7 @@ test('public and unrelated roles cannot read or execute private writers',()=>{
  assert.equal(db.sql("set role research_reader;select count(*) from research.observations"),'SET\n1');
 });
 test('SQL rejects backdated receipt, unknown fields, invalid timing and oversized field values',()=>{
- for(const patch of [{observed_at_utc:'2020-01-01T00:00:00Z'},{received_at_utc:'2020-01-01T00:00:00Z'},{field_name:null},{value:'x'.repeat(16384)},{played_at_utc:'2099-01-01T00:00:00Z'},{effective_at_utc:'2026-02-30T00:00:00Z'},{feature_schema_version:2},{availability:'unknown'}]) assert.throws(()=>db.sql(`set role research_collector;select research.append_observations(${literal([{...observation(),...patch}])})`));
+ for(const patch of [{observed_at_utc:'2020-01-01T00:00:00Z'},{received_at_utc:'2020-01-01T00:00:00Z'},{field_name:null},{field_name:'unexpected_field'},{value:'x'.repeat(16384)},{played_at_utc:'2099-01-01T00:00:00Z'},{effective_at_utc:'2026-02-30T00:00:00Z'},{feature_schema_version:2},{availability:'unknown'}]) assert.throws(()=>db.sql(`set role research_collector;select research.append_observations(${literal([{...observation(),...patch}])})`));
 });
 test('retries preserve observation IDs and changed duplicate payloads abort atomically',()=>{
  db.sql(`set role research_collector;select research.append_observations(${literal([observation()])})`);
@@ -50,4 +50,8 @@ test('backup restores equal records; rollback disables writers without deleting 
  assert.throws(()=>db.sql(`set role research_collector;select research.append_observations(${literal([observation()])})`),/permission|disabled/);
  assert.equal(db.sql('select count(*) from research.observations'),'1');
  db.apply('permissions.sql');
+});
+
+test('SQL timestamp validation preserves microseconds accepted by the wire contract',()=>{
+ assert.equal(db.sql("select to_char(research.utc_instant('2026-10-20T13:00:00.123456+01:00')at time zone 'UTC','YYYY-MM-DD HH24:MI:SS.US')"),'2026-10-20 12:00:00.123456');
 });
