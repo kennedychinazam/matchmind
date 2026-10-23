@@ -66,7 +66,7 @@ DECLARE ctl research.control;used bigint;BEGIN
  IF used+extra_bytes>ctl.max_bytes THEN RAISE EXCEPTION 'research storage limit exceeded' USING ERRCODE='54000';END IF;
 END $$;
 CREATE FUNCTION research.append_observations(batch jsonb) RETURNS uuid[] LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played timestamptz;effective timestamptz;BEGIN
+DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played timestamptz;effective timestamptz;latest research.observations;BEGIN
  IF jsonb_typeof(batch) IS DISTINCT FROM 'array' OR jsonb_array_length(batch)>100 OR octet_length(batch::text)>2097152 THEN RAISE EXCEPTION 'batch size invalid';END IF;
  PERFORM research.check_budget(octet_length(batch::text)*2);
  FOR b IN SELECT * FROM jsonb_array_elements(batch) LOOP
@@ -84,6 +84,11 @@ DECLARE b jsonb;prior jsonb;ids uuid[]:='{}';oid uuid;receipt timestamptz;played
   IF FOUND THEN
    IF prior<>b THEN RAISE EXCEPTION 'conflicting observation identifier';END IF;
    ids:=array_append(ids,oid);CONTINUE;
+  END IF;
+  SELECT * INTO latest FROM research.observations WHERE fixture_id=(b->>'fixture_id')::bigint AND field_name=b->>'field_name' AND source_kind=b->>'source_kind' AND source_ref=b->>'source_ref' ORDER BY received_at_utc DESC,observation_id DESC LIMIT 1;
+  IF FOUND AND latest.value=b->'value' AND latest.availability=b->>'availability'
+   AND latest.input->'played_at_utc'=b->'played_at_utc' AND latest.input->'effective_at_utc'=b->'effective_at_utc' THEN
+   ids:=array_append(ids,latest.observation_id);CONTINUE;
   END IF;
   receipt:=clock_timestamp();
   played:=CASE WHEN b->'played_at_utc'='null'::jsonb THEN null ELSE research.utc_instant(b->>'played_at_utc') END;
