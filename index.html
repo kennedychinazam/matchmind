@@ -107,6 +107,14 @@
   .lbody{font-size:.86rem; line-height:1.65; color:var(--text);}
   .lbody h3{font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:var(--gold);
             margin:16px 0 6px;}
+  /* 🔑 BUILD 355 (WO-61, Amendment 2) - Ken: *"ensure all writing in the legal pages is align
+     justified and humanized"*. Justified, and `hyphens:auto` is not decoration: justifying a narrow
+     phone column without it stretches word-spacing into visible white rivers, which reads worse
+     than ragged-right. The last line stays ragged, as normal typesetting does. Only PARAGRAPHS and
+     the page's lead notice are justified - headings, lists, the version footer and the dashed gap
+     blocks keep their own alignment, per the amendment. */
+  .lbody p, .lbody .notice{text-align:justify; text-align-last:left;
+                           hyphens:auto; -webkit-hyphens:auto;}
   .lbody p{margin:0 0 9px;}
   .lbody ul{margin:0 0 9px; padding-left:18px;}
   .lbody li{margin-bottom:5px;}
@@ -944,7 +952,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 354;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 355;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -3176,6 +3184,14 @@ function scoreMap(){ const m={}; if(afState.scores&&afState.scores.list) for(con
    keep reading exactly the row they read before this build. */
 function liveRowFor(fxid){
   if(fxid == null || fxid === '') return null;
+  /* 🔑 BUILD 355 (WO-61, Amendment 1 item 11) — A SETTLED FIXTURE HAS NO LIVE ROW, FROM ANY SOURCE.
+     The delete in `sharedResultsLoad` kills the row this function's first source holds. The SECOND
+     source can resurrect the fault on its own: `scoreMap()` is the Scores tab's window, refreshed
+     only while that tab is open, so it can still be holding `2H` for a match that has since
+     finished - and then a settled leg would show a live chip again, by a different route. One line
+     here states the invariant once, in the single reader every surface goes through, instead of
+     repairing it per surface. */
+  if(_sharedResFinal.has(String(fxid))) return null;
   const lv = _liveByFx[String(fxid)];
   if(lv) return lv;
   return scoreMap()[fxid] || null;
@@ -5778,11 +5794,24 @@ const DAILY_FLOOR_PRIMARY = {
    0.45 is the only floor whose measured gap is not materially negative (-0.39, sigma -0.22), and on
    n 803 that is not decisive either way - which is why Amendment 1 files a prospective look at
    n 150 BEFORE this ships, with reversion as the recorded expectation. */
+/* 🔑 BUILD 355 (WO-61 scope 4) — KEN'S BAND, NAMED. Declared here rather than beside the card
+   table below because `DAILY_TIER_FLOORS` is initialised before it and would otherwise read a
+   constant that does not exist yet. The reasoning is at `DAILY_CARD_LEG_FLOORS`. */
+const DAILY_CARD_FLOOR_LO = 0.65;
+const DAILY_CARD_FLOOR_HI = 0.70;
+/* 🔑 BUILD 355 (WO-61 scope 4) — BOLD'S HT/FT OVERRIDE COMES INTO KEN'S BAND. Build 333 set it at
+   0.45, which is the only floor whose measured gap is not materially negative. Ken's ruling of
+   2026-10-17 is *"make it 65% to 70% now"*, and a floor that admits an exception is not a floor, so
+   the nine codes sit at `DAILY_CARD_FLOOR_LO` like everything else on a card.
+   MEASURED BOTH WAYS BEFORE IT MOVED, because the DIRECTOR reserved it: over the 26 replayed days
+   Bold builds on **3 days with HT/FT left at 0.45 and 3 days with it clamped to 0.65**. The clamp
+   costs nothing, so there was nothing to trade. Build 333 is not overruled on calibration; its
+   floor is simply below the one Ken has now set for every card leg. */
 const DAILY_TIER_FLOORS = {
   safe: { BTS: 0.65 },
-  bold: { '1/1':0.45, '1/X':0.45, '1/2':0.45,
-          'X/1':0.45, 'X/X':0.45, 'X/2':0.45,
-          '2/1':0.45, '2/X':0.45, '2/2':0.45 }
+  bold: { '1/1':DAILY_CARD_FLOOR_LO, '1/X':DAILY_CARD_FLOOR_LO, '1/2':DAILY_CARD_FLOOR_LO,
+          'X/1':DAILY_CARD_FLOOR_LO, 'X/X':DAILY_CARD_FLOOR_LO, 'X/2':DAILY_CARD_FLOOR_LO,
+          '2/1':DAILY_CARD_FLOOR_LO, '2/X':DAILY_CARD_FLOOR_LO, '2/2':DAILY_CARD_FLOOR_LO }
 };
 function floorsForTier(base, tier){
   const ov = DAILY_TIER_FLOORS[tier && tier.key];
@@ -5821,6 +5850,73 @@ function floorsForTier(base, tier){
    is the bluff Milestone 8 forbids. The two changes are one build for that reason. */
 const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, { 'U35':0.65 });
 
+/* ══ 🔑 BUILD 355 (WO-61 scope 4) — THE CARD-LEG FLOOR IS 65-70%, AND IT IS THE CARD'S ALONE ══════
+   Ken, 2026-10-17, having been shown the arithmetic: *"make it 65% to 70% now."*
+
+   WHY HIS OWN LIMITS REQUIRE IT. At fair prices 5.00 over five legs needs 1.380 a leg and 10.00
+   over eight needs 1.334, which are 72.5% and 75.0% - both above today's floors, so at fair prices
+   nothing would have to move. **But the cards have been priced at real bookmaker prices since build
+   351.** A price carries a margin, so the price on offer for a given true probability is lower than
+   the fair one: at a 5% margin a 1.380 real price is a true probability near 68.8% and a 1.334 real
+   price near 71%. Reaching his targets at his leg counts therefore needs legs in the mid-to-high
+   sixties, and that is what this table admits.
+
+   🔑 KEN HAS RULED (A), AND THIS IS THE WHOLE OF IT: THE FLOOR IS FOR CARD LEGS ONLY.
+   `PICK_GATE.MIN_PROB` stays 0.70, `DAILY_FLOOR_PRIMARY` above is untouched, and the published
+   record keeps the standard it has been measured at. `DAILY_FLOOR_PRIMARY` is still what
+   `bankerOf` and `boardBankerOf` read (they pass `null` to `dailyEligible`), so the strongest read
+   and the board are unchanged too. This table is read at exactly one place, `DAILY_FLOOR_STEPS`,
+   which only the daily card loop uses.
+
+   ⚠ AND IT CANNOT CARD A FIXTURE THE APP WITHHOLDS, which is the worry the order raised against
+   (A). `slipCandidates` applies `engineBacksFixture`, whose last line is `!gateNow(L, f)` - the
+   fixture's own ladder pick must already clear `max(PICK_GATE.MIN_PROB, the competition's bar)`
+   before it can supply any leg at all. So this floor only widens WHICH MARKET on an
+   already-published fixture may be a card leg; it never puts a card on a fixture the rest of the
+   app refuses. A 66% Over 2.5 can now be a leg on a match whose 1X cleared 0.70, and that is the
+   only thing that changes.
+
+   🚨 AND THERE IS NO LANDED RATE FOR THIS BAND, WHICH MUST BE SAID RATHER THAN SMOOTHED OVER. The
+   gate has been 0.70 since the record began, so the app has NEVER published a pick between 65% and
+   70%: `predictions` 0, withheld 0, `predictions_retired` 0. There is no realised rate for the band
+   and there cannot be one until some land. What was measured instead is the engine's own
+   CALIBRATION there, walk-forward over 19,647 legs the engine had not seen, with the publish gate,
+   the evidence floor and the skill rule all applied:
+
+       band          legs   claimed   landed      gap    95% interval on landed
+       0.65-0.70     3446     67.5%    68.0%     -0.5    66.4% to 69.6%
+       0.70-0.75     3983     72.5%    72.7%     -0.2    71.3% to 74.1%
+       0.75+         8876     80.8%    80.6%     +0.2    79.8% to 81.4%
+
+   **The band UNDER-claims by half a point, exactly as the band above it does.** It is a calibration
+   figure and not a result, and it is the nearest honest substitute for a rate that does not exist.
+   Reported and deciding nothing: X2 is the one code that over-claims in the band (+3.3 on n 379),
+   the same away-side over-claim build 251 found at 0.76, and it is clamped to 0.70 here like
+   everything else rather than being given an exception.
+
+   WRITTEN OUT, ONE NAMED ENTRY PER SELECTION, because the order asks for it to be visible and
+   auditable rather than scattered or computed. Every entry is its primary floor clamped into
+   [LO, HI]; every `null` above stays `null`, because "never offered" is not a floor. The lock
+   asserts that every value is null or inside the band and that nothing hard-codes another one. */
+const DAILY_CARD_LEG_FLOORS = {
+  '1' :DAILY_CARD_FLOOR_HI,  'X' :DAILY_CARD_FLOOR_HI,  '2' :DAILY_CARD_FLOOR_HI,   // 0.70 / 0.75 / 0.75 primary
+  '1X':DAILY_CARD_FLOOR_HI,  'X2':DAILY_CARD_FLOOR_HI,                              // 0.76 / 0.85 primary
+  '1D':null, '2D':null,                                                             // Draw No Bet: never offered, build 248
+  'BTS':DAILY_CARD_FLOOR_LO, 'NBT':null,                                            // BTTS Yes 0.60 -> LO; BTTS No never offered
+  'O15':DAILY_CARD_FLOOR_HI, 'O25':DAILY_CARD_FLOOR_LO, 'O35':DAILY_CARD_FLOOR_LO,  // 0.70 / 0.60 / 0.60 primary
+  '1/1':null, '1/X':null, '1/2':null,                                               // HT/FT: never offered except on Bold,
+  'X/1':null, 'X/X':null, 'X/2':null,                                               // where DAILY_TIER_FLOORS also uses LO
+  '2/1':null, '2/X':null, '2/2':null,
+  'U15':DAILY_CARD_FLOOR_HI, 'U25':null, 'U35':DAILY_CARD_FLOOR_HI                  // 0.78 / never / 0.80 primary
+};
+/* The wider rung keeps its shape and its one armed code (build 296's U35), now at the band's floor
+   rather than at the primary set's 0.65 - the same number, reached from the other direction. */
+const DAILY_CARD_LEG_FLOORS_WIDE =
+  Object.assign({}, DAILY_CARD_LEG_FLOORS, { 'U35':DAILY_CARD_FLOOR_LO });
+/* The four words a wider-rung card adds, written ONCE: `DAILY_FLOOR_STEPS` carries this same
+   constant as its `note`, so the ladder and the card cannot word the same step differently. */
+const CARD_WIDE_NOTE = 'from the wider calibrated range';
+
 /* BUILD 301 - the price ladder, and it is a LADDER for the same reason the floors are: a card is
    built first from legs a bookmaker is actually quoting, so its total is a number a user can obtain.
    Only when no such card exists does it fall back to engine prices, and then it says so. The step
@@ -5834,9 +5930,14 @@ const DAILY_FLOOR_FALLBACK = Object.assign({}, DAILY_FLOOR_PRIMARY, { 'U35':0.65
 const DAILY_PRICE_STEPS = [
   { key: 'market', marketOnly: true }
 ];
+/* 🔑 BUILD 355 (WO-61 scopes 4 and 5) — THE CARD'S OWN FLOORS, AND A `note` SHORT ENOUGH TO SIT
+   INSIDE THE ONE LINE THE CARD IS NOW ALLOWED. Build 296's rule is unchanged: a card built from the
+   wider rung must not read identically to one built at the primary floors. What changed is the
+   length - Ken: *"i don't need caveat anywhere there"* - so the three-sentence notice becomes four
+   words inside the card's single line, and this is the one place they are written. */
 const DAILY_FLOOR_STEPS = [
-  { key:'primary',  floors:DAILY_FLOOR_PRIMARY,  note:'' },
-  { key:'fallback', floors:DAILY_FLOOR_FALLBACK, note:'Built from the wider calibrated range \u2014 longer legs, each still priced honestly.' }
+  { key:'primary',  floors:DAILY_CARD_LEG_FLOORS,      note:'' },
+  { key:'fallback', floors:DAILY_CARD_LEG_FLOORS_WIDE, note:CARD_WIDE_NOTE }
 ];
 
 /* Kept as the single lookup so a floor is applied per SELECTION, never per market name. */
@@ -5975,7 +6076,20 @@ const DAILY_TIERS = [
      BUILD 301/302's OTHER RULE STILL BINDS: `band[0] == target`. 5.00 promised is 5.00 minimum. */
   { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:5, preferGoals:true,
     blurb:'At least 5.00 at real bookmaker prices, from five legs at most.' },
-  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:11, preferGoals:true,
+  /* 🔑 BUILD 355 (WO-61 scope 3) - BOLD IS EIGHT LEGS, DOWN FROM ELEVEN. Ken, 2026-10-17:
+     *"the legs in the bold are too much"* and *"10 odds max is 8."* Value stays at five on the same
+     instruction (*"raise value to max of 5 legs"*, which it already was) and Safe stays 2-3.
+
+     WHAT IT COSTS, MEASURED RATHER THAN ASSERTED. Over the 16 Bold cards issued in the 30 days to
+     2026-10-18, 15 carried more than 8 legs and only ONE of them could still reach [10.00, 12.50]
+     from 8 of its own legs: 10 or 11 legs at a median 1.27 each multiply to the band, and 8 of the
+     same legs reach about 6.7. **That 88% is the cost of this cap WITHOUT the new floor, not the
+     cost of this build** - the point of the 65-70% floor below is that it supplies longer legs, and
+     eight legs near 1.334 reach 10.00 with room to spare. Replayed through the app's own search
+     over the same window: Bold builds on 12 of 26 days today, 7 at 8 legs alone, 15 at the new
+     floor alone, and 3 with every rule in this build applied. The pool, not the cap, is what binds
+     on the days it fails. `wo61-harness-2026-10-18.txt` carries the run. */
+  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:8, preferGoals:true,
     /* build 302 - the old blurb said "a one-in-ten shot at fair prices". The card is no longer
        priced at fair, so that sentence was quietly describing a different product than the one on
        screen: at market prices a 10.00 slip is a WORSE than one-in-ten shot, because the margin is
@@ -6018,6 +6132,54 @@ const DAILY_MARKET_RANK = (c) => {
   if(c.code === 'U15' || c.code === 'U25' || c.code === 'U35') return 3;   // last resort
   return 2;                                                          // Winner / DC / DNB
 };
+
+/* ══ 🔑 BUILD 355 (WO-61 scope 2) — NO ONE MARKET MAY FILL A CARD ════════════════════════════════
+   Ken, 2026-10-17: *"i don't like what is going on in the smartbet, over 1.5 that seems to be
+   failing is everywhere."*
+
+   HE IS RIGHT, AND IT IS WORSE THAN "EVERYWHERE" SOUNDS. Of the 78 cards issued in the 30 days to
+   2026-10-18, **47 were made of ONE market family and Over goals was 78.3% of every leg issued**,
+   against a Winner family on 5.3%. `preferGoals` is on for all three tiers (build 295, and its
+   honesty gain is real and is not being undone), and the band search maximises goals legs, so a
+   pool that is rich in Over goals produces a card that is nothing else.
+
+   THE FAMILY, NOT THE CODE, IS WHAT KEN IS COMPLAINING ABOUT. Over 1.5 and Over 2.5 are two codes
+   and one complaint, so a cap per CODE would leave a card of four O15 and four O25 looking exactly
+   like the card he photographed. The families are build 240's own, read off `DAILY_MARKET_RANK`
+   rather than restated, so this file and the ranking cannot disagree about what a market is.
+
+   HALF, AND MEASURED. Replayed over the same 26 days with the cap enforced inside the search:
+   Over goals falls from 78.3% of every issued leg to **57.8%** and the Winner family rises from
+   5.3% to **27.8%**, at a cost of ONE tier-day in 78. Three-fifths gives 60.0% for the same one
+   tier-day, so the tighter of the two is taken. `Math.ceil` so a 3-leg Safe may carry two of a
+   family and a 2-leg Safe must carry two families, which is the point.
+
+   ⚠ AND THE CAP IS ENFORCED INSIDE THE WALK, NOT ON ITS ANSWER. Rejecting the search's answer
+   afterwards loses the card: measured, that alone took the three tiers from 24 filled tier-days to
+   7. Pruning inside the walk lets a different in-band combination answer instead, which is the
+   difference between a diverse card and no card. */
+const DAILY_MARKET_SHARE_MAX = 0.5;
+function dailyMarketFamily(c){
+  if(!c) return 'Winner family';
+  if(c.market === 'BTTS') return 'BTTS';
+  if(c.code === 'O15' || c.code === 'O25' || c.code === 'O35') return 'Over goals';
+  if(c.code === 'U15' || c.code === 'U25' || c.code === 'U35') return 'Under goals';
+  if(/^[1X2]\/[1X2]$/.test(String(c.code || ''))) return 'HT/FT';
+  return 'Winner family';
+}
+function dailyShareCap(n){ return Math.max(1, Math.ceil(n * DAILY_MARKET_SHARE_MAX)); }
+/* The rule stated once, so the search's prune and any check of a finished card ask the same
+   question of the same legs. */
+function dailyWithinShare(legs){
+  if(!legs || !legs.length) return true;
+  const cap = dailyShareCap(legs.length), c = {};
+  for(const l of legs){
+    const f = dailyMarketFamily(l);
+    c[f] = (c[f] || 0) + 1;
+    if(c[f] > cap) return false;
+  }
+  return true;
+}
 
 /* ══ BUILD 274 — A WINNER LEG NEEDS A COMPETITION THAT HAS EARNED ONE ═══════════════════════════
    Ken: "games where the engine has no measured [skill] and just home advantage should not be in
@@ -6556,10 +6718,19 @@ function dailyBandSearch(pool, tier){
   const isGoalLeg = c => DAILY_MARKET_RANK(c) <= 1;   // BTTS (0) and Over goals (1) — Ken's own order
   let best = null, ceiling = 1;
   for(let n = 0; n < Math.min(items.length, tier.maxLegs); n++) ceiling *= dailyLegOdds(items[n]);
+  /* 🔑 BUILD 355 (WO-61 scope 2) — THE MARKET-SHARE CAP, ENFORCED INSIDE THE WALK. `fam` is the
+     running count of the combination being built, so a branch that has already taken as many of one
+     family as the LONGEST possible card could carry is pruned, and a finished combination is
+     admitted only if it keeps the cap at its own length. Neither test is a filter on the answer:
+     rejecting the answer afterwards loses the card, and the whole point is that another in-band
+     combination takes its place. `preferGoals` still maximises goals legs, now within the cap, so
+     build 295's measured gain survives inside Ken's limit rather than against it. */
+  const famCap = dailyShareCap(tier.maxLegs);
+  const fam = {};
   const pick = [];
   (function walk(start, prod, ng){
     if(pick.length >= tier.minLegs){
-      if(prod >= lo && prod <= hi){
+      if(prod >= lo && prod <= hi && dailyWithinShare(pick)){
         const d = Math.abs(prod - tier.target);
         const better = !best ? true
                      : preferGoals ? (ng > best.ng || (ng === best.ng && d < best.d))
@@ -6571,12 +6742,62 @@ function dailyBandSearch(pool, tier){
     for(let i = start; i < items.length; i++){
       const p = prod * dailyLegOdds(items[i]);
       if(p > hi + 1e-9) continue;                    // already past the roof; longer legs only worsen it
+      const fk = dailyMarketFamily(items[i]);
+      if((fam[fk] || 0) + 1 > famCap) continue;      // no card this tier can build would keep the cap
+      fam[fk] = (fam[fk] || 0) + 1;
       pick.push(items[i]); walk(i + 1, p, ng + (isGoalLeg(items[i]) ? 1 : 0)); pick.pop();
+      fam[fk]--;
       if(!preferGoals && best && best.d < 1e-9) return;
     }
   })(0, 1, 0);
   return { legs: best ? best.legs : [], reached: best ? best.reached : 1,
            ceiling: ceiling, pool: items.length };
+}
+
+/* ══ 🔑 BUILD 355 (WO-61 scope 5) — ONE LINE ON A CARD, AND NEVER TWO ════════════════════════════
+   Ken, 2026-10-17: *"remove all these explanation line … or make it very brief in one line, max 1
+   and half line"* and *"i don't need caveat anywhere there."* He approved this wording on
+   2026-10-18: *"I say Yes to the wording and the headings."*
+
+   WHAT WENT, DESCRIBED RATHER THAN QUOTED, because the lock asserts those sentences are absent
+   from this file and a comment that reproduces them is a comment the lock reads as the thing it
+   forbids (the same trap as a mutation find carrying comment text). Four lines used to sit on a
+   card: the legs-and-price line; the one about the legs being fixed for the day, the card being
+   the same on every device and the results arriving as matches end; the one explaining that a
+   lost leg loses the card and counting the legs that cannot change it; and the all-void line.
+   A freshly built card added a sentence naming the price basis, and a wider-rung card added a
+   three-sentence notice. The longest state below is 52 characters.
+
+   WHAT A READER STILL NEEDS, AND WHERE IT NOW IS. That every leg must win: the line says so. Whether
+   the card is settled: the Result cell already reads "3 of 8 settled", or WON, LOST or VOID, so the
+   old line was saying the same count twice and the rest of it was caveat. Why a card reads LOST with
+   legs still open (build 349's reason for writing that sentence at all): the lost state says it in
+   seven words.
+
+   🔑 AND THE TWO DISCLOSURES BECAME HEADINGS RATHER THAN DISAPPEARING. "real bookmaker odds" is
+   Ken's own build-351 rule and "engine win chance" is build 351 and 353's - no figure derived from
+   the engine's probability may sit on screen unnamed. They now label the two cells that hold those
+   exact numbers, "Bookmaker odds" and "Engine win chance", which is a stronger place for a
+   disclosure than a sentence underneath that a reader skips. Ken approved that in the same words.
+
+   ⚠ ONE FUNCTION, FOUR SURFACES. Today's card, a past card and a freshly built one all call this,
+   so the wording cannot drift between them - the fault this project has paid for in `historyLeagues`,
+   in send-push's grader and in `renderDailyTracker`. And no em dash: Ken, 2026-10-18, *"remember to
+   use less em dashes if must use them at all."* */
+function cardLine(nLegs, state, stepKey){
+  if(state === 'void') return 'Every leg voided, so the stake comes back.';
+  if(state === 'lost') return 'One leg has lost, so the card is lost.';
+  return 'All ' + nLegs + ' leg' + (nLegs === 1 ? '' : 's') + ' must win'
+       + ((stepKey && stepKey !== 'primary') ? ', ' + CARD_WIDE_NOTE : '') + '.';
+}
+/* The state a card is in, from the grade it already carries. `void` outranks `lost` because an
+   all-void card has no verdict to explain, and `lost` outranks the default because that is the one
+   thing the Result cell cannot say on its own. */
+function cardState(g){
+  if(!g) return 'open';
+  if(g.allVoid) return 'void';
+  if(g.lost) return 'lost';
+  return 'open';
 }
 
 /* ══ BUILD 242 — THE DAILY SLIP LEDGER AND THE $10 TRACKER ══════════════════════════════════════
@@ -6714,6 +6935,31 @@ async function sharedResultsLoad(rows){
       if(!isFin(raw.status) || raw.gh == null || raw.ga == null) continue;
       const f = settledRow(raw);                                   // build 320 - the 90-minute score
       _sharedResFinal.add(String(f.fxid));
+      /* ══ 🔑 BUILD 355 (WO-61, Amendment 1 item 11) — THE CHIP DIES WHERE THE LEG SETTLES ════════
+         Ken photographed his Banker card showing the live chip **53' 0-0** beside **"Result — Won
+         2–0"**: the same card asserting the match was in its 53rd minute and that it finished 2-0.
+
+         THE CAUSE, FOUND RATHER THAN GUESSED, AND DESCRIBED RATHER THAN QUOTED (a block comment
+         that looks like code is read as code by the lock's own line scanner). The live read skips
+         any fixture already in the settled set, and the only place that removes a fixture's live row
+         is the else-branch of that same read. So the removal depends on the read, and the read
+         excludes exactly the fixtures that need removing: a match's last live state sticks for ever
+         the moment it settles. Build 350's own note - *"a row is
+         written only while it is in play, and deleted the moment it is not"* - was true only while
+         the fixture was still being asked about, and **nobody tested the transition**, which is why
+         this shipped.
+
+         SO THE DELETE MOVES TO THE POINT OF SETTLING. One line, here, where a fixture enters the
+         settled cache: settling and un-chipping become the same event and cannot drift apart. No
+         settled fixture is re-read to undo a bug, which is what the order forbids.
+
+         🚨 IT IS A DELETE, NOT A READ, AND THE SAFETY RULE IS UNCHANGED. WO-53's guarantee is that
+         no live score can reach a grade: `_liveByFx` is display-only, `liveRowFor` is its only
+         reader and `liveChip` is `liveRowFor`'s only caller. This function still never READS the
+         live store, and removing a row from it cannot put a score anywhere. The lock asserts the
+         narrower rule now - sharedResultsLoad may delete from the store and may not read it - and
+         asserts the TRANSITION itself, which is the check that never existed. */
+      delete _liveByFx[String(f.fxid)];
       for(const l of (want[String(f.fxid)] || [])){
         _sharedResByKey[l.d + '|' + l.h + '|' + l.a] = { hg: f.gh, ag: f.ga, hth: f.ht_h, hta: f.ht_a };
         added++;
@@ -7655,10 +7901,14 @@ function dailyFrozenCard(tier, r, isShared){
               + (cardTotalIsReal(g) ? '<span class="shsub" style="color:var(--green2)">+$' + (10 * (paid - 1)).toFixed(2) + '</span>' : '')
             : '<span class="v" style="color:var(--red)">LOST</span>'
               + (cardTotalIsReal(g) ? '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>' : '');
+  /* 🔑 BUILD 355 (WO-61 scope 5) — THE HEADINGS CARRY THE TWO DISCLOSURES THE CARD'S SENTENCE USED
+     TO CARRY. Ken approved it: *"I say Yes to the wording and the headings."* `.shcell .k` wraps,
+     so a two-word or three-word key costs a line of key height and nothing else; `.v` keeps its
+     one-line ellipsis discipline (build 265) because the VALUES are unchanged. */
   return '<div class="sliphead">'
-    + (realTotal ? '<div class="shcell"><span class="k">Odds</span><span class="v">' + odds.toFixed(2) + '</span></div>' : '')
+    + (realTotal ? '<div class="shcell"><span class="k">Bookmaker odds</span><span class="v">' + odds.toFixed(2) + '</span></div>' : '')
     + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
-    + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
+    + '<div class="shcell"><span class="k">Engine win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
     + '</div>'
     + (realTotal ? '' : '<div class="subnote"><b style="color:var(--gold)">' + SLIP_NO_PRICE + '</b></div>')
     + legs.map((l, i) => {
@@ -7668,10 +7918,23 @@ function dailyFrozenCard(tier, r, isShared){
                    : lg === 'void' ? '<span style="color:var(--gold)">VOID</span>'
                    : legNotGraded(lg, g.legScores ? g.legScores[i] : null) ? LEG_NOT_GRADED
                    : '<span style="color:var(--muted)">&middot;</span>';
+        /* 🔑 BUILD 355 (WO-61, Amendment 1 item 12) — EVERY LEG SHOWS A SCORE. Ken, of his Value
+           card: the legs showed a tick, a cross and a price and *"no score anywhere"*, neither while
+           a match was being played nor after it finished. The 90-minute score was ALREADY COMPUTED
+           one line above and thrown away: `dailyLogGrade` reads `m.hg`/`m.ag` to decide hit or miss
+           and returns `legScores`, which this renderer used only to decide whether to print "not
+           graded". `dailyPastCards` has drawn the same cell since build 265, so this is that cell,
+           not a second one, and no new read is made for it.
+           THE TWO CAN NEVER SHOW AT ONCE, which is what the order asks the lock to assert: the live
+           score lives in `liveChip`, and a settled fixture has no live row at all (the delete in
+           `sharedResultsLoad`, and the guard in `liveRowFor`). In play: the chip's minute and live
+           score. Settled: this cell's 90-minute score, and no chip. */
+        const sc = g.legScores ? g.legScores[i] : null;
         return '<button type="button" class="slipleg" data-leg-fx="'
         + escapeHtml(String(l.fxid != null ? l.fxid : '')) + '">'
         + '<div class="lgtop"><span class="lgteams">' + mark + ' ' + escapeHtml(String(l.h + ' v ' + l.a)) + '</span>'
-        + liveChip(l.fxid) + '</div>'
+        + liveChip(l.fxid)
+        + (sc ? '<span class="lgscore">' + escapeHtml(String(sc)) + '</span>' : '') + '</div>'
         + '<div class="lgpick"><span class="lgsel">' + escapeHtml(String((l.code && chipCode(l.code)) || l.code || '')) + '</span>'
         + '<span class="lgmkt">' + escapeHtml(String(l.market || '')) + '</span>'
         + '<span class="lgprob">' + Math.round(100 * (l.p || 0)) + '%</span>'
@@ -7686,21 +7949,11 @@ function dailyFrozenCard(tier, r, isShared){
     /* 🔑 BUILD 351 (WO-44) - "engine price" is not a price this app may name any more, so the
        alternative is not a second label but the absence of a total. Where every leg is priced the
        line says so; where one is not, the line above has already said there is no price. */
-    + '<div class="subnote">' + legs.length + ' leg' + (legs.length === 1 ? '' : 's') + ', all must win · '
-    + (realTotal ? 'real bookmaker odds · ' : '')
-    + 'engine win chance</div>'
-    /* Says WHY it no longer moves, because a card that silently stopped updating would read as a
-       stale screen rather than a deliberate one. Build 297 adds the second half: the LEGS are fixed
-       and the RESULTS are not, which is the distinction Ken asked for in those words. */
-    /* BUILD 305 - Ken: "no writing should exceed one line". Four sentences became one clause. */
-    + '<div class="subnote">Legs fixed for today — '
-    + (isShared ? 'the same card on every device' : 'this device only, not published yet')
-    + '; results fill in as each match finishes.</div>'
-    /* build 349 - the same sentence the past cards carry, for the same reason. */
-    + (g.lost && (g.settledLegs || 0) < legs.length
-         ? '<div class="subnote">A leg has lost, so the card is lost — an accumulator needs every leg. '
-           + (legs.length - (g.settledLegs || 0)) + ' leg(s) still have no result; nothing they do can change this.</div>' : '')
-    + (g.allVoid ? '<div class="subnote">Every leg voided, so the stake comes back: no profit and no loss.</div>' : '');
+    /* 🔑 BUILD 355 (WO-61 scope 5) — ONE LINE, from `cardLine`, and never two. `isShared` no
+       longer changes any wording: the uniformity promise was one of the four lines Ken struck, and
+       a card that asserts nothing about other devices cannot assert it falsely (build 300's worry
+       answered by saying less rather than by saying it more carefully). */
+    + '<div class="subnote">' + cardLine(legs.length, cardState(g), g.step) + '</div>';
 }
 function dailyPastCards(day){
   const rows = dailyLogGrade(dailySharedDayRows(day));   // build 325 - never this device's log
@@ -7731,7 +7984,7 @@ function dailyPastCards(day){
                 + (realTotal ? '<span class="shsub" style="color:var(--red)">&minus;$10.00</span>' : '');
     out += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
          + '<div class="sliphead">'
-         + (realTotal ? '<div class="shcell"><span class="k">Odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>' : '')
+         + (realTotal ? '<div class="shcell"><span class="k">Bookmaker odds</span><span class="v">' + r.odds.toFixed(2) + '</span></div>' : '')
          + '<div class="shcell"><span class="k">Result</span>' + status + '</div>'
          + '<div class="shcell"><span class="k">Legs</span><span class="v">' + r.legs.length + '</span></div>'
          + '</div>'
@@ -7773,12 +8026,9 @@ function dailyPastCards(day){
             arithmetic; this says so on the row itself, because a silent re-price is its own defect. */
          + (realTotal && r.hadVoid && !r.allVoid ? '<div class="subnote">A leg voided — paid at ' + paid.toFixed(2)
                         + ', not ' + r.odds.toFixed(2) + '.</div>' : '')
-         /* build 349 - why a card reads LOST with legs still open. Said on the card itself, because
-            a verdict that arrives before the last result looks like an error unless it is explained. */
-         + (r.lost && r.settledLegs < r.legs.length
-              ? '<div class="subnote">A leg has lost, so the card is lost — an accumulator needs every leg. '
-                + (r.legs.length - r.settledLegs) + ' leg(s) still have no result; nothing they do can change this.</div>' : '')
-         + (r.allVoid ? '<div class="subnote">Every leg voided, so the stake comes back: no profit and no loss.</div>' : '')
+         /* 🔑 BUILD 355 (WO-61 scope 5) — the same one line today's card carries, from the same
+            function, so a past day and today cannot word the same fact differently. */
+         + '<div class="subnote">' + cardLine(r.legs.length, cardState(r), r.step) + '</div>'
          + '</div>';
   }
   return out;
@@ -7980,6 +8230,40 @@ function renderDailySlips(){
      publisher neither republishes nor re-renders it and falls through to building a fresh one. */
   for(const r of _log) if(r.day === _today && frozenCardStillAllowed(r)) _frozen[r.tier] = r;
 
+  /* ══ 🔑 BUILD 355 (WO-61 scope 1) — NO FIXTURE ON TWO CARDS OF THE SAME DAY ════════════════════
+     Ken, 2026-10-17: *"please avoid repeating same pick in all card, because if it fails, all card
+     fails. the picks in all card should be unique."*
+
+     HE IS DESCRIBING SOMETHING THAT HAPPENED. Over the 30 days to 2026-10-18 a fixture sat on two
+     cards on **19 of 30 days**: 96 shared pairs over 78 cards, 56 of those cards touched, most
+     often Bold with Safe (44) and Bold with Value (26), and the Banker's own match shared with
+     another card 13 times. One result could take three cards down, which is exactly his point.
+
+     THE ORDER IS BANKER, SAFE, VALUE, BOLD, so the shortest and most-read cards choose first and
+     the longest card, which has the most legs to find, absorbs what is left. `DAILY_TIERS` is
+     already [safe, value, bold], so the only new thing is the Banker, whose fixture comes out of
+     the pool before any tier is built.
+
+     ⚠ EVERY PATH ADDS TO `taken`, AND THAT IS THE WHOLE RISK IN THIS CHANGE. A tier's card can
+     arrive three ways - the shared row, this device's frozen row, or a fresh search - and a `taken`
+     set fed by only one of them would let Value re-use a fixture Safe had already shown. That is
+     "one correction, two surfaces", the defect this project signs its name to, and the lock counts
+     the three additions rather than looking for one.
+
+     WHAT IT COSTS, MEASURED: replayed over 26 days, unique legs alone take the three tiers from 36
+     filled tier-days to 30. With Bold's 8-leg cap and the market cap as well it is 23, and the
+     whole of that is reported in `wo61-harness-2026-10-18.txt` and in the WO-61 report. A tier that
+     cannot be filled honestly is not issued, which is the existing rule and not a new one. */
+  const _taken = new Set();
+  const _takeLegs = legs => { for(const l of (legs || [])){
+      const fx = (l && l.fxid != null) ? l.fxid : (l && l.f && l.f.fxid != null ? l.f.fxid : null);
+      if(fx != null && fx !== '') _taken.add(String(fx));
+    } };
+  /* The Banker first. Its ISSUED row, not `bankerOf()`: the card a reader is looking at is the one
+     that must come out of the pool, and a live re-search can disagree with it. */
+  { const _bk = tipsSharedRow('banker');
+    if(_bk && Array.isArray(_bk.legs)) _takeLegs(_bk.legs); }
+
   /* 🚨 BUILD 297 — THE SHARED ROW OUTRANKS THE LOCAL ONE, ALWAYS. Build 293's freeze made the
      device's own `localStorage` authoritative, which is precisely how two of Ken's phones ended up
      showing different cards on the same morning. `daily_slips` is the single copy; the local ledger
@@ -7991,6 +8275,7 @@ function renderDailySlips(){
       /* Mirror it locally so the tracker grades exactly what everyone was shown. Insert-once keeps
          this idempotent, and a local row that disagrees is overwritten rather than trusted. */
       dailyLogAdopt(_today, tier, shared);
+      _takeLegs(shared.legs);                    // build 355 - path 1 of 3
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
              + dailyFrozenCard(tier, shared, true) + '</div>';
       continue;
@@ -8008,6 +8293,7 @@ function renderDailySlips(){
           .then(() => renderDailySlips())
           .catch(() => {});
       }
+      _takeLegs(fz.legs);                        // build 355 - path 2 of 3
       cards += '<div class="card"><h2>' + escapeHtml(tier.name) + '</h2>'
              + dailyFrozenCard(tier, fz, false) + '</div>';
       continue;
@@ -8030,7 +8316,12 @@ function renderDailySlips(){
              + '</div></div>';
       continue;
     }
-    const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(cands, floorsForTier(st.floors, tier)));
+    /* build 355 (WO-61 scope 1) - the pool is what is LEFT. Filtered before `dailyEligible` runs,
+       so a fixture an earlier card took cannot even reach the per-fixture selection step, and a
+       fixture whose best market is gone does not silently fall through to a second market of the
+       same match. */
+    const _free = cands.filter(c => !(c.f && c.f.fxid != null && _taken.has(String(c.f.fxid))));
+    const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(_free, floorsForTier(st.floors, tier)));
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
        different claim from one built at the primary floors and must not read identically. */
@@ -8087,6 +8378,11 @@ function renderDailySlips(){
       aim = dailyBandSearch(pools[0], tier);      // nothing offered - keeps pool for the notice
     }
     const legs = aim.legs || [];
+    /* 🔑 BUILD 355 (WO-61 scope 1) - path 3 of 3, and the lock caught its absence rather than a
+       reader doing so: a tier built FRESH has to take its fixtures out of the pool exactly as a
+       shared or frozen one does, or Value re-uses what Safe has just been built from. Counted by
+       the lock, not looked for, because two of three paths passes a presence test. */
+    _takeLegs(legs);
     let comb = 1; for(const l of legs) comb *= l.prob;
     const reached = aim.reached || 1;
     /* A window has a roof as well as a floor, so "reached" is no longer just "cleared the target".
@@ -8129,8 +8425,8 @@ function renderDailySlips(){
             the natural reading of a card about winnings. Never arithmetically wrong; ambiguously
             labelled. It shows PROFIT now, signed. */
       body = '<div class="sliphead">'
-           + '<div class="shcell"><span class="k">Odds</span><span class="v">' + reached.toFixed(2) + '</span></div>'
-           + '<div class="shcell"><span class="k">Win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
+           + '<div class="shcell"><span class="k">Bookmaker odds</span><span class="v">' + reached.toFixed(2) + '</span></div>'
+           + '<div class="shcell"><span class="k">Engine win chance</span><span class="v">' + (100 * comb).toFixed(1) + '%</span></div>'
            + '<div class="shcell"><span class="k">Profit on $10</span><span class="v" style="color:var(--green2)">+$' + (10 * (reached - 1)).toFixed(2) + '</span></div>'
            + '</div>'
            /* build 267 — today's legs are tappable too. Ken asked for "the matches on the slip",
@@ -8146,8 +8442,9 @@ function renderDailySlips(){
                /* build 351 (WO-44) - the candidate's own real price, which `dailyEligible` has
                   guaranteed is present; 1/prob is gone from here as it is from everywhere else. */
                + '<span class="lgodds">' + ((l._real != null && l._real > 1) ? (+l._real).toFixed(2) : '') + '</span></div></button>').join('')
-           + '<div class="subnote">' + legs.length + ' legs, all must win · '
-           + 'win chance is the product of the legs, and the price is the bookmaker\'s</div>'
+           /* 🔑 BUILD 355 (WO-61 scope 5) — one line, the same function every other surface uses.
+              A freshly built card has no grade yet, so its state is always the default. */
+           + '<div class="subnote">' + cardLine(legs.length, 'open', (step && step.key) || 'primary') + '</div>'
            /* 🚨 BUILD 296 — THE STEP IS NOW SAID ON THE CARD, AND UNTIL THIS BUILD IT WAS NOT.
               The ladder's own comment claims "which step answered is carried through to the card,
               because a slip built from the wider range is a different claim from one built at the
@@ -8165,14 +8462,12 @@ function renderDailySlips(){
               honest caption for a card this build can no longer build: `dailyEligible` refuses an
               unpriced candidate, so `priceStep` is always 'market'. A branch that cannot be reached
               but still reads as a live rule is exactly `DAILY_FLOOR_FALLBACK` before build 296. */
-           + '<div class="subnote">Priced at real bookmaker odds.</div>'
-           + ((step && step.key !== 'primary' && step.note)
-               ? '<div class="notice">' + escapeHtml(String(step.note))
-                 + ' No slip cleared the primary floors today, so this card was built from the '
-                 + 'wider calibrated range. Every leg is still priced honestly; the mix leans to '
-                 + 'Under 3.5 because on a day like this those are the only reads the engine '
-                 + 'stands behind.</div>'
-               : '');
+           /* 🔑 BUILD 355 (WO-61 scope 5) — BOTH OF THESE ARE GONE AND NEITHER IS LOST. "Priced at
+              real bookmaker odds." is now the Bookmaker odds heading above the number it describes.
+              The wider-rung notice was three sentences of exactly the caveat Ken struck; build 296's
+              obligation is that the card must not read identically, and `cardLine` discharges it in
+              four words inside the single line. */
+           + '';
     }
     if(legs.length) dailyLogRecord(tier, legs, reached, (step && step.key) || 'primary', false);   // insert-once, build 199's rule
     /* 🚨 BUILD 297 — SEED THE SHARED ROW, THEN RE-READ AND RE-RENDER FROM IT. This client computed
@@ -8610,7 +8905,10 @@ function renderTipListFrozen(market, legs, box, footer){
   const _row = tipsSharedRow('tips');
   const _part = _row ? /^tips-partial-([0-9]+)$/.exec(String(_row.step || '')) : null;
   box.insertAdjacentHTML('beforeend', footer != null ? '<div class="subnote">' + footer + '</div>'   // build 345 - the forward list
-    : '<div class="subnote">Issued and held for the day, never re-priced · '
+    /* 🔑 BUILD 355 (WO-61 scope 6) — Ken, 2026-10-17: *"Remove that line from the tips list
+       too."* "Issued and held for the day, never re-priced" was the last survivor of the
+       explanation lines, and the count beside it is what a reader actually uses. */
+    : '<div class="subnote">'
     + settled + ' of ' + graded.length + ' settled'
     + (_part ? ' · ' + _part[1] + ' had already kicked off when the day was issued' : '')
     + '</div>');
@@ -20570,36 +20868,36 @@ function legalRecordLine(){
   if(!s || !s.n) return '<p>The published record has not loaded on this device yet. It is on the '
     + 'More tab under "How the engine is doing".</p>';
   return '<p><b>' + s.hits + ' of ' + s.n + ' published picks have landed since '
-    + escapeHtml(recordFromText()) + ' — ' + s.pct + '%.</b> That is read from the published '
+    + escapeHtml(recordFromText()) + ', ' + s.pct + '%.</b> That is read from the published '
     + 'record, so it moves as matches finish'
     + (s.voids ? ', and ' + s.voids + ' void picks had the stake returned rather than counting either way' : '')
     + '.</p>';
 }
 const LEGAL_PAGES = {
   terms: { title: 'Terms of Use', body: function(){ return `
-<div class="notice">These terms govern your use of MatchMind. By using the app you accept them. If you do not accept them, do not use the app.</div>
+<div class="notice">These terms govern your use of MatchMind. By using the app you accept them. If you don’t accept them, don’t use the app.</div>
 <h3>1. What MatchMind is</h3>
-<p>MatchMind is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market, and after the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
+<p>MatchMind is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market. After the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
 <h3>2. What MatchMind is not</h3>
 <p>MatchMind is not a bookmaker, a betting exchange or a betting intermediary. It accepts no bets, takes no stake, holds no customer money, pays out nothing, and places no bet for you.</p>
-<p>The app offers no gambling facility of any kind: there is nothing in it to stake money on, no account to fund and no payment of any sort. Nothing in the app is a recommendation to place a bet, and nothing in it is financial, investment, tax or legal advice.</p>
+<p>The app offers no gambling facility of any kind. There is nothing in it to stake money on, no account to fund and no payment of any sort. Nothing in the app is a recommendation to place a bet. Nothing in it is financial, investment, tax or legal advice.</p>
 <h3>3. Who may use it</h3>
-<p>You must be 18 or over to use MatchMind. The app does not verify your age, and by using it you confirm that you are 18 or over. The app is not offered to anyone under 18, and an account found to belong to someone under 18 will be closed and its data deleted.</p>
+<p>You must be 18 or over to use MatchMind. The app does not check your age, and by using it you confirm that you are 18 or over. We don’t offer the app to anyone under 18. If we find that an account belongs to someone under 18, we close it and delete its data.</p>
 <h3>4. The forecasts, and the rules they are published under</h3>
-<p>These are the rules the app runs on. They are the same for every match and every user, and they are not varied case by case.</p>
+<p>These are the rules the app runs on. They are the same for every match and every user, and we don’t vary them case by case.</p>
 <ul>
-<li><b>Publication and freezing.</b> A forecast is published no earlier than ${PUBLISH_AHEAD_DAYS} days before kick-off. Once published it is written once and never rewritten — not while the match is awaited, and not after it is played.</li>
-<li><b>Void.</b> A match not played within ${VOID_AFTER_HOURS} hours of its original kick-off time is void. It is never graded and counts as neither a hit nor a miss, in the same way a bookmaker returns the stake on a postponed bet.</li>
-<li><b>Multiples.</b> A card is lost the moment one of its selections loses. It is not held open pending the rest.</li>
-<li><b>Prices.</b> Any price displayed is a real bookmaker\u2019s price. Where none is available no price is shown, and no card is built from a selection that has no price.</li>
-<li><b>Withheld forecasts.</b> Where the engine’s confidence for a match falls below the threshold measured for that competition, no forecast is published for that match.</li>
+<li><b>Publication and freezing.</b> A forecast is published no earlier than ${PUBLISH_AHEAD_DAYS} days before kick-off. Once published it is written once and never rewritten, neither while the match is awaited nor after it is played.</li>
+<li><b>Void.</b> A match not played within ${VOID_AFTER_HOURS} hours of its original kick-off time is void. It is never graded, and it counts as neither a hit nor a miss. A bookmaker returns the stake on a postponed bet, and this is the same idea.</li>
+<li><b>Multiples.</b> A card is lost the moment one of its selections loses. We don’t hold it open pending the rest.</li>
+<li><b>Prices.</b> Any price you see is a real bookmaker’s price. Where there is none, no price is shown, and we don’t build a card from a selection that has no price.</li>
+<li><b>Withheld forecasts.</b> Where the engine’s confidence for a match falls below the threshold measured for that competition, we publish no forecast for that match.</li>
 </ul>
 <h3>5. Accuracy: the only representation the app makes</h3>
-<p>MatchMind is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are frequently wrong.</p>
-<p>The app’s own published record is the only representation it makes about accuracy, and it includes the shortfall: across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed — an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. No other representation or warranty about accuracy, availability, continuity or results is given, and none is to be implied, except to the extent one cannot lawfully be excluded.</p>
+<p>MatchMind is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are often wrong.</p>
+<p>The app’s own published record is the only representation we make about accuracy, and it includes the shortfall. Across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed, an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. We give no other representation or warranty about accuracy, availability, continuity or results, and none is to be implied, except where one cannot lawfully be excluded.</p>
 <h3>6. Your account</h3>
-<p>An account consists of an email address and a password, and exists so that your favourites and your copy of the record are available on your other devices. Keep your password confidential; you are responsible for what is done through your account. Accounts are personal and may not be shared or transferred.</p>
-<p>You may delete your account at any time, yourself, in More → Your data → Delete my account. It takes effect immediately and removes the data described in the Privacy notice.</p>
+<p>An account is an email address and a password. It exists so that your favourites and your copy of the record reach your other devices. Keep your password confidential: you are responsible for what is done through your account. Accounts are personal, and you may not share or transfer one.</p>
+<p>You can delete your account at any time, yourself, in More → Your data → Delete my account. It takes effect immediately and removes the data described in the Privacy notice.</p>
 <h3>7. Acceptable use</h3>
 <p>MatchMind is for your own personal, non-commercial use. You must not:</p>
 <ul>
@@ -20610,71 +20908,78 @@ const LEGAL_PAGES = {
 <li>use the app in breach of the law that applies where you are, including the gambling law of your country.</li>
 </ul>
 <h3>8. Intellectual property</h3>
-<p>The app, its design, its text, its record and the engine behind it are the operator’s property. The underlying match data belongs to its providers. You are granted a personal, revocable, non-transferable right to use the app for the purposes set out in these terms, and nothing further.</p>
+<p>The app, its design, its text, its record and the engine behind it are ours. The underlying match data belongs to its providers. We grant you a personal, revocable, non-transferable right to use the app for the purposes set out in these terms, and nothing further.</p>
 <h3>9. Data from third parties</h3>
-<p>Results, fixtures and bookmakers’ odds are supplied by API-Football. The operator does not control that data and is not responsible for errors in it. Where a provider’s figure later turns out to be wrong, the published record keeps what was published rather than being rewritten.</p>
+<p>Results, fixtures and bookmakers’ odds come from API-Football. We don’t control that data and we are not responsible for errors in it. Where a provider’s figure later turns out to be wrong, the published record keeps what was published rather than being rewritten.</p>
 <h3>10. Availability, changes, and ending the service</h3>
 <p>MatchMind is free to use. It may be unavailable at times, its features may change, and it may stop publishing forecasts or close entirely.</p>
-<p>These terms may be amended. The version number and date at the foot of this page identify the text that applies, and continuing to use the app after a change means accepting the amended terms. The operator may suspend or close an account that breaches clause 7.</p>
+<p>We may amend these terms. The version number and date at the foot of this page identify the text that applies. If you carry on using the app after a change, you accept the amended terms. We may suspend or close an account that breaches clause 7.</p>
 <h3>11. Liability</h3>
-<p>Nothing in these terms excludes or limits liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any other liability that cannot lawfully be excluded or limited.</p>
-<p>Subject to that paragraph, and given that the app is supplied free of charge: the operator is not liable for money you lose on a bet or on any other decision you take in reliance on a forecast, the record or anything else in the app; nor for loss of revenue, loss of anticipated savings, loss of data or loss of opportunity; nor for any indirect or consequential loss, however arising.</p>
+<p>Nothing in these terms excludes or limits our liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any other liability that cannot lawfully be excluded or limited.</p>
+<p>Subject to that paragraph, and because the app is supplied free of charge, we are not liable for the following. Money you lose on a bet, or on any other decision you take in reliance on a forecast, the record or anything else in the app. Loss of revenue, loss of anticipated savings, loss of data or loss of opportunity. Any indirect or consequential loss, however it arises.</p>
 <h3>12. If you are a consumer in the EU or the UK</h3>
 <p>Nothing in these terms affects the statutory rights you have as a consumer which cannot be excluded or restricted by agreement.</p>
 <h3>13. Governing law and jurisdiction</h3>
-<p>These terms, and any dispute arising out of them or out of your use of the app, are governed by the law of the Federal Republic of Nigeria, and the courts of Nigeria have jurisdiction.</p>
-<p>If you are a consumer resident in the European Union or the United Kingdom, this clause does not deprive you of the protection of the mandatory consumer-protection law of your country of residence, and you may also bring proceedings in the courts of that country.</p>
+<p>These terms, and any dispute arising out of them or out of your use of the app, are governed by the law of the Federal Republic of Nigeria. The courts of Nigeria have jurisdiction.</p>
+<p>If you are a consumer resident in the European Union or the United Kingdom, this clause does not deprive you of the protection of the mandatory consumer-protection law of your country of residence. You may also bring proceedings in the courts of that country.</p>
 <h3>14. Who you are contracting with</h3>
 ${legalGap('The operator’s legal name, the country it is registered in, and its registered address. No name is printed here until there is one to print.')}
 ${legalGap('An address for notices under these terms. The project has no domain yet, so there is no address to publish.')}
 `; } },
 
   privacy: { title: 'Privacy notice', body: function(){ return `
-<div class="notice">This notice explains what MatchMind does with personal data, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies; if you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 7 are written to cover all three.</div>
+<div class="notice">This notice explains what MatchMind does with personal data: what is held, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies. If you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 8 are written to cover all three.</div>
 <h3>1. Who is responsible</h3>
 ${legalGap('The data controller’s legal name, country of registration and registered address.')}
 ${legalGap('An email address for privacy requests, on the project’s own domain. The domain does not exist yet, so there is nothing to publish. A personal address is deliberately not used in its place.')}
 <h3>2. If you do not have an account</h3>
-<p>Nothing about you is sent anywhere. The app loads public football data and stores it on your device. No account, no personal data, no transmission.</p>
+<p>Nothing about you is sent anywhere. The app loads public football data and stores it on your device. No account, no personal data, nothing transmitted.</p>
 <h3>3. What is held if you do have an account, and why</h3>
 <ul>
-<li><b>Your email address and password</b> — to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Authentication is operated by Supabase; the app transmits your password to that service and does not store it. <b>Retained</b> until you delete your account.</li>
-<li><b>Your favourites and your own copy of the prediction record</b> — so that they appear on your other devices. Basis: performance of our contract with you. <b>Retained</b> until you delete your account, and removed automatically when you do.</li>
-<li><b>Your notification registration</b>, only if you switch notifications on — the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you may withdraw at any time. <b>Retained</b> until you switch notifications off or delete your account. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
-<li><b>A count of AI write-ups you have requested</b>, only if you use that feature — to apply the shared allowance. Basis: your consent. <b>Retained</b> until you delete your account.</li>
+<li><b>Your email address and password</b>, to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Supabase operates authentication. The app sends your password to that service and does not store it. <b>Retained</b> until you delete your account.</li>
+<li><b>Your favourites and your own copy of the prediction record</b>, so that they appear on your other devices. Basis: performance of our contract with you. <b>Retained</b> until you delete your account, and removed automatically when you do.</li>
+<li><b>Your notification registration</b>, only if you switch notifications on. That is the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you can withdraw at any time. <b>Retained</b> until you switch notifications off or delete your account. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
+<li><b>A count of AI write-ups you have requested</b>, only if you use that feature, to apply the shared allowance. Basis: your consent. <b>Retained</b> until you delete your account.</li>
 </ul>
 <h3>4. What is held on your device only</h3>
-<p>Whether or not you have an account, the app stores on your device: the match data it has loaded, including up to 60 months of completed matches; your theme, language and kick-off-time settings; the last 400 Smart Bet cards this device has shown; and an offline copy of the app itself. None of it is transmitted unless you are signed in, and you can remove all of it with More → Your data → Clear cached data, or by deleting the app.</p>
+<p>Whether or not you have an account, the app stores four things on your device:</p>
+<ul>
+<li>the match data it has loaded, including up to 60 months of completed matches;</li>
+<li>your theme, language and kick-off-time settings;</li>
+<li>the last 400 Smart Bet cards this device has shown;</li>
+<li>an offline copy of the app itself.</li>
+</ul>
+<p>None of it is transmitted unless you are signed in. You can remove all of it with More → Your data → Clear cached data, or by deleting the app.</p>
 <h3>5. What is not personal data</h3>
-<p>The published forecasts are stored against a match, not against a person, and they are kept indefinitely — the record exists precisely so that it cannot be altered after the event. Deleting your account does not remove them, because they are not information about you.</p>
+<p>The published forecasts are stored against a match, not against a person, and they are kept indefinitely. The record exists precisely so that it cannot be altered after the event. Deleting your account does not remove them, because they are not information about you.</p>
 <h3>6. Who else is involved, and where data goes</h3>
 <ul>
-<li><b>Supabase</b> — database, authentication and server functions, acting as our processor.</li>
-<li><b>GitHub Pages</b> — serves the app; its servers receive your IP address as part of delivering it.</li>
-<li><b>API-Football</b> — supplies results, fixtures and odds. No personal data is sent to it.</li>
-<li><b>Google, Apple or Mozilla</b>, according to your browser — the push service that delivers a notification to your device, if you have enabled notifications.</li>
-<li><b>Google Fonts and jsDelivr</b> — serve the typeface and one software library; they receive your IP address when the app loads.</li>
-<li><b>An AI provider</b> — only when you ask for a written analysis of a match, and only if you are signed in. The request is sent by the app’s own server function using the project’s key, so the provider receives the match data and nothing that identifies you; the count described above is what applies the shared allowance. If you instead enter your own Claude key in More → Data, that request goes from your device straight to Anthropic.</li>
+<li><b>Supabase</b>: database, authentication and server functions, acting as our processor.</li>
+<li><b>GitHub Pages</b>: serves the app. Its servers receive your IP address as part of delivering it.</li>
+<li><b>API-Football</b>: supplies results, fixtures and odds. No personal data is sent to it.</li>
+<li><b>Google, Apple or Mozilla</b>, according to your browser: the push service that delivers a notification to your device, if you have switched notifications on.</li>
+<li><b>Google Fonts and jsDelivr</b>: serve the typeface and one software library. They receive your IP address when the app loads.</li>
+<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. The app’s own server function sends the request using the project’s key, so the provider receives the match data and nothing that identifies you. The count described above is what applies the shared allowance. If you enter your own Claude key in More → Data instead, that request goes from your device straight to Anthropic.</li>
 </ul>
-<p>No personal data is sold or rented, none is used for advertising, and none is disclosed to anyone else except where the law requires it.</p>
+<p>No personal data is sold or rented. None is used for advertising. None is disclosed to anyone else except where the law requires it.</p>
 <h3>7. International transfers</h3>
-<p>The app is served from, and account data is stored on, infrastructure outside Nigeria, the European Union and the United Kingdom — principally Supabase and GitHub. Supabase’s data processing addendum incorporates the European Commission’s Standard Contractual Clauses and the United Kingdom’s International Data Transfer Addendum. The transfer is also necessary for the performance of our contract with you, because the service cannot be provided without it.</p>
+<p>The app is served from, and account data is stored on, infrastructure outside Nigeria, the European Union and the United Kingdom. That means Supabase and GitHub, principally. Supabase’s data processing addendum incorporates the European Commission’s Standard Contractual Clauses and the United Kingdom’s International Data Transfer Addendum. The transfer is also necessary to perform our contract with you, because the service cannot be provided without it.</p>
 <h3>8. Your rights, and how to exercise each one here</h3>
 <ul>
-<li><b>Erasure.</b> More → Your data → Delete my account. It runs the app’s delete-account function, which removes your account, your favourites, your copy of the record, every notification registration and your AI count. It takes effect immediately and you do not have to ask anyone.</li>
+<li><b>Erasure.</b> More → Your data → Delete my account. It runs the app’s delete-account function, which removes your account, your favourites, your copy of the record, every notification registration and your AI count. It takes effect immediately, and you don’t have to ask anyone.</li>
 <li><b>Rectification.</b> Your favourites, settings and notification choices are editable in the app at any time. For your email address, use the contact route in clause 1.</li>
-<li><b>Withdrawing consent, and objecting.</b> More → Settings → Notifications, switch them off — the registration is deleted. The AI feature stays off unless you switch it on in More → Data.</li>
+<li><b>Withdrawing consent, and objecting.</b> Go to More → Settings → Notifications and switch them off; the registration is then deleted. The AI feature stays off unless you switch it on in More → Data.</li>
 <li><b>Access, and a copy to take elsewhere.</b> Most of what is held is on your own screen. For the remainder, including your account record, use the contact route in clause 1.</li>
 <li><b>Restriction.</b> Use the contact route in clause 1, or delete your account, which removes the data outright.</li>
-<li><b>Complaining.</b> To the Nigeria Data Protection Commission; in the European Union, to the supervisory authority of your country (GDPR Article 77); in the United Kingdom, to the Information Commissioner’s Office. You may complain to them without going through us first.</li>
+<li><b>Complaining.</b> To the Nigeria Data Protection Commission. In the European Union, to the supervisory authority of your country (GDPR Article 77). In the United Kingdom, to the Information Commissioner’s Office. You can complain to them without going through us first.</li>
 </ul>
 <p>Exercising any of these rights is free.</p>
 <h3>9. No cookies, no tracking, no profiling</h3>
 <p>The app sets no cookies. It contains no analytics, advertising or tracking code. You are not profiled, and no decision about you is taken by automated means.</p>
 <h3>10. Children</h3>
-<p>MatchMind is not offered to anyone under 18 and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
+<p>MatchMind is not offered to anyone under 18, and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
 <h3>11. Security</h3>
-<p>Every connection the app makes — to the database, to the authentication service and to the data provider — is encrypted. Database access is restricted by per-row policy, so a signed-in account can reach its own rows and no one else’s. The published forecasts carry no update or delete permission at all, which is what makes the record unalterable. Account deletion is carried out by a server function that takes your identity from your verified session and is therefore incapable of deleting any account but your own.</p>
+<p>Every connection the app makes is encrypted: to the database, to the authentication service and to the data provider. Database access is restricted by per-row policy, so a signed-in account can reach its own rows and nobody else’s. The published forecasts carry no update or delete permission at all, which is what makes the record unalterable. Account deletion is carried out by a server function. It takes your identity from your verified session, so it cannot delete any account but your own.</p>
 <h3>12. Changes to this notice</h3>
 <p>The version number and date at the foot of this page identify the text that currently applies.</p>
 `; } },
@@ -20691,13 +20996,13 @@ ${legalRecordLine()}
 <h3>This is not a tip to bet</h3>
 <p>MatchMind takes no stake and pays nothing out. It cannot tell you what will happen in a football match. If you bet, the decision and the money are yours.</p>
 <h3>Keep it in proportion</h3>
-<p>Never stake money you need. Never try to win back a loss with a bigger bet. A run of correct forecasts does not make the next one correct, and the record above exists so that nobody — including us — can pretend otherwise.</p>
+<p>Never stake money you need. Never try to win back a loss with a bigger bet. A run of correct forecasts does not make the next one correct. The record above exists so that nobody, including us, can pretend otherwise.</p>
 <h3>If it is becoming a problem</h3>
 <p>Each of these was opened and read on 17 October 2026:</p>
 <ul>
-<li><b>Gamble Alert</b>, Nigeria — helpline <b>+234 916 295 7989</b>, around the clock — gamblealert.org</li>
-<li><b>Gambling Therapy</b> — free support worldwide, from Gordon Moody — gamblingtherapy.org</li>
-<li><b>Find a Helpline</b> — free services listed by country, Nigeria, the EU and the UK included — findahelpline.com</li>
+<li><b>Gamble Alert</b>, Nigeria. Helpline <b>+234 916 295 7989</b>, around the clock. gamblealert.org</li>
+<li><b>Gambling Therapy</b>. Free support worldwide, from Gordon Moody. gamblingtherapy.org</li>
+<li><b>Find a Helpline</b>. Free services listed by country, including Nigeria, the EU and the UK. findahelpline.com</li>
 </ul>
 <p>If you are chasing losses, borrowing money to bet, or hiding it from someone, talk to one of them today.</p>
 `; } },
@@ -20705,7 +21010,7 @@ ${legalRecordLine()}
   how: { title: 'How it works', body: function(){ return `
 <div class="notice">The engine rates teams from matches that have finished, publishes a forecast before kick-off, and never changes it afterwards.</div>
 <h3>Where the numbers come from</h3>
-<p>Results, fixtures and bookmakers’ odds come from API-Football. Teams are rated from matches that have actually been played, and from nothing else — no tips, no opinion, no form guide.</p>
+<p>Results, fixtures and bookmakers’ odds come from API-Football. Teams are rated from matches that have actually been played, and from nothing else. No tips, no opinion, no form guide.</p>
 <h3>When a forecast is published</h3>
 <p>No earlier than ${PUBLISH_AHEAD_DAYS} days before kick-off. Once published it is written once and never rewritten, before the match or after it. One account does the publishing, so every device shows the same forecasts and the same record.</p>
 <h3>When no forecast is offered</h3>
@@ -20713,13 +21018,13 @@ ${legalRecordLine()}
 <h3>What the record counts</h3>
 <ul>
 <li>A finished match is a hit or a miss.</li>
-<li>A match not played within ${VOID_AFTER_HOURS} hours of its original kick-off is void: it is never graded and counts as neither. A bookmaker returns the stake on a postponed bet, and this is the same idea.</li>
+<li>A match not played within ${VOID_AFTER_HOURS} hours of its original kick-off is void. It is never graded and counts as neither. A bookmaker returns the stake on a postponed bet, and this is the same idea.</li>
 <li>A card is lost the moment one of its selections loses, rather than waiting for the rest of them.</li>
 </ul>
 <h3>Prices</h3>
 <p>A price on screen is a real bookmaker’s price. Where there is none, no price is shown at all, and a card is not built from a selection that has no price.</p>
 <h3>And it over-claims</h3>
-<p>${LEGAL_CLAIMED.toFixed(1)}% average stated confidence against ${LEGAL_LANDED.toFixed(1)}% landed — a gap of ${LEGAL_GAP.toFixed(1)} points. The Responsible play page carries the detail and the test that tracks it.</p>
+<p>${LEGAL_CLAIMED.toFixed(1)}% average stated confidence against ${LEGAL_LANDED.toFixed(1)}% landed, a gap of ${LEGAL_GAP.toFixed(1)} points. The Responsible play page carries the detail and the test that tracks it.</p>
 `; } },
 
   contact: { title: 'Contact', body: function(){ return `
@@ -20728,9 +21033,9 @@ ${legalRecordLine()}
 ${legalGap('A contact email on the project’s own domain. The domain does not exist yet, so there is nothing to print. A personal address is deliberately not used in its place.')}
 <h3>What you can do right now, without anyone’s help</h3>
 <ul>
-<li><b>Delete your account and the data tied to it</b> — More → Your data → Delete my account. It takes effect immediately.</li>
-<li><b>Switch notifications off</b> — More → Settings → Notifications.</li>
-<li><b>Clear everything this device has stored</b> — More → Your data → Clear cached data.</li>
+<li><b>Delete your account and the data tied to it</b>: More → Your data → Delete my account. It takes effect immediately.</li>
+<li><b>Switch notifications off</b>: More → Settings → Notifications.</li>
+<li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
 </ul>
 <h3>Post</h3>
 <p>MatchMind is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
