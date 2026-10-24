@@ -1,0 +1,78 @@
+{
+  "kind": "genuine_receipt_now_supervised_weekend",
+  "window": "2026-10-24",
+  "observed_at_utc": "2026-10-24T14:49:05.265336Z",
+  "source_rows": 93680,
+  "roster": 145,
+  "engine_forecasts": 145,
+  "engine_failures": 0,
+  "ai_forecasts": 0,
+  "ai_failures": 435,
+  "actual_ai_spend_usd": 0,
+  "reserved_liability_usd": 0,
+  "all_outcomes_pending": true,
+  "packet_hash": "3f24069e8c42570493e253f43cd1f728c15a616b0b50bbf1f45379be95e06a53",
+  "storage": {
+    "budget_bytes": 262144000,
+    "relation_bytes": 8568832
+  },
+  "engine_source_hash": "c915f9820c363786f4848ba6ba0f935a100a03f4507505c3b3bf029357e29b10",
+  "executor_hash": "9d8050e85e8b0059e13e9af7fcbe2ccb2e68bef86cea31e88da4e312a741fbf5",
+  "operational": "This supervised run only; no durable scheduler or Sunday/Monday execution is claimed.",
+  "accuracy_claim": false,
+  "engine_failure": null,
+  "public_gate_eligible": 86,
+  "public_gate_withheld_reasons": {
+    "low": 35,
+    "nobase": 23,
+    "outofscope": 1
+  },
+  "kickoff_days": {
+    "2026-10-24": 54,
+    "2026-10-25": 91
+  },
+  "original_contexts": 83,
+  "verification": {
+    "restored_jobs": 145,
+    "restored_forecast_slots": 725,
+    "source_rows": 93680,
+    "all_event_hashes_valid": true,
+    "source_packet_hash_matches": true,
+    "ordinary_roles_denied": true,
+    "immutable": true,
+    "original_public_table_rows": 0,
+    "offline_same_clock_replay_exact": true,
+    "replay_is_not_a_new_issued_forecast": true,
+    "completed_batch_witness_utc": "2026-10-24T14:49:05.265336Z",
+    "earliest_kickoff_utc": "2026-10-24T15:00:00.000Z",
+    "entire_batch_confirmed_before_any_kickoff": true,
+    "hosted_restore_verified": false
+  },
+  "first_results_poll": {
+    "observed_at_utc": "2026-10-24T15:13:16.630992Z",
+    "coverage": {
+      "roster": 145,
+      "originals_before_collection": 83,
+      "pending": 145,
+      "void": 0,
+      "invalid_label": 0,
+      "ambiguous_90_minute": 0
+    },
+    "scored": {
+      "E": 0,
+      "E-Refreshed": 0,
+      "A1": 0,
+      "A2": 0,
+      "A3": 0
+    },
+    "actual_ai_spend_usd": 0
+  },
+  "latest_owner_constraints": {
+    "durable_runner_approved": false,
+    "mode": "supervised_only",
+    "provider_selected": null,
+    "paid_transport_enabled": false,
+    "gemini": "Owner reports $30 minimum deposit and declines funding; no account change attempted."
+  },
+  "private_archive_bytes": 135610851
+}

@@ -1,0 +1,97 @@
+{
+  "implementation_commit": "d27def2",
+  "base": "19c9a30e84f9172aefd876ec680cdf858f475938",
+  "counts": {
+    "phase7_inherited": 151,
+    "restored_phase5": 2,
+    "phase8": 46,
+    "total": 199
+  },
+  "local_suites": [
+    {
+      "node": "20.20.2",
+      "command": "npm exec --yes --package=node@20.20.2 -- node --test audits/test/*.test.mjs",
+      "passed": 199,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 142747.018974,
+      "log_sha256": "9b7edaa5f957bb9f5e002154ca8e54979b26d107b2934d6df489eb1bf6d651c7"
+    },
+    {
+      "node": "24.19.0",
+      "command": "node --test audits/test/*.test.mjs",
+      "passed": 199,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 235588.008785,
+      "log_sha256": "f13203357f1a16b8f967901f55eb40f0f01fd675ed08b74a55eac29837a37208"
+    }
+  ],
+  "actual_AI_API_requests": 0,
+  "actual_AI_spend_USD": 0,
+  "paid_transport_enabled": false,
+  "private_manual_CI_executed": false,
+  "private_data_committed": false,
+  "application_source_unchanged": true,
+  "real_archive_verification": {
+    "restored_jobs": 145,
+    "restored_forecast_slots": 725,
+    "source_rows": 93680,
+    "all_event_hashes_valid": true,
+    "source_packet_hash_matches": true,
+    "ordinary_roles_denied": true,
+    "immutable": true,
+    "original_public_table_rows": 0,
+    "offline_same_clock_replay_exact": true,
+    "replay_is_not_a_new_issued_forecast": true,
+    "completed_batch_witness_utc": "2026-10-24T14:49:05.265336Z",
+    "earliest_kickoff_utc": "2026-10-24T15:00:00.000Z",
+    "entire_batch_confirmed_before_any_kickoff": true,
+    "hosted_restore_verified": false
+  },
+  "independent_review": {
+    "reviewed_code": "bc242fe",
+    "reviewer": "independent Codex technical review",
+    "findings": [
+      {
+        "severity": "P1",
+        "finding": "Queued write could use a pre-lock timestamp after kickoff.",
+        "resolution": "RED held-lock reproduction; fresh post-lock/end checks plus separate post-commit confirmation; final suites GREEN."
+      },
+      {
+        "severity": "P2",
+        "finding": "Rejected AI lineage still counted toward coverage/cost success.",
+        "resolution": "RED lineage/accounting reproduction; shared admission denominators; final suites GREEN."
+      }
+    ],
+    "did_not_certify": [
+      "Hosted integration",
+      "Provider billing continuity",
+      "Permanent private storage",
+      "Historical first receipts"
+    ]
+  },
+  "additional_regressions": [
+    "Explicit verified outcome-backup predecessor",
+    "Positive bookmaker timing",
+    "Original-specific 48-hour anchor",
+    "Local nondestructive rollback",
+    "Private path dot-prefix/symlink refusal",
+    "Duplicate dispatch refusal",
+    "Unconfirmed forecast exclusion",
+    "Minute-precision fixture-event clocks normalized only for comparison; strict receipt clocks unchanged",
+    "Original contextual/refreshed paired contrasts on identical jobs, with different issuance times explicit"
+  ],
+  "private_report_replay": {
+    "runtimes": [
+      "20.20.2",
+      "24.19.0"
+    ],
+    "byte_identical": true,
+    "sha256": "91bf285ed98fc4b79ae029cdc16b957cef4760cc5748a618df4bb18d006fe60b",
+    "scorer_source_hash": "cf66622066cb9f105c07c8d170e8b053bc16c0965d76b6a958d61d631851209a",
+    "frozen_input_hash_unchanged": true,
+    "detailed_performance_committed": false,
+    "earlier_reports_retained": true
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "scope": "Isolated combined local verification; no branch merge, deployment, hosted access or football accuracy claim.",
+  "refs": {
+    "public_baseline": "68c00ded8043b7ee1a15937db1a32c01d932f4e7",
+    "phase3_phase4": "e5580b36876b11640bcae5958b971604b3f17876",
+    "phase5": "f56caab20a5dfabc237646909058d57dac7f9a65",
+    "phase6": "0c3819ccb70cc23a4b7ccf0f441c9d0b6fb2f130",
+    "phase7": "19c9a30e84f9172aefd876ec680cdf858f475938",
+    "phase5_phase7_merge_base": "68c00ded8043b7ee1a15937db1a32c01d932f4e7"
+  },
+  "selection": "Phase7 inherits Phase3/4/6. Restore only the ten missing additive Phase5 paths; retain the identical reused validation module/tests and all Phase7 package, lock and workflow dependencies.",
+  "phase5_additions": [
+    {
+      "path": "audits/phase5/011_readonly_cohort.sql",
+      "source_blob": "47ea95be5e5ee6998829677ed7460ba38774d416",
+      "release_blob": "76bb42bc851a43ee07afa3ce363c5df746cb2f18",
+      "modification": "Phase8 minimal read-only WHERE guard excludes negative raw final goals before outcome construction. Confirmed with disposable local SQL regression; retained Phase5 result files still describe the original source/query hashes."
+    },
+    {
+      "path": "audits/phase5/README.md",
+      "source_blob": "6b0159299d2caccedd1ade7e37cd97465bb06be6",
+      "release_blob": "6b0159299d2caccedd1ade7e37cd97465bb06be6"
+    },
+    {
+      "path": "audits/phase5/REPORT.md",
+      "source_blob": "6e3c3bed1f9783a748814ef214474daf7def373b",
+      "release_blob": "6e3c3bed1f9783a748814ef214474daf7def373b"
+    },
+    {
+      "path": "audits/phase5/SHADOW_PROTOCOL.md",
+      "source_blob": "5983f87cf0c67b6911872edc4be5995b0c3c3572",
+      "release_blob": "5983f87cf0c67b6911872edc4be5995b0c3c3572"
+    },
+    {
+      "path": "audits/phase5/analyze.mjs",
+      "source_blob": "cda7c9bd694b28caa730a7bd386bf852632013c5",
+      "release_blob": "cda7c9bd694b28caa730a7bd386bf852632013c5"
+    },
+    {
+      "path": "audits/phase5/saved-lambda.mjs",
+      "source_blob": "92e8f94403955766a1112582e03cabbadc44e25d",
+      "release_blob": "92e8f94403955766a1112582e03cabbadc44e25d"
+    },
+    {
+      "path": "audits/phase5/results/2026-10-24-analysis.json",
+      "source_blob": "b8cb49c1b039593de9c65b025aede3a4568cffa5",
+      "release_blob": "b8cb49c1b039593de9c65b025aede3a4568cffa5"
+    },
+    {
+      "path": "audits/phase5/results/2026-10-24-coverage.json",
+      "source_blob": "e54f583b4c0bc0e20010cb571554cc7565a44b0e",
+      "release_blob": "e54f583b4c0bc0e20010cb571554cc7565a44b0e"
+    },
+    {
+      "path": "audits/test/phase5-analysis.test.mjs",
+      "source_blob": "bd0c053c20d23b4dbca350e8113087fd5d466986",
+      "release_blob": "bd0c053c20d23b4dbca350e8113087fd5d466986"
+    },
+    {
+      "path": "audits/test/phase5-saved-lambda.test.mjs",
+      "source_blob": "247dcae5e0c3bf79854b9d399da9bcc17d43677d",
+      "release_blob": "247dcae5e0c3bf79854b9d399da9bcc17d43677d"
+    }
+  ],
+  "phase5_reused": [
+    {
+      "path": "audits/phase5/validation.mjs",
+      "source_blob": "338c6b9fdb63671d2a2b31e715f32eee1064bd3a",
+      "release_blob": "338c6b9fdb63671d2a2b31e715f32eee1064bd3a"
+    },
+    {
+      "path": "audits/test/phase5-validation.test.mjs",
+      "source_blob": "18cb8e34ecc464d5080fd588c272f3d11ac2d316",
+      "release_blob": "18cb8e34ecc464d5080fd588c272f3d11ac2d316"
+    }
+  ],
+  "protected_application": {
+    "path": "index.html",
+    "git_blob": "a60db2a997c95980fc311f0ebab6e0f4ccba4cf6",
+    "sha256": "c915f9820c363786f4848ba6ba0f935a100a03f4507505c3b3bf029357e29b10",
+    "build": 355,
+    "publication_ahead_days": 3,
+    "void_after_hours": 48
+  },
+  "verification": {
+    "runtimes": [
+      "20.20.2",
+      "24.19.0"
+    ],
+    "run_order": "sequential",
+    "command": "node --test audits/test/*.test.mjs",
+    "inherited_phase7_tests": 151,
+    "restored_phase5_tests": 2,
+    "release_gate_tests": 5,
+    "required_failed": 0,
+    "required_skipped": 0,
+    "required_git_objects": [
+      "68c00ded8043b7ee1a15937db1a32c01d932f4e7",
+      "d4cb3379a3f1d6d0b7252ab134969b33397a5820"
+    ],
+    "postgres_image": "postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27",
+    "network": "Docker --network none; browser requests intercepted; no provider or hosted calls"
+  },
+  "limits": [
+    "Retained Phase5 aggregates remain exploratory and describe their original source hashes.",
+    "Private retained exports and an independently supplied trust policy are needed for complete frozen analysis/replay; aggregate JSON is insufficient.",
+    "Plain local PostgreSQL does not establish Supabase Auth, JWT, PostgREST/RPC or Edge Runtime security.",
+    "Real football training, learned promotion and hosted release remain blocked by the Phase7 provenance and inference gates."
+  ]
+}
