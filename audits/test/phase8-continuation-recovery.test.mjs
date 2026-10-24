@@ -34,3 +34,9 @@ test('ancestry rejects missing, changed, forked or decreasing-liability checkpoi
  for(const altered of [{...b,events:[]},{...b,events:[{...a.events[0],hash:'changed'}]},{...b,events:[{...a.events[0],received:'new'}]},{...b,liability_micros:0}])assert.throws(()=>api.verifyAncestry([a,altered]),/ancestry|liability/);
  assert.throws(()=>api.verifyAncestry([]),/checkpoint/);
 });
+test('frozen engine artifact must match each original stored forecast and exact packet hash',()=>{
+ assert.equal(typeof api.verifyFrozenEngine,'function');const body={fixture_id:'1',probabilities:[.4,.3,.3],prediction:{pW:.4,pD:.3,pL:.3}},engine={source_sha256:'source',input_hash:'input',predictions:[body]},stored=[{body:{arm:'E-Refreshed',status:'forecast',input_hash:'input',...body}}];
+ assert.equal(api.verifyFrozenEngine(engine,stored,'source','input'),1);
+ assert.throws(()=>api.verifyFrozenEngine(engine,[{body:{...stored[0].body,probabilities:[.8,.1,.1]}}],'source','input'),/frozen/);
+ assert.throws(()=>api.verifyFrozenEngine(engine,stored,'source','other'),/frozen/);
+});

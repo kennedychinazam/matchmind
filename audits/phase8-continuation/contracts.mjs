@@ -32,15 +32,24 @@ export function freezeProfile(catalog,observedAt){
  }
  if(prompt>decimal(cap.prompt)||completion>decimal(cap.completion)||prompt===0n||completion===0n)throw Error('endpoint pricing exceeds approved price caps');
  // max_tokens is still 1024, but physical endpoint maxima cover uncertain reasoning/limit overruns.
- const reserved=ceilMicros(BigInt(e.context_length)*prompt+BigInt(e.max_completion_tokens)*completion);
+ const reserved=ceilMicros(BigInt(e.context_length)*decimal(cap.prompt)+BigInt(e.max_completion_tokens)*decimal(cap.completion));
  if(reserved<1||reserved>CEILING)throw Error('unbounded endpoint pricing');
  const p={version:'openrouter-private-v1',model,tag:cap.tag,provider:cap.provider,observed_at_utc:observedAt,context_length:e.context_length,physical_completion_max:e.max_completion_tokens,max_output_tokens:1024,prompt_cap:cap.prompt,completion_cap:cap.completion,reserved_micros:reserved,tools:false,grounding:false,endpoint_hash:canonicalHash(e)};
  return{...p,profile_hash:canonicalHash(p)};
 }
-function checkProfile(p,now){const{profile_hash,...body}=p;if(canonicalHash(body)!==profile_hash||!MODELS.includes(p.model))throw Error('profile altered');if(epochMicros(now)<epochMicros(p.observed_at_utc)||epochMicros(now)-epochMicros(p.observed_at_utc)>900000000n)throw Error('expired endpoint profile');}
+function checkProfile(p,now){
+ const{profile_hash,...body}=p,cap=caps[p.model];
+ if(!cap||canonicalHash(body)!==profile_hash||p.tag!==cap.tag||p.provider!==cap.provider||p.prompt_cap!==cap.prompt||p.completion_cap!==cap.completion||!positiveInt(p.context_length)||!positiveInt(p.physical_completion_max)||p.physical_completion_max>p.context_length||p.max_output_tokens!==1024||p.tools!==false||p.grounding!==false||p.reserved_micros!==ceilMicros(BigInt(p.context_length)*decimal(cap.prompt)+BigInt(p.physical_completion_max)*decimal(cap.completion)))throw Error('profile altered or unbounded');
+ if(epochMicros(now)<epochMicros(p.observed_at_utc)||epochMicros(now)-epochMicros(p.observed_at_utc)>900000000n)throw Error('expired endpoint profile');
+}
+export function validateRequest(request,profile,now){
+ checkProfile(profile,now);
+ let rebuilt;try{rebuilt=buildRequest(request.arm,profile,JSON.parse(request.body.messages[1].content),now);}catch{throw Error('invalid bounded request');}
+ if(canonicalHash(request)!==canonicalHash(rebuilt))throw Error('bounded request differs from pinned schema/backend/prices');
+}
 export function verifyAccount(key,credits,now){
  epochMicros(now);const k=key?.data,c=credits?.data;
- if(!k||k.limit_reset!==null||typeof k.limit!=='number'||!(k.limit>0&&k.limit<=5)||k.is_management_key!==false||k.is_provisioning_key!==false||k.is_free_tier!==false||!k.label||k.expires_at!==null&&(!k.expires_at||epochMicros(k.expires_at)<=epochMicros(now)))throw Error('key must have a verified nonresetting lifetime budget <= $5');
+ if(!k||k.include_byok_in_limit!==true||k.byok_usage!==0||k.limit_reset!==null||typeof k.limit!=='number'||!(k.limit>0&&k.limit<=5)||k.is_management_key!==false||k.is_provisioning_key!==false||k.is_free_tier!==false||!k.label||k.expires_at!==null&&(!k.expires_at||epochMicros(k.expires_at)<=epochMicros(now)))throw Error('key must have a verified nonresetting lifetime budget <= $5');
  const usage=dollarsToMicros(k.usage),remaining=floorMicros(decimal(k.limit_remaining)),limit=floorMicros(decimal(k.limit));
  if(remaining<0||usage+remaining>limit||usage>limit)throw Error('inconsistent key budget');
  if(!c||c.total_credits===undefined||c.total_usage===undefined)throw Error('account balance unverified; do not broaden secret privileges');

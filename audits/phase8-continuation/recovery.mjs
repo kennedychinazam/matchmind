@@ -1,4 +1,4 @@
-import {readFileSync,readdirSync,existsSync,writeFileSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync,writeFileSync,statSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
@@ -6,9 +6,11 @@ import {createHash} from 'node:crypto';
 import {privateDirectory} from '../phase8/files.mjs';
 import {loadBackup} from '../phase8/archive.mjs';
 import {localDatabase} from '../test-support/local-db.mjs';
+import {ENGINE_SOURCE_SHA256} from '../phase8/engine.mjs';
 import {canonicalHash} from '../lib/snapshot-contract.mjs';
 const sha=x=>createHash('sha256').update(x).digest('hex');
 export function extractRecovery(archive,checksum,destination){
+ if(statSync(archive).size>64*1024*1024)throw Error('unsafe archive size');
  const bytes=readFileSync(archive),expected=readFileSync(checksum,'utf8').trim().split(/\s+/)[0];
  if(!/^[a-f0-9]{64}$/.test(expected)||sha(bytes)!==expected)throw Error('recovery archive checksum mismatch');
  if(existsSync(destination)&&readdirSync(destination).length)throw Error('empty new recovery directory required');
@@ -27,6 +29,15 @@ export function verifyAncestry(checkpoints){
   prior=map;liability=c.liability_micros;
  }
  return{checkpoints:checkpoints.length,event_count:prior.size,liability_micros:liability};
+}
+export function verifyFrozenEngine(engine,stored,sourceHash,inputHash){
+ if(engine.source_sha256!==sourceHash||engine.input_hash!==inputHash)throw Error('frozen engine source/input mismatch');
+ const map=new Map(engine.predictions.map(p=>[String(p.fixture_id),p]));
+ for(const row of stored){const body=row.body,p=map.get(String(row.fixture_id??body.fixture_id));
+  if(!p||body.input_hash!==inputHash||canonicalHash(body.probabilities)!==canonicalHash(p.probabilities)||canonicalHash(body.prediction)!==canonicalHash(p.prediction))throw Error('frozen forecast differs from archived engine');
+ }
+ if(stored.length!==engine.predictions.filter(p=>p.status===undefined||p.status==='forecast').length)throw Error('missing frozen forecasts');
+ return stored.length;
 }
 // Read-only verification of the owner's archived SQL, only in disposable network-none PostgreSQL.
 export async function verifyRecovery(directory){
@@ -49,6 +60,12 @@ export async function verifyRecovery(directory){
    const liability=Number(sql("SELECT coalesce(sum((body->>'reserved_micros')::bigint),0)FROM shadow_eval.weekend_events WHERE kind='reservation'"));
    const packet=JSON.parse(sql("SELECT body FROM shadow_eval.weekend_events WHERE kind='packet'"));
    if(canonicalHash(packet)!==canonicalHash(source)||source.rows.length!==93680)throw Error('incomplete original evidence packet');
+   if(i===0){
+    const receipt=sql(`SELECT to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')FROM shadow_eval.weekend_events WHERE kind='packet'`);
+    const frozen=JSON.parse(sql("SELECT jsonb_agg(jsonb_build_object('fixture_id',j.body->>'fixture_id','body',e.body))FROM shadow_eval.weekend_events e JOIN shadow_eval.weekend_events j ON j.event_id=e.parent_id WHERE e.kind='forecast' AND e.body->>'arm'='E-Refreshed' AND e.body->>'status'='forecast'"));
+    verifyFrozenEngine(JSON.parse(readFileSync(join(run,'engine-output.json'),'utf8')),frozen,ENGINE_SOURCE_SHA256,canonicalHash({...source,receipt_at_utc:receipt}));
+   }
+
    const counts=JSON.parse(sql("SELECT jsonb_object_agg(kind,n)FROM(SELECT kind,count(*)n FROM shadow_eval.weekend_events GROUP BY kind)t"));
    if(counts.job!==145||counts.forecast!==725||Number(sql("SELECT count(*)FROM shadow_eval.weekend_events WHERE kind='forecast' AND body->>'arm'='E-Refreshed' AND body->>'status'='forecast'"))!==145)throw Error('missing immutable forecast records');
    for(const role of ['anon','authenticated']){
@@ -58,8 +75,11 @@ export async function verifyRecovery(directory){
    checkpoints.push({name,sha256:sha(dump),events,liability_micros:liability,counts});
   }finally{db.close();}
  }
+ for(const extra of readdirSync(run).filter(n=>n.endsWith('.sql')&&!names.includes(n))){
+  if(!checkpoints.some(c=>c.sha256===sha(readFileSync(join(run,extra)))))throw Error('unclassified backup may contain newer liability; reconcile ancestry before continuing');
+ }
  const summary=verifyAncestry(checkpoints);
- const proof={version:'saturday-recovery-v1',verified_at_utc:new Date().toISOString(),...summary,packet_hash:canonicalHash(source),source_rows:source.rows.length,immutable_refreshed_forecasts:145,checkpoint_hashes:checkpoints.map(c=>({name:c.name,sha256:c.sha256})),latest_checkpoint:manifest.private_latest_backup,
+ const proof={version:'saturday-recovery-v1',verified_at_utc:new Date().toISOString(),...summary,packet_hash:canonicalHash(source),source_rows:source.rows.length,immutable_refreshed_forecasts:145,frozen_engine_parity_verified:true,checkpoint_hashes:checkpoints.map(c=>({name:c.name,sha256:c.sha256})),latest_checkpoint:manifest.private_latest_backup,
   note:'Owner separately confirmed external archive+checksum retention. Local verification does not assert new issuance or new receipt provenance. Saturday legacy confirmation semantics retained.'};
  return proof;
 }

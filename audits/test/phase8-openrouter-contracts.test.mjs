@@ -33,3 +33,7 @@ test('provider answers reject truncation, fabricated sources, extra fields, inva
  assert.deepEqual(api.parseResponse('A3',response,p,['r']).decision.probabilities,[.4,.3,.3]);
  for(const change of [{choices:[{...response.choices[0],finish_reason:'length'}]},{model:'other/model'},{usage:{...response.usage,cost:6}},{choices:[{finish_reason:'stop',message:{content:JSON.stringify({...answer,secret:'x'})}}]},{choices:[{finish_reason:'stop',message:{content:JSON.stringify({...answer,evidence_refs:['fake']})}}]},{choices:[{finish_reason:'stop',message:{content:JSON.stringify({...answer,probabilities:[.8,.8,.1]})}}]}])assert.throws(()=>api.parseResponse('A3',{...response,...change},p,['r']),/response|decision|cost|source|probab/);
 });
+test('key protection must cover BYOK too; a credit-only cap is insufficient',()=>{
+ const k=key();k.data.include_byok_in_limit=false;
+ assert.throws(()=>api.verifyAccount(k,credits(),NOW),/key|BYOK/);
+});
