@@ -63,3 +63,7 @@ Create `audits/phase7/pilot.mjs`, `REPORT.md`, `DATA_CONTRACT.md`, `PILOT_PROTOC
 ## Review focus
 
 Signatures do not authenticate unapproved collectors; retained audit metadata is not a new hosted audit. All five clocks remain separate. Complete evidence membership and late corrections must be frozen, not reconstructed from mutable rows. Validation outcomes never enter fitting; candidate freeze precedes new issues. Missing rows stay in the denominator. A synthetic signing key cannot authorize football coefficients. Small samples and affordable storage do not establish predictive improvement or adequate power.
+
+## Builder-check refinements
+
+Export raw PostgreSQL manifest/envelope/value text with their pg-jsonb-v1 hashes and ordered chunk memberships/counts; verify the exact bytes before converting to the canonical signed-payload boundary. Signatures alone cannot repair shortened manifests or prove upstream inventory coverage. Freeze a separate server-received artifact registration receipt binding artifact, dataset and validation-protocol hashes, and require it before every validation issue. Define revision uniqueness/order, receipt inequalities, no-signal/minimum-row/boundary outcomes and deterministic optimization constants. Price the full 14+7-day lifecycle with exact collection/correction caps and conservative stop thresholds. No real collection authority is configured here.
