@@ -71,3 +71,19 @@ The three SQL files were executed against the live database through a read-only 
 5. If an accuracy-improving model passes holdout, integrate it into the shared prediction engine via isolated staging, not by separately changing public screen calculations.
 
 Never push service-role or billing keys into this public repository. Do not deploy server-side Edge Function copies here without security review.
+
+## Phase 3 isolated implementation
+
+The immutable snapshot subsystem and existing-M14 adapter are offline/local-only.
+See [the local staging runbook](../docs/PHASE3_STAGING_RUNBOOK.md) for locked test
+dependencies, PostgreSQL/Chromium prerequisites, all-test commands, migration,
+permission verification, backup/restore, rollback, measured budgets and hosted
+Supabase limitations. The existing app and production publisher are unchanged.
+
+```sh
+npm ci --prefix audits --ignore-scripts --no-audit --no-fund
+node --test audits/test/*.test.mjs
+```
+
+The command now includes real local PostgreSQL and offline Chromium tests; missing
+infrastructure fails explicitly. It does not access production Supabase.

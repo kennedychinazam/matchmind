@@ -1,0 +1,282 @@
+{
+  "units": "bytes; MiB=1048576 bytes",
+  "budget_bytes": 262144000,
+  "budget_changed": false,
+  "assumptions": {
+    "initial_fields_new_fixture": 36,
+    "polled_fields": 6,
+    "initial_required_references": 10500,
+    "new_required_refs_per_new_fixture": 12,
+    "planning_reserve_multiplier": 1.25,
+    "history_growth": "Average link-size factor = 1 + (12 * new fixtures/day / competition groups * horizon / initial reference count)/2",
+    "exclusions": [
+      "WAL",
+      "backups",
+      "Auth/other application tables",
+      "new leagues requiring an extra archive seed",
+      "AI prompts/responses",
+      "unbounded operational bloat"
+    ],
+    "warning": "Unconstrained required capacity, not permission or ability to exceed admission. Page slopes and fixed reuse shares are synthetic estimates, not validated 180-day upper bounds."
+  },
+  "base": {
+    "observations": 63971328,
+    "manifests": 0,
+    "snapshots": 0,
+    "operational": 8192,
+    "shadow": 0,
+    "indexes": 9445376
+  },
+  "perObservation": {
+    "data": 1105.92,
+    "index": 501.55102040816325
+  },
+  "perOddsObservation": {
+    "data": 1167.36,
+    "index": 172.032
+  },
+  "observedPollRates": [
+    {
+      "nominal_percent": 0,
+      "persisted": 600,
+      "attempted": 12600,
+      "new_versions_after_first": 0,
+      "realized_changed_fraction": 0,
+      "bytes_per_changed_observation": null
+    },
+    {
+      "nominal_percent": 1,
+      "persisted": 698,
+      "attempted": 12600,
+      "new_versions_after_first": 98,
+      "realized_changed_fraction": 0.008166666666666666,
+      "bytes_per_changed_observation": {
+        "data": 1086.6938775510205,
+        "index": 501.55102040816325
+      }
+    },
+    {
+      "nominal_percent": 10,
+      "persisted": 1696,
+      "attempted": 12600,
+      "new_versions_after_first": 1096,
+      "realized_changed_fraction": 0.09133333333333334,
+      "bytes_per_changed_observation": {
+        "data": 1076.3211678832117,
+        "index": 171.91240875912408
+      }
+    }
+  ],
+  "slopes": {
+    "repeat": {
+      "manifest_data": 45875.2,
+      "manifest_index": 113868.8,
+      "snapshot_data": 3003.733333333333,
+      "snapshot_index": 819.2,
+      "operational_data": 273.06666666666666,
+      "operational_index": 273.06666666666666
+    },
+    "diverse": {
+      "manifest_data": 748748.8,
+      "manifest_index": 2103705.6,
+      "snapshot_data": 3003.733333333333,
+      "snapshot_index": 819.2,
+      "operational_data": 273.06666666666666,
+      "operational_index": 273.06666666666666
+    }
+  },
+  "scenarios": [
+    {
+      "name": "small shadow pilot",
+      "predictions_day": 2,
+      "new_fixtures_day": 2,
+      "interval_minutes": 15,
+      "active_hours": 6,
+      "changed_fraction": 0.01,
+      "repeat_share": 0.95,
+      "competition_groups": 1,
+      "polls_per_fixture_day": 24,
+      "odds_rows_per_poll": 1,
+      "new_stat_observations_day": 74.88,
+      "new_odds_observations_day": 48,
+      "new_observations_day": 122.88,
+      "forecasts": [
+        {
+          "days": 30,
+          "components_bytes": {
+            "observations": 68136665.088,
+            "manifests": 5027800.210285716,
+            "snapshots": 180224,
+            "operational": 24576,
+            "shadow": 0,
+            "indexes": 24125874.00881633
+          },
+          "total_bytes": 97495139.30710205,
+          "planning_bytes": 121868924.13387758,
+          "history_link_growth_factor": 1.0342857142857143,
+          "within_250MiB_with_reserve": true
+        },
+        {
+          "days": 90,
+          "components_bytes": {
+            "observations": 76467339.264,
+            "manifests": 16083405.092571434,
+            "snapshots": 540672,
+            "operational": 57344,
+            "shadow": 0,
+            "indexes": 56120349.92587757
+          },
+          "total_bytes": 149269110.282449,
+          "planning_bytes": 186586387.85306126,
+          "history_link_growth_factor": 1.1028571428571428,
+          "within_250MiB_with_reserve": true
+        },
+        {
+          "days": 180,
+          "components_bytes": {
+            "observations": 88963350.528,
+            "manifests": 35166823.57028573,
+            "snapshots": 1081344,
+            "operational": 106496,
+            "shadow": 0,
+            "indexes": 110695763.55004086
+          },
+          "total_bytes": 236013777.64832658,
+          "planning_bytes": 295017222.06040823,
+          "history_link_growth_factor": 1.2057142857142857,
+          "within_250MiB_with_reserve": false
+        }
+      ],
+      "first_day_over_200MiB": 111,
+      "first_day_over_250MiB": 154
+    },
+    {
+      "name": "focused coverage",
+      "predictions_day": 10,
+      "new_fixtures_day": 10,
+      "interval_minutes": 5,
+      "active_hours": 6,
+      "changed_fraction": 0.05,
+      "repeat_share": 0.5,
+      "competition_groups": 2,
+      "polls_per_fixture_day": 72,
+      "odds_rows_per_poll": 1,
+      "new_stat_observations_day": 576,
+      "new_odds_observations_day": 720,
+      "new_observations_day": 1296,
+      "forecasts": [
+        {
+          "days": 30,
+          "components_bytes": {
+            "observations": 108296601.6,
+            "manifests": 129410194.28571427,
+            "snapshots": 901119.9999999999,
+            "operational": 90112,
+            "shadow": 0,
+            "indexes": 383303579.68979585
+          },
+          "total_bytes": 622001607.5755101,
+          "planning_bytes": 777502009.4693877,
+          "history_link_growth_factor": 1.0857142857142856,
+          "within_250MiB_with_reserve": false
+        },
+        {
+          "days": 90,
+          "components_bytes": {
+            "observations": 196947148.8,
+            "manifests": 449530148.57142854,
+            "snapshots": 2703360,
+            "operational": 253952,
+            "shadow": 0,
+            "indexes": 1302090012.2122447
+          },
+          "total_bytes": 1951524621.5836732,
+          "planning_bytes": 2439405776.9795914,
+          "history_link_growth_factor": 1.2571428571428571,
+          "within_250MiB_with_reserve": false
+        },
+        {
+          "days": 180,
+          "components_bytes": {
+            "observations": 329922969.6,
+            "manifests": 1082958994.2857141,
+            "snapshots": 5406720,
+            "operational": 499712,
+            "shadow": 0,
+            "indexes": 3107944723.853061
+          },
+          "total_bytes": 4526733119.738775,
+          "planning_bytes": 5658416399.67347,
+          "history_link_growth_factor": 1.5142857142857142,
+          "within_250MiB_with_reserve": false
+        }
+      ],
+      "first_day_over_200MiB": 6,
+      "first_day_over_250MiB": 8
+    },
+    {
+      "name": "broad frequent collection",
+      "predictions_day": 30,
+      "new_fixtures_day": 30,
+      "interval_minutes": 1,
+      "active_hours": 12,
+      "changed_fraction": 0.1,
+      "repeat_share": 0.1,
+      "competition_groups": 2,
+      "polls_per_fixture_day": 720,
+      "odds_rows_per_poll": 1,
+      "new_stat_observations_day": 14040,
+      "new_odds_observations_day": 21600,
+      "new_observations_day": 35640,
+      "forecasts": [
+        {
+          "days": 30,
+          "components_bytes": {
+            "observations": 1286234112,
+            "manifests": 767630657.8285714,
+            "snapshots": 2703360,
+            "operational": 253952,
+            "shadow": 0,
+            "indexes": 2488215242.710204
+          },
+          "total_bytes": 4545037324.538775,
+          "planning_bytes": 5681296655.67347,
+          "history_link_growth_factor": 1.2571428571428571,
+          "within_250MiB_with_reserve": false
+        },
+        {
+          "days": 90,
+          "components_bytes": {
+            "observations": 3730759679.9999995,
+            "manifests": 3244984144.4571433,
+            "snapshots": 8110079.999999999,
+            "operational": 745472,
+            "shadow": 0,
+            "indexes": 10090597413.616327
+          },
+          "total_bytes": 17075196790.073471,
+          "planning_bytes": 21343995987.59184,
+          "history_link_growth_factor": 1.7714285714285714,
+          "within_250MiB_with_reserve": false
+        },
+        {
+          "days": 180,
+          "components_bytes": {
+            "observations": 7397548031.999999,
+            "manifests": 9316244801.828571,
+            "snapshots": 16220159.999999998,
+            "operational": 1482752,
+            "shadow": 0,
+            "indexes": 28106276763.689796
+          },
+          "total_bytes": 44837772509.51837,
+          "planning_bytes": 56047215636.897964,
+          "history_link_growth_factor": 2.5428571428571427,
+          "within_250MiB_with_reserve": false
+        }
+      ],
+      "first_day_over_200MiB": 1,
+      "first_day_over_250MiB": 2
+    }
+  ]
+}
