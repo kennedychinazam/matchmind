@@ -40,7 +40,7 @@ function labelAt(row,s,cutoff,exported,kind){
  return{actual,label_hash:best.label_hash,label_revision:best.revision,label_received_at_utc:best.receipt};
 }
 export function prepareSamples(packet,policy,labelCutoff){
- const signed=verifyDataset(packet,policy),p=signed.payload,cutoff=epochMicros(labelCutoff),exported=epochMicros(p.exported_at_utc),eligible=[],rejected=[],seen=new Set();
+ const signed=verifyDataset(packet,policy),p=signed.payload,cutoff=epochMicros(labelCutoff),exported=epochMicros(p.exported_at_utc),eligible=[],scorable=[],rejected=[],seen=new Set();
  for(const row of p.examples){
   if(!row?.fixture_id||seen.has(String(row.fixture_id)))fail('duplicate/missing fixture');seen.add(String(row.fixture_id));
   if(!row.snapshot){rejected.push({fixture_id:row.fixture_id,reason:'capture_missing'});continue;}
@@ -61,18 +61,20 @@ export function prepareSamples(packet,policy,labelCutoff){
     if(String(o.fixture_id)===s.fixture_id&&['gh','ga','ft_h','ft_a','xg_h','xg_a'].includes(o.field_name))reason='target_outcome_evidence';
    }
   }catch{reason='invalid_evidence_receipt';}
-  if(reason){rejected.push({fixture_id:row.fixture_id,reason});continue;}
   const original=row.source_prediction;
   if(canonicalJSON([original.p_home,original.p_draw,original.p_away])!==canonicalJSON(s.probabilities)||epochMicros(original.made_at)!==issue||String(original.fxid)!==s.fixture_id||original.build!==s.prediction_build)fail('original source mismatch');
+  const label=labelAt(row,s,cutoff,exported,p.dataset_kind);
+  const common={fixture_id:s.fixture_id,id:s.fixture_id,snapshot_id:s.snapshot_id,issued_at:s.issue_time_utc,kickoff_at_utc:s.kickoff_at_utc,league:original.lid,baseline:[...s.probabilities],...label};
+  if(!label.reason&&reason!=='unverified_capture')scorable.push(common);
+  if(reason){rejected.push({fixture_id:row.fixture_id,reason});continue;}
   const inputs=buildAsOfInputs({snapshot:s,observations:observations.filter(o=>o.field_name!=='odds_1x2')}),features=existingMatchFeatures(inputs);
   if(!inputs.fixture||inputs.fixture.home!==original.home||inputs.fixture.away!==original.away||inputs.league?.id!==original.lid||inputs.fixture.date!==s.kickoff_at_utc.slice(0,10))reason='target_identity_missing';
   else if(!Number.isFinite(features?.xgEdge))reason='feature_missing';
   else if(s.probabilities[0]<=0||s.probabilities[2]<=0)reason='conditional_probability_boundary';
-  const label=labelAt(row,s,cutoff,exported,p.dataset_kind);
   if(reason||label.reason){rejected.push({fixture_id:row.fixture_id,reason:reason??label.reason});continue;}
   eligible.push({fixture_id:s.fixture_id,id:s.fixture_id,snapshot_id:s.snapshot_id,issued_at:s.issue_time_utc,kickoff_at_utc:s.kickoff_at_utc,league:original.lid,baseline:[...s.probabilities],xgEdge:features.xgEdge,
    evidence_manifest_hash:row.capture.manifest_hash,feature_manifest_hash:inputs.manifest.hash,...label,
    sample_hash:canonicalHash({snapshot_id:s.snapshot_id,baseline:s.probabilities,xgEdge:features.xgEdge,evidence:row.capture.manifest_hash,feature:inputs.manifest.hash,label})});
  }
- return{dataset_hash:signed.dataset_hash,dataset_kind:p.dataset_kind,exported_at_utc:p.exported_at_utc,label_cutoff_utc:labelCutoff,roster:p.examples.length,eligible,rejected};
+ return{dataset_hash:signed.dataset_hash,dataset_kind:p.dataset_kind,exported_at_utc:p.exported_at_utc,label_cutoff_utc:labelCutoff,roster:p.examples.length,eligible,scorable,rejected};
 }

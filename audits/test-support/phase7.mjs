@@ -6,7 +6,7 @@ const {privateKey,publicKey}=generateKeyPairSync('ed25519');
 const rawHash=x=>createHash('sha256').update(x).digest('hex');
 export const testPrivateKey=privateKey;
 export const testPolicy={key_id:'synthetic-unit-key',public_key_pem:publicKey.export({type:'spki',format:'pem'}),purpose:'phase7-synthetic-poc',allowed_kind:'synthetic_verification',source_id:'synthetic-unit',clock_domain:'synthetic_unit'};
-export function fixturePayload(versions,{start='2026-10-01',n=30,exported='2026-10-02T23:00:00Z',prefix=10000}={}){
+export function fixturePayload(versions,{start='2026-10-01',n=30,exported='2026-10-02T23:00:00Z',prefix=10000,historyCount=5,homeXg=1.5}={}){
  const observations={},examples=[];
  const issue=start+'T12:00:00Z',kickoff=start+'T18:00:00Z',receipt=start+'T11:00:00Z';
  const add=(fid,fields,played)=>{const ids=[];for(const[field_name,value]of Object.entries(fields)){
@@ -15,7 +15,7 @@ export function fixturePayload(versions,{start='2026-10-01',n=30,exported='2026-
    observed_at_utc:receipt,received_at_utc:receipt,effective_at_utc:null,played_at_utc:played,source_hash:'a'.repeat(64),payload_hash:canonicalHash(value)};ids.push(observation_id);
  }return ids;};
  const history=[];
- for(let j=0;j<5;j++){const d=new Date(Date.parse(start+'T00:00:00Z')-(j+1)*86400000).toISOString().slice(0,10);history.push(...add(prefix-10-j,{home:'Alpha',away:'Beta',lid:39,date:d,time:'18:00',status:'FINISHED',gh:2,ga:1,xg_h:1.5,xg_a:1,season:2026},d+'T18:00:00Z'));}
+ for(let j=0;j<historyCount;j++){const d=new Date(Date.parse(start+'T00:00:00Z')-(j+1)*86400000).toISOString().slice(0,10);history.push(...add(prefix-10-j,{home:'Alpha',away:'Beta',lid:39,date:d,time:'18:00',status:'FINISHED',gh:2,ga:1,xg_h:homeXg,xg_a:1,season:2026},d+'T18:00:00Z'));}
  for(let i=0;i<n;i++){
   const fid=String(prefix+i),sid=`${String(i+1).padStart(8,'0')}-1111-4111-8111-111111111111`;
   const s={...base(),snapshot_id:sid,fixture_id:fid,issue_time_utc:issue,kickoff_at_utc:kickoff,probabilities:[.4,.2,.4]};
