@@ -12,7 +12,7 @@ export function localDatabase(label) {
  return {name,sql,
   apply(file){ return sql(readFileSync(new URL('../staging/'+file,import.meta.url),'utf8')); },
   async start() {
-   docker(['run','--detach','--rm','--name',name,'--network','none','--label','matchmind.phase3.synthetic=true','--tmpfs','/var/lib/postgresql/data:rw','-e','POSTGRES_HOST_AUTH_METHOD=trust','-e','POSTGRES_DB=matchmind_test',IMAGE]); started=true;
+   docker(['run','--pull=never','--detach','--rm','--name',name,'--network','none','--label','matchmind.phase3.synthetic=true','--tmpfs','/var/lib/postgresql/data:rw','-e','POSTGRES_HOST_AUTH_METHOD=trust','-e','POSTGRES_DB=matchmind_test',IMAGE]); started=true;
    for(let i=0;i<100;i++){try{if(sql('select 1')==='1') return;}catch{}await setTimeout(100);}
    throw Error('local PostgreSQL startup failed');
   },

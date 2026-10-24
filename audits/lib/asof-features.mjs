@@ -8,6 +8,7 @@ const featureSource=source.slice(source.indexOf('function buildFixtureIndex(){')
 const extrasSource=source.slice(source.indexOf('const EXTRA_KEYS ='),source.indexOf('/* ══ BUILD 247 — THE LEAGUE READ'));
 if(!featureSource.startsWith('function buildFixtureIndex(){') || !extrasSource.startsWith('const EXTRA_KEYS =')) throw Error('existing feature source boundaries unavailable');
 const implementationHash=createHash('sha256').update(featureSource+extrasSource).digest('hex');
+export const ASOF_IMPLEMENTATION_HASH=implementationHash;
 // Microsecond comparisons avoid rounding a server receipt after issuance down to it.
 export const instantMicros=epochMicros;
 export const FIXTURE_FIELDS=Object.freeze(['lid','home','away','date','time','status','gh','ga','ht_h','ht_a','ft_h','ft_a','provider','home_logo','away_logo','xg_h','xg_a','gprev_h','gprev_a','poss_h','poss_a','shots_h','shots_a','sot_h','sot_a','sib_h','sib_a','sob_h','sob_a','blocked_h','blocked_a','corners_h','corners_a','fouls_h','fouls_a','yellows_h','yellows_a','reds_h','reds_a','saves_h','saves_a','passacc_h','passacc_a','offsides_h','offsides_a','formation_h','formation_a','passes_h','passes_a','referee','venue_id','season','round','lineup_h','lineup_a','events','inj_h','inj_a']);
