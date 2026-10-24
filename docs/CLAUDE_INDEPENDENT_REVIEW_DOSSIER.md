@@ -379,3 +379,32 @@ Every later user-reported Codex milestone gets its own dated, append-only sectio
 - Preserve this owner requirement in all future prompts and in the final Claude “what changed/why” narrative. **No Claude final review until agreed development is complete.**
 
 **Status:** recorded preference and future design amendment **only**. No one-day real pilot has been approved or started, and no scientific training result has been produced.
+
+
+---
+
+## 15. 2026-10-24 — Existing publication gate verified; owner proposes temporary same-engine refresh to enable a one-day weekend test
+
+### User proposal and corrected baseline interpretation
+After establishing a maximum 24-hour observation window, the owner proposed **temporarily rewriting/refeshing predictions using the *current* statistical engine/settings for test purposes**, then restoring the previously configured freeze window (owner was unsure whether it was 48 or 72 hours). Motivation: weekend fixtures happen now and waiting seven days would defeat the purpose.
+
+**Independently verified in actual Build 355 `main/index.html` via read-only GitHub fetch (G):**
+- Near **line 9969**, `const PUBLISH_AHEAD_DAYS = 3;`. `tooFarAheadToPublish(f)` at approx lines 9970–9976 refuses archiving while kickoff is **more than three days (72 hours)** ahead. This is the publication **eligibility horizon**, not an automatic forced publication exactly 72h before kickoff. Once the fixture enters the horizon, first authorized publisher boot/eligible render controls actual issue time.
+- `archivePrediction` at approximately lines 10039–10050 checks `isPublisher()`, `kickoffPassed(f)`, `tooFarAheadToPublish(f)` and `afState.archive[f.fxid]`. An existing archived fixture is returned **without overwriting**.
+- Commentary at lines 9998–10029 documents the Build 199 fundamental invariant: **first published prediction persists, no silent overwrite/deletion**. Shared `predictions` row keyed by fixture ID with publisher-only INSERT-IF-ABSENT semantics. Altering the 72h eligibility constant alone **does not** refresh an already published pick.
+- Separate `const PUBLISH_GUARD_DAYS = 5` at roughly line 10237 is a broader DB INSERT sanity limit, **not** the active three-day app eligibility horizon.
+- The **48-hour** rule in Build 349 (approx lines 4296 onward) refers to **late/postponed-match void settlement**, not pre-match publication locking. Preserve it unchanged.
+- Historical comments at lines 9940–9968 discuss earlier 4-day (96h), 3-day (72h), 2-day (48h) alternatives; the actual Build355 constant is **3 days**, regardless of older comment wording. The signed-in publisher's app drives publication; `robot/publish.mjs` does not itself calculate prediction probabilities.
+
+### Safe execution interpretation: research shadow, not a live overwrite [P]
+**Assistant recommendation, not yet a Codex implementation or separately approved production change:** for a fixed 24-hour weekend study, use the exact original Build355 statistical engine and its current unchanged tuning to produce **new test-time forecasts** in an isolated private research/shadow stream, stamped with actual issue/receipt time before the match. Compare with the untouched original public forecast. Test-only outputs must never be backdated or represented as the originally published prediction.
+- If the target match was already publicly frozen earlier in the 72-hour eligibility window, **do not UPDATE/DELETE/UPSERT its `public.predictions` row** or alter consumer surfaces; the second output is a distinct, clearly labelled test-time forecast with its own immutable identifier, probabilities/pick, model/config/source hashes, evidence receipts, target fixture/kickoff and evaluation rules.
+- If the proposal were instead read as changing the production `PUBLISH_AHEAD_DAYS` or row write rule for one day, that would require **fresh, specific owner approval, tested backup/rollback and security review**. It is unnecessary for the safe private comparison, and a temporary gate change alone cannot rewrite existing frozen rows. No live operation has been authorized or performed by this note.
+- A test-time forecast calculated with updated inputs can legitimately differ from an old frozen original; **the test-time evidence cutoff is NOW**, never retroactively the original publication time. Authoritative pre-test receipts and reliable source ownership still required for provenance. Record lead time, population selection, xG availability and odds receipt separately; tests close at 24h and leave incomplete outcomes pending.
+- Use deterministic predeclared selection of upcoming weekend fixtures based on **pre-kickoff** eligibility; never cherry-pick outcomes or re-label later results. Report same-engine refresh vs original as **different-issuance-time forecasts**, not an isolated causal engine-tuning improvement. Still no paid AI, no existing Supabase writes, no increase above 250MiB.
+- Product restoration: since the research-only path never modifies public code/gates, the 72-hour publication rule **remains active throughout and afterward**. Run invariance tests and recheck `main`/backup SHA. No separate revert is required.
+
+### Next Codex amendment
+Revise any Phase8 one-day plan to include **read-only technical feasibility of invoking the exact current Build355 engine on an isolated, timestamped test roster**; determine whether its browser/data-loading machinery can be safely exercised offline with complete snapshots and without real publisher credentials, external provider calls or public writes. Respect source first-receipt and private integration blockers. If infeasible, report why instead of invoking `robot/publish.mjs`, rewriting originals or creating backdated data. Estimate how many existing real fixtures can actually qualify in 24 hours, not how many are merely scheduled to play.
+
+**Status:** user intention understood and original horizon independently verified; **no temporary production override, live prediction rewrite, one-day test, collector activation or deployment performed**. Document the distinction in final Claude before/after narrative.
