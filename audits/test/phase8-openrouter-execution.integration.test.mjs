@@ -43,9 +43,13 @@ test('a provider contract or cost violation halts the experiment instead of enab
  await assert.rejects(()=>api.executeRequest(store,{id:'or-after-cost',job,request,profile:p},options),/halted/);assert.equal(calls,1);assert.equal(store.read('or-bad-cost:raw').body.response.usage.cost,6);
 });
 test('kickoff crossed during checkpoint prevents HTTP while retaining the admitted reservation',async()=>{
- const late=store.append('job','or-short-deadline',store.read(job).parent_id,{fixture_id:'2',kickoff_at_utc:new Date(Date.now()+2000).toISOString(),original:null});let http=0;
- await assert.rejects(()=>api.executeRequest(store,{id:'or-late-checkpoint',job:late,request,profile:p},{kind:'synthetic_verification',account:account(),checkpoint:()=>new Promise(r=>setTimeout(r,2500)),transport:async()=>{http++;}}),/late|stale/);
- assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
+ // Keep SQL admission safely before the real kickoff. Only the synthetic
+ // supervisor clock crosses it, after the reservation has been confirmed.
+ const kickoff=store.read(job).body.kickoff_at_utc;let virtual=new Date(Date.parse(kickoff)-1000).toISOString(),http=0,checkpoints=0;
+ store.clock=()=>virtual;
+ const profile=freezeProfile(catalog(),virtual),nearKickoff=buildRequest('A3',profile,{fixture_id:'1',home:'A',away:'B',receipt_at_utc:virtual,facts:[{ref:'r',data:{synthetic:true}}]},virtual);
+ await assert.rejects(()=>api.executeRequest(store,{id:'or-late-checkpoint',job,request:nearKickoff,profile},{kind:'synthetic_verification',account:account(),checkpoint:async()=>{checkpoints++;assert.equal(store.reservedMicros(),306000);virtual=new Date(Date.parse(kickoff)+1000).toISOString();},transport:async()=>{http++;}}),/late or stale dispatch after checkpoint/);
+ assert.equal(checkpoints,1);assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
 });
 test('a halt arriving during checkpoint blocks the waiting attempt before HTTP',async()=>{
  let http=0;

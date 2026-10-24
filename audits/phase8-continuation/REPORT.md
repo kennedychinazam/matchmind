@@ -1,5 +1,7 @@
 # Phase 8 continuation report
 
+For the subsequent October 24 task's verified private recovery, ready environment, authenticated metadata results and remaining BYOK activation blocker, see [runtime follow-up](2026-10-24-runtime-followup.md). The report below records the earlier task.
+
 ## Result and operational boundary
 
 Continuation branch:`codex/phase8-openrouter-continuation`, based exactly on`9312a06`. The owner confirmed external retention of the complete private archive/checksum. Fresh isolated recovery verified **all four dump files**: three chronological checkpoints and an emergency copy logically equivalent to the first. All145 Saturday E-Refreshed forecasts,725 frozen arm records,93,680 input rows, engine/source/input hashes, original records, permissions and zero AI liability survive. The original private archive was not changed.

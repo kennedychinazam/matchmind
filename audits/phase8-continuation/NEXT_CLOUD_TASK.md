@@ -1,5 +1,7 @@
 # Exact new-task handoff
 
+**Subsequent task update:** the published environment and private archive are now available and verified; authenticated metadata preflight is blocked by `include_byok_in_limit:false`. Read the [October 24 runtime follow-up](2026-10-24-runtime-followup.md) before repeating the historical environment recovery steps below. All original study, custody, budget and date safeguards still apply.
+
 The exposed environment tools can read status/diagnostics only; none can request reattachment/restart. This does not establish that the platform UI lacks that capability. Observed revision advanced133→136→139 while the source configuration version stayed the old `cecfgver_6adbd59e59c881a1909aa94ad294168e`, with no secret/runtime bindings and no OpenRouter domain. Do not assume a higher runtime revision means the owner's republished configuration is attached.
 
 1. Start a **new Codex Cloud task** for `kennedychinazam/matchmind`, selecting branch `codex/phase8-openrouter-continuation` and the latest published existing **`matchmind`** environment. Do not create a project, new paid runner or unrestricted network configuration. Keep this task's committed/pushed work; no branch merge is needed.
