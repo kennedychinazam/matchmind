@@ -157,3 +157,7 @@ Future Supabase staging must verify:
 5. A frozen candidate before its first untouched prospective test issue, exact material-improvement threshold and cluster-aware inference preregistration. The November 1 cohort label alone does not establish confirmatory evidence.
 
 No production write, API-Football request, paid AI call, merge or deployment is part of these instructions.
+
+## Phase 4 local-only follow-on
+
+The approved Phase 3 implementation remains unchanged. Hosted staging is excluded because both Free projects must remain active and no subscription/additional resource is authorized. See `docs/PHASE4_LOCAL_PREPARATION_REPORT.md`, `audits/phase4/README.md` and the updated Phase 4 plan. CLI 2.122.0 installation succeeded, but full and reduced-core image extraction exceeded this 32 GB Docker-vfs workspace's safe disk budget; trial resources were cleaned up. Continue using the no-network PostgreSQL harness. The complete regression command now runs 101 tests on Node 20 and 24. Auth/JWT/PostgREST/Edge checks remain explicitly blocked; do not infer them from those passing database regressions or run the production publisher to fill the gap.
