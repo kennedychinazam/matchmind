@@ -47,7 +47,7 @@ export function evaluateWeekend(study,asOfUtc){
   const old=original&&epochMicros(original.made_at)<epochMicros(study.study.started_at_utc);if(old)coverage.originals_before_collection++;
   if(original&&label.actual&&probabilityScore([original.p_home,original.p_draw,original.p_away],label.actual)){
    const op={...original,kickoff:original.kickoff??row.kickoff_at_utc.slice(0,10),ktime:original.ktime??row.kickoff_at_utc.slice(11,19),build:original.build??355,pick:'1'},ko=utcKickoff(op.kickoff,op.ktime),verdict=publishedVerdict(op,label.fixture,Number(cutoff/1000n));
-   if(ko!==null&&epochMicros(original.made_at)<BigInt(ko)*1000n&&!verdict.excluded&&!verdict.voidLate&&verdict.done)context.push({p:[original.p_home,original.p_draw,original.p_away],actual:label.actual});
+   if(ko!==null&&epochMicros(original.made_at)<BigInt(ko)*1000n&&!verdict.excluded&&!verdict.voidLate&&verdict.done)context.push({id:row.job_id,league:row.league??'unrecorded',issued_at:original.made_at,p:[original.p_home,original.p_draw,original.p_away],actual:label.actual});
   }
   for(const arm of ARMS){
    const f=(row.forecasts??[]).find(f=>f.arm===arm);
@@ -66,6 +66,8 @@ export function evaluateWeekend(study,asOfUtc){
   }
  }
  const comparisons={};for(const arm of ARMS){const pairs=cohorts[arm].filter(r=>r.market);comparisons[arm+'_vs_market']=paired(pairs,r=>r.market,r=>r.p);}
+ const refreshed=new Map(cohorts['E-Refreshed'].map(r=>[r.id,r])),contextPairs=context.filter(r=>refreshed.has(r.id)).map(r=>({...r,original_issued_at:r.issued_at,issued_at:refreshed.get(r.id).issued_at,refreshed:refreshed.get(r.id).p}));
+ comparisons.original_context_vs_E_Refreshed={...paired(contextPairs,r=>r.p,r=>r.refreshed),timing:'different issuance times; contextual comparison only',prospective_eligible:false};
  for(const arm of ['A1','A2','A3']){const baseline=new Map(cohorts['E-Refreshed'].map(r=>[r.id,r])),pairs=cohorts[arm].filter(r=>baseline.has(r.id)).map(r=>({...r,baseline:baseline.get(r.id).p}));comparisons[arm+'_vs_E-Refreshed']=paired(pairs,r=>r.baseline,r=>r.p);}
  const aiSuccess=counts.A1.verified_forecasts+counts.A3.verified_forecasts;
  const actualSpend=Number.isSafeInteger(study.actual_paid_micros)&&study.actual_paid_micros>=0?study.actual_paid_micros/1000000:null;

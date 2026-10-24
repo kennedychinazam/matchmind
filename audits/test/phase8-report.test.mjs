@@ -7,6 +7,7 @@ test('report separates prior originals, missing arms, vetoes and identical paire
  assert.equal(typeof api.evaluateWeekend,'function');const r=api.evaluateWeekend(sample(),'2026-10-26T12:00:00Z');
  assert.equal(r.coverage.roster,1);assert.equal(r.arms['E-Refreshed'].n,1);assert.equal(r.arms.A1.failed,1);assert.equal(r.arms.A3.missing,1);
  assert.equal(r.coverage.originals_before_collection,1);assert.equal(r.arms.E.n,0);assert.equal(r.original_context.n,1);
+ assert.equal(r.comparisons.original_context_vs_E_Refreshed.n,1);assert.equal(r.comparisons.original_context_vs_E_Refreshed.prospective_eligible,false);
  assert.equal(r.arms.A2.vetoed,1);assert.equal(r.arms.A2.n,0);assert.equal(r.comparisons['E-Refreshed_vs_market'].n,1);
  assert.equal(r.actual_ai_spend_usd,0);assert.equal(r.ai_cost_per_success_usd,null);assert.equal(r.accuracy_claim,false);
 });
