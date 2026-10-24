@@ -70,3 +70,7 @@ Files: `audits/phase6/run-synthetic.mjs`, `audits/phase6/results/*`, CI modifica
 ## Review focus
 
 Time provenance must come from database receipts, not JSON assertions; late imports abstain. Failed capture/result persistence must remain in denominators. Retries must not create competing results. Candidate failures must retain exact stored precision. Evaluation must bind settlement and odds to the same fixture and preserve 90-minute/48-hour semantics. Database superusers and Docker administrators remain trusted; SQL/Node tests do not establish Supabase Auth/PostgREST/Edge compatibility.
+
+## Design-review refinements
+
+The independent builder check required these additions: candidate identity includes the actual feature-source hash and required-feature list; declare an immutable job roster before attempting work; store append-only fixture-bound settlement revisions with server receipts and choose only revisions available at the report cutoff; enforce candidate/configuration/baseline/manifest lineage again in SQL. Reserve up to 1 MiB operational headroom **inside** the shared quota, cap per-job/total attempt rows and fail explicitly after exhaustion. Reconciliation against the frozen roster exposes attempts which could not persist. Caller freeze time is distinct from server registration receipt. Check cached images before the new local runner and never pull. Unrelated missing M14 features (e.g. lineups) do not disqualify finite xgEdge.
