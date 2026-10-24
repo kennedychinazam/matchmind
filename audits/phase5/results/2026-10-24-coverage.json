@@ -1,0 +1,82 @@
+[
+  {
+    "file": "009_asof_feature_feasibility.sql",
+    "read_at": "2026-10-24 07:59:29.000364+00",
+    "transaction_read_only": "on",
+    "rows": [
+      {
+        "target_n": 1997,
+        "avg_away_history": 10.42,
+        "avg_home_history": 10.75,
+        "both_teams_5_results": 1438,
+        "both_teams_3_xg_currentdb": 907,
+        "both_teams_3_shots_currentdb": 1077,
+        "both_teams_3_lineups_currentdb": 1105,
+        "both_teams_3_xg_lastupdate_preissue": 407,
+        "both_teams_5_results_lastupdate_preissue": 861
+      }
+    ]
+  },
+  {
+    "file": "010_historical_feature_coverage.sql",
+    "read_at": "2026-10-24 07:59:32.672696+00",
+    "transaction_read_only": "on",
+    "rows": [
+      {
+        "n_xg": 1085,
+        "n_poss": 9550,
+        "pct_xg": 5.76,
+        "season": 2022,
+        "n_shots": 9851,
+        "n_lineups": 10392,
+        "n_finished": 18832,
+        "n_half_time": 18353,
+        "competitions": 55
+      },
+      {
+        "n_xg": 4588,
+        "n_poss": 10263,
+        "pct_xg": 24.53,
+        "season": 2023,
+        "n_shots": 10474,
+        "n_lineups": 10803,
+        "n_finished": 18700,
+        "n_half_time": 18117,
+        "competitions": 55
+      },
+      {
+        "n_xg": 5237,
+        "n_poss": 9904,
+        "pct_xg": 27.73,
+        "season": 2024,
+        "n_shots": 10018,
+        "n_lineups": 10371,
+        "n_finished": 18884,
+        "n_half_time": 18362,
+        "competitions": 55
+      },
+      {
+        "n_xg": 7476,
+        "n_poss": 10152,
+        "pct_xg": 39.51,
+        "season": 2025,
+        "n_shots": 10160,
+        "n_lineups": 10586,
+        "n_finished": 18921,
+        "n_half_time": 18485,
+        "competitions": 55
+      },
+      {
+        "n_xg": 2132,
+        "n_poss": 3650,
+        "pct_xg": 33.41,
+        "season": 2026,
+        "n_shots": 3556,
+        "n_lineups": 3669,
+        "n_finished": 6381,
+        "n_half_time": 6377,
+        "competitions": 54
+      }
+    ]
+  }
+]
