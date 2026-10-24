@@ -1,5 +1,7 @@
 # Phase 8 secure continuation — supervised handoff
 
+**October 25 follow-up:** read the [BYOK assessment and CI findings](2026-10-25-byok-ci-findings.md). The earlier blanket instruction to enable BYOK inclusion is superseded by the credit-only assessment; account-level absence of saved provider keys still needs evidence. No spending guard is bypassed and paid activation remains blocked.
+
 This layer starts at Phase8 `9312a06` on `codex/phase8-openrouter-continuation`. Read [REPORT.md](REPORT.md) and [NEXT_CLOUD_TASK.md](NEXT_CLOUD_TASK.md). It does not deploy anything. Private forecast data, packets, SQL dumps, detailed football reports and credentials stay outside Git.
 
 **New task follow-up, October 24:** [current runtime and recovery observations](2026-10-24-runtime-followup.md). The new environment is ready and authenticated metadata GETs now succeed; paid activation remains blocked by the key's BYOK limit setting. The earlier task's status below is retained as historical evidence.
