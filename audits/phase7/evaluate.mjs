@@ -15,7 +15,7 @@ export function validateCoefficient(artifact,freezePacket,packet,policy,configur
  const start=epochMicros(configuration.start_utc),end=epochMicros(configuration.end_utc),cutoff=epochMicros(configuration.label_cutoff_utc),frozenAt=epochMicros(freeze.registered_at_utc);
  if(start>=end||end>cutoff||frozenAt<epochMicros(artifact.configuration.fit_cutoff_utc)||frozenAt>=start)throw Error('freeze/validation period chronology');
  if(epochMicros(verified.payload.exported_at_utc)<cutoff)throw Error('validation export precedes fixed label cutoff');
- const trainingIds=new Set(artifact.training.fixture_ids);
+ const trainingIds=new Set(artifact.training.roster_fixture_ids);
  for(const row of verified.payload.examples){if(trainingIds.has(String(row.fixture_id)))throw Error('training/validation fixture overlap');
   if(row.snapshot){const s=row.snapshot.source_prediction?snapshotFromCapture(row.snapshot):validatePredictionSnapshot(row.snapshot);if(epochMicros(s.issue_time_utc)<=frozenAt)throw Error('artifact registration must precede validation issuance');}}
  const prepared=prepareSamples(packet,policy,configuration.label_cutoff_utc),eligible=new Map(prepared.eligible.map(r=>[r.id,r])),records=new Map(verified.payload.examples.map(r=>[String(r.fixture_id),r]));

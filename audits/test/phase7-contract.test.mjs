@@ -20,6 +20,11 @@ test('complete manifest and observation content are checked even for a signed ex
  assert.throws(()=>samples.prepareSamples(seal(bad),testPolicy,'2026-10-03T00:00:00Z'),/manifest|observation/);
  const shortened=payload();shortened.examples[0].manifest.chunks[0].members.pop();
  assert.throws(()=>samples.prepareSamples(seal(shortened),testPolicy,'2026-10-03T00:00:00Z'),/manifest|chunk/);
+ const anchored=payload(),r=anchored.examples[0];r.snapshot={...r.snapshot,source_prediction:r.source_prediction,model_version_source:'derived_from_build',hash_scheme:'pg-jsonb-v1',evidence_manifest:{payload_hash:r.manifest.payload_hash,evidence_count:67,chunk_count:1}};
+ r.capture.envelope_text=JSON.stringify(r.snapshot);r.capture.payload_hash=api.rawHash(r.capture.envelope_text);
+ const c=r.manifest.chunks[0];c.members.pop();c.member_count--;c.chunk_hash=api.rawHash('['+c.members.map(x=>JSON.stringify(x.observation_id)).join(', ')+']');
+ const body=JSON.parse(r.manifest.body_text);body.chunks[0]=c.chunk_hash;body.evidence_count--;r.manifest.body_text=JSON.stringify(body);r.manifest.payload_hash=api.rawHash(r.manifest.body_text);r.capture.manifest_hash=r.manifest.payload_hash;
+ assert.throws(()=>samples.prepareSamples(seal(anchored),testPolicy,'2026-10-03T00:00:00Z'),/manifest/);
  const dup=payload();dup.examples.push(dup.examples[0]);assert.throws(()=>samples.prepareSamples(seal(dup),testPolicy,'2026-10-03T00:00:00Z'),/duplicate/);
 });
 test('invalid, missing, equal or post-issue evidence receipts cannot enter training',()=>{
@@ -44,4 +49,5 @@ test('missing capture/history stays explicit and never becomes a zero-valued fea
  const p=payload();p.examples[0].snapshot=null;
  const out=samples.prepareSamples(seal(p),testPolicy,'2026-10-03T00:00:00Z');assert.equal(out.roster,30);assert.equal(out.rejected[0].reason,'capture_missing');
  const late=payload();late.examples[0].capture.capture_kind='late_import';assert.equal(samples.prepareSamples(seal(late),testPolicy,'2026-10-03T00:00:00Z').rejected[0].reason,'unverified_capture');
+ const wrong=payload();wrong.examples[0].source_prediction.kickoff='2026-10-02';assert.throws(()=>samples.prepareSamples(seal(wrong),testPolicy,'2026-10-03T00:00:00Z'),/original/);
 });

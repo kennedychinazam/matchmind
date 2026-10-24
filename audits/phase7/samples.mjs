@@ -1,4 +1,4 @@
-import {canonicalHash,canonicalJSON,epochMicros,validatePredictionSnapshot,snapshotFromCapture}from '../lib/snapshot-contract.mjs';
+import {canonicalHash,canonicalJSON,epochMicros,utcInstant,validatePredictionSnapshot,snapshotFromCapture}from '../lib/snapshot-contract.mjs';
 import {buildAsOfInputs,existingMatchFeatures,FIXTURE_FIELDS}from '../lib/asof-features.mjs';
 import {publishedVerdict,settledScore,resultCode}from '../lib/independent-grade.mjs';
 import {verifyDataset,rawHash}from './attestation.mjs';
@@ -47,6 +47,8 @@ export function prepareSamples(packet,policy,labelCutoff){
   const observations=completeEvidence(row,p);
   const decoded=proofText(row.capture?.envelope_text,row.capture?.payload_hash);
   if(canonicalJSON(decoded)!==canonicalJSON(row.snapshot))fail('snapshot envelope mismatch');
+  if(decoded.evidence_manifest&&(decoded.evidence_manifest.payload_hash!==row.manifest.payload_hash||decoded.evidence_manifest.evidence_count!==observations.length||decoded.evidence_manifest.chunk_count!==row.manifest.chunks.length))fail('captured manifest anchor mismatch');
+  if(p.source.clock_domain==='postgres_server'&&!decoded.evidence_manifest)fail('captured server manifest required');
   const s=decoded.source_prediction?snapshotFromCapture(decoded):validatePredictionSnapshot(decoded),issue=epochMicros(s.issue_time_utc);
   if(s.fixture_id!==String(row.fixture_id))fail('snapshot fixture mismatch');
   let reason=null;
@@ -63,6 +65,8 @@ export function prepareSamples(packet,policy,labelCutoff){
   }catch{reason='invalid_evidence_receipt';}
   const original=row.source_prediction;
   if(canonicalJSON([original.p_home,original.p_draw,original.p_away])!==canonicalJSON(s.probabilities)||epochMicros(original.made_at)!==issue||String(original.fxid)!==s.fixture_id||original.build!==s.prediction_build)fail('original source mismatch');
+  const ko=utcInstant(String(original.kickoff).slice(0,10)+'T'+original.ktime+(original.ktime.length===5?':00Z':'Z'));
+  if(epochMicros(ko)!==epochMicros(s.kickoff_at_utc)||original.pick!==s.pick||decoded.source_prediction&&canonicalJSON(decoded.source_prediction)!==canonicalJSON(original))fail('original kickoff/pick lineage mismatch');
   const label=labelAt(row,s,cutoff,exported,p.dataset_kind);
   const common={fixture_id:s.fixture_id,id:s.fixture_id,snapshot_id:s.snapshot_id,issued_at:s.issue_time_utc,kickoff_at_utc:s.kickoff_at_utc,league:original.lid,baseline:[...s.probabilities],...label};
   if(!label.reason&&reason!=='unverified_capture')scorable.push(common);

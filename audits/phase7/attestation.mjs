@@ -4,7 +4,7 @@ import {canonicalHash,canonicalJSON,epochMicros}from '../lib/snapshot-contract.m
 import {ASOF_IMPLEMENTATION_HASH}from '../lib/asof-features.mjs';
 export const rawHash=text=>createHash('sha256').update(text).digest('hex');
 export function sourceVersions(){
- const paths=['./attestation.mjs','./samples.mjs','../lib/asof-features.mjs','../lib/snapshot-contract.mjs','../phase6/adapters.mjs'];
+ const paths=['./attestation.mjs','./samples.mjs','./local.mjs','./schema.sql','../lib/asof-features.mjs','../lib/snapshot-contract.mjs','../lib/independent-grade.mjs','../lib/bookmaker-metrics.mjs','../phase6/adapters.mjs','../phase6/report.mjs','../phase5/validation.mjs'];
  const h=createHash('sha256');for(const p of paths)h.update(p).update(readFileSync(new URL(p,import.meta.url)));
  return{contract:'phase7-v1',feature_source_hash:ASOF_IMPLEMENTATION_HASH,phase6_adapter_hash:rawHash(readFileSync(new URL('../phase6/adapters.mjs',import.meta.url))),input_source_hash:h.digest('hex')};
 }

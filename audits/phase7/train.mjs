@@ -27,7 +27,7 @@ export function fitCoefficient(packet,policy,configuration){
   status:reason?'abstain':'fitted',reason,beta,at_boundary,configuration:structuredClone(configuration),configuration_hash:canonicalHash(configuration),
   training_dataset_hash:prepared.dataset_hash,source_versions:sourceVersions(),trainer_source_hash:trainerSourceHash(),
   algorithm:{version:'bounded-logloss-bisection-v1',bounds:[-1,1],iterations:80,zero_gradient_tolerance:1e-12,minimum_non_draw:10,minimum_information:1e-12,regularization:0,intercept:false},
-  training:{roster:prepared.roster,n:rows.length,non_draw_n:nonDraw.length,rejected:prepared.rejected,outside_period:prepared.eligible.length-rows.length,
+  training:{roster:prepared.roster,roster_fixture_ids:packet.payload.examples.map(r=>String(r.fixture_id)).sort(),n:rows.length,non_draw_n:nonDraw.length,rejected:prepared.rejected,outside_period:prepared.eligible.length-rows.length,
    fixture_ids:rows.map(r=>r.fixture_id),sample_hashes:rows.map(r=>r.sample_hash),sample_root:canonicalHash(rows.map(r=>r.sample_hash)),
    label_root:canonicalHash(rows.map(r=>({id:r.id,hash:r.label_hash,revision:r.label_revision,received_at_utc:r.label_received_at_utc})))}};
  return freeze({...body,artifact_hash:canonicalHash(body)});

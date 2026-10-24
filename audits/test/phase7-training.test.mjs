@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixturePayload,testPrivateKey,testPolicy}from '../test-support/phase7.mjs';
-import {sealDataset,sealFreeze,sourceVersions}from '../phase7/attestation.mjs';
+import {sealDataset,sealFreeze,sourceVersions,rawHash}from '../phase7/attestation.mjs';
 import {canonicalHash}from '../lib/snapshot-contract.mjs';
 const api=await import('../phase7/train.mjs').catch(()=>({}));
 const evaluation=await import('../phase7/evaluate.mjs').catch(()=>({}));
@@ -14,6 +14,8 @@ test('bounded one-parameter fit matches independently known conditional MLE and 
  assert.equal(a.status,'fitted');assert.ok(Math.abs(a.beta-Math.log(2))<1e-9);
  assert.equal(a.production_ready,false);assert.equal(a.artifact_kind,'synthetic_training');assert.equal(a.training.n,30);
  assert.deepEqual(a,api.fitCoefficient(p,testPolicy,fitConfig));assert.equal(a.trainer_source_hash.length,64);
+ const reverse=fixturePayload(sourceVersions());for(const r of reverse.examples){const l=r.settlements[0],b=JSON.parse(l.envelope_text);[b.fixture.gh,b.fixture.ga]=[b.fixture.ga,b.fixture.gh];[b.fixture.ft_h,b.fixture.ft_a]=[b.fixture.ft_a,b.fixture.ft_h];l.envelope_text=JSON.stringify(b);l.payload_hash=rawHash(l.envelope_text);}
+ assert.ok(Math.abs(api.fitCoefficient(sealDataset(reverse,testPrivateKey,testPolicy.key_id),testPolicy,fitConfig).beta+Math.log(2))<1e-9);
 });
 test('insufficient or unidentifiable data explicitly abstains rather than forcing a coefficient',()=>{
  assert.equal(api.fitCoefficient(packet({n:10}),testPolicy,fitConfig).reason,'insufficient_examples');
