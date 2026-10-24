@@ -15,7 +15,7 @@ export function weekendStore(db){
  return{
   install(){return db.sql(readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));},
   append,
-  read(id){return JSON.parse(call(`SET ROLE shadow_reader;SELECT to_jsonb(e)FROM shadow_eval.weekend_events e WHERE event_id=${q(id)}`)||'null');},
+  read(id){return JSON.parse(call(`SET ROLE shadow_reader;SELECT coalesce((SELECT to_jsonb(e)FROM shadow_eval.weekend_events e WHERE event_id=${q(id)}),'null'::jsonb)`)||'null');},
   events(){return JSON.parse(call("SET ROLE shadow_reader;SELECT coalesce(jsonb_agg(CASE WHEN kind='packet' THEN to_jsonb(e)-'body'||jsonb_build_object('body',jsonb_build_object('omitted_from_report',true))ELSE to_jsonb(e)END ORDER BY received_at,event_id),'[]')FROM shadow_eval.weekend_events e"));},
   receipt(id){return call(`SELECT to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')FROM shadow_eval.weekend_events WHERE event_id=${q(id)}`);},
   reserve(id,job,amount,requestHash){return append('reservation',id,job,{reserved_micros:amount,request_hash:requestHash});},

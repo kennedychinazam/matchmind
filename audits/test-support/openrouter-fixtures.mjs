@@ -1,0 +1,5 @@
+export function catalog(model='openai/gpt-6-luna'){
+ const kimi=model.startsWith('moonshotai');return{data:{id:model,endpoints:[{model_id:model,tag:kimi?'novita':'openai',provider_name:kimi?'Novita':'OpenAI',service_tier:null,status:0,context_length:kimi?262144:1050000,max_completion_tokens:kimi?235929:128000,max_prompt_tokens:kimi?null:922000,supported_parameters:['max_tokens','response_format','structured_outputs','tools','tool_choice'],supports_tool_choice:{none:true},pricing:kimi?{prompt:'0.00000057',completion:'0.00000285',discount:0.05}:{prompt:'0.0000001',completion:'0.0000005',web_search:'0.01',overrides:[{min_prompt_tokens:272000,prompt:'0.0000002',completion:'0.00000075'}]}}]}};
+}
+export function key(){return{data:{label:'synthetic-key',limit:5,limit_remaining:5,limit_reset:null,usage:0,is_management_key:false,is_provisioning_key:false,is_free_tier:false,expires_at:null}};}
+export function credits(){return{data:{total_credits:5,total_usage:0}};}
