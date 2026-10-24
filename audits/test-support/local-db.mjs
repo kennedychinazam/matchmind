@@ -4,7 +4,7 @@ import {setTimeout} from 'node:timers/promises';
 export const IMAGE='postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27';
 const env={...process.env};
 for(const k of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']) delete env[k];
-export function docker(args,input) { return execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000}); }
+export function docker(args,input) { return execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:64*1024*1024}); }
 export function localDatabase(label) {
  const name=`mm-phase3-${process.pid}-${label}`;
  let started=false;

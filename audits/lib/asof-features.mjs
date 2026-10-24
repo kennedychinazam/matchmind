@@ -49,7 +49,7 @@ export function buildAsOfInputs({snapshot,observations}) {
   rows.get(id)[o.field_name]=structuredClone(o.value);
   selected.push({observation_id:o.observation_id,fixture_id:id,field_name:o.field_name,observed_at_utc:o.observed_at_utc,payload_hash:o.payload_hash,source_hash:o.source_hash});
  }
- if(selected.length>LIMITS.evidenceLinks) throw Error('evidence link limit exceeded');
+ if(selected.length>100000) throw Error('complete evidence manifest exceeds supported size');
  const target=rows.get(s.fixture_id);
  for(const k of ['home','away','lid','date','time']) if(target?.[k]==null) missing.push(s.fixture_id+':'+k);
  const context=featureContext({}),leagues={};

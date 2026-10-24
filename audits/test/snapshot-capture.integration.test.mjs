@@ -7,7 +7,7 @@ import {localDatabase,literal} from '../test-support/local-db.mjs';
 const db=localDatabase('capture');
 const api=await import('../staging/publisher-harness.mjs').catch(()=>({}));
 const collector=await import('../staging/collector-adapter.mjs').catch(()=>({}));
-before(async()=>{await db.start();db.apply('bootstrap.sql');db.apply('snapshot-schema.sql');db.apply('permissions.sql');});after(()=>db.close());
+before(async()=>{await db.start();db.apply('bootstrap.sql');db.apply('snapshot-schema.sql');db.apply('evidence-manifests.sql');db.apply('permissions.sql');});after(()=>db.close());
 const prediction=(id)=>`insert into public.predictions(fxid,lid,kickoff,ktime,home,away,p_home,p_draw,p_away,xg_home,xg_away,pick,pick_prob,build,made_at,market) values(${id},39,(now() at time zone 'UTC')::date+1,'18:00','Alpha','Beta',.5,.3,.2,1.5,1,'1X',.8,355,clock_timestamp(),'Double Chance') on conflict do nothing`;
 function sourceWriter(id){return async()=>{db.sql(`set role research_publisher;${prediction(id)}`);return {fixtureId:String(id)};};}
 function capture(id){return async()=>{try{return {snapshot_id:db.sql(`set role research_publisher;select research.capture_prediction(${id})`).split('\n').at(-1)};}catch(e){const msg=e.stderr?.toString()||e.message;throw Object.assign(Error(msg),{code:/permission/.test(msg)?'42501':/storage limit/.test(msg)?'54000':'XX000'});}};}
@@ -164,10 +164,10 @@ test('SQL shadow cohorts follow original issuance across timezone day boundaries
   assert.equal(db.sql(`select envelope->>'cohort' from research.shadow_forecasts where snapshot_id='${sid}'`),cohort);
  }
 });
-test('evidence above 500 links refuses capture visibly without truncating or losing publication',async()=>{
+test('irrelevant incomplete rows cannot exhaust a model evidence manifest',async()=>{
  for(let start=10000;start<10501;start+=100) db.sql(`set role research_collector;select research.append_observations((select jsonb_agg(jsonb_build_object('observation_id',gen_random_uuid(),'fixture_id',x::text,'source_kind','collector','source_ref','synthetic','collector_run_id',gen_random_uuid(),'field_name','lid','value',39,'availability','observed','feature_schema_version',1,'source_hash',repeat('a',64),'effective_at_utc',null,'played_at_utc',null))from generate_series(${start},${Math.min(start+99,10500)})x))`);
  const r=await api.publishWithSnapshot({publish:sourceWriter(461),capture:capture(461)});
- assert.equal(r.published,true);assert.equal(r.capture.ok,false);
+ assert.equal(r.published,true);assert.equal(r.capture.ok,true);
  assert.equal(db.sql('select count(*) from public.predictions where fxid=461'),'1');
- assert.equal(db.sql('select count(*) from research.prediction_snapshots where fixture_id=461'),'0');
+ assert.equal(db.sql('select count(*) from research.prediction_snapshots where fixture_id=461'),'1');
 });

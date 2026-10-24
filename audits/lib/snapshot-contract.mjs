@@ -81,7 +81,7 @@ export function epochMicros(value) {
  return BigInt(Date.parse(normalized))*1000n+BigInt(fraction.slice(3));
 }
 export function snapshotFromCapture(envelope) {
- const extra=['model_version_source','source_prediction','preissue_odds','evidence_ids','hash_scheme','missing'];
+ const extra=['model_version_source','source_prediction','preissue_odds','evidence_ids','evidence_manifest','hash_scheme','missing'];
  for(const key of Object.keys(envelope)) if(!SNAPSHOT_FIELDS.includes(key)&&!extra.includes(key)) throw Error('unexpected captured field');
  if(envelope.hash_scheme!=='pg-jsonb-v1'||envelope.model_version_source!=='derived_from_build') throw Error('unknown capture provenance');
  const x=Object.fromEntries(SNAPSHOT_FIELDS.map(k=>[k,envelope[k]]));

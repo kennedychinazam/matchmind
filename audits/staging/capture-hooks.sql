@@ -3,7 +3,7 @@ BEGIN;
 SET LOCAL ROLE research_owner;
 CREATE FUNCTION research.capture_prediction(fid bigint) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET timezone='UTC' AS $$
 DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction_snapshots;sid uuid;receipt timestamptz;ko timestamptz;
- ids uuid[];oid uuid;obs research.observations;kind text;odds jsonb;prob_sum numeric;BEGIN
+ ids uuid[];oid uuid;obs research.observations;kind text;odds jsonb;prob_sum numeric;mid uuid;manifest research.evidence_manifests;BEGIN
  PERFORM research.check_budget(65536);
  SELECT * INTO STRICT p FROM public.predictions WHERE fxid=fid;
  original:=jsonb_build_object('fxid',p.fxid,'lid',p.lid,'lname',p.lname,'kickoff',p.kickoff,'ktime',p.ktime,'home',p.home,'away',p.away,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'pick',p.pick,'pick_prob',p.pick_prob,'build',p.build,'made_at',p.made_at,'market',p.market,'odds_snap_id',p.odds_snap_id,'odds_at_pick',p.odds_at_pick,'odds_at_pick_at',p.odds_at_pick_at);
@@ -25,17 +25,7 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
  -- Only the INSERT trigger may classify a contemporaneous capture. Explicit repair/import
  -- calls always remain late_import, even if they happen within seconds of issuance.
  kind:=CASE WHEN pg_trigger_depth()>0 AND receipt-p.made_at<=interval '10 seconds' THEN 'at_issue' ELSE 'late_import' END;
- WITH latest AS (
-  SELECT DISTINCT ON(fixture_id,field_name) observation_id,fixture_id,field_name,value
-  FROM research.observations WHERE field_name<>'odds_1x2' AND availability='observed' AND observed_at_utc<=p.made_at
-   AND (played_at_utc IS NULL OR played_at_utc<observed_at_utc AND played_at_utc<p.made_at)
-   AND (effective_at_utc IS NULL OR effective_at_utc<=p.made_at)
-  ORDER BY fixture_id,field_name,observed_at_utc DESC,observation_id DESC
- ), scope AS (
-  SELECT DISTINCT fixture_id FROM latest WHERE fixture_id=fid OR field_name='lid' AND value=to_jsonb(p.lid)
-   OR field_name IN ('home','away') AND value IN(to_jsonb(p.home),to_jsonb(p.away))
- ) SELECT coalesce(array_agg(l.observation_id),'{}'::uuid[]) INTO ids FROM latest l JOIN scope s USING(fixture_id);
- IF cardinality(ids)>500 THEN RAISE EXCEPTION 'evidence link limit exceeded' USING ERRCODE='54000';END IF;
+ ids:=research.select_m14_evidence(fid);
  -- Only already-recorded server-receipt odds can qualify. Never backdate a new
  -- observation using the mutable/legacy odds table's captured_at.
  SELECT o.observation_id,o.value INTO oid,odds FROM research.observations o WHERE o.availability='observed' AND o.observed_at_utc<=p.made_at AND o.fixture_id=fid AND o.field_name='odds_1x2'
@@ -47,16 +37,16 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
   AND (1/(o.value->>'h')::numeric+1/(o.value->>'d')::numeric+1/(o.value->>'a')::numeric) BETWEEN 1 AND 1.30
   ORDER BY research.utc_instant(o.value->>'captured_at') DESC,(o.value->>'id')::bigint DESC LIMIT 1;
  IF oid IS NOT NULL THEN ids:=array_append(ids,oid);END IF;
- IF cardinality(ids)>500 THEN RAISE EXCEPTION 'evidence link limit exceeded' USING ERRCODE='54000';END IF;
+ IF cardinality(ids)>100000 THEN RAISE EXCEPTION 'complete evidence manifest exceeds supported size' USING ERRCODE='54000';END IF;
+ PERFORM research.check_budget(cardinality(ids)*200+65536);
+ mid:=research.store_evidence_manifest(ids,jsonb_build_object('version','m14-dependencies-v1','build',p.build,'league_id',p.lid,'home',p.home,'away',p.away));
+ SELECT * INTO STRICT manifest FROM research.evidence_manifests WHERE manifest_id=mid;
  sid:=gen_random_uuid();
- body:=jsonb_build_object('snapshot_id',sid,'fixture_id',fid::text,'prediction_build',p.build,'model_version','build'||p.build,'model_version_source','derived_from_build','run_id',gen_random_uuid(),'issue_time_utc',to_char(p.made_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'kickoff_at_utc',to_char(ko AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'probabilities',jsonb_build_array(p.p_home,p.p_draw,p.p_away),'pick',p.pick,'pick_probability',p.pick_prob,'market',p.market,'expected_goals',jsonb_build_array(p.xg_home,p.xg_away),'fixture_version_hash',encode(public.digest(original::text,'sha256'),'hex'),'feature_schema_version',1,'source_hash',encode(public.digest(original::text,'sha256'),'hex'),'settlement_policy_version','build355-90m-48h-v1','source_prediction',original,'preissue_odds',odds,'evidence_ids',to_jsonb(ids),'hash_scheme','pg-jsonb-v1','missing',jsonb_build_array('original_ordered_engine_inputs','model_configuration_manifest'));
+ body:=jsonb_build_object('snapshot_id',sid,'fixture_id',fid::text,'prediction_build',p.build,'model_version','build'||p.build,'model_version_source','derived_from_build','run_id',gen_random_uuid(),'issue_time_utc',to_char(p.made_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'kickoff_at_utc',to_char(ko AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'probabilities',jsonb_build_array(p.p_home,p.p_draw,p.p_away),'pick',p.pick,'pick_probability',p.pick_prob,'market',p.market,'expected_goals',jsonb_build_array(p.xg_home,p.xg_away),'fixture_version_hash',encode(public.digest(original::text,'sha256'),'hex'),'feature_schema_version',1,'source_hash',encode(public.digest(original::text,'sha256'),'hex'),'settlement_policy_version','build355-90m-48h-v1','source_prediction',original,'preissue_odds',odds,'evidence_manifest',jsonb_build_object('manifest_id',mid,'payload_hash',manifest.payload_hash,'evidence_count',manifest.evidence_count,'chunk_count',jsonb_array_length(manifest.body->'chunks'),'selection_version','m14-dependencies-v1'),'hash_scheme','pg-jsonb-v1','missing',jsonb_build_array('original_ordered_engine_inputs','model_configuration_manifest'));
  IF octet_length(body::text)>65536 THEN RAISE EXCEPTION 'envelope size exceeded' USING ERRCODE='54000';END IF;
  PERFORM research.check_budget(octet_length(body::text)*2+cardinality(ids)*256);
- INSERT INTO research.prediction_snapshots VALUES(sid,fid,p.made_at,p.build,receipt,'build'||p.build,kind,false,'original ordered engine inputs/configuration were not archived',encode(public.digest(body::text,'sha256'),'hex'),body);
- FOREACH oid IN ARRAY ids LOOP
-  SELECT * INTO STRICT obs FROM research.observations WHERE observation_id=oid;
-  INSERT INTO research.snapshot_evidence VALUES(sid,oid,CASE WHEN obs.field_name='odds_1x2' THEN 'odds' ELSE 'feature' END,obs.fixture_id);
- END LOOP;
+ INSERT INTO research.prediction_snapshots(snapshot_id,fixture_id,issue_time_utc,prediction_build,received_at_utc,model_version,capture_kind,replay_eligible,replay_reason,payload_hash,envelope,evidence_manifest_id)
+ VALUES(sid,fid,p.made_at,p.build,receipt,'build'||p.build,kind,false,'original ordered engine inputs/configuration were not archived',encode(public.digest(body::text,'sha256'),'hex'),body,mid);
  RETURN sid;
 END $$;
 CREATE FUNCTION research.capture_insert() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
