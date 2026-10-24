@@ -51,3 +51,21 @@ test('missing capture/history stays explicit and never becomes a zero-valued fea
  const late=payload();late.examples[0].capture.capture_kind='late_import';assert.equal(samples.prepareSamples(seal(late),testPolicy,'2026-10-03T00:00:00Z').rejected[0].reason,'unverified_capture');
  const wrong=payload();wrong.examples[0].source_prediction.kickoff='2026-10-02';assert.throws(()=>samples.prepareSamples(seal(wrong),testPolicy,'2026-10-03T00:00:00Z'),/original/);
 });
+test('invalid capture receipts never become scorable through another rejection reason',()=>{
+ for(const receipt of [null,'2026-10-01T11:59:59Z','2026-02-30T00:00:00Z']){
+  const p=payload();p.examples[0].capture.received_at_utc=receipt;
+  const out=samples.prepareSamples(seal(p),testPolicy,'2026-10-03T00:00:00Z');
+  assert.equal(out.scorable.length,29);assert.equal(out.rejected[0].reason,'unverified_capture');
+ }
+ const p=payload();p.examples[0].capture.capture_kind='late_import';Object.values(p.observations).find(o=>o.field_name==='xg_h').received_at_utc=null;
+ const out=samples.prepareSamples(seal(p),testPolicy,'2026-10-03T00:00:00Z');assert.equal(out.eligible.length,0);assert.equal(out.scorable.length,29);
+});
+test('settlements cannot finish before actual kickoff and retain the 48-hour void boundary',()=>{
+ const p=payload(),l=p.examples[0].settlements[0],b=JSON.parse(l.envelope_text);b.fixture.date='2026-10-02';l.envelope_text=JSON.stringify(b);l.payload_hash=api.rawHash(l.envelope_text);
+ assert.throws(()=>samples.prepareSamples(seal(p),testPolicy,'2026-10-03T00:00:00Z'),/kickoff|chronology/);
+ for(const [time,voidLate]of [['17:59',false],['18:00',true]]){
+  const x=payload();x.exported_at_utc='2026-10-04T01:00:00Z';const v=x.examples[0].settlements[0],body=JSON.parse(v.envelope_text);
+  body.fixture.date='2026-10-03';body.fixture.time=time;body.event_finished_at_utc='2026-10-03T20:00:00Z';v.received_at_utc='2026-10-03T23:00:00Z';v.envelope_text=JSON.stringify(body);v.payload_hash=api.rawHash(v.envelope_text);
+  const out=samples.prepareSamples(seal(x),testPolicy,'2026-10-05T00:00:00Z');assert.equal(out.eligible.length,voidLate?29:30);
+ }
+});

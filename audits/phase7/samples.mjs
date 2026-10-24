@@ -1,6 +1,6 @@
 import {canonicalHash,canonicalJSON,epochMicros,utcInstant,validatePredictionSnapshot,snapshotFromCapture}from '../lib/snapshot-contract.mjs';
 import {buildAsOfInputs,existingMatchFeatures,FIXTURE_FIELDS}from '../lib/asof-features.mjs';
-import {publishedVerdict,settledScore,resultCode}from '../lib/independent-grade.mjs';
+import {publishedVerdict,settledScore,resultCode,isFinished}from '../lib/independent-grade.mjs';
 import {verifyDataset,rawHash}from './attestation.mjs';
 const HASH=/^[0-9a-f]{64}$/;
 const fail=reason=>{throw Error(reason);};
@@ -26,8 +26,13 @@ function labelAt(row,s,cutoff,exported,kind){
   const at=epochMicros(l.received_at_utc),body=proofText(l.envelope_text,l.payload_hash);
   if(priorAt!==null&&at<priorAt)fail('settlement revision chronology');priorAt=at;
   if(at>exported||String(body.fixture_id)!==s.fixture_id||body.kind!==kind)fail('settlement source/fixture mismatch');
-  const finished=epochMicros(body.event_finished_at_utc);
-  if(finished<epochMicros(s.kickoff_at_utc)||finished>at)fail('outcome event/receipt chronology');
+  const f=body.fixture;
+  if(!f||typeof f.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(f.date)||typeof f.time!=='string'||!/^\d{2}:\d{2}(:\d{2})?$/.test(f.time))fail('invalid actual kickoff timestamp');
+  const actualKickoff=epochMicros(utcInstant(f.date+'T'+f.time+(f.time.length===5?':00Z':'Z')));
+  if(isFinished(f.status)||body.event_finished_at_utc!=null){
+   const finished=epochMicros(body.event_finished_at_utc);
+   if(finished<epochMicros(s.kickoff_at_utc)||finished<actualKickoff||finished>at)fail('outcome event/actual kickoff/receipt chronology');
+  }
   if(at<cutoff)best={...body,revision:l.revision,receipt:l.received_at_utc,label_hash:l.payload_hash};
  }
  if(!best)return{reason:'outcome_unavailable_at_cutoff'};
@@ -51,10 +56,13 @@ export function prepareSamples(packet,policy,labelCutoff){
   if(p.source.clock_domain==='postgres_server'&&!decoded.evidence_manifest)fail('captured server manifest required');
   const s=decoded.source_prediction?snapshotFromCapture(decoded):validatePredictionSnapshot(decoded),issue=epochMicros(s.issue_time_utc);
   if(s.fixture_id!==String(row.fixture_id))fail('snapshot fixture mismatch');
-  let reason=null;
+  let captureValid=false;
   try{
    const receipt=epochMicros(row.capture.received_at_utc);
-   if(row.capture.capture_kind!=='at_issue'||receipt<issue||receipt-issue>10000000n||receipt>exported)reason='unverified_capture';
+   captureValid=row.capture.capture_kind==='at_issue'&&receipt>=issue&&receipt-issue<=10000000n&&receipt<=exported&&receipt<epochMicros(s.kickoff_at_utc);
+  }catch{}
+  let reason=captureValid?null:'unverified_capture';
+  if(captureValid)try{
    for(const o of observations){
     const at=epochMicros(o.received_at_utc);
     if(o.availability!=='observed'||o.feature_schema_version!==1||!HASH.test(o.source_hash)||at!==epochMicros(o.observed_at_utc)||at>=issue||at>exported||o.value===null||
@@ -69,7 +77,7 @@ export function prepareSamples(packet,policy,labelCutoff){
   if(epochMicros(ko)!==epochMicros(s.kickoff_at_utc)||original.pick!==s.pick||decoded.source_prediction&&canonicalJSON(decoded.source_prediction)!==canonicalJSON(original))fail('original kickoff/pick lineage mismatch');
   const label=labelAt(row,s,cutoff,exported,p.dataset_kind);
   const common={fixture_id:s.fixture_id,id:s.fixture_id,snapshot_id:s.snapshot_id,issued_at:s.issue_time_utc,kickoff_at_utc:s.kickoff_at_utc,league:original.lid,baseline:[...s.probabilities],...label};
-  if(!label.reason&&reason!=='unverified_capture')scorable.push(common);
+  if(!label.reason&&captureValid)scorable.push(common);
   if(reason){rejected.push({fixture_id:row.fixture_id,reason});continue;}
   const inputs=buildAsOfInputs({snapshot:s,observations:observations.filter(o=>o.field_name!=='odds_1x2')}),features=existingMatchFeatures(inputs);
   if(!inputs.fixture||inputs.fixture.home!==original.home||inputs.fixture.away!==original.away||inputs.league?.id!==original.lid||inputs.fixture.date!==s.kickoff_at_utc.slice(0,10))reason='target_identity_missing';
