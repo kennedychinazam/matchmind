@@ -39,6 +39,21 @@ export function verifyFrozenEngine(engine,stored,sourceHash,inputHash){
  if(stored.length!==engine.predictions.filter(p=>p.status===undefined||p.status==='forecast').length)throw Error('missing frozen forecasts');
  return stored.length;
 }
+export function classifyAuxiliary(auxiliary,known){
+ for(const checkpoint of known){
+  try{verifyAncestry([auxiliary,checkpoint]);return{name:auxiliary.name,matches:checkpoint.name,kind:auxiliary.events.length===checkpoint.events.length?'equivalent_event_set':'earlier_event_prefix',liability_micros:auxiliary.liability_micros};}catch{}
+ }
+ throw Error('unclassified backup is not a verified ancestor; reconcile complete backup ancestry');
+}
+async function inspectAuxiliary(dump,label){
+ const db=localDatabase(label);await db.start();
+ try{
+  for(const role of ['research_owner','research_operator','research_publisher','research_reader','research_collector','shadow_operator','shadow_reader','shadow_runner','anon','authenticated','service_role'])db.sql(`CREATE ROLE ${role} NOLOGIN`);
+  db.restore(dump);const sql=s=>db.sql(s,'matchmind_restore');
+  if(sql("SELECT count(*)FROM shadow_eval.weekend_events WHERE event_body_hash<>encode(public.digest(body::text,'sha256'),'hex')")!=='0')throw Error('corrupt auxiliary event');
+  return{events:JSON.parse(sql("SELECT jsonb_agg(jsonb_build_object('event_id',event_id,'kind',kind,'parent',parent_id,'hash',event_body_hash,'received',received_at)ORDER BY event_id)FROM shadow_eval.weekend_events")),liability_micros:Number(sql("SELECT coalesce(sum((body->>'reserved_micros')::bigint),0)FROM shadow_eval.weekend_events WHERE kind='reservation'"))};
+ }finally{db.close();}
+}
 // Read-only verification of the owner's archived SQL, only in disposable network-none PostgreSQL.
 export async function verifyRecovery(directory){
  const dir=privateDirectory(directory),run=join(dir,'saturday-run');
@@ -75,11 +90,13 @@ export async function verifyRecovery(directory){
    checkpoints.push({name,sha256:sha(dump),events,liability_micros:liability,counts});
   }finally{db.close();}
  }
+ const auxiliary=[];
  for(const extra of readdirSync(run).filter(n=>n.endsWith('.sql')&&!names.includes(n))){
-  if(!checkpoints.some(c=>c.sha256===sha(readFileSync(join(run,extra)))))throw Error('unclassified backup may contain newer liability; reconcile ancestry before continuing');
+  const dump=readFileSync(join(run,extra),'utf8'),state=await inspectAuxiliary(dump,'recovery-aux-'+auxiliary.length);
+  auxiliary.push({...classifyAuxiliary({...state,name:extra},checkpoints),sha256:sha(dump)});
  }
  const summary=verifyAncestry(checkpoints);
- const proof={version:'saturday-recovery-v1',verified_at_utc:new Date().toISOString(),...summary,packet_hash:canonicalHash(source),source_rows:source.rows.length,immutable_refreshed_forecasts:145,frozen_engine_parity_verified:true,checkpoint_hashes:checkpoints.map(c=>({name:c.name,sha256:c.sha256})),latest_checkpoint:manifest.private_latest_backup,
+ const proof={version:'saturday-recovery-v1',verified_at_utc:new Date().toISOString(),...summary,auxiliary_checkpoints:auxiliary,packet_hash:canonicalHash(source),source_rows:source.rows.length,immutable_refreshed_forecasts:145,frozen_engine_parity_verified:true,checkpoint_hashes:checkpoints.map(c=>({name:c.name,sha256:c.sha256})),latest_checkpoint:manifest.private_latest_backup,
   note:'Owner separately confirmed external archive+checksum retention. Local verification does not assert new issuance or new receipt provenance. Saturday legacy confirmation semantics retained.'};
  return proof;
 }

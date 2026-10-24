@@ -40,3 +40,9 @@ test('frozen engine artifact must match each original stored forecast and exact 
  assert.throws(()=>api.verifyFrozenEngine(engine,[{body:{...stored[0].body,probabilities:[.8,.1,.1]}}],'source','input'),/frozen/);
  assert.throws(()=>api.verifyFrozenEngine(engine,stored,'source','other'),/frozen/);
 });
+test('auxiliary dumps must be verified logical ancestors; differing dump formatting cannot hide new liability',()=>{
+ assert.equal(typeof api.classifyAuxiliary,'function');const base={name:'known.sql',events:[{event_id:'one',hash:'same',received:'original'}],liability_micros:100};
+ assert.equal(api.classifyAuxiliary({...base,name:'emergency.sql'},[base]).matches,'known.sql');
+ assert.throws(()=>api.classifyAuxiliary({...base,events:[...base.events,{event_id:'hidden',hash:'x'}]},[base]),/ancestry|backup/);
+ assert.throws(()=>api.classifyAuxiliary({...base,liability_micros:200},[base]),/ancestry|backup/);
+});
