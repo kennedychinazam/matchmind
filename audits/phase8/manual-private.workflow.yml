@@ -1,0 +1,85 @@
+# INERT TEMPLATE: deliberately outside .github/workflows. NOT activated.
+# Requires separate owner-approved default-branch registration, protected
+# environment, recipient custody/recovery rehearsal and safe runner verification.
+name: Proposed supervised private engine experiment (AI disabled)
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: Owner-reviewed Phase8 commit (40 hex characters)
+        required: true
+      provider:
+        type: choice
+        options: [none, openai, kimi, openrouter]
+        default: none
+permissions:
+  contents: read
+concurrency:
+  group: matchmind-private-weekend-20261024
+  cancel-in-progress: false
+jobs:
+  private-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: matchmind-weekend-private
+    env:
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      SELECTED_PROVIDER: ${{ inputs.provider }}
+      OWNER_PRIVATE_CI_APPROVED: ${{ vars.MATCHMIND_PRIVATE_CI_APPROVED }}
+      RESULTS_PUBLIC_KEY: ${{ secrets.MM_RESULTS_PUBLIC_KEY }}
+    steps:
+      - name: Fail closed before checkout or any source/provider request
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OWNER_PRIVATE_CI_APPROVED" = 'engine-only-reviewed'
+          test "$SELECTED_PROVIDER" = 'none'
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$RESULTS_PUBLIC_KEY"
+          printf '%s' "$RESULTS_PUBLIC_KEY" > "$RUNNER_TEMP/recipient.pem"
+          openssl pkey -pubin -in "$RUNNER_TEMP/recipient.pem" -noout
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.19.0'
+      - name: Prepare existing isolated test dependencies
+        run: |
+          npm ci --prefix audits --ignore-scripts --no-audit --no-fund
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+          docker --host=unix:///var/run/docker.sock pull postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+      - name: Check recipient encryption before collecting any forecasts
+        run: |
+          node --input-type=module -e "import {readFileSync}from 'node:fs';import {sealResults}from './audits/phase8/seal-results.mjs';sealResults(Buffer.from('preflight'),readFileSync(process.env.RUNNER_TEMP+'/recipient.pem'));"
+      - name: Supervised engine-only run with all private output redirected
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mm-weekend"
+          node audits/phase8/collect-source.mjs "$RUNNER_TEMP/mm-weekend" --read-only > "$RUNNER_TEMP/mm-weekend/source-summary.json" 2> "$RUNNER_TEMP/mm-weekend/source-errors.log"
+          node audits/phase8/run-weekend.mjs "$RUNNER_TEMP/mm-weekend/run" "$RUNNER_TEMP/mm-weekend/raw-source.json" > "$RUNNER_TEMP/mm-weekend/run-summary.json" 2> "$RUNNER_TEMP/mm-weekend/run-errors.log"
+      - name: Seal private results before retention
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test -d "$RUNNER_TEMP/mm-weekend"
+          tar -cf "$RUNNER_TEMP/mm-weekend.tar" -C "$RUNNER_TEMP/mm-weekend" .
+          node audits/phase8/seal-results.mjs "$RUNNER_TEMP/mm-weekend.tar" "$RUNNER_TEMP/mm-weekend.encrypted.json" "$RUNNER_TEMP/recipient.pem"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: private-weekend-encrypted-${{ github.run_id }}
+          path: ${{ runner.temp }}/mm-weekend.encrypted.json
+          retention-days: 1
+          if-no-files-found: error
+      # Only ciphertext may be retained. The owner must download/decrypt/verify
+      # the backup before expiry. No permanent storage or paid AI is activated.

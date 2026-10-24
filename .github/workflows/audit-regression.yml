@@ -6,17 +6,27 @@ on:
       - codex/phase3-immutable-snapshots
       - codex/phase6-shadow-feasibility
       - codex/phase7-receipt-verified-training
+      - codex/phase8-weekend-testing-ai
     paths:
       - 'audits/**'
       - '.github/workflows/audit-regression.yml'
+      - 'index.html'
+      - 'manifest.webmanifest'
+      - 'sw.js'
+      - 'icon-*.png'
   pull_request:
     branches:
+      - codex/phase7-receipt-verified-training
       - feature/matchmind-quality-upgrade
       - codex/phase3-immutable-snapshots
       - codex/phase6-shadow-feasibility
     paths:
       - 'audits/**'
       - '.github/workflows/audit-regression.yml'
+      - 'index.html'
+      - 'manifest.webmanifest'
+      - 'sw.js'
+      - 'icon-*.png'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +34,7 @@ permissions:
 
 jobs:
   audit-regressions:
-    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade' || github.ref == 'refs/heads/codex/phase3-immutable-snapshots' || github.ref == 'refs/heads/codex/phase6-shadow-feasibility' || github.ref == 'refs/heads/codex/phase7-receipt-verified-training' || github.event_name == 'pull_request'
+    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade' || github.ref == 'refs/heads/codex/phase3-immutable-snapshots' || github.ref == 'refs/heads/codex/phase6-shadow-feasibility' || github.ref == 'refs/heads/codex/phase7-receipt-verified-training' || github.ref == 'refs/heads/codex/phase8-weekend-testing-ai' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
