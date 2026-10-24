@@ -53,3 +53,7 @@ The service probe tests local synthetic signup/user validation, invalid JWT deni
 Full snapshot replay of the original baseline still lacks its historical ordered engine-input/configuration manifest. M14 feature parity and saved-output identity do not remove that limitation.
 
 AI preparation remains mocked/design-only: provider/model-version contracts, cache keys including immutable snapshots and issue cutoffs, separate attempts/errors and successful private shadow forecasts, zero-default budgets with atomic worst-case reservations and no automatic paid/model fallback. No real inference requests or new prediction models are authorized.
+
+## Capture profiling and proposed optimizations
+
+`node audits/phase4/profile-capture.mjs /tmp/mm-profile.json` profiles budget locks, selection, manifest storage and capture work in cloned synthetic databases. Repeat with `reverse` to change variant order, or `focused` for current/narrow-selector only. It requires the existing pinned image, makes no provider requests and installs no services. It compares exact evidence and full M14 features; focused runs also compare all manifest roots. Raw synthetic results stay outside Git; reviewed aggregates are under `results/`. Read `docs/PHASE4_CAPTURE_PERFORMANCE_REVIEW.md` for results, limitations and the separate durable-asynchronous proposal. Candidate SQL is applied only inside disposable clones; no staging SQL artifact is patched by the profiler.

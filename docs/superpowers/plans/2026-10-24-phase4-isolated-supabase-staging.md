@@ -187,3 +187,7 @@ Current public references checked during planning; recheck pricing and API behav
 - Gemini compatibility: https://ai.google.dev/gemini-api/docs/openai
 
 The Markdown changelog endpoint was attempted but unsupported by the research tool; the official HTML changelog was used instead. Public documentation research and organization metadata reads did not invoke provider inference or execute database SQL.
+
+## Performance investigation follow-on
+
+See `docs/PHASE4_CAPTURE_PERFORMANCE_REVIEW.md` before modifying capture architecture. The current singleton admission lock serializes selection/manifest work. Disposable cloned-database experiments support a narrow materialized-row projection as the first optimization; JIT/memory changes have no demonstrated burst-latency benefit. A durable receipt/outbox needs a separately reviewed collector commit-visibility contract and explicit failure-policy tradeoff. It is not implemented, and queued work must never invent original evidence availability. PR #1 remains draft; preparation commit `bb37440` has verified 101/101 remote CI results on both runtimes. No further Supabase installation is authorized in this workspace.
