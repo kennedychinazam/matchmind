@@ -484,3 +484,20 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 - Preserve the October 31 target release gating and Monday results only with genuine evidence. Avoid counting provider billing credit as incurred AI operating cost.
 
 **Official source at research time:** https://ai.google.dev/gemini-api/docs/billing (prepay minimum displayed in user billing flow; account/project caps; auto-reload; credits). This entry does **not** amend the approved spending limit or grant access to private billing records.
+
+
+---
+
+## 20. 2026-10-24 — Screenshot confirms $30 Gemini minimum offered, not completed purchase; alternative providers explored
+
+**Corrective evidence from owner-uploaded screenshot:** The Google AI Studio checkout **displays** “Your minimum prepayment amount of $30.00 is higher due to security reasons”; amount $30, *Auto-reload off*, and a **Continue** button after “To complete setup, buy credits.” The image **does not establish an actual completed payment or wallet balance**. The preceding Section 19 recorded the owner's phrase “I was billed minimum amount of $30” and explicitly treated the charge status as unverified; clarify that **$30 is an offered minimum at checkout, not evidence of an incurred provider bill**. User dislikes the requirement; recommended not proceeding with the $30 checkout.
+
+**Current official documentation independently checked:**
+- OpenAI direct API prepaid billing guide states minimum initial credit **$5**, default **$10**, auto-reload can be disabled, credits expire after 1 year, ChatGPT Plus is a **separate** subscription and does not generally include standard OpenAI API requests. Checkout/provider acceptance still needs user-specific confirmation. https://help.openai.com/en/articles/8264644-setting-up-and-managing-prepaid-api-billing ; https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform .
+- OpenRouter terms state minimum credit purchase **$5**. The Standard pricing page describes a **5.5%** top-up purchase fee, so paying for five dollars of credit may cost slightly more in total than $5 depending on checkout/payment fees. OpenRouter can broker both `openai/gpt-5-mini` and `moonshotai/kimi-k2.5` API models. https://openrouter.ai/terms ; https://openrouter.ai/pricing ; https://openrouter.ai/moonshotai/kimi-k2.5 .
+- Direct Kimi/Moonshot API minimum checkout was **not independently verified**. Do not assert direct Kimi has lower minimum; broker availability is separate from direct provider acceptance and news-grounding capability.
+- A general-purpose LLM is **not automatically a current live-football news data source**. A defensible weekend A1/A2/A3 scout requires independent authentic timestamped news/lineup/injury source, source attribution and evidence freshness. Web search/grounding can incur additional tool costs, depends on provider, and may not reproduce the old Gemini grounded scout's behavior. Do not equate switching providers with proven forecast improvement.
+
+**Engineering decision pending owner choice:** Do not pay Google $30 merely to run a $5 test. Offer OpenAI's direct $5 credit option for a single-provider low-deposit test, or OpenRouter $5 credits plus fees when comparative OpenAI+Kimi flexibility merits it. Preserve **USD 5 total AI inference budget across original/new provider together**, not $5 additional per provider. Do not create new provider keys, modify deployed Edge Functions or initiate provider billing from this documentation action. Once owner chooses, issue **one consolidated Codex provider-switch amendment**, update isolated AI adapters/prompts/output contracts, enforce fail-closed usage estimates, protect secrets and the live/paused Gemini code, and verify a single approved call before scaling.
+
+**Status:** screenshot reviewed, $30 minimum established, actual payment unknown; alternatives identified from public pricing only; no purchase, provider switch, AI inference, or protected/production mutation executed by this record.
