@@ -1,0 +1,52 @@
+{
+  "base": "0c3819ccb70cc23a4b7ccf0f441c9d0b6fb2f130",
+  "implementation_commit": "f619361",
+  "scope": "All inherited Phase6/base tests plus Phase7 together; no merge of PR1/PR2/PR3 and no claim of newly combining the complete PR2 suite.",
+  "local_suites": [
+    {
+      "node": "20.20.2",
+      "command": "npm exec --yes --package=node@20.20.2 -- node --test audits/test/*.test.mjs",
+      "tests": 151,
+      "passed": 151,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 104675.20412
+    },
+    {
+      "node": "24.19.0",
+      "command": "node --test audits/test/*.test.mjs",
+      "tests": 151,
+      "passed": 151,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 176563.995777
+    }
+  ],
+  "inherited_tests": 135,
+  "new_tests": 16,
+  "proof_file": "2026-10-24-feasibility.json",
+  "proof_sha256": "6b9d34ddeb6bea4ae76ce4351c30fa524e9bc164598961dc7738e9dcc706e29f",
+  "frozen_replay": {
+    "node20_sha256": "227817e35c45db4e3a4e89f96380eacb59198365ed922a02a396094c33b8d8c2",
+    "node24_sha256": "227817e35c45db4e3a4e89f96380eacb59198365ed922a02a396094c33b8d8c2",
+    "byte_identical": true,
+    "private_inputs_committed": false
+  },
+  "review_fixes": [
+    "Capture validity independently required for verified-original scoring, including simultaneous feature failures.",
+    "Finished outcome event cannot precede actual/moved kickoff; original 48-hour void boundary preserved."
+  ],
+  "accuracy_claim": false,
+  "production_ready": false,
+  "supplemental_populated_restore": {
+    "restored_datasets": 2,
+    "restored_examples": 48,
+    "restored_artifacts": 1,
+    "verified_originals_and_complete_manifest_reads": 48,
+    "artifact_hash": "047ca2b3388ef949aad0c5509d99641ff2b2596bcdc8f3988a81a3680a1eb04f",
+    "ordinary_roles_denied": true,
+    "private_reader_allowed": true,
+    "immutable": true,
+    "hosted_restore_verified": false
+  }
+}
