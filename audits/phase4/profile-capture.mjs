@@ -1,5 +1,5 @@
 // Disposable PostgreSQL-only experiments. No capture SQL or production settings changed.
-import {execFile} from 'node:child_process';
+import {execFile,execFileSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import {readFileSync,writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
@@ -24,6 +24,11 @@ function quantiles(a){a=[...a].sort((a,b)=>a-b);return {n:a.length,p50:a[Math.ce
 try {
  docker(['image','inspect',IMAGE]); // Fail if the existing pinned image is absent; no installation workflow here.
  await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);
+ // Pin the reviewed wide baseline so comparisons remain reproducible after adoption.
+ const baselineSource=execFileSync('git',['show','d4cb3379a3f1d6d0b7252ab134969b33397a5820:audits/staging/evidence-manifests.sql'],{encoding:'utf8'});
+ const baselineDDL=baselineSource.slice(baselineSource.indexOf('CREATE FUNCTION research.select_m14_evidence('),baselineSource.indexOf('CREATE FUNCTION research.read_snapshot_evidence('));
+ db.sql(baselineDDL.replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION'));
+
  const history=realisticHistory();const target=history.find(x=>x.fxid==='999999');
  const teams=['Arsenal','Liverpool',...Array.from({length:14},(_,i)=>`Team ${i+2}`)];
  for(let i=0;i<64;i++)targets.set(8000000+i,{...target,fxid:String(8000000+i),...(diverse?{lid:i%2?40:39,home:teams[Math.floor(i/2)%16],away:teams[(Math.floor(i/2)+1+Math.floor(i/32))%16]}:{})});

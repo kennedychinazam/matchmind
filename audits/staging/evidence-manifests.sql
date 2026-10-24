@@ -74,7 +74,7 @@ CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE
  ), scope AS (
   SELECT DISTINCT m.fixture_id FROM meta m,p WHERE m.fixture_id=p.fxid OR (m.field_name='lid' AND m.value=to_jsonb(p.lid)) OR (m.field_name IN('home','away') AND m.value IN(to_jsonb(p.home),to_jsonb(p.away)))
  ), latest AS MATERIALIZED (
-  SELECT DISTINCT ON(o.fixture_id,o.field_name) o.* FROM research.observations o JOIN scope s USING(fixture_id),p
+  SELECT DISTINCT ON(o.fixture_id,o.field_name) o.fixture_id,o.field_name,o.value,o.observation_id FROM research.observations o JOIN scope s USING(fixture_id),p
   WHERE o.field_name<>'odds_1x2' AND o.availability='observed' AND o.observed_at_utc<=p.made_at
    AND (o.fixture_id=p.fxid OR o.played_at_utc IS NOT NULL OR o.field_name IN('lid','home','away','date','time','status','provider','home_logo','away_logo','season','round','referee','venue_id','inj_h','inj_a','lineup_h','lineup_a','formation_h','formation_a'))
    AND (o.played_at_utc IS NULL OR o.played_at_utc<o.observed_at_utc AND o.played_at_utc<p.made_at)
