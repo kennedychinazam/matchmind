@@ -547,3 +547,16 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 - Report real successes/failures/costs on Monday Oct 26 only if pre-kickoff experiment actually ran, and prioritize Oct31 release gating. Preserve PR#1–#4, protected branches, production and 72h publishing gate. Claude final independent review follows agreed development completion.
 
 **State:** OpenRouter provider approved; payment completion not verified; key provisioning not verified; no AI spend or started experiment independently established.
+
+
+---
+
+## 24. 2026-10-24 — OpenRouter $5 wallet verified; $50 key default must be reduced
+
+**Direct screenshots, reviewed by ChatGPT:** Owner's OpenRouter Credits page shows **Total Available $5.00**, **one recent transaction dated October 24, 2026 for $5.00**, and no separately itemized promotional/bonus balance. Therefore credit funding is now **verified from owner screenshot** (unlike the earlier unverified purchase assertion). Do not infer free bonus credits, real provider usage or an AI request from the balance alone. The earlier Google Gemini $30 figure was **minimum requested, not a completed payment**.
+
+**API key creation screenshot:** A new key dialog is still open, with name `MatchMind Weekend AI Test`, default **30-day expiration** (November 23, 2026) and **credit limit $50**, reset `N/A` selected. This image is **not evidence that the new key already exists**. Owner instructed to **change the credit limit from $50 to a hard $5 total**, keep `N/A` (no periodic reset), and choose a shorter expiration if convenient. If the UI cannot set a $5 total, stop and inspect, do not create a $50 key for the test.
+
+**Security:** On creation, key value should be treated as secret and placed only in an approved Codex/CI private secret channel for an isolated test; never paste raw key into chat, issue, commit, dossier, AI prompt, browser screenshot or user-facing logs. Avoid using the earlier default $100 keys. Turn auto-recharge off; dedicated key spending limit is a defense-in-depth guard, not a replacement for the app's shared fail-closed ledger and provider cost checks. Once the experiment is over, revoke the temporary key. The $5 TOTAL authorization is unchanged, even if later bonuses appear.
+
+**State:** Wallet and transaction screenshot verified; key creation still in progress, provider paid inference and genuine weekend fixture captures **not verified**. Production and protected branches remain out of scope.
