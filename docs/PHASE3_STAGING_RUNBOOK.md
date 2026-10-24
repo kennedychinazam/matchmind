@@ -36,28 +36,30 @@ docker compose -f audits/staging/compose.yml exec -T db pg_isready -U postgres -
 # If startup is still in progress, repeat pg_isready until it reports accepting connections.
 docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/bootstrap.sql
 docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/snapshot-schema.sql
+docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/evidence-manifests.sql
 docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/permissions.sql
+docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/capture-monitoring.sql
 docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/capture-hooks.sql
 ```
 
-Apply bootstrap/schema/hooks once to a fresh database. A duplicate apply errors and rolls back its transaction; it is not a destructive reset. `permissions.sql` is reappliable but revokes all research function grants first; if hooks are already installed, restore their explicit grants afterward:
+Apply bootstrap/base schema and `evidence-manifests.sql` once to a fresh disposable database. The evidence migration adds shared manifest tables and a nullable manifest FK; existing inline snapshot links remain readable and are not rewritten. `capture-monitoring.sql` is reapplicable and preserves operational state; `capture-hooks.sql` replaces functions/trigger transactionally. For an existing isolated database at the initial reviewed schema (`33ee671`), first back it up, then apply `evidence-manifests.sql`, `permissions.sql`, `capture-monitoring.sql`, and `capture-hooks.sql` in that order. Do not reapply bootstrap/base schema. No Supabase migration has been executed.
 
-```sql
-GRANT EXECUTE ON FUNCTION research.capture_prediction(bigint) TO research_publisher;
-GRANT EXECUTE ON FUNCTION research.append_shadow(jsonb) TO research_collector;
-```
-
-Use `SET ROLE research_collector` for `research.append_observations(jsonb)` and `research.append_shadow(jsonb)`, `research_publisher` for source inserts/capture repair, and `research_reader` for research SELECTs. The real Supabase authenticated publisher is not wired to these local roles.
+Reapplying `permissions.sql` revokes research function grants; follow it with monitoring and capture-hook scripts to restore only the designated facade/shadow permissions. Do not regrant the raw capture function to publisher/operator roles.
 
 ## Tables and permissions
 
-- `research.observations`: immutable field value versions, server receipt/observation times and source hashes. Unknown values/times remain explicitly null. Indexes cover fixture/field/as-of selection and collector run.
-- `research.prediction_snapshots`: original source probabilities, market/pick, expected goals, issuance, frozen kickoff, build/model lineage, source-prediction JSON and evidence IDs. Unique fixture/issuance/build lineage and issue-time index.
-- `research.snapshot_evidence`: composite snapshot/observation key and FKs, evidence role and source fixture; reverse observation index. No cascade from mutable source tables.
-- `research.shadow_forecasts`: separate private probability outputs, immutable snapshot FK, candidate/configuration/manifest hashes and constrained `shadow` visibility. Unique candidate/configuration per snapshot.
-- `research.control`: privileged operational enable/budget state; not research evidence and intentionally administratively mutable.
+- `research.observations`: immutable field value versions, server receipt/observation times and source hashes. Unknown timing stays null. Indexes cover fixture/field/as-of selection, collector runs and fixed-size metadata candidate lookups.
+- `research.prediction_snapshots`: immutable original probabilities, pick, kickoff, issuance/build lineage, source JSON and a shared manifest FK.
+- `research.snapshot_evidence`: retained legacy inline links. Existing snapshots remain unchanged and readable.
+- `research.evidence_chunks` and `research.evidence_chunk_members`: content-addressed immutable sets of at most 500 ordered observation references with observation FKs. Shared chunks avoid copying the history for each prediction.
+- `research.evidence_manifests` and `research.evidence_manifest_chunks`: immutable hashed selection metadata, ordered chunk hashes, count and normalized FK links. Readers verify header hash, linked chunk order, per-chunk hash and complete count.
+- `research.shadow_forecasts`: separate private candidate outputs and original snapshot lineage.
+- `research.control`: privileged operational enable/evidence-budget configuration.
+- `research.capture_health`: private operational state per fixture identifier, with status, server times, attempts/failures, sanitized SQLSTATE and successful snapshot FK. It contains no probability, pick, raw error message, source payload or credentials.
 
-All five tables enable RLS. Public/anon/authenticated have no schema, table or research function privileges. Reader SELECT has explicit policies. The collector/publisher have only designated function EXECUTE privileges, not direct evidence mutations. UPDATE/DELETE/TRUNCATE guards protect the four evidence tables. Narrow private SECURITY DEFINER functions have fixed `pg_catalog` search paths and fully qualified objects. `research_owner` is NOLOGIN and trusted; DB administrators can still bypass/drop guards. Local role tests and backup/restore check these boundaries.
+All ten tables enable RLS. Public/anon/authenticated have no schema, table or function access. `research_reader` can read evidence/manifests but cannot see operational health. `research_collector` can execute the observation/shadow writers. `research_publisher` can insert synthetic source predictions and execute `try_capture_prediction`; it cannot execute raw `capture_prediction`. `research_operator` is NOLOGIN and has only health SELECT, private backlog lookup and monitored repair EXECUTE. It cannot directly UPDATE/DELETE/TRUNCATE monitoring or evidence.
+
+Eight evidence tables have UPDATE/DELETE/TRUNCATE guards; control and health are intentionally mutable operational tables. Narrow private SECURITY DEFINER functions have fixed search paths and fully qualified objects. Owners/DB administrators remain a trusted boundary. Local role tests are not hosted Supabase Auth/PostgREST validation.
 
 ## Receipt, reconstruction and model integration
 
@@ -71,21 +73,44 @@ The offline adapter uses only archived observations with server receipt equal to
 
 Two hash domains are explicit: `canonical-json-v1` for JS manifests and `pg-jsonb-v1` for stored database payloads. They are not interchangeable. Database payloads can be verified with PostgreSQL `digest(envelope::text,'sha256')`. Hashes do not prove source authenticity. `fixture_version_hash` in the current capture envelope fingerprints the fixture lineage frozen in the source prediction, not a complete historical fixture-row version. Field observations and evidence IDs carry separately versioned provider evidence. Full baseline recomputation needs a future ordered engine-input/configuration manifest.
 
-## Capture failures and retries
+## Durable capture failures and operator repair
 
-The INSERT trigger contains research errors in a database subtransaction and emits a fixture ID/SQLSTATE warning. It never suppresses or changes the source prediction. The staging publisher harness performs a separate capture receipt check and returns `published:true` plus an explicit failure/repair status when research capture fails. It retries only capture, up to three attempts for designated transient SQLSTATEs; it never repeats publication because of research failure. Permission, invalid payload and storage failures are visible and not retried as transient errors. A ten-second total deadline bounds the harness; an injected transport must honor its AbortSignal and its own DB statement timeout. A timeout cannot undo an already committed capture; later repair is idempotent.
+The source INSERT trigger invokes `research.try_capture_prediction(fixture_id)`. Capture work occurs in an inner savepoint. On error its research writes roll back, then operational health is recorded in the outer source-publication transaction. The facade returns a snapshot ID or sanitized `{error:{code}, monitor_recorded}` receipt. Ordinary research failures no longer depend on warnings for detection.
 
-This separate receipt check is essential: PostgreSQL warnings alone are not evidence that a hosted PostgREST client will receive an actionable error. Hosted staging must establish the actual error/receipt transport before any real publisher integration. No production publisher has been changed.
+Health states are `captured`, `pending`, `disabled`, and `repaired`. Attempts/failures are monotone; original failure time and last failure SQLSTATE survive repair. Intentional capture pauses are recorded as `disabled`. Successful explicit retry updates status and references the single original snapshot without rewriting or republishing the source prediction.
+
+Health writes bypass the research evidence admission check so a 250 MiB research-budget failure can still be recorded. There is at most one health row per requested fixture identifier, not an unbounded event log. Trusted publishers/operators must not submit arbitrary identifiers. The table still consumes physical database storage; it is not an independent storage service or disk quota exemption.
+
+Use a private operator session on the local container:
+
+```sql
+SET ROLE research_operator;
+SELECT * FROM research.capture_backlog(100, 0);
+-- Page by passing the last returned fixture_id as the second argument.
+SELECT fixture_id,state,attempts,failures,last_sqlstate,repaired_at
+FROM research.capture_health ORDER BY last_attempt_at DESC;
+SELECT research.try_capture_prediction(123); -- substitute a fixture from the backlog
+```
+
+`capture_backlog` reconciles public source IDs against actual snapshot existence and unresolved health, so it finds `unrecorded` missing snapshots even if monitoring itself failed. Its page size is validated (1–1000); it reveals no research data to application users. Operators should execute reconciliation as part of their private staging checks; no scheduled production monitor or alert service was deployed.
+
+If the health sink/entrypoint itself cannot write, the trigger still preserves the original source insert and returns a warning as a fallback. The backlog remains the independent read-based backstop when the database is available. If the entire DB is unavailable, lacks physical storage to commit the original publication, or denies reconciliation reads, an in-database table cannot guarantee durability or alerts. External availability monitoring, reserved physical capacity, and private operational scheduling remain staging requirements.
+
+The local publisher harness checks the monitored receipt, retries only designated transient capture errors (up to three attempts), never repeats publication due to research failure, and enforces a ten-second total deadline. The real transport must honor AbortSignal and set an appropriate DB statement timeout. A lost/timeout response does not undo a committed capture; repair is idempotent. No real publisher integration was deployed.
 
 ## Storage, egress and API budgets
 
-Proposed admission limits: 16 KiB field value; 64 KiB prediction/shadow envelope; 500 linked observations; 100 observation rows per collector request; 2 MiB request. SQL serializes budget admission on the control row and checks research table/index bytes plus conservative incoming-size estimates against 250 MiB. This is an operational admission budget, not a filesystem/WAL/billing hard quota. Payload sizes differ slightly between compact JSON and PostgreSQL jsonb text; SQL is the final authority. Oversize data fails explicitly without truncation or invalidating publication.
+Admission limits: 16 KiB field values; 64 KiB prediction/shadow envelopes; at most 500 references per evidence chunk; 100,000 total references/200 chunks per manifest; 100 observation rows and 2 MiB per collector request; proposed 250 MiB research table/index admission budget. Complete required evidence above the manifest ceiling fails explicitly and is queued for review, never truncated. These are not filesystem/WAL/billing quotas. Payload sizes differ between compact JSON and PostgreSQL jsonb text; SQL is the final authority.
 
-Deduplicate unchanged values; store allowlisted fields rather than full provider responses. Do not add research reads to normal boot or enable `?blobs=1` by default. Source/provider calls added by this implementation: zero. Current production storage/API impact: zero because nothing is deployed or wired into production.
+`m14-dependencies-v1` preserves all target-team result history because half-split, home-edge and history-count helpers have no fixed lookback. It keeps the full current/previous competition seasons for standings/round-robin checks, target-team provider data within 240 days, competition referee context within 540 days, and cross-competition schedule evidence within the 21-day congestion/4-day distraction windows plus the latest older fixture needed for capped rest days. It selects eligible versions before taking the latest value; a newer stat without played-time proof cannot displace an older verified version. Referee identity normalization remains exclusively in the existing JS builder; SQL retains the bounded competition context so Unicode whitespace/country variants cannot prune required referee matches. No model constants or formulas changed.
 
-Illustrative future budget from the approved plan: 2,000 field versions/day at 1 KiB plus 100 envelopes/day at 8 KiB is about 2.73 MiB/day or 82 MiB/30 days before indexes, WAL, backup copies, manifests and shadow forecasts. At a maximum batch size of 100 field rows, 2,000 rows can be sent in 20 full observation-writer calls/day; actual request counts depend on batch utilization and source cadence. A publisher receipt check is one request per capture batch design/transport, with at most two transient retries. The implemented SQL capture function handles one source fixture per call; no claim of a 100-prediction hosted batching endpoint is made. Every retry is counted when measuring hosted staging usage.
+A metadata candidate index limits unrelated archive work before fetching full field versions. Its fixed-size MD5 key is only an index routing hint; full JSON equality is checked, and all integrity hashes remain SHA-256. Materialized `(fixture_id,field_name)` requirements avoid a bad nested-loop plan. Existing private observation data, not mutable fixture rows, supplies every value.
 
-Local measurement on 500 synthetic snapshots: mean envelope 1,264 bytes; total research table/index allocation 1,277,952 bytes. Five 100-insert batches measured a median 1 ms without capture versus 50 ms with capture, approximately 0.49 ms incremental server time per prediction. Raw insert relative overhead was 4,900%; this does not satisfy a 5% raw-insert gate. The approved <=5% total publisher-runtime target remains unverified against a representative staged application workload. These figures exclude network, JWT, PostgREST, RLS under hosted identities and real feature volumes. Re-run `measure.mjs` for this machine; timings are observations, not performance guarantees.
+The scaling regression compares every existing M14 feature with the complete as-of history, including newer unverified corrections, Unicode referee names, and an unrelated malformed record. Initial dataset: 51,866 observations across five seasons/two competitions; selected evidence: 10,444 references in 21 chunks. An additional 2,000 unrelated fixtures add 24,000 fields before a second prediction. It checks identical features, capture under a five-second local regression ceiling, immutable replay, and chunk reuse. Recorded final measurements are in the implementation report. Full original baseline-input replay remains incomplete; model-compatible M14 evidence is not proof of the old baseline's exact input sequence.
+
+An initial complete manifest allocated about 4.8 MiB of research table/index pages; the second prediction reused history chunks and added about 208 KiB. These are local allocated-page measurements, not billing estimates. Growth includes normalized FK/index overhead; future storage projections must include shared history chunks, new observation versions and private health records. The old 82 MiB/month illustration is not a validated forecast for this expanded archive.
+
+No research read is added to normal boot and `?blobs=1` stays opt-in. Current production storage/API/provider impact is zero. Future private transport needs one monitored capture call per fixture (plus bounded retries), collector batches and paged/chunked evidence reads; a manifest is not one unbounded public boot payload. Actual Supabase egress, JWT/RPC overhead, corpus growth and the <=5% representative publisher-runtime target remain unverified. Admission serialization also means concurrent large captures need staged throughput/statement-timeout testing.
 
 Retain referenced evidence for the experiment lifetime; no automatic evidence purge or paid capacity expansion. Stop collection and report budget exhaustion. Design compressed exports/retention separately before extending the experiment.
 
@@ -113,13 +138,13 @@ Non-destructive rollback:
 docker compose -f audits/staging/compose.yml exec -T db psql -X -v ON_ERROR_STOP=1 -U postgres -d matchmind_test < audits/staging/rollback.sql
 ```
 
-This disables capture through `research.control.enabled` and revokes writer EXECUTE. The INSERT trigger returns the original row immediately while disabled. Preserve/export research data and verify the source publisher still inserts correctly. Forward repair appends evidence corrections or retries capture against the original source row; it never overwrites a snapshot. Re-enable only after reviewing errors, raising no paid quota automatically, reapplying permissions and restoring the two capture/shadow grants above. Destroy the synthetic container only after any needed exports: `docker compose -f audits/staging/compose.yml down` discards tmpfs data.
+This disables capture through `research.control.enabled` and revokes writer EXECUTE. The INSERT trigger records disabled health and preserves the original row while disabled. Preserve/export research data and verify the source publisher still inserts correctly. Forward repair appends evidence corrections or retries capture against the original source row; it never overwrites a snapshot. Re-enable only after reviewing errors, raising no paid quota automatically, reapplying permissions, monitoring and capture-hook scripts in order. Destroy the synthetic container only after any needed exports: `docker compose -f audits/staging/compose.yml down` discards tmpfs data.
 
 Before any future production backend change, separately obtain authorization, privately export all five function sources and schema/policies/column grants/indexes/extensions/cron, create a recoverable database backup, and restore-test in isolation. Git/Build 355 recovery does not restore Supabase data, function secrets or deployed functions. No production backup/export or migration was performed here.
 
 ## Acceptance evidence and remaining staging gates
 
-Automated coverage includes original 34 regressions; malformed probabilities/timestamps/schema/size; server receipt/backdating; unknown/null states; duplicate IDs and corrected versions; private role denials; atomic batches; storage limits; publisher failure/retry/timeout behavior; pre-issue odds; snapshot-to-existing-feature replay; exact identity fallback; private shadow writes; 47h59m/48h/later reschedules; backup/restore with ACLs; and offline browser boot/Smart Bet parity.
+Automated coverage includes original 34 regressions; malformed probabilities/timestamps/schema/size; server receipt/backdating; unknown/null states; duplicate IDs and corrected versions; private role denials; atomic batches; storage limits; publisher failure/retry/timeout behavior; pre-issue odds; snapshot-to-existing-feature replay; exact identity fallback; private shadow writes; 47h59m/48h/later reschedules; backup/restore with ACLs, additive migration from the original reviewed schema, private durable failure/repair status and reconciliation after a failed monitor write; and offline browser boot/Smart Bet parity.
 
 The reschedule test deliberately records that a derived unplayed void may later read LIVE/pending. The existing app does not persist a terminal settlement event. A future settlement ledger could append a terminal `void_late` event keyed by prediction snapshot and settlement-policy version and make later grading honor it. That would be a separate grading change requiring review; this task changes no production grading.
 

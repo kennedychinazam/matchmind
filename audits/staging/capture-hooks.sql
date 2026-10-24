@@ -1,10 +1,9 @@
 -- Apply only to the isolated synthetic DB after snapshot-schema.sql + permissions.sql.
 BEGIN;
 SET LOCAL ROLE research_owner;
-CREATE FUNCTION research.capture_prediction(fid bigint) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET timezone='UTC' AS $$
+CREATE OR REPLACE FUNCTION research.capture_prediction(fid bigint) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET timezone='UTC' AS $$
 DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction_snapshots;sid uuid;receipt timestamptz;ko timestamptz;
  ids uuid[];oid uuid;obs research.observations;kind text;odds jsonb;prob_sum numeric;mid uuid;manifest research.evidence_manifests;BEGIN
- PERFORM research.check_budget(65536);
  SELECT * INTO STRICT p FROM public.predictions WHERE fxid=fid;
  original:=jsonb_build_object('fxid',p.fxid,'lid',p.lid,'lname',p.lname,'kickoff',p.kickoff,'ktime',p.ktime,'home',p.home,'away',p.away,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'pick',p.pick,'pick_prob',p.pick_prob,'build',p.build,'made_at',p.made_at,'market',p.market,'odds_snap_id',p.odds_snap_id,'odds_at_pick',p.odds_at_pick,'odds_at_pick_at',p.odds_at_pick_at);
  SELECT * INTO prior FROM research.prediction_snapshots WHERE fixture_id=fid;
@@ -12,6 +11,7 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
   IF prior.envelope->'source_prediction'<>original THEN RAISE EXCEPTION 'conflicting original prediction';END IF;
   RETURN prior.snapshot_id;
  END IF;
+ PERFORM research.check_budget(65536);
  IF p.ktime IS NULL OR p.ktime !~ '^\d{2}:\d{2}(:\d{2})?$' THEN RAISE EXCEPTION 'invalid original kickoff';END IF;
  ko:=research.utc_instant(p.kickoff::text||'T'||p.ktime||CASE WHEN length(p.ktime)=5 THEN ':00Z' ELSE 'Z' END);
  receipt:=clock_timestamp();
@@ -49,19 +49,17 @@ DECLARE p public.predictions;body jsonb;original jsonb;prior research.prediction
  VALUES(sid,fid,p.made_at,p.build,receipt,'build'||p.build,kind,false,'original ordered engine inputs/configuration were not archived',encode(public.digest(body::text,'sha256'),'hex'),body,mid);
  RETURN sid;
 END $$;
-CREATE FUNCTION research.capture_insert() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+CREATE OR REPLACE FUNCTION research.capture_insert() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 BEGIN
- IF NOT (SELECT enabled FROM research.control) THEN RETURN NEW;END IF;
- BEGIN
-  PERFORM research.capture_prediction(NEW.fxid);
- EXCEPTION WHEN OTHERS THEN
-  -- A failed research write is rolled back within this subtransaction. Source
-  -- publication survives; the local publisher harness separately checks receipt.
-  RAISE WARNING 'research capture failed fixture %, SQLSTATE %',NEW.fxid,SQLSTATE;
- END;
+ PERFORM research.try_capture_prediction(NEW.fxid);
+ RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+ -- Protect source publication even if the monitoring entrypoint itself is broken.
+ -- The operator-only source/snapshot reconciliation detects this missing receipt.
+ RAISE WARNING 'research entrypoint unavailable for fixture %, SQLSTATE %',NEW.fxid,SQLSTATE;
  RETURN NEW;
 END $$;
-CREATE FUNCTION research.append_shadow(b jsonb) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+CREATE OR REPLACE FUNCTION research.append_shadow(b jsonb) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE base research.prediction_snapshots;prior jsonb;sid uuid;sum_p numeric;v jsonb;BEGIN
  PERFORM research.check_object(b,ARRAY['shadow_id','snapshot_id','candidate_version','configuration_hash','visibility','probabilities','pick','feature_manifest_hash','fallback_reason','cohort','confirmatory_eligible','issued_pick_is_baseline'],65536);
  PERFORM research.check_budget(octet_length(b::text)*2);
@@ -90,8 +88,10 @@ DECLARE base research.prediction_snapshots;prior jsonb;sid uuid;sum_p numeric;v 
  RETURN sid;
 END $$;
 REVOKE ALL ON FUNCTION research.capture_prediction(bigint),research.capture_insert(),research.append_shadow(jsonb) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION research.capture_prediction(bigint) TO research_publisher;
+REVOKE EXECUTE ON FUNCTION research.capture_prediction(bigint) FROM research_publisher,research_operator;
+GRANT EXECUTE ON FUNCTION research.try_capture_prediction(bigint) TO research_publisher,research_operator;
 GRANT EXECUTE ON FUNCTION research.append_shadow(jsonb) TO research_collector;
 RESET ROLE;
+DROP TRIGGER IF EXISTS research_capture ON public.predictions;
 CREATE TRIGGER research_capture AFTER INSERT ON public.predictions FOR EACH ROW EXECUTE FUNCTION research.capture_insert();
 COMMIT;

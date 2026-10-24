@@ -5,9 +5,9 @@ import {observation} from '../test-support/synthetic.mjs';
 const db=localDatabase('schema');
 before(async()=>{await db.start();db.apply('bootstrap.sql');});after(()=>db.close());
 test('private append-only schema exists and migration is transactional',()=>{
- db.apply('snapshot-schema.sql');db.apply('evidence-manifests.sql');db.apply('permissions.sql');
- assert.equal(db.sql("select count(*) from information_schema.tables where table_schema='research' and table_type='BASE TABLE'"),'9');
- assert.equal(db.sql("select count(*) from pg_class where relnamespace='research'::regnamespace and relkind='r' and relrowsecurity"),'9');
+ db.apply('snapshot-schema.sql');db.apply('evidence-manifests.sql');db.apply('permissions.sql');db.apply('capture-monitoring.sql');
+ assert.equal(db.sql("select count(*) from information_schema.tables where table_schema='research' and table_type='BASE TABLE'"),'10');
+ assert.equal(db.sql("select count(*) from pg_class where relnamespace='research'::regnamespace and relkind='r' and relrowsecurity"),'10');
 });
 test('collector receives server timestamps and payload is immutable under every granted role',()=>{
  const row=literal([observation()]);

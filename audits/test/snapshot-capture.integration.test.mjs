@@ -7,10 +7,10 @@ import {localDatabase,literal} from '../test-support/local-db.mjs';
 const db=localDatabase('capture');
 const api=await import('../staging/publisher-harness.mjs').catch(()=>({}));
 const collector=await import('../staging/collector-adapter.mjs').catch(()=>({}));
-before(async()=>{await db.start();db.apply('bootstrap.sql');db.apply('snapshot-schema.sql');db.apply('evidence-manifests.sql');db.apply('permissions.sql');});after(()=>db.close());
+before(async()=>{await db.start();db.apply('bootstrap.sql');db.apply('snapshot-schema.sql');db.apply('evidence-manifests.sql');db.apply('permissions.sql');db.apply('capture-monitoring.sql');});after(()=>db.close());
 const prediction=(id)=>`insert into public.predictions(fxid,lid,kickoff,ktime,home,away,p_home,p_draw,p_away,xg_home,xg_away,pick,pick_prob,build,made_at,market) values(${id},39,(now() at time zone 'UTC')::date+1,'18:00','Alpha','Beta',.5,.3,.2,1.5,1,'1X',.8,355,clock_timestamp(),'Double Chance') on conflict do nothing`;
 function sourceWriter(id){return async()=>{db.sql(`set role research_publisher;${prediction(id)}`);return {fixtureId:String(id)};};}
-function capture(id){return async()=>{try{return {snapshot_id:db.sql(`set role research_publisher;select research.capture_prediction(${id})`).split('\n').at(-1)};}catch(e){const msg=e.stderr?.toString()||e.message;throw Object.assign(Error(msg),{code:/permission/.test(msg)?'42501':/storage limit/.test(msg)?'54000':'XX000'});}};}
+function capture(id){return async()=>{try{return JSON.parse(db.sql(`set role research_publisher;select research.try_capture_prediction(${id})`).split('\n').at(-1));}catch(e){const msg=e.stderr?.toString()||e.message;throw Object.assign(Error(msg),{code:/permission/.test(msg)?'42501':/storage limit/.test(msg)?'54000':'XX000'});}};}
 test('capture hooks copy only the winning publisher insert and keep originals immutable',async()=>{
  db.apply('capture-hooks.sql');
  const r=await api.publishWithSnapshot({publish:sourceWriter(456),capture:capture(456)});
@@ -25,11 +25,11 @@ test('capture hooks copy only the winning publisher insert and keep originals im
  assert.equal(db.sql('select replay_eligible from research.prediction_snapshots'),'f');
 });
 test('permission failures preserve the published prediction and are reported without republishing',async()=>{
- db.sql('revoke execute on function research.capture_prediction(bigint) from research_publisher');
+ db.sql('revoke execute on function research.try_capture_prediction(bigint) from research_publisher');
  const r=await api.publishWithSnapshot({publish:sourceWriter(457),capture:capture(457)});
  assert.equal(r.published,true);assert.equal(r.capture.ok,false);assert.equal(r.capture.code,'42501');assert.equal(r.capture.attempts,1);
  assert.equal(db.sql('select count(*) from public.predictions where fxid=457'),'1');
- db.sql('grant execute on function research.capture_prediction(bigint) to research_publisher');
+ db.sql('grant execute on function research.try_capture_prediction(bigint) to research_publisher');
 });
 test('storage exhaustion does not abort or duplicate source predictions',async()=>{
  db.sql('update research.control set max_bytes=1');
@@ -44,7 +44,7 @@ test('storage exhaustion does not abort or duplicate source predictions',async()
 test('late imports retain original issue time and cannot claim historical replay',()=>{
  db.sql("update research.control set enabled=false");
  db.sql("insert into public.predictions(fxid,lid,kickoff,ktime,home,away,p_home,p_draw,p_away,xg_home,xg_away,pick,pick_prob,build,made_at,market)values(459,39,'2026-10-21','18:00','Alpha','Beta',.5,.3,.2,1.5,1,'1X',.8,355,'2026-10-20T12:00:00Z','Double Chance')");
- db.sql('update research.control set enabled=true;set role research_publisher;select research.capture_prediction(459)');
+ db.sql('update research.control set enabled=true;set role research_publisher;select research.try_capture_prediction(459)');
  assert.equal(db.sql("select capture_kind from research.prediction_snapshots where fixture_id=459"),'late_import');
  assert.equal(db.sql("select envelope->>'issue_time_utc' from research.prediction_snapshots where fixture_id=459"),'2026-10-20T12:00:00.000000Z');
 });
@@ -114,7 +114,7 @@ test('invalid odds evidence cannot enter the archive or break later capture',asy
 test('capture retry is invariant to database session timezone',()=>{
  const id=db.sql('select snapshot_id from research.prediction_snapshots where fixture_id=456');
  for(const zone of ['Africa/Lagos','Pacific/Kiritimati','America/New_York']) {
-  const retry=db.sql(`set timezone='${zone}';set role research_publisher;select research.capture_prediction(456)`).split('\n').at(-1);
+  const retry=db.sql(`set timezone='${zone}';set role research_publisher;select research.try_capture_prediction(456)->>'snapshot_id'`).split('\n').at(-1);
   assert.equal(retry,id);
  }
 });
@@ -122,7 +122,7 @@ test('nonfinite expected goals cannot become accepted immutable snapshots',async
  for(const [id,number] of [[470,'Infinity'],[471,'NaN'],[475,'-Infinity']]) {
   db.sql('set role research_publisher;'+prediction(id).replace('1.5,1',`'${number}'::real,1`));
   assert.equal(db.sql(`select count(*) from public.predictions where fxid=${id}`),'1');
-  await assert.rejects(capture(id));
+  assert.ok((await capture(id)()).error);
   assert.equal(db.sql(`select count(*) from research.prediction_snapshots where fixture_id=${id}`),'0');
  }
 });

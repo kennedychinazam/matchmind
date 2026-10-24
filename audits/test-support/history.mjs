@@ -12,7 +12,7 @@ export function realisticHistory() {
   }
  }
  const date=new Date(Date.now()+86400000).toISOString().slice(0,10);
- rows.push({fxid:'999999',lid:39,home:teams[0],away:teams[1],date,time:'18:00',status:'NS',season:2026,referee:'Ref 0',inj_h:'',inj_a:''});
+ rows.push({fxid:'999999',lid:39,home:teams[0],away:teams[1],date,time:'18:00',status:'NS',season:2026,referee:'\u00a0Ref 0\u00a0',inj_h:'',inj_a:''});
  rows.push({fxid:'999998',lid:40,home:teams[0],away:teams[1],date:new Date(Date.parse(date+'T00:00:00Z')+2*86400000).toISOString().slice(0,10),time:'18:00',status:'NS',season:2026});
  return rows;
 }

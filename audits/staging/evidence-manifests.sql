@@ -30,7 +30,7 @@ DO $$ DECLARE t text; BEGIN
   EXECUTE format('CREATE TRIGGER immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON research.%I FOR EACH STATEMENT EXECUTE FUNCTION research.immutable()',t);
  END LOOP;
 END $$;
-CREATE INDEX observations_m14_scope_idx ON research.observations(field_name,fixture_id,observed_at_utc DESC,observation_id DESC) WHERE availability='observed' AND field_name IN('lid','home','away');
+CREATE INDEX observations_m14_scope_idx ON research.observations(field_name,md5(value::text),observed_at_utc DESC,fixture_id) WHERE availability='observed' AND field_name IN('lid','home','away');
 CREATE FUNCTION research.store_evidence_manifest(ids uuid[],spec jsonb) RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE part uuid[];hashes text[]:='{}';ch text;body jsonb;mh text;mid uuid;i integer;created integer;BEGIN
  IF cardinality(ids)>100000 OR cardinality(ids)<>(SELECT count(DISTINCT x) FROM unnest(ids)x) THEN
@@ -60,9 +60,15 @@ END $$;
 -- and cross-competition schedule windows plus the latest older rest fixture.
 CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE sql STABLE SET search_path=pg_catalog AS $select$
  WITH p AS (SELECT * FROM public.predictions WHERE fxid=fid),
- meta AS MATERIALIZED (
+ candidates AS MATERIALIZED (
+  SELECT DISTINCT o.fixture_id FROM research.observations o,p
+  WHERE o.availability='observed' AND o.observed_at_utc<=p.made_at AND (
+   (o.field_name='lid' AND md5(o.value::text)=md5(to_jsonb(p.lid)::text) AND o.value=to_jsonb(p.lid)) OR
+   (o.field_name IN('home','away') AND md5(o.value::text) IN(md5(to_jsonb(p.home)::text),md5(to_jsonb(p.away)::text)) AND o.value IN(to_jsonb(p.home),to_jsonb(p.away)))
+  )
+ ), meta AS MATERIALIZED (
   SELECT DISTINCT ON(o.fixture_id,o.field_name) o.fixture_id,o.field_name,o.value
-  FROM research.observations o,p WHERE o.field_name IN('lid','home','away') AND o.availability='observed'
+  FROM research.observations o JOIN candidates c USING(fixture_id),p WHERE o.field_name IN('lid','home','away') AND o.availability='observed'
    AND o.observed_at_utc<=p.made_at AND (o.effective_at_utc IS NULL OR o.effective_at_utc<=p.made_at)
   ORDER BY o.fixture_id,o.field_name,o.observed_at_utc DESC,o.observation_id DESC
  ), scope AS (
@@ -70,6 +76,7 @@ CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE
  ), latest AS MATERIALIZED (
   SELECT DISTINCT ON(o.fixture_id,o.field_name) o.* FROM research.observations o JOIN scope s USING(fixture_id),p
   WHERE o.field_name<>'odds_1x2' AND o.availability='observed' AND o.observed_at_utc<=p.made_at
+   AND (o.fixture_id=p.fxid OR o.played_at_utc IS NOT NULL OR o.field_name IN('lid','home','away','date','time','status','provider','home_logo','away_logo','season','round','referee','venue_id','inj_h','inj_a','lineup_h','lineup_a','formation_h','formation_a'))
    AND (o.played_at_utc IS NULL OR o.played_at_utc<o.observed_at_utc AND o.played_at_utc<p.made_at)
    AND (o.effective_at_utc IS NULL OR o.effective_at_utc<=p.made_at)
   ORDER BY o.fixture_id,o.field_name,o.observed_at_utc DESC,o.observation_id DESC
@@ -82,8 +89,7 @@ CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE
    x.r->>'home' IN(p.home,p.away) OR x.r->>'away' IN(p.home,p.away) AS team,
    x.r->'lid'=to_jsonb(p.lid) AS league,
    (x.r->>'season')::integer IN((p.tr->>'season')::integer,(p.tr->>'season')::integer-1) AS table_season,
-   lower(regexp_replace(regexp_replace(btrim(x.r->>'referee'),'\s+',' ','g'),',\s*[^,]+$',''))=
-   lower(regexp_replace(regexp_replace(btrim(p.tr->>'referee'),'\s+',' ','g'),',\s*[^,]+$','')) AS referee
+   p.tr->>'referee' IS NOT NULL AS referee_context
   FROM rows x CROSS JOIN target p WHERE x.r ? 'date'
  ), rest AS (
   SELECT DISTINCT ON(team_name) f.fixture_id FROM flags f CROSS JOIN target p
@@ -93,9 +99,9 @@ CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE
  ), contexts AS MATERIALIZED (
   SELECT f.*,
    f.fixture_id=p.fxid AS target,
-   f.league AND f.d<p.kickoff AND (f.team OR f.table_season OR (f.referee AND p.kickoff-f.d<=540)) AS history,
+   f.league AND f.d<p.kickoff AND (f.team OR f.table_season OR (f.referee_context AND p.kickoff-f.d<=540)) AS history,
    f.league AND f.team AND f.d<p.kickoff AND p.kickoff-f.d<=240 AS provider,
-   f.league AND f.referee AND f.d<p.kickoff AND p.kickoff-f.d<=540 AS ref_form,
+   f.league AND f.referee_context AND f.d<p.kickoff AND p.kickoff-f.d<=540 AS ref_form,
    f.team AND ((f.d>=p.kickoff-21 AND f.d<=p.kickoff+4) OR f.fixture_id IN(SELECT fixture_id FROM rest)) AS schedule
   FROM flags f CROSS JOIN target p
  )
@@ -111,7 +117,7 @@ CREATE FUNCTION research.select_m14_evidence(fid bigint) RETURNS uuid[] LANGUAGE
  FROM latest o JOIN wanted w USING(fixture_id,field_name)
 $select$;
 CREATE FUNCTION research.read_snapshot_evidence(sid uuid) RETURNS SETOF research.observations LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE mid uuid;m research.evidence_manifests;c record;ids uuid[];all_count integer:=0;BEGIN
+DECLARE mid uuid;m research.evidence_manifests;c record;ids uuid[];all_count integer:=0;actual_chunks text[];BEGIN
  SELECT evidence_manifest_id INTO STRICT mid FROM research.prediction_snapshots WHERE snapshot_id=sid;
  IF mid IS NULL THEN
   RETURN QUERY SELECT o.* FROM research.snapshot_evidence e JOIN research.observations o USING(observation_id) WHERE e.snapshot_id=sid;
@@ -119,6 +125,8 @@ DECLARE mid uuid;m research.evidence_manifests;c record;ids uuid[];all_count int
  END IF;
  SELECT * INTO STRICT m FROM research.evidence_manifests WHERE manifest_id=mid;
  IF encode(public.digest(m.body::text,'sha256'),'hex')<>m.payload_hash THEN RAISE EXCEPTION 'manifest integrity failure';END IF;
+ SELECT coalesce(array_agg(chunk_hash ORDER BY ordinal),'{}'::text[]) INTO actual_chunks FROM research.evidence_manifest_chunks WHERE manifest_id=mid;
+ IF to_jsonb(actual_chunks) IS DISTINCT FROM m.body->'chunks' THEN RAISE EXCEPTION 'manifest chunk order integrity failure';END IF;
  FOR c IN SELECT x.*,h.member_count FROM research.evidence_manifest_chunks x JOIN research.evidence_chunks h USING(chunk_hash) WHERE x.manifest_id=mid ORDER BY x.ordinal LOOP
   SELECT array_agg(observation_id ORDER BY ordinal) INTO ids FROM research.evidence_chunk_members WHERE chunk_hash=c.chunk_hash;
   IF cardinality(ids) IS DISTINCT FROM c.member_count OR encode(public.digest(to_jsonb(ids)::text,'sha256'),'hex')<>c.chunk_hash THEN RAISE EXCEPTION 'evidence chunk integrity failure';END IF;

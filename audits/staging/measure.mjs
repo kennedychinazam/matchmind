@@ -2,7 +2,7 @@
 import {localDatabase} from '../test-support/local-db.mjs';
 const db=localDatabase('measure');
 try {
- await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-hooks.sql']) db.apply(f);
+ await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql']) db.apply(f);
  function batch(start,enabled) {
   db.sql(`alter table public.predictions ${enabled?'enable':'disable'} trigger research_capture`);
   const result=db.sql(`select clock_timestamp();insert into public.predictions(fxid,lid,kickoff,ktime,home,away,p_home,p_draw,p_away,xg_home,xg_away,pick,pick_prob,build,made_at,market)select x,39,(now()at time zone 'UTC')::date+1,'18:00','Alpha','Beta',.5,.3,.2,1.5,1,'1X',.8,355,clock_timestamp(),'Double Chance' from generate_series(${start},${start+99}) x;select clock_timestamp();`).split('\n');

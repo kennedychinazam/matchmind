@@ -7,7 +7,7 @@ import {buildAsOfInputs,existingMatchFeatures} from '../lib/asof-features.mjs';
 import {shadowForecast} from '../lib/shadow-forecast.mjs';
 const contract=await import('../lib/snapshot-contract.mjs');
 const db=localDatabase('replay');
-before(async()=>{await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-hooks.sql'])db.apply(f);});after(()=>db.close());
+before(async()=>{await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);});after(()=>db.close());
 test('captured database envelope can be replayed without mutable fixture reads or timestamp precision loss',()=>{
  const run=randomUUID(),batch=[];
  for(const [id,fields] of [[456,{lid:39,home:'Alpha',away:'Beta',date:'2099-10-21',time:'18:00',status:'NS',season:2099}],[123,{lid:39,home:'Alpha',away:'Beta',date:'2026-10-18',time:'18:00',status:'FINISHED',gh:2,ga:1}]]) for(const [field,value] of Object.entries(fields)) batch.push({observation_id:randomUUID(),fixture_id:String(id),source_kind:'collector',source_ref:'synthetic',collector_run_id:run,field_name:field,value,availability:'observed',feature_schema_version:1,source_hash:'a'.repeat(64),effective_at_utc:null,played_at_utc:id===123?'2026-10-18T18:00:00Z':null});
