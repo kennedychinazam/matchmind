@@ -59,3 +59,17 @@ AI preparation remains mocked/design-only: provider/model-version contracts, cac
 `node audits/phase4/profile-capture.mjs /tmp/mm-profile.json` profiles budget locks, selection, manifest storage and capture work in cloned synthetic databases. Repeat with `reverse` to change variant order, or `focused` for current/narrow-selector only. It requires the existing pinned image, makes no provider requests and installs no services. It compares exact evidence and full M14 features; focused runs also compare all manifest roots. Raw synthetic results stay outside Git; reviewed aggregates are under `results/`. Read `docs/PHASE4_CAPTURE_PERFORMANCE_REVIEW.md` for results, limitations and the separate durable-asynchronous proposal. Candidate SQL is applied only inside disposable clones; no staging SQL artifact is patched by the profiler.
 
 Add `focused diverse` for the 18-target mixed-team/two-competition experiment, with one burst per concurrency level. It checks every manifest root against the current selector. This profile has fewer samples and weaker reuse; report both median regressions and maximum improvements, rather than extrapolating repeat-pair results.
+
+## Closed final evaluation
+
+The final decision and limits are in `docs/PHASE4_FINAL_REPORT.md`. The narrow projection passed the predeclared four-round acceptance matrix and is now the branch default. No further infrastructure optimization is planned. Archived profilers explicitly pin the wide `d4cb337` function before comparison so they remain reproducible after adoption.
+
+Recorded evaluation commands (do not run as routine infrastructure tuning):
+
+```sh
+node audits/phase4/final-evaluation.mjs /tmp/mm-final-evaluation.json
+node audits/phase4/storage-polling.mjs /tmp/mm-storage-polls.json
+node audits/phase4/storage-forecast.mjs /tmp/mm-final-evaluation.json /tmp/mm-storage-polls.json /tmp/mm-storage-forecast.json
+```
+
+The matrix uses AB/BA/AB/BA across 16 cells. Fresh trials start without manifests; reused trials explicitly prefill the exact immutable manifests before the timed winning inserts. Unchanged evidence eligibility is necessary for reuse. All stored hashes/manifests are verified; full M14 comparisons are cached only by workload, target and immutable manifest hash in the fixed archive. Forecaster inputs are measured component deltas, explicit polling/reuse assumptions and a 25% planning reserve; projections do not grant capacity or change quotas. All artifacts are synthetic and exclude keys/private source. The setup uses only the existing cached PostgreSQL image.

@@ -191,3 +191,7 @@ The Markdown changelog endpoint was attempted but unsupported by the research to
 ## Performance investigation follow-on
 
 See `docs/PHASE4_CAPTURE_PERFORMANCE_REVIEW.md` before modifying capture architecture. The current singleton admission lock serializes selection/manifest work. Disposable cloned-database experiments support a narrow materialized-row projection as the first optimization; JIT/memory changes have no demonstrated burst-latency benefit. A durable receipt/outbox needs a separately reviewed collector commit-visibility contract and explicit failure-policy tradeoff. It is not implemented, and queued work must never invent original evidence availability. PR #1 remains draft; preparation commit `bb37440` has verified 101/101 remote CI results on both runtimes. No further Supabase installation is authorized in this workspace.
+
+## Final evaluation closure
+
+The user's final limited evaluation is complete; `docs/PHASE4_FINAL_REPORT.md` supersedes earlier candidate-only performance status. The narrow projection met the fixed paired acceptance gate and is adopted in branch SQL. Complete Node 20/24 regressions pass 107/107. Storage projections demonstrate the unchanged 250 MiB budget is a bounded-pilot constraint; no quota, service, AI, publisher-model or architecture expansion is authorized. The outbox stays documented only. Stop infrastructure optimization unless a critical correctness/security defect is discovered; subsequent development focus is accuracy, calibration, valid bookmaker comparisons and controlled shadow evaluation.

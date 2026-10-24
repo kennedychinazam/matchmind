@@ -1,0 +1,774 @@
+{
+  "fixtures": 100,
+  "fields_per_fixture": 6,
+  "polls_after_initial": 20,
+  "profiles": [
+    {
+      "change_percent": 0,
+      "initial": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 40960,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_first": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 794624,
+          "index_bytes": 131072
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_twenty_more": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 794624,
+          "index_bytes": 131072
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "persisted": 600,
+      "attempted": 12600,
+      "mean_tuple_bytes": 973.3433333333334
+    },
+    {
+      "change_percent": 1,
+      "initial": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 40960,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_first": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 794624,
+          "index_bytes": 131072
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_twenty_more": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 950272,
+          "index_bytes": 180224
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "persisted": 698,
+      "attempted": 12600,
+      "mean_tuple_bytes": 979.8739255014326
+    },
+    {
+      "change_percent": 10,
+      "initial": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 40960,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_first": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 794624,
+          "index_bytes": 131072
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "after_twenty_more": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 2162688,
+          "index_bytes": 319488
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ],
+      "persisted": 1696,
+      "attempted": 12600,
+      "mean_tuple_bytes": 986.2010613207547
+    }
+  ],
+  "external_requests": 0,
+  "odds": {
+    "kind": "constant-prices-new-envelope",
+    "initial": [
+      {
+        "relname": "capture_health",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "control",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "observations",
+        "category": "observations",
+        "total_bytes": 40960,
+        "index_bytes": 40960
+      },
+      {
+        "relname": "prediction_snapshots",
+        "category": "snapshots",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "snapshot_evidence",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "shadow_forecasts",
+        "category": "shadow",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "evidence_chunk_members",
+        "category": "manifests",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "evidence_manifests",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_manifest_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      }
+    ],
+    "after_first": [
+      {
+        "relname": "capture_health",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "control",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "observations",
+        "category": "observations",
+        "total_bytes": 212992,
+        "index_bytes": 65536
+      },
+      {
+        "relname": "prediction_snapshots",
+        "category": "snapshots",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "snapshot_evidence",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "shadow_forecasts",
+        "category": "shadow",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "evidence_chunk_members",
+        "category": "manifests",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "evidence_manifests",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_manifest_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      }
+    ],
+    "after_twenty_more": [
+      {
+        "relname": "capture_health",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "control",
+        "category": "operational",
+        "total_bytes": 24576,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "observations",
+        "category": "observations",
+        "total_bytes": 2891776,
+        "index_bytes": 409600
+      },
+      {
+        "relname": "prediction_snapshots",
+        "category": "snapshots",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "snapshot_evidence",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "shadow_forecasts",
+        "category": "shadow",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      },
+      {
+        "relname": "evidence_chunk_members",
+        "category": "manifests",
+        "total_bytes": 32768,
+        "index_bytes": 32768
+      },
+      {
+        "relname": "evidence_manifests",
+        "category": "manifests",
+        "total_bytes": 24576,
+        "index_bytes": 24576
+      },
+      {
+        "relname": "evidence_manifest_chunks",
+        "category": "manifests",
+        "total_bytes": 16384,
+        "index_bytes": 16384
+      }
+    ],
+    "persisted": 2100
+  }
+}

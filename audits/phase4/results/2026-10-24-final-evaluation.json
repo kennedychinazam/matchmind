@@ -1,0 +1,2450 @@
+{
+  "baseline_commit": "d4cb3379a3f1d6d0b7252ab134969b33397a5820",
+  "runtime": "Node 24.19.0",
+  "image": "postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27",
+  "method": "4 paired rounds AB/BA/AB/BA; 2 team mixes x 2 manifest states x workers 1/2/5/10; fixed gate before measurement; standalone PostgreSQL only; stages include profiling overhead",
+  "capture_attempts": 576,
+  "successful_integrity_checks": 576,
+  "distinct_full_M14_vectors_checked": 20,
+  "feature_cache": "Full-history parity once per workload/target/immutable manifest root; all 576 manifests read/verified; paired roots must match",
+  "raw_sha256": "0200089e3cd919a07871582ab514b74c2bb6e8dc57bcfe1b275885d1c74d21ee",
+  "decision": {
+    "adopt": true,
+    "policy": "all integrity/success; no cell median/p95 regression exceeding both 5% and 10ms; >=12/16 server median-and-p95 wins; pooled server median and p95 >=5% better",
+    "improved_cells": 16,
+    "regressions": [],
+    "aggregate": {
+      "current": {
+        "n": 288,
+        "median": 782,
+        "p95": 2016,
+        "max": 2602
+      },
+      "narrow": {
+        "n": 288,
+        "median": 644.5,
+        "p95": 1766,
+        "max": 2401
+      }
+    },
+    "rows": [
+      {
+        "workload": "repeat",
+        "mode": "fresh",
+        "workers": 1,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 4,
+              "median": 370,
+              "p95": 413,
+              "max": 413
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 459.50025999998616,
+              "p95": 507.67046900000423,
+              "max": 507.67046900000423
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 4,
+              "median": 326,
+              "p95": 353,
+              "max": 353
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 424.27985999999873,
+              "p95": 445.66146299999673,
+              "max": 445.66146299999673
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "fresh",
+        "workers": 2,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 8,
+              "median": 469.5,
+              "p95": 579,
+              "max": 579
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 577.6775464999955,
+              "p95": 693.4801359999983,
+              "max": 693.4801359999983
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 8,
+              "median": 434.5,
+              "p95": 568,
+              "max": 568
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 529.9996194999985,
+              "p95": 682.5150229999854,
+              "max": 682.5150229999854
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "fresh",
+        "workers": 5,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 20,
+              "median": 803,
+              "p95": 1207,
+              "max": 1218
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 1006.6208715000139,
+              "p95": 1444.3561919999993,
+              "max": 1449.7264529999811
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 20,
+              "median": 665.5,
+              "p95": 1005,
+              "max": 1071
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 889.5505684999989,
+              "p95": 1235.0036340000006,
+              "max": 1319.2202629999956
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "fresh",
+        "workers": 10,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 40,
+              "median": 1302.5,
+              "p95": 2126,
+              "max": 2210
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1728.757607499996,
+              "p95": 2560.3086889999977,
+              "max": 2654.9117739999783
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 40,
+              "median": 1107,
+              "p95": 1785,
+              "max": 1856
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1515.5201239999878,
+              "p95": 2233.925491999995,
+              "max": 2367.017525999996
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "reused",
+        "workers": 1,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 4,
+              "median": 190.5,
+              "p95": 203,
+              "max": 203
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 276.9636245000147,
+              "p95": 304.16731200000504,
+              "max": 304.16731200000504
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 4,
+              "median": 167,
+              "p95": 170,
+              "max": 170
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 255.06122099998902,
+              "p95": 261.3011289999995,
+              "max": 261.3011289999995
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "reused",
+        "workers": 2,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 8,
+              "median": 280.5,
+              "p95": 438,
+              "max": 438
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 425.51415650000126,
+              "p95": 546.7804450000112,
+              "max": 546.7804450000112
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 8,
+              "median": 221.5,
+              "p95": 306,
+              "max": 306
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 383.0283144999994,
+              "p95": 493.4474809999956,
+              "max": 493.4474809999956
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "reused",
+        "workers": 5,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 20,
+              "median": 586,
+              "p95": 978,
+              "max": 991
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 795.2105534999864,
+              "p95": 1201.39748900001,
+              "max": 1269.8854570000258
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 20,
+              "median": 477,
+              "p95": 807,
+              "max": 812
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 681.7400740000012,
+              "p95": 995.93167000002,
+              "max": 1078.335002000007
+            }
+          }
+        }
+      },
+      {
+        "workload": "repeat",
+        "mode": "reused",
+        "workers": 10,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 40,
+              "median": 1079,
+              "p95": 1856,
+              "max": 2010
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1523.463923499985,
+              "p95": 2320.7991150000016,
+              "max": 2520.114624000009
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 40,
+              "median": 853,
+              "p95": 1586,
+              "max": 1626
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1260.6522114999825,
+              "p95": 1988.8749179999868,
+              "max": 2164.823486999958
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "fresh",
+        "workers": 1,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 4,
+              "median": 357.5,
+              "p95": 385,
+              "max": 385
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 450.40850299999875,
+              "p95": 472.74221999995643,
+              "max": 472.74221999995643
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 4,
+              "median": 327.5,
+              "p95": 352,
+              "max": 352
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 421.2439325000014,
+              "p95": 451.2623409999651,
+              "max": 451.2623409999651
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "fresh",
+        "workers": 2,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 8,
+              "median": 434,
+              "p95": 588,
+              "max": 588
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 561.3576555000036,
+              "p95": 713.1944019999937,
+              "max": 713.1944019999937
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 8,
+              "median": 428,
+              "p95": 539,
+              "max": 539
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 546.292454999988,
+              "p95": 662.1577839999954,
+              "max": 662.1577839999954
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "fresh",
+        "workers": 5,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 20,
+              "median": 937.5,
+              "p95": 1422,
+              "max": 1458
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 1171.3891909999875,
+              "p95": 1704.1711769999965,
+              "max": 1712.445400000026
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 20,
+              "median": 752.5,
+              "p95": 1196,
+              "max": 1210
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 999.7221785000147,
+              "p95": 1448.2799999999697,
+              "max": 1471.6086369999975
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "fresh",
+        "workers": 10,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 40,
+              "median": 1492.5,
+              "p95": 2460,
+              "max": 2602
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1919.9097765000188,
+              "p95": 2955.431060999981,
+              "max": 3065.246711999993
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 40,
+              "median": 1269,
+              "p95": 2343,
+              "max": 2401
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1741.1370045000076,
+              "p95": 2834.7488940000185,
+              "max": 2878.527471999987
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "reused",
+        "workers": 1,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 4,
+              "median": 200.5,
+              "p95": 210,
+              "max": 210
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 294.39547550000134,
+              "p95": 296.32380700000795,
+              "max": 296.32380700000795
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 4,
+              "median": 150.5,
+              "p95": 158,
+              "max": 158
+            },
+            "client_ms": {
+              "n": 4,
+              "median": 237.20870799999102,
+              "p95": 249.5167669999937,
+              "max": 249.5167669999937
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "reused",
+        "workers": 2,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 8,
+              "median": 188.5,
+              "p95": 271,
+              "max": 271
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 319.0835259999876,
+              "p95": 460.70075799999177,
+              "max": 460.70075799999177
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 8,
+              "median": 183,
+              "p95": 250,
+              "max": 250
+            },
+            "client_ms": {
+              "n": 8,
+              "median": 287.019438000003,
+              "p95": 373.7995869999868,
+              "max": 373.7995869999868
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "reused",
+        "workers": 5,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 20,
+              "median": 485,
+              "p95": 787,
+              "max": 797
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 705.2359329999745,
+              "p95": 1032.2541080000228,
+              "max": 1046.7535079999943
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 20,
+              "median": 333,
+              "p95": 603,
+              "max": 671
+            },
+            "client_ms": {
+              "n": 20,
+              "median": 547.6696890000021,
+              "p95": 830.6299500000314,
+              "max": 889.4818540000124
+            }
+          }
+        }
+      },
+      {
+        "workload": "diverse",
+        "mode": "reused",
+        "workers": 10,
+        "stats": {
+          "current": {
+            "server_ms": {
+              "n": 40,
+              "median": 832.5,
+              "p95": 1432,
+              "max": 1468
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1310.8950919999916,
+              "p95": 1918.6560349999927,
+              "max": 2020.6675920000416
+            }
+          },
+          "narrow": {
+            "server_ms": {
+              "n": 40,
+              "median": 717.5,
+              "p95": 1157,
+              "max": 1181
+            },
+            "client_ms": {
+              "n": 40,
+              "median": 1129.972742500002,
+              "p95": 1606.2481360000093,
+              "max": 1663.513883000007
+            }
+          }
+        }
+      }
+    ]
+  },
+  "resources": [
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 1,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 2.808,
+          "p95": 4.1850000000000005,
+          "max": 4.1850000000000005
+        },
+        "selection": {
+          "n": 4,
+          "median": 196.7165,
+          "p95": 208.322,
+          "max": 208.322
+        },
+        "manifest": {
+          "n": 4,
+          "median": 164.1755,
+          "p95": 193.885,
+          "max": 193.885
+        },
+        "capture": {
+          "n": 4,
+          "median": 367.7885,
+          "p95": 410.573,
+          "max": 410.573
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 3,
+        "IO:BuffileRead": 4,
+        "IO:WalInitWrite": 1
+      },
+      "maximum_observer_rss_bytes": 419188736,
+      "maximum_database_bytes": 86767283,
+      "temp_bytes_whole_trials": 227595468,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 1,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 3.0549999999999997,
+          "p95": 3.555,
+          "max": 3.555
+        },
+        "selection": {
+          "n": 4,
+          "median": 151.0385,
+          "p95": 165.467,
+          "max": 165.467
+        },
+        "manifest": {
+          "n": 4,
+          "median": 159.534,
+          "p95": 192.376,
+          "max": 192.376
+        },
+        "capture": {
+          "n": 4,
+          "median": 324.31550000000004,
+          "p95": 351.059,
+          "max": 351.059
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 7
+      },
+      "maximum_observer_rss_bytes": 409006080,
+      "maximum_database_bytes": 86767283,
+      "temp_bytes_whole_trials": 82354296,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 2,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 177.6055,
+          "p95": 378.563,
+          "max": 378.563
+        },
+        "selection": {
+          "n": 8,
+          "median": 189.17849999999999,
+          "p95": 210.67,
+          "max": 210.67
+        },
+        "manifest": {
+          "n": 8,
+          "median": 88.173,
+          "p95": 171.03,
+          "max": 171.03
+        },
+        "capture": {
+          "n": 8,
+          "median": 467.54650000000004,
+          "p95": 577.996,
+          "max": 577.996
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 13,
+        "Lock:transactionid": 6,
+        "IO:DataFileRead": 1
+      },
+      "maximum_observer_rss_bytes": 520351744,
+      "maximum_database_bytes": 87029427,
+      "temp_bytes_whole_trials": 438378948,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 2,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 151.68949999999998,
+          "p95": 362.144,
+          "max": 362.144
+        },
+        "selection": {
+          "n": 8,
+          "median": 149.007,
+          "p95": 206.333,
+          "max": 206.333
+        },
+        "manifest": {
+          "n": 8,
+          "median": 83.9355,
+          "p95": 183.94,
+          "max": 183.94
+        },
+        "capture": {
+          "n": 8,
+          "median": 432.709,
+          "p95": 565.527,
+          "max": 565.527
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 14,
+        "Lock:transactionid": 6
+      },
+      "maximum_observer_rss_bytes": 511705088,
+      "maximum_database_bytes": 87013043,
+      "temp_bytes_whole_trials": 164708592,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 5,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 593.6605,
+          "p95": 1012.6229999999999,
+          "max": 1014.6800000000001
+        },
+        "selection": {
+          "n": 20,
+          "median": 189.7145,
+          "p95": 222.69,
+          "max": 243.704
+        },
+        "manifest": {
+          "n": 20,
+          "median": 15.568,
+          "p95": 171.123,
+          "max": 174.537
+        },
+        "capture": {
+          "n": 20,
+          "median": 800.206,
+          "p95": 1205.442,
+          "max": 1216.865
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 32,
+        "None:None": 25,
+        "Lock:transactionid": 20,
+        "IO:BuffileRead": 2
+      },
+      "maximum_observer_rss_bytes": 598192128,
+      "maximum_database_bytes": 87742131,
+      "temp_bytes_whole_trials": 1062041684,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 5,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 509.80449999999996,
+          "p95": 825.439,
+          "max": 891.495
+        },
+        "selection": {
+          "n": 20,
+          "median": 145.94299999999998,
+          "p95": 195.232,
+          "max": 206.467
+        },
+        "manifest": {
+          "n": 20,
+          "median": 16.3985,
+          "p95": 158.046,
+          "max": 182.742
+        },
+        "capture": {
+          "n": 20,
+          "median": 664.4395,
+          "p95": 1001.193,
+          "max": 1069.412
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:transactionid": 16,
+        "None:None": 20,
+        "Lock:tuple": 28,
+        "IO:BuffileRead": 1
+      },
+      "maximum_observer_rss_bytes": 589361152,
+      "maximum_database_bytes": 87717555,
+      "temp_bytes_whole_trials": 411771480,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 10,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 1099.7025,
+          "p95": 1932.4320000000002,
+          "max": 2009.137
+        },
+        "selection": {
+          "n": 40,
+          "median": 178.761,
+          "p95": 323.11,
+          "max": 415.583
+        },
+        "manifest": {
+          "n": 40,
+          "median": 16.759,
+          "p95": 152.55,
+          "max": 164.595
+        },
+        "capture": {
+          "n": 40,
+          "median": 1300.277,
+          "p95": 2124.119,
+          "max": 2208.732
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 44,
+        "Lock:transactionid": 41,
+        "Lock:tuple": 171,
+        "IO:BuffileWrite": 1,
+        "IO:DataFileRead": 1
+      },
+      "maximum_observer_rss_bytes": 841732096,
+      "maximum_database_bytes": 89028275,
+      "temp_bytes_whole_trials": 2191894740,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "fresh",
+      "workers": 10,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 924.6519999999999,
+          "p95": 1618.6960000000001,
+          "max": 1677.7340000000002
+        },
+        "selection": {
+          "n": 40,
+          "median": 142.92450000000002,
+          "p95": 295.25,
+          "max": 407.456
+        },
+        "manifest": {
+          "n": 40,
+          "median": 15.7945,
+          "p95": 156.025,
+          "max": 191.434
+        },
+        "capture": {
+          "n": 40,
+          "median": 1085.1930000000002,
+          "p95": 1782.783,
+          "max": 1854.084
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 37,
+        "Lock:transactionid": 36,
+        "Lock:tuple": 152,
+        "IO:DataFileRead": 2,
+        "IO:BuffileRead": 1
+      },
+      "maximum_observer_rss_bytes": 578891776,
+      "maximum_database_bytes": 89028275,
+      "temp_bytes_whole_trials": 654296240,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 1,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 2.604,
+          "p95": 3.3400000000000003,
+          "max": 3.3400000000000003
+        },
+        "selection": {
+          "n": 4,
+          "median": 174.68099999999998,
+          "p95": 182.479,
+          "max": 182.479
+        },
+        "manifest": {
+          "n": 4,
+          "median": 6.4559999999999995,
+          "p95": 9.101,
+          "max": 9.101
+        },
+        "capture": {
+          "n": 4,
+          "median": 188.359,
+          "p95": 201.471,
+          "max": 201.471
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 4
+      },
+      "maximum_observer_rss_bytes": 578891776,
+      "maximum_database_bytes": 86783667,
+      "temp_bytes_whole_trials": 354319008,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 1,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 3.8075,
+          "p95": 5.017,
+          "max": 5.017
+        },
+        "selection": {
+          "n": 4,
+          "median": 147.749,
+          "p95": 150.755,
+          "max": 150.755
+        },
+        "manifest": {
+          "n": 4,
+          "median": 7.249499999999999,
+          "p95": 7.83,
+          "max": 7.83
+        },
+        "capture": {
+          "n": 4,
+          "median": 164.8615,
+          "p95": 167.892,
+          "max": 167.892
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 4
+      },
+      "maximum_observer_rss_bytes": 578891776,
+      "maximum_database_bytes": 86767283,
+      "temp_bytes_whole_trials": 97460640,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 2,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 69.38250000000001,
+          "p95": 230.68699999999998,
+          "max": 230.68699999999998
+        },
+        "selection": {
+          "n": 8,
+          "median": 194.048,
+          "p95": 209.642,
+          "max": 209.642
+        },
+        "manifest": {
+          "n": 8,
+          "median": 6.329,
+          "p95": 10.001,
+          "max": 10.001
+        },
+        "capture": {
+          "n": 8,
+          "median": 278.611,
+          "p95": 436.237,
+          "max": 436.237
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 8,
+        "Lock:transactionid": 5,
+        "IO:BuffileRead": 1
+      },
+      "maximum_observer_rss_bytes": 234438656,
+      "maximum_database_bytes": 86988467,
+      "temp_bytes_whole_trials": 708638016,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 2,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 71.06699999999998,
+          "p95": 148.849,
+          "max": 148.849
+        },
+        "selection": {
+          "n": 8,
+          "median": 137.456,
+          "p95": 144.221,
+          "max": 144.221
+        },
+        "manifest": {
+          "n": 8,
+          "median": 6.327,
+          "p95": 7.606,
+          "max": 7.606
+        },
+        "capture": {
+          "n": 8,
+          "median": 219.863,
+          "p95": 304.425,
+          "max": 304.425
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 7
+      },
+      "maximum_observer_rss_bytes": 234401792,
+      "maximum_database_bytes": 86988467,
+      "temp_bytes_whole_trials": 194921280,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 5,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 400.1615,
+          "p95": 775.467,
+          "max": 804.539
+        },
+        "selection": {
+          "n": 20,
+          "median": 185.4225,
+          "p95": 213.284,
+          "max": 240.14
+        },
+        "manifest": {
+          "n": 20,
+          "median": 6.061,
+          "p95": 8.145,
+          "max": 10.215
+        },
+        "capture": {
+          "n": 20,
+          "median": 583.698,
+          "p95": 976.326,
+          "max": 989.043
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 23,
+        "Lock:transactionid": 17,
+        "None:None": 19,
+        "IO:BuffileRead": 2,
+        "IO:BuffileWrite": 1
+      },
+      "maximum_observer_rss_bytes": 234487808,
+      "maximum_database_bytes": 87742131,
+      "temp_bytes_whole_trials": 1686971680,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 5,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 317.1585,
+          "p95": 649.548,
+          "max": 654.1550000000001
+        },
+        "selection": {
+          "n": 20,
+          "median": 146.851,
+          "p95": 173.289,
+          "max": 248.566
+        },
+        "manifest": {
+          "n": 20,
+          "median": 6.246,
+          "p95": 7.775,
+          "max": 9.392
+        },
+        "capture": {
+          "n": 20,
+          "median": 474.9095,
+          "p95": 805.729,
+          "max": 809.986
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 24,
+        "Lock:transactionid": 14,
+        "Lock:tuple": 14
+      },
+      "maximum_observer_rss_bytes": 234504192,
+      "maximum_database_bytes": 87717555,
+      "temp_bytes_whole_trials": 487303200,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 10,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 876.521,
+          "p95": 1655.378,
+          "max": 1803.966
+        },
+        "selection": {
+          "n": 40,
+          "median": 180.821,
+          "p95": 256.824,
+          "max": 450.008
+        },
+        "manifest": {
+          "n": 40,
+          "median": 6.114000000000001,
+          "p95": 8.822,
+          "max": 10.687
+        },
+        "capture": {
+          "n": 40,
+          "median": 1077.5215,
+          "p95": 1852.085,
+          "max": 2008.1
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 144,
+        "Lock:transactionid": 36,
+        "None:None": 39,
+        "IO:BuffileWrite": 2,
+        "IO:BuffileRead": 1
+      },
+      "maximum_observer_rss_bytes": 234008576,
+      "maximum_database_bytes": 89036467,
+      "temp_bytes_whole_trials": 3225176640,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "repeat",
+      "mode": "reused",
+      "workers": 10,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 696.1474999999999,
+          "p95": 1440.253,
+          "max": 1460.066
+        },
+        "selection": {
+          "n": 40,
+          "median": 145.892,
+          "p95": 239.187,
+          "max": 404.096
+        },
+        "manifest": {
+          "n": 40,
+          "median": 6.2735,
+          "p95": 8.866,
+          "max": 11.094
+        },
+        "capture": {
+          "n": 40,
+          "median": 850.6614999999999,
+          "p95": 1584.128,
+          "max": 1624.416
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 34,
+        "Lock:transactionid": 29,
+        "Lock:tuple": 109
+      },
+      "maximum_observer_rss_bytes": 233848832,
+      "maximum_database_bytes": 89011891,
+      "temp_bytes_whole_trials": 974606400,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 1,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 3.019,
+          "p95": 4.138,
+          "max": 4.138
+        },
+        "selection": {
+          "n": 4,
+          "median": 186.98250000000002,
+          "p95": 197.271,
+          "max": 197.271
+        },
+        "manifest": {
+          "n": 4,
+          "median": 161.025,
+          "p95": 176.778,
+          "max": 176.778
+        },
+        "capture": {
+          "n": 4,
+          "median": 355.664,
+          "p95": 382.769,
+          "max": 382.769
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 9
+      },
+      "maximum_observer_rss_bytes": 477208576,
+      "maximum_database_bytes": 86578867,
+      "temp_bytes_whole_trials": 224724908,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 1,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 3.3845,
+          "p95": 5.343,
+          "max": 5.343
+        },
+        "selection": {
+          "n": 4,
+          "median": 158.98000000000002,
+          "p95": 160.885,
+          "max": 160.885
+        },
+        "manifest": {
+          "n": 4,
+          "median": 163.49599999999998,
+          "p95": 177.907,
+          "max": 177.907
+        },
+        "capture": {
+          "n": 4,
+          "median": 325.34299999999996,
+          "p95": 349.267,
+          "max": 349.267
+        }
+      },
+      "wait_sample_counts": {
+        "IO:DataFileExtend": 1,
+        "None:None": 6
+      },
+      "maximum_observer_rss_bytes": 477470720,
+      "maximum_database_bytes": 86562483,
+      "temp_bytes_whole_trials": 80569928,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 2,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 94.8545,
+          "p95": 340.061,
+          "max": 340.061
+        },
+        "selection": {
+          "n": 8,
+          "median": 149.3795,
+          "p95": 202.282,
+          "max": 202.282
+        },
+        "manifest": {
+          "n": 8,
+          "median": 123.41,
+          "p95": 178.793,
+          "max": 178.793
+        },
+        "capture": {
+          "n": 8,
+          "median": 432.3565,
+          "p95": 585.986,
+          "max": 585.986
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 10,
+        "Lock:transactionid": 4
+      },
+      "maximum_observer_rss_bytes": 483225600,
+      "maximum_database_bytes": 89077427,
+      "temp_bytes_whole_trials": 309382912,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 2,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 76.8485,
+          "p95": 344.34000000000003,
+          "max": 344.34000000000003
+        },
+        "selection": {
+          "n": 8,
+          "median": 119.364,
+          "p95": 176.454,
+          "max": 176.454
+        },
+        "manifest": {
+          "n": 8,
+          "median": 137.4795,
+          "p95": 179.996,
+          "max": 179.996
+        },
+        "capture": {
+          "n": 8,
+          "median": 426.0855,
+          "p95": 537.484,
+          "max": 537.484
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 9,
+        "Lock:transactionid": 3,
+        "IO:DataFileRead": 1
+      },
+      "maximum_observer_rss_bytes": 483356672,
+      "maximum_database_bytes": 89061043,
+      "temp_bytes_whole_trials": 112722888,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 5,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 599.798,
+          "p95": 1221.095,
+          "max": 1286.5859999999998
+        },
+        "selection": {
+          "n": 20,
+          "median": 172.33249999999998,
+          "p95": 244.699,
+          "max": 269.763
+        },
+        "manifest": {
+          "n": 20,
+          "median": 128.82999999999998,
+          "p95": 185.406,
+          "max": 205.051
+        },
+        "capture": {
+          "n": 20,
+          "median": 907.5385,
+          "p95": 1419.727,
+          "max": 1454.222
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 30,
+        "Lock:tuple": 32,
+        "Lock:transactionid": 24,
+        "IO:DataFileRead": 1
+      },
+      "maximum_observer_rss_bytes": 580141056,
+      "maximum_database_bytes": 98891443,
+      "temp_bytes_whole_trials": 851658492,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 5,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 470.924,
+          "p95": 908.949,
+          "max": 915.249
+        },
+        "selection": {
+          "n": 20,
+          "median": 133.507,
+          "p95": 199.584,
+          "max": 211.534
+        },
+        "manifest": {
+          "n": 20,
+          "median": 128.1235,
+          "p95": 158.937,
+          "max": 159.023
+        },
+        "capture": {
+          "n": 20,
+          "median": 750.8130000000001,
+          "p95": 1194.596,
+          "max": 1208.636
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 25,
+        "Lock:transactionid": 18,
+        "None:None": 27
+      },
+      "maximum_observer_rss_bytes": 580403200,
+      "maximum_database_bytes": 98875059,
+      "temp_bytes_whole_trials": 305880880,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 10,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 1232.484,
+          "p95": 2264.139,
+          "max": 2417.576
+        },
+        "selection": {
+          "n": 40,
+          "median": 163.4765,
+          "p95": 355.284,
+          "max": 388.26
+        },
+        "manifest": {
+          "n": 40,
+          "median": 109.3425,
+          "p95": 163.683,
+          "max": 171.077
+        },
+        "capture": {
+          "n": 40,
+          "median": 1490.8155,
+          "p95": 2458.102,
+          "max": 2599.806
+        }
+      },
+      "wait_sample_counts": {
+        "IO:DataFileRead": 1,
+        "None:None": 52,
+        "Lock:tuple": 197,
+        "Lock:transactionid": 49,
+        "IO:BuffileRead": 3,
+        "IO:BuffileWrite": 1
+      },
+      "maximum_observer_rss_bytes": 909430784,
+      "maximum_database_bytes": 113079987,
+      "temp_bytes_whole_trials": 1494001992,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "fresh",
+      "workers": 10,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 1032.7395000000001,
+          "p95": 2027.9579999999999,
+          "max": 2212.2219999999998
+        },
+        "selection": {
+          "n": 40,
+          "median": 129.14249999999998,
+          "p95": 272.8,
+          "max": 407.472
+        },
+        "manifest": {
+          "n": 40,
+          "median": 120.3555,
+          "p95": 165.602,
+          "max": 184.915
+        },
+        "capture": {
+          "n": 40,
+          "median": 1266.936,
+          "p95": 2341.37,
+          "max": 2399.765
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 171,
+        "Lock:transactionid": 44,
+        "None:None": 50,
+        "IO:DataFileRead": 1
+      },
+      "maximum_observer_rss_bytes": 593887232,
+      "maximum_database_bytes": 113063603,
+      "temp_bytes_whole_trials": 514608112,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 1,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 2.5705,
+          "p95": 2.9970000000000003,
+          "max": 2.9970000000000003
+        },
+        "selection": {
+          "n": 4,
+          "median": 182.47449999999998,
+          "p95": 189.626,
+          "max": 189.626
+        },
+        "manifest": {
+          "n": 4,
+          "median": 6.582,
+          "p95": 8.292,
+          "max": 8.292
+        },
+        "capture": {
+          "n": 4,
+          "median": 198.1405,
+          "p95": 207.664,
+          "max": 207.664
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 5
+      },
+      "maximum_observer_rss_bytes": 594149376,
+      "maximum_database_bytes": 86578867,
+      "temp_bytes_whole_trials": 351156640,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 1,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 4,
+          "median": 3.9619999999999997,
+          "p95": 4.3629999999999995,
+          "max": 4.3629999999999995
+        },
+        "selection": {
+          "n": 4,
+          "median": 133.343,
+          "p95": 139.439,
+          "max": 139.439
+        },
+        "manifest": {
+          "n": 4,
+          "median": 6.7490000000000006,
+          "p95": 7.654,
+          "max": 7.654
+        },
+        "capture": {
+          "n": 4,
+          "median": 149.1495,
+          "p95": 156.324,
+          "max": 156.324
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 4
+      },
+      "maximum_observer_rss_bytes": 594411520,
+      "maximum_database_bytes": 86562483,
+      "temp_bytes_whole_trials": 95611072,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 2,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 39.489000000000004,
+          "p95": 89.041,
+          "max": 89.041
+        },
+        "selection": {
+          "n": 8,
+          "median": 137.732,
+          "p95": 178.436,
+          "max": 178.436
+        },
+        "manifest": {
+          "n": 8,
+          "median": 4.749499999999999,
+          "p95": 5.901,
+          "max": 5.901
+        },
+        "capture": {
+          "n": 8,
+          "median": 186.84550000000002,
+          "p95": 270.476,
+          "max": 270.476
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 10,
+        "Lock:transactionid": 1
+      },
+      "maximum_observer_rss_bytes": 235798528,
+      "maximum_database_bytes": 88979123,
+      "temp_bytes_whole_trials": 505007600,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 2,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 8,
+          "median": 35.865500000000004,
+          "p95": 137.641,
+          "max": 137.641
+        },
+        "selection": {
+          "n": 8,
+          "median": 105.49700000000001,
+          "p95": 154.997,
+          "max": 154.997
+        },
+        "manifest": {
+          "n": 8,
+          "median": 5.1865,
+          "p95": 6.448,
+          "max": 6.448
+        },
+        "capture": {
+          "n": 8,
+          "median": 181.661,
+          "p95": 245.921,
+          "max": 245.921
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 10
+      },
+      "maximum_observer_rss_bytes": 235810816,
+      "maximum_database_bytes": 89003699,
+      "temp_bytes_whole_trials": 127764032,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 5,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 328.777,
+          "p95": 667.028,
+          "max": 668.781
+        },
+        "selection": {
+          "n": 20,
+          "median": 174.505,
+          "p95": 210.248,
+          "max": 213.931
+        },
+        "manifest": {
+          "n": 20,
+          "median": 5.914,
+          "p95": 7.034,
+          "max": 9.46
+        },
+        "capture": {
+          "n": 20,
+          "median": 482.738,
+          "p95": 784.766,
+          "max": 795.045
+        }
+      },
+      "wait_sample_counts": {
+        "None:None": 15,
+        "Lock:tuple": 18,
+        "Lock:transactionid": 13,
+        "IO:BuffileRead": 2
+      },
+      "maximum_observer_rss_bytes": 235827200,
+      "maximum_database_bytes": 98768563,
+      "temp_bytes_whole_trials": 1340358688,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 5,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 20,
+          "median": 234.449,
+          "p95": 441.15700000000004,
+          "max": 589.048
+        },
+        "selection": {
+          "n": 20,
+          "median": 132.185,
+          "p95": 164.961,
+          "max": 190.865
+        },
+        "manifest": {
+          "n": 20,
+          "median": 5.8735,
+          "p95": 9.377,
+          "max": 9.429
+        },
+        "capture": {
+          "n": 20,
+          "median": 330.95050000000003,
+          "p95": 601.069,
+          "max": 668.724
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:transactionid": 11,
+        "None:None": 16,
+        "Lock:tuple": 11
+      },
+      "maximum_observer_rss_bytes": 235823104,
+      "maximum_database_bytes": 98727603,
+      "temp_bytes_whole_trials": 351002464,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 10,
+      "variant": "current",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 656.0135,
+          "p95": 1297.1499999999999,
+          "max": 1375.599
+        },
+        "selection": {
+          "n": 40,
+          "median": 166.3535,
+          "p95": 465.675,
+          "max": 520.458
+        },
+        "manifest": {
+          "n": 40,
+          "median": 5.709,
+          "p95": 8.197,
+          "max": 9.463
+        },
+        "capture": {
+          "n": 40,
+          "median": 830.0699999999999,
+          "p95": 1401.172,
+          "max": 1466.121
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 111,
+        "Lock:transactionid": 29,
+        "None:None": 30,
+        "IO:BuffileRead": 1,
+        "IO:BuffileWrite": 1
+      },
+      "maximum_observer_rss_bytes": 235081728,
+      "maximum_database_bytes": 112981683,
+      "temp_bytes_whole_trials": 2397422128,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    },
+    {
+      "workload": "diverse",
+      "mode": "reused",
+      "workers": 10,
+      "variant": "narrow",
+      "stages_ms": {
+        "budget": {
+          "n": 40,
+          "median": 548.5285,
+          "p95": 1035.9679999999998,
+          "max": 1092.224
+        },
+        "selection": {
+          "n": 40,
+          "median": 130.47899999999998,
+          "p95": 165.498,
+          "max": 344.802
+        },
+        "manifest": {
+          "n": 40,
+          "median": 5.4079999999999995,
+          "p95": 6.629,
+          "max": 8.925
+        },
+        "capture": {
+          "n": 40,
+          "median": 715.575,
+          "p95": 1155.532,
+          "max": 1178.783
+        }
+      },
+      "wait_sample_counts": {
+        "Lock:tuple": 88,
+        "Lock:transactionid": 25,
+        "None:None": 27,
+        "IO:BuffileRead": 1
+      },
+      "maximum_observer_rss_bytes": 235036672,
+      "maximum_database_bytes": 112932531,
+      "temp_bytes_whole_trials": 589808288,
+      "resource_scope": "PG temp includes setup/validation; RSS belongs to Node observer, not database; budget includes quota bookkeeping as well as lock waits"
+    }
+  ],
+  "storage": [
+    {
+      "workload": "repeat",
+      "phase": "archive",
+      "rows": 76497,
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73203712,
+          "index_bytes": 9232384
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ]
+    },
+    {
+      "workload": "diverse",
+      "phase": "archive",
+      "rows": 76497,
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73179136,
+          "index_bytes": 9207808
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 16384,
+          "index_bytes": 16384
+        }
+      ]
+    },
+    {
+      "workload": "repeat",
+      "phase": "predictions_1",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73211904,
+          "index_bytes": 9232384
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 65536,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 5120000,
+          "index_bytes": 3825664
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 49152,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        }
+      ],
+      "predictions": 1,
+      "backlog": 0
+    },
+    {
+      "workload": "repeat",
+      "phase": "predictions_10",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73211904,
+          "index_bytes": 9232384
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 106496,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 7233536,
+          "index_bytes": 5373952
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 90112,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 81920,
+          "index_bytes": 24576
+        }
+      ],
+      "predictions": 10,
+      "backlog": 0
+    },
+    {
+      "workload": "repeat",
+      "phase": "predictions_30",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73211904,
+          "index_bytes": 9232384
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 147456,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 10297344,
+          "index_bytes": 7610368
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 131072,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 172032,
+          "index_bytes": 65536
+        }
+      ],
+      "predictions": 30,
+      "backlog": 0
+    },
+    {
+      "workload": "diverse",
+      "phase": "predictions_1",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73187328,
+          "index_bytes": 9207808
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 65536,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 4939776,
+          "index_bytes": 3678208
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 49152,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 32768,
+          "index_bytes": 24576
+        }
+      ],
+      "predictions": 1,
+      "backlog": 0
+    },
+    {
+      "workload": "diverse",
+      "phase": "predictions_10",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73187328,
+          "index_bytes": 9207808
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 106496,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 90112,
+          "index_bytes": 49152
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 31137792,
+          "index_bytes": 23142400
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 81920,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 73728,
+          "index_bytes": 24576
+        }
+      ],
+      "predictions": 10,
+      "backlog": 0
+    },
+    {
+      "workload": "diverse",
+      "phase": "predictions_30",
+      "tables": [
+        {
+          "relname": "capture_health",
+          "category": "operational",
+          "total_bytes": 40960,
+          "index_bytes": 32768
+        },
+        {
+          "relname": "control",
+          "category": "operational",
+          "total_bytes": 24576,
+          "index_bytes": 16384
+        },
+        {
+          "relname": "observations",
+          "category": "observations",
+          "total_bytes": 73187328,
+          "index_bytes": 9207808
+        },
+        {
+          "relname": "prediction_snapshots",
+          "category": "snapshots",
+          "total_bytes": 147456,
+          "index_bytes": 57344
+        },
+        {
+          "relname": "snapshot_evidence",
+          "category": "manifests",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "shadow_forecasts",
+          "category": "shadow",
+          "total_bytes": 24576,
+          "index_bytes": 24576
+        },
+        {
+          "relname": "evidence_chunks",
+          "category": "manifests",
+          "total_bytes": 147456,
+          "index_bytes": 73728
+        },
+        {
+          "relname": "evidence_chunk_members",
+          "category": "manifests",
+          "total_bytes": 88014848,
+          "index_bytes": 65150976
+        },
+        {
+          "relname": "evidence_manifests",
+          "category": "manifests",
+          "total_bytes": 114688,
+          "index_bytes": 40960
+        },
+        {
+          "relname": "evidence_manifest_chunks",
+          "category": "manifests",
+          "total_bytes": 155648,
+          "index_bytes": 65536
+        }
+      ],
+      "predictions": 30,
+      "backlog": 0
+    }
+  ]
+}

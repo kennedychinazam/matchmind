@@ -1,5 +1,7 @@
 # Phase 4 capture performance investigation and proposals
 
+Historical record through `d4cb337`. The final approved limited evaluation is in `docs/PHASE4_FINAL_REPORT.md`: the narrow projection subsequently passed the paired matrix and was adopted in branch SQL. The outbox remains unimplemented. Earlier measurements and proposal status below are retained as historical context.
+
 Status: profiling and review proposal only. No installed capture SQL, statistical engine, public publisher, collector or production resource has changed. Continue on `codex/phase3-immutable-snapshots`; keep PR #1 draft. No Supabase installation/image download, hosted SQL, Edge deployment or provider call is part of this investigation.
 
 ## Published preparation and CI
