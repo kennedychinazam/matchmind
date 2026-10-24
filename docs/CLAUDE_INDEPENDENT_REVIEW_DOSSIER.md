@@ -437,3 +437,13 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 7. **Claude packet:** explain before/after original paused AI system and replacement weekend private test, all historical failures, success/failure denominators, costs and exact decisions. Claude's final independent review remains after the agreed build, but a go/no-go release gate **must not be skipped** to wait for Claude or meet the October date.
 
 **Status at time recorded:** no Codex Phase8 commit/PR yet visible on GitHub; no weekend real shadow runner or paid AI invocation verified, no expenses authorized, no hosted writes, no deployment. This entry captures owner timing/permission and source-discovery findings, **not completed implementation**.
+
+
+---
+
+## 17. 2026-10-24 — Weekend GitHub watch and Monday evidence check scheduled
+
+- Following the owner's instruction to monitor the October 24–25 weekend and see results on October 26, ChatGPT created **a temporary hourly condition watch for material GitHub commit/PR/CI developments through Sunday 2026-10-25 23:59 Africa/Lagos**. It reports meaningful new issues or evidence only, not repeated idle updates. **This does not run football tests, private provider monitoring or read inaccessible private Codex workspace files**, and no paid calls/production actions can occur via that watch.
+- A **one-time flexible Monday 2026-10-26 approximately 10:00 Africa/Lagos evidence-review task** was also scheduled to inspect any genuinely accessible weekend artifacts/results and CI. If private tests were not started or their data are unavailable, it must explicitly report the gap rather than inventing match/AI performance.
+- These are ChatGPT scheduled **status/metadata checks**, **not** a substitute for an independently operated, instrumented, security-reviewed private football/AI trial. A real weekend AI collector/runner has not been established or verified when these tasks were scheduled. Codex integration/preflight is the next authorized work; actual AI billing and deployed changes need explicit additional approval.
+- Scheduling this monitoring was a workflow convenience, not an adjustment to the Build355 prediction lock, data collection, Supabase billing/hosting, engine, protected branches or already-frozen pick records.
