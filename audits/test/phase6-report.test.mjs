@@ -46,11 +46,17 @@ test('48-hour void boundary and settlement cutoff are preserved without future l
  late.settlements[0].fixture.time='17:59';assert.equal(api.buildReport(input([late])).coverage.scored,1);
  const future=record();future.settlements[0].received_at_utc='2026-10-25T00:00:00Z';assert.equal(api.buildReport(input([future])).coverage.pending,1);
  const invalid=record();invalid.settlements[0].fixture.gh=-1;assert.equal(api.buildReport(input([invalid])).coverage.invalid_outcomes,1);
+ const lateResult=record();lateResult.result_received_at_utc='2026-10-25T00:00:00Z';
+ assert.equal(api.buildReport(input([lateResult])).coverage.missing_results,1);
+ const ambiguous=record();delete ambiguous.settlements[0].fixture.ft_h;delete ambiguous.settlements[0].fixture.ft_a;
+ const withheld=api.buildReport(input([ambiguous]));assert.equal(withheld.coverage.ambiguous_90m,1);assert.equal(withheld.coverage.scored,0);
+ for(const status of [' PEN ',' aet ','pen']){ambiguous.settlements[0].fixture.status=status;assert.equal(api.buildReport(input([ambiguous])).coverage.ambiguous_90m,1);}
 });
 test('reproducibility, fixture uniqueness and source/result binding fail closed',()=>{
  const r=record();assert.equal(JSON.stringify(api.buildReport(input([r]))),JSON.stringify(api.buildReport(input([structuredClone(r)]))));
  assert.throws(()=>api.buildReport(input([r,r])),/duplicate/);
  assert.throws(()=>api.buildReport(input([{...r,fixture_id:'999'}])),/fixture/);
+ assert.throws(()=>api.buildReport(input([{...r,source_prediction:{...r.source_prediction,kickoff:'2026-10-22'}}])),/lineage/);
  assert.throws(()=>api.buildReport(input([{...r,result:{...r.result,configuration_hash:'0'.repeat(64)}}])),/lineage/);
  assert.throws(()=>api.buildReport(input([{...r,settlements:[{...r.settlements[0],fixture_id:'999'}]}])),/fixture/);
 });

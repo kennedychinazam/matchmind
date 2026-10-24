@@ -11,13 +11,15 @@ function evidence() {
  for(let i=1;i<=5;i++)add(i,{home:'Alpha',away:'Beta',lid:39,date:`2026-10-0${i}`,time:'18:00',status:'FINISHED',gh:2,ga:1,xg_h:1.4,xg_a:1,season:2026},`2026-10-0${i}T18:00:00Z`);
  return rows;
 }
-const job=(candidate)=>({candidate,snapshot:snapshot(),capture:{payload_hash:'a'.repeat(64),capture_kind:'at_issue',manifest_hash:'b'.repeat(64)},observations:evidence()});
+const job=(candidate)=>({candidate,snapshot:snapshot(),capture:{payload_hash:'a'.repeat(64),capture_kind:'at_issue',manifest_hash:'b'.repeat(64),source_prediction:{home:'Alpha',away:'Beta',lid:39}},observations:evidence()});
 test('candidate registration freezes configuration/source and detects later edits',()=>{
  assert.equal(typeof api.freezeCandidate,'function');
  const s=spec(), c=api.freezeCandidate(s);s.configuration.changed=true;
  assert.deepEqual(c.configuration,{});assert.equal(c.candidate_id.length,64);
+ assert.equal(c.executor_sha256.length,64);
  assert.throws(()=>{c.configuration.x=1;},TypeError);
  assert.throws(()=>api.evaluateJob({...job({...c,version:'changed'})}),/candidate/);
+ assert.throws(()=>api.evaluateJob({...job({...c,executor_sha256:'0'.repeat(64)})}),/candidate/);
  assert.throws(()=>api.freezeCandidate(spec('unknown')),/adapter/);
 });
 test('identity adapter preserves frozen rounded probabilities and never mutates originals',()=>{
@@ -46,6 +48,8 @@ test('missing or late historical evidence abstains with exact baseline, not zero
  }
  const j=job(c);j.capture.capture_kind='late_import';
  assert.equal(api.evaluateJob(j).reason,'unverified_capture');
+ const wrong=job(c);wrong.capture.source_prediction.home='Different team';
+ assert.equal(api.evaluateJob(wrong).reason,'target_identity_mismatch');
 });
 test('candidate failures and invalid probabilities produce deterministic explicit fallback',()=>{
  for(const execute of [()=>{throw Error('PRIVATE SECRET must not be persisted');},()=>[.9,.9,.9]]) {

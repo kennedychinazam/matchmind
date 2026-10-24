@@ -1,5 +1,5 @@
 // Scores frozen private exports only. No fitting, database writes or network calls.
-import { canonicalHash, canonicalJSON, epochMicros, probabilities, snapshotFromCapture, validatePredictionSnapshot } from '../lib/snapshot-contract.mjs';
+import { canonicalHash, canonicalJSON, epochMicros, probabilities, snapshotFromCapture, validatePredictionSnapshot, utcInstant } from '../lib/snapshot-contract.mjs';
 import { publishedVerdict, settledScore, resultCode } from '../lib/independent-grade.mjs';
 import { probabilityScore, fairMarket } from '../lib/bookmaker-metrics.mjs';
 import { paired, calibration, wilson } from '../phase5/validation.mjs';
@@ -32,7 +32,7 @@ function comparisons(rows){
 export function buildReport({candidate,records,attempts=[],asOfUtc}){
  const cutoff=epochMicros(asOfUtc),body=structuredClone(candidate);delete body.candidate_id;
  if(canonicalHash(body)!==candidate.candidate_id||canonicalHash(candidate.configuration)!==candidate.configuration_hash)throw Error('candidate lineage invalid');
- const coverage={roster:records.length,scored:0,market_pairs:0,missing_snapshots:0,missing_results:0,abstentions:0,pending:0,voids:0,excluded:0,invalid_outcomes:0,
+ const coverage={roster:records.length,scored:0,market_pairs:0,missing_snapshots:0,missing_results:0,abstentions:0,pending:0,voids:0,excluded:0,invalid_outcomes:0,ambiguous_90m:0,
   successful_forecasts:0,attempt_events:attempts.length,failed_attempts:attempts.filter(e=>e.state==='failed').length};
  const seen=new Set(),jobs=new Set(),rows=[],reasons={};
  for(const record of [...records].sort((a,b)=>a.fixture_id.localeCompare(b.fixture_id))){
@@ -41,15 +41,18 @@ export function buildReport({candidate,records,attempts=[],asOfUtc}){
   const s=record.snapshot.source_prediction?snapshotFromCapture(record.snapshot):validatePredictionSnapshot(record.snapshot),p=record.source_prediction;
   if(String(record.fixture_id)!==s.fixture_id||String(p.fxid)!==s.fixture_id)throw Error('fixture identity mismatch');
   if(canonicalJSON([p.p_home,p.p_draw,p.p_away])!==canonicalJSON(s.probabilities)||epochMicros(p.made_at)!==epochMicros(s.issue_time_utc))throw Error('original source lineage mismatch');
+  const originalKickoff=utcInstant(String(p.kickoff).slice(0,10)+'T'+p.ktime+(p.ktime.length===5?':00Z':'Z'));
+  if(p.build!==s.prediction_build||p.pick!==s.pick||epochMicros(originalKickoff)!==epochMicros(s.kickoff_at_utc))throw Error('original kickoff/build/pick lineage mismatch');
   if(epochMicros(s.issue_time_utc)>cutoff){coverage.excluded++;continue;}
   const result=record.result;
-  if(result&&(result.snapshot_id!==s.snapshot_id||result.candidate_id!==candidate.candidate_id||result.configuration_hash!==candidate.configuration_hash||
+  if(result&&(result.snapshot_id!==s.snapshot_id||result.candidate_id!==candidate.candidate_id||result.configuration_hash!==candidate.configuration_hash||result.candidate_version!==candidate.version||result.study_kind!==candidate.study_kind||!['forecast','fallback'].includes(result.status)||
    result.baseline_payload_hash!==record.capture?.payload_hash||result.evidence_manifest_hash!==record.capture?.manifest_hash||result.visibility!=='shadow'||result.confirmatory_eligible!==false))throw Error('result lineage mismatch');
   if(result?.status==='fallback'&&canonicalJSON(result.probabilities)!==canonicalJSON(s.probabilities))throw Error('fallback lineage mismatch');
-  const fallback=!result||result.status==='fallback';
-  if(!result)coverage.missing_results++;
-  if(fallback){coverage.abstentions++;const reason=result?.reason??'unrecorded_result';reasons[reason]=(reasons[reason]??0)+1;}else coverage.successful_forecasts++;
-  const candidateP=probabilities(result?.probabilities??s.probabilities);
+  const usable=record.result_received_at_utc&&epochMicros(record.result_received_at_utc)>cutoff?null:result;
+  const fallback=!usable||usable.status==='fallback';
+  if(!usable)coverage.missing_results++;
+  if(fallback){coverage.abstentions++;const reason=usable?.reason??'unrecorded_result';reasons[reason]=(reasons[reason]??0)+1;}else coverage.successful_forecasts++;
+  const candidateP=probabilities(usable?.probabilities??s.probabilities);
   const revisions=[];
   for(const settlement of record.settlements??[]){
    if(String(settlement.fixture_id)!==s.fixture_id)throw Error('settlement fixture mismatch');
@@ -64,10 +67,13 @@ export function buildReport({candidate,records,attempts=[],asOfUtc}){
   if(!verdict.done){coverage.pending++;continue;}
   const score=settledScore(f),actual=resultCode(score?.h,score?.a);
   if(!actual){coverage.invalid_outcomes++;continue;}
+  // Public grader retains its provider-goals fallback. An offline AET/PEN accuracy
+  // comparison cannot establish 90 minutes without a valid explicit FT pair.
+  if(/^(AET|PEN)$/.test(String(f.status??'').trim().toUpperCase())&&![f.ft_h,f.ft_a].every((v,i)=>Number.isInteger(v)&&v>=0&&v<=[f.gh,f.ga][i])){coverage.ambiguous_90m++;continue;}
   if(!Number.isSafeInteger(p.lid))throw Error('missing competition');
   const market=eligibleMarket(record,s);
   rows.push({id:s.fixture_id,league:p.lid,issued_at:s.issue_time_utc,actual,original:s.probabilities,candidate:candidateP,market,fallback,
-   xgEdge:result?.diagnostics?.xgEdge??null});
+   xgEdge:usable?.diagnostics?.xgEdge??null});
  }
  for(const event of attempts)if(!jobs.has(event.job_id))throw Error('attempt outside frozen roster');
  coverage.scored=rows.length;coverage.market_pairs=rows.filter(r=>r.market).length;

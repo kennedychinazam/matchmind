@@ -15,7 +15,7 @@ CREATE TABLE shadow_eval.jobs(job_id text PRIMARY KEY,candidate_id text NOT NULL
 CREATE INDEX ON shadow_eval.jobs(snapshot_id);
 CREATE TABLE shadow_eval.results(job_id text PRIMARY KEY REFERENCES shadow_eval.jobs,envelope jsonb NOT NULL,received_at timestamptz NOT NULL DEFAULT clock_timestamp());
 CREATE TABLE shadow_eval.attempts(attempt_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,job_id text NOT NULL REFERENCES shadow_eval.jobs,
- state text NOT NULL CHECK(state IN('failed','completed')),code text NOT NULL CHECK(code IN('capture_missing','candidate_execution_failed','persistence_failed','completed','missing_evidence','unverified_capture','unverified_model_artifact')),
+ state text NOT NULL CHECK(state IN('failed','completed')),code text NOT NULL CHECK(code IN('capture_missing','capture_unavailable','candidate_execution_failed','persistence_failed','completed','missing_evidence','unverified_capture','unverified_model_artifact','target_identity_mismatch')),
  received_at timestamptz NOT NULL DEFAULT clock_timestamp());
 CREATE INDEX ON shadow_eval.attempts(job_id);
 CREATE TABLE shadow_eval.settlements(job_id text NOT NULL REFERENCES shadow_eval.jobs,revision integer NOT NULL,envelope jsonb NOT NULL,
@@ -39,8 +39,23 @@ DECLARE ctl research.control;used bigint;reserve bigint;BEGIN
  reserve:=least(1048576,ctl.max_bytes/10);
  IF extra_bytes<0 OR used+extra_bytes>ctl.max_bytes-reserve THEN RAISE EXCEPTION 'shared research storage limit exceeded' USING ERRCODE='54000';END IF;
 END $$;
+CREATE FUNCTION shadow_eval.reserve_operational(extra_bytes bigint)RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE ceiling bigint;used bigint;BEGIN
+ SELECT max_bytes INTO STRICT ceiling FROM research.control FOR UPDATE;
+ SELECT coalesce(sum(pg_total_relation_size(oid)),0)INTO used FROM pg_class WHERE relnamespace IN('research'::regnamespace,'shadow_eval'::regnamespace)AND relkind IN('r','S');
+ IF extra_bytes<0 OR used+extra_bytes>ceiling THEN RAISE EXCEPTION 'operational storage limit exceeded' USING ERRCODE='54000';END IF;
+END $$;
+-- Preserve the monitor semantics and ACL, adding LOCAL bounded quota admission.
+DO $patch$
+DECLARE definition text;anchor text:=E'at:=clock_timestamp();\n BEGIN\n';BEGIN
+ SELECT pg_get_functiondef('research.try_capture_prediction(bigint)'::regprocedure)INTO definition;
+ IF strpos(definition,anchor)=0 THEN RAISE EXCEPTION 'capture monitor source boundary changed';END IF;
+ definition:=replace(definition,anchor,anchor||E'  PERFORM shadow_eval.reserve_operational(65536);\n  IF (SELECT count(*)FROM research.capture_health)>=10000 AND NOT EXISTS(SELECT FROM research.capture_health WHERE fixture_id=fid) OR coalesce((SELECT attempts FROM research.capture_health WHERE fixture_id=fid),0)>=64 THEN RAISE EXCEPTION ''capture monitoring attempt limit reached'';END IF;\n');
+ EXECUTE definition;
+END $patch$;
 CREATE FUNCTION shadow_eval.register_candidate(b jsonb)RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior jsonb;cid text:=b->>'candidate_id';BEGIN
+ PERFORM research.check_object(b,ARRAY['candidate_id','version','adapter_id','configuration','frozen_at_utc','study_kind','adapter_sha256','feature_source_hash','executor_sha256','required_features','configuration_hash'],32768);
  IF jsonb_typeof(b)<>'object' OR octet_length(b::text)>32768 OR cid !~ '^[0-9a-f]{64}$'
  OR b->>'adapter_sha256' !~ '^[0-9a-f]{64}$' OR b->>'feature_source_hash' !~ '^[0-9a-f]{64}$'
  OR b->>'configuration_hash' !~ '^[0-9a-f]{64}$' OR b->>'study_kind' NOT IN('synthetic_verification','historical_exploratory') THEN RAISE EXCEPTION 'invalid candidate';END IF;
@@ -80,10 +95,11 @@ DECLARE j shadow_eval.jobs;s research.prediction_snapshots;c shadow_eval.candida
  OR (b->>'feature_manifest_hash' ~ '^[0-9a-f]{64}$')IS DISTINCT FROM true
  OR (b->>'result_id' ~ '^[0-9a-f]{64}$')IS DISTINCT FROM true THEN RAISE EXCEPTION 'result lineage invalid';END IF;
  IF b->>'status'='fallback' THEN
-  IF b->>'reason' NOT IN('unverified_capture','unverified_model_artifact','missing_evidence','candidate_execution_failed')
+  IF b->>'reason' NOT IN('unverified_capture','unverified_model_artifact','missing_evidence','candidate_execution_failed','target_identity_mismatch')
   OR b->'reason' IS NULL OR b->'reason'='null'::jsonb OR b->'probabilities' IS DISTINCT FROM s.envelope->'probabilities' THEN RAISE EXCEPTION 'fallback must equal original';END IF;
  ELSIF b->>'status'='forecast' THEN
   IF b->'reason' IS DISTINCT FROM 'null'::jsonb OR s.capture_kind<>'at_issue' THEN RAISE EXCEPTION 'invalid forecast capture';END IF;
+  IF c.envelope->>'adapter_id'='m14-xgedge-v1' AND(c.envelope->>'study_kind'<>'synthetic_verification' OR c.envelope#>>'{configuration,artifact_kind}' IS DISTINCT FROM 'synthetic') THEN RAISE EXCEPTION 'unverified forecast artifact';END IF;
  ELSE RAISE EXCEPTION 'invalid result status';END IF;
  IF jsonb_typeof(b->'probabilities')IS DISTINCT FROM 'array' OR jsonb_array_length(b->'probabilities')<>3 THEN RAISE EXCEPTION 'invalid probabilities';END IF;
  FOR v IN SELECT * FROM jsonb_array_elements(b->'probabilities')LOOP
@@ -96,10 +112,8 @@ DECLARE j shadow_eval.jobs;s research.prediction_snapshots;c shadow_eval.candida
  INSERT INTO shadow_eval.results VALUES(j.job_id,b,clock_timestamp());RETURN j.job_id;
 END $$;
 CREATE FUNCTION shadow_eval.record_attempt(jid text,st text,cd text)RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE used bigint;ceiling bigint;aid bigint;BEGIN
- SELECT max_bytes INTO ceiling FROM research.control FOR UPDATE;
- SELECT coalesce(sum(pg_total_relation_size(oid)),0)INTO used FROM pg_class WHERE relnamespace IN('research'::regnamespace,'shadow_eval'::regnamespace)AND relkind IN('r','S');
- IF used+16384>ceiling THEN RAISE EXCEPTION 'operational storage limit exceeded' USING ERRCODE='54000';END IF;
+DECLARE aid bigint;BEGIN
+ PERFORM shadow_eval.reserve_operational(65536);
  IF(SELECT count(*)FROM shadow_eval.attempts WHERE job_id=jid)>=8 OR(SELECT count(*)FROM shadow_eval.attempts)>=10000 THEN RAISE EXCEPTION 'attempt limit reached';END IF;
  INSERT INTO shadow_eval.attempts(job_id,state,code)VALUES(jid,st,cd)RETURNING attempt_id INTO aid;RETURN aid;
 END $$;

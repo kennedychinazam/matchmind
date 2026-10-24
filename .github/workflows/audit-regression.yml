@@ -4,12 +4,14 @@ on:
     branches:
       - feature/matchmind-quality-upgrade
       - codex/phase3-immutable-snapshots
+      - codex/phase6-shadow-feasibility
     paths:
       - 'audits/**'
       - '.github/workflows/audit-regression.yml'
   pull_request:
     branches:
       - feature/matchmind-quality-upgrade
+      - codex/phase3-immutable-snapshots
     paths:
       - 'audits/**'
       - '.github/workflows/audit-regression.yml'
@@ -20,7 +22,7 @@ permissions:
 
 jobs:
   audit-regressions:
-    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade' || github.ref == 'refs/heads/codex/phase3-immutable-snapshots' || github.event_name == 'pull_request'
+    if: github.ref == 'refs/heads/feature/matchmind-quality-upgrade' || github.ref == 'refs/heads/codex/phase3-immutable-snapshots' || github.ref == 'refs/heads/codex/phase6-shadow-feasibility' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
