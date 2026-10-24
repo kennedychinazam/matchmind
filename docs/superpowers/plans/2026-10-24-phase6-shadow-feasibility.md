@@ -32,40 +32,40 @@
 
 Files: `audits/phase6/core.mjs`, `audits/phase6/adapters.mjs`, `audits/test/phase6-core.test.mjs`.
 
-- [ ] Write failing tests for frozen candidate/config/source hashes, original immutability, microsecond timing, missing/late evidence, exact identity fallback, synthetic-only coefficient execution, bad output and exceptions.
-- [ ] Implement `freezeCandidate(spec)` yielding descriptor `{candidate_id,version,adapter_id,adapter_sha256,configuration,configuration_hash,frozen_at_utc,study_kind}`; ID is canonical hash of the descriptor fields.
-- [ ] Implement `evaluateJob({candidate,snapshot,capture,observations}, registry?)` returning deterministic immutable JSON result. Capture includes `{payload_hash,capture_kind,manifest_hash}`. Results carry snapshot/candidate/config/baseline/evidence hashes, private visibility, probabilities, status/reason, feature diagnostics and `confirmatory_eligible:false`.
-- [ ] Reuse `buildAsOfInputs` / `existingMatchFeatures`; no live engine modification. Only xgEdge is consumed by the experimental adapter. No outcome argument.
-- [ ] Green focused tests and regression suite; commit independently.
+- [x] Write failing tests for frozen candidate/config/source hashes, original immutability, microsecond timing, missing/late evidence, exact identity fallback, synthetic-only coefficient execution, bad output and exceptions.
+- [x] Implement `freezeCandidate(spec)` yielding descriptor `{candidate_id,version,adapter_id,adapter_sha256,configuration,configuration_hash,frozen_at_utc,study_kind}`; ID is canonical hash of the descriptor fields.
+- [x] Implement `evaluateJob({candidate,snapshot,capture,observations}, registry?)` returning deterministic immutable JSON result. Capture includes `{payload_hash,capture_kind,manifest_hash}`. Results carry snapshot/candidate/config/baseline/evidence hashes, private visibility, probabilities, status/reason, feature diagnostics and `confirmatory_eligible:false`.
+- [x] Reuse `buildAsOfInputs` / `existingMatchFeatures`; no live engine modification. Only xgEdge is consumed by the experimental adapter. No outcome argument.
+- [x] Green focused tests and regression suite; commit independently.
 
 ### Task 2 — local private repository and permissions
 
 Files: `audits/phase6/schema.sql`, `audits/phase6/repository.mjs`, `audits/phase6/rollback.sql`, `audits/test/phase6-db.integration.test.mjs`.
 
-- [ ] Write failing database tests for all ordinary roles, immutable configs/results, snapshot links, result idempotence/conflicts, attempt events including missing snapshots, quota, backup/restore and rollback.
-- [ ] Add local-only schema with frozen candidate JSON/hash, separate results and attempt events. All tables RLS, ordinary roles denied, constrained SQL entrypoints. Runner reads existing research manifests through inherited `research_reader`; cannot publish or modify observations/predictions.
-- [ ] `repository(db)` exports synchronous `register(candidate)`, `load(snapshotId)` -> `{snapshot,capture,observations}` or missing error, `save(result)`, `recordAttempt(event)`, `exportStudy(candidateId)`; db is the existing **local** harness object, never a URL/env connection. Use safe JSON literals, fixed SQL, no hosted SDK.
-- [ ] Persist original `source_prediction` untouched in export for evaluation; include capture backlog/failed attempts in operational summaries. Export snapshot/observation data privately, never Git.
-- [ ] Green integration tests against the cached pinned image; commit independently.
+- [x] Write failing database tests for all ordinary roles, immutable configs/results, snapshot links, result idempotence/conflicts, attempt events including missing snapshots, quota, backup/restore and rollback.
+- [x] Add local-only schema with frozen candidate JSON/hash, separate results and attempt events. All tables RLS, ordinary roles denied, constrained SQL entrypoints. Runner reads existing research manifests through inherited `research_reader`; cannot publish or modify observations/predictions.
+- [x] `repository(db)` exports synchronous `register(candidate)`, `load(snapshotId)` -> `{snapshot,capture,observations}` or missing error, `save(result)`, `recordAttempt(event)`, `exportStudy(candidateId)`; db is the existing **local** harness object, never a URL/env connection. Use safe JSON literals, fixed SQL, no hosted SDK.
+- [x] Persist original `source_prediction` untouched in export for evaluation; include capture backlog/failed attempts in operational summaries. Export snapshot/observation data privately, never Git.
+- [x] Green integration tests against the cached pinned image; commit independently.
 
 ### Task 3 — evaluation and Phase 5 selective reuse
 
 Files: `audits/phase5/validation.mjs` (byte-identical copy from f56caab), its focused tests, `audits/phase6/report.mjs`, `audits/test/phase6-report.test.mjs`.
 
-- [ ] Port only the pure Phase 5 scoring/validation module and its tests; do not port its raw-data audit, candidate tuning, app changes or whole PR. Document retained unused functions precisely.
-- [ ] Write failing tests for known Brier/log loss, class calibration/AUC, correct 90-minute outcomes, exact 48-hour boundaries, duplicate fixtures, identical paired model/market cohorts, missing/future odds, abstention/coverage counts and byte-identical reports.
-- [ ] `buildReport({candidate,records,attempts,asOfUtc})` uses original source metadata + Phase 3 envelope and result; authoritative odds must belong to the immutable manifest and precede issue, age <=24h. Both original and candidate compared on identical market subset. Group by stable competition ID and UTC issuance periods. Include exact fallback intention-to-forecast, successful-only diagnostics, pending/void/excluded/unrecorded counts and descriptive uncertainty.
-- [ ] Never promote a synthetic or date-labelled cohort; report no positive accuracy finding. Green tests; commit independently.
+- [x] Port only the pure Phase 5 scoring/validation module and its tests; do not port its raw-data audit, candidate tuning, app changes or whole PR. Document retained unused functions precisely.
+- [x] Write failing tests for known Brier/log loss, class calibration/AUC, correct 90-minute outcomes, exact 48-hour boundaries, duplicate fixtures, identical paired model/market cohorts, missing/future odds, abstention/coverage counts and byte-identical reports.
+- [x] `buildReport({candidate,records,attempts,asOfUtc})` uses original source metadata + Phase 3 envelope and result; authoritative odds must belong to the immutable manifest and precede issue, age <=24h. Both original and candidate compared on identical market subset. Group by stable competition ID and UTC issuance periods. Include exact fallback intention-to-forecast, successful-only diagnostics, pending/void/excluded/unrecorded counts and descriptive uncertainty.
+- [x] Never promote a synthetic or date-labelled cohort; report no positive accuracy finding. Green tests; commit independently.
 
 ### Task 4 — executable synthetic feasibility and resources
 
 Files: `audits/phase6/run-synthetic.mjs`, `audits/phase6/results/*`, CI modifications, final report/runbook.
 
-- [ ] Seed synthetic pre-issue observations via existing server-receipt API, publish synthetic originals using local harness SQL, register candidates, execute/capture/fallback and export/report privately.
-- [ ] Verify container network none, no ports, image already cached, no hosted credentials/connections. Fail rather than silently skip dependencies. No large downloads.
-- [ ] Measure realistic manifest volumes/reuse, complete feature construction, adapter runtime, database growth including indexes/operational events; estimate 30/90/180d at transparent prediction and poll rates within shared 250 MiB budget. No sustained trial recommended without coverage, genuine training artifact and feasible storage/sample size.
-- [ ] Run inherited 107 tests, selectively copied Phase 5 tests and all Phase 6 tests **together** on both Node versions; record exact counts/scope and independent review corrections. CI targets this branch/new PR base.
-- [ ] Document architecture, every changed file/reason, rejected models, complete tests, synthetic-only findings, quotas, backup/restore/rollback, security, limitations and commit history. Push and create separate draft PR to `codex/phase3-immutable-snapshots`; no merge/deploy.
+- [x] Seed synthetic pre-issue observations via existing server-receipt API, publish synthetic originals using local harness SQL, register candidates, execute/capture/fallback and export/report privately.
+- [x] Verify container network none, no ports, image already cached, no hosted credentials/connections. Fail rather than silently skip dependencies. No large downloads.
+- [x] Measure realistic manifest volumes/reuse, complete feature construction, adapter runtime, database growth including indexes/operational events; estimate 30/90/180d at transparent prediction and poll rates within shared 250 MiB budget. No sustained trial recommended without coverage, genuine training artifact and feasible storage/sample size.
+- [x] Run inherited 107 tests, selectively copied Phase 5 tests and all Phase 6 tests **together** on both Node versions; record exact counts/scope and independent review corrections. CI targets this branch/new PR base.
+- [x] Document architecture, every changed file/reason, rejected models, complete tests, synthetic-only findings, quotas, backup/restore/rollback, security, limitations and commit history. Push and create separate draft PR to `codex/phase3-immutable-snapshots`; no merge/deploy.
 
 ## Review focus
 
@@ -74,3 +74,5 @@ Time provenance must come from database receipts, not JSON assertions; late impo
 ## Design-review refinements
 
 The independent builder check required these additions: candidate identity includes the actual feature-source hash and required-feature list; declare an immutable job roster before attempting work; store append-only fixture-bound settlement revisions with server receipts and choose only revisions available at the report cutoff; enforce candidate/configuration/baseline/manifest lineage again in SQL. Reserve up to 1 MiB operational headroom **inside** the shared quota, cap per-job/total attempt rows and fail explicitly after exhaustion. Reconciliation against the frozen roster exposes attempts which could not persist. Caller freeze time is distinct from server registration receipt. Check cached images before the new local runner and never pull. Unrelated missing M14 features (e.g. lineups) do not disqualify finite xgEdge.
+
+Final review additionally required shared admission on inherited capture-health writes, a 64 KiB operational page/index allowance, and canonical trimming of AET/PEN statuses. Executor/input-validation sources are included in candidate identity. Extremely large per-job reads fail explicitly; report exports contain odds and manifest hashes, while the complete replay evidence remains in the private database/backup. Reports withhold ambiguous AET/PEN labels rather than treating extra-time totals as verified 90-minute outcomes; the public grader is untouched.
