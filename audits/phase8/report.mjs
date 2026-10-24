@@ -2,6 +2,10 @@ import {canonicalHash,epochMicros}from '../lib/snapshot-contract.mjs';
 import {fairMarket,probabilityScore}from '../lib/bookmaker-metrics.mjs';
 import {publishedVerdict,settledScore,resultCode,isFinished,utcKickoff}from '../lib/independent-grade.mjs';
 import {paired,calibration}from '../phase5/validation.mjs';
+import {canonicalKickoff}from './kickoff.mjs';
+import {readFileSync}from 'node:fs';import {createHash}from 'node:crypto';
+const scorerHash=createHash('sha256');for(const path of ['./report.mjs','./kickoff.mjs','../phase5/validation.mjs','../lib/bookmaker-metrics.mjs','../lib/independent-grade.mjs','../lib/snapshot-contract.mjs'])scorerHash.update(path).update(readFileSync(new URL(path,import.meta.url)));
+const SCORER_SOURCE_HASH=scorerHash.digest('hex');
 const ARMS=['E','E-Refreshed','A1','A2','A3'],mean=xs=>xs.length?xs.reduce((s,v)=>s+v,0)/xs.length:null;
 export function eventsToStudy(events,odds=[],packetReceipt=null){
  const study=events.find(e=>e.kind==='study');if(!study)throw Error('study absent');
@@ -14,7 +18,7 @@ export function eventsToStudy(events,odds=[],packetReceipt=null){
 }
 function labelFor(row,cutoff){
  const labels=[...(row.labels??[])].filter(l=>epochMicros(l.received_at_utc)<cutoff).sort((a,b)=>a.revision-b.revision);const f=labels.at(-1)?.fixture;
- const p={kickoff:row.kickoff_at_utc.slice(0,10),ktime:row.kickoff_at_utc.slice(11,19),build:355,pick:'1'};
+ const anchor=canonicalKickoff(row.kickoff_at_utc),p={kickoff:anchor.slice(0,10),ktime:anchor.slice(11,19),build:355,pick:'1'};
  const verdict=publishedVerdict(p,f,Number(cutoff/1000n));if(verdict.voidLate)return{reason:'void'};
  if(!f||!isFinished(f.status))return{reason:'pending'};
  const kickoff=Date.parse(f.date+'T'+f.time+'Z');if(!Number.isFinite(kickoff)||BigInt(kickoff)*1000n>=cutoff||BigInt(kickoff)*1000n>epochMicros(labels.at(-1).received_at_utc))return{reason:'invalid_label'};
@@ -22,13 +26,13 @@ function labelFor(row,cutoff){
  const s=settledScore(f),actual=resultCode(s?.h,s?.a);return actual?{actual,fixture:f}:{reason:'invalid_label'};
 }
 function timely(f,row){
- try{return f?.status==='forecast'&&epochMicros(f.generated_at_utc)<=epochMicros(f.received_at_utc)&&epochMicros(f.received_at_utc)<epochMicros(row.kickoff_at_utc);}catch{return false;}
+ try{return f?.status==='forecast'&&epochMicros(f.generated_at_utc)<=epochMicros(f.received_at_utc)&&epochMicros(f.received_at_utc)<epochMicros(canonicalKickoff(row.kickoff_at_utc));}catch{return false;}
 }
 function marketFor(row,issue){
  let best=null;
  for(const o of row.odds??[])try{
   const receipt=epochMicros(o.received_at_utc),captured=epochMicros(o.captured_at),issued=epochMicros(issue),fair=fairMarket(o);
-  if(String(o.fxid)!==String(row.fixture_id)||!(Number(o.mins_to_kick)>0)||receipt>=issued||captured>receipt||receipt>=epochMicros(row.kickoff_at_utc)||issued-captured>86400000000n||!fair)continue;
+  if(String(o.fxid)!==String(row.fixture_id)||!(Number(o.mins_to_kick)>0)||receipt>=issued||captured>receipt||receipt>=epochMicros(canonicalKickoff(row.kickoff_at_utc))||issued-captured>86400000000n||!fair)continue;
   if(!best||receipt>best.at)best={at:receipt,p:fair.probabilities};
  }catch{}
  return best?.p??null;
@@ -65,7 +69,7 @@ export function evaluateWeekend(study,asOfUtc){
  for(const arm of ['A1','A2','A3']){const baseline=new Map(cohorts['E-Refreshed'].map(r=>[r.id,r])),pairs=cohorts[arm].filter(r=>baseline.has(r.id)).map(r=>({...r,baseline:baseline.get(r.id).p}));comparisons[arm+'_vs_E-Refreshed']=paired(pairs,r=>r.baseline,r=>r.p);}
  const aiSuccess=counts.A1.verified_forecasts+counts.A3.verified_forecasts;
  const actualSpend=Number.isSafeInteger(study.actual_paid_micros)&&study.actual_paid_micros>=0?study.actual_paid_micros/1000000:null;
- return{schema_version:1,as_of_utc:asOfUtc,input_hash:canonicalHash(study),accuracy_claim:false,confirmatory_eligible:false,coverage,arms:Object.fromEntries(ARMS.map(a=>[a,{...metrics(cohorts[a]),...counts[a],coverage:study.records.length?counts[a].verified_forecasts/study.records.length:0,response_coverage:study.records.length?counts[a].timely_responses/study.records.length:0}])),original_context:metrics(context),comparisons,
+ return{schema_version:1,scorer_version:'weekend-report-v2',scorer_source_hash:SCORER_SOURCE_HASH,as_of_utc:asOfUtc,input_hash:canonicalHash(study),accuracy_claim:false,confirmatory_eligible:false,coverage,arms:Object.fromEntries(ARMS.map(a=>[a,{...metrics(cohorts[a]),...counts[a],coverage:study.records.length?counts[a].verified_forecasts/study.records.length:0,response_coverage:study.records.length?counts[a].timely_responses/study.records.length:0}])),original_context:metrics(context),comparisons,
   strata:{competitions:[...new Set(study.records.map(r=>r.league))].filter(v=>v!=null).map(league=>({league,arms:Object.fromEntries(ARMS.map(a=>[a,metrics(cohorts[a].filter(r=>r.league===league))]))})),observation_windows:[...new Set(study.records.map(r=>r.window))].map(window=>({window,arms:Object.fromEntries(ARMS.map(a=>[a,metrics(cohorts[a].filter(r=>r.window===window))]))}))},
   actual_ai_spend_usd:actualSpend,reserved_liability_usd:study.reserved_micros/1000000,ai_cost_per_success_usd:aiSuccess&&actualSpend!==null?actualSpend/aiSuccess:null,
   limitations:['Weekend results are exploratory, not proof of superiority or profitability.','Originals observed before collection are contextual, not contemporaneous E forecasts.','Different generation times are retained; AI comparisons require identical frozen input lineage.','Descriptive paired intervals are not powered confirmatory evidence.']};

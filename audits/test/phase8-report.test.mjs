@@ -43,6 +43,11 @@ test('original contextual predictions retain their own 48-hour kickoff anchor',(
  const p=sample();p.records[0].original.kickoff='2026-10-22';p.records[0].original.ktime='15:00';
  const out=api.evaluateWeekend(p,'2026-10-26T12:00:00Z');assert.equal(out.arms['E-Refreshed'].n,1);assert.equal(out.original_context.n,0);
 });
+test('legacy minute-precision UTC kickoff is normalized only for comparison without rewriting frozen data',()=>{
+ const p=sample();p.records[0].kickoff_at_utc='2026-10-24T15:00Z';const original=JSON.stringify(p);
+ const out=api.evaluateWeekend(p,'2026-10-26T12:00:00Z');assert.equal(out.arms['E-Refreshed'].n,1);assert.equal(out.arms['E-Refreshed'].late,0);assert.equal(JSON.stringify(p),original);
+ p.records[0].forecasts[0].received_at_utc='2026-10-24T10:00Z';assert.equal(api.evaluateWeekend(p,'2026-10-26T12:00:00Z').arms['E-Refreshed'].n,0);
+});
 test('private event export retains append-only labels and all job failures without packet duplication',()=>{
  assert.equal(typeof api.eventsToStudy,'function');const x=sample(),r=x.records[0];
  const events=[{event_id:'s',kind:'study',received_at:x.study.started_at_utc,body:{version:'weekend-v1'}},{event_id:'1',kind:'job',body:r},{kind:'forecast',parent_id:'1',received_at:issue,body:r.forecasts[0]},{kind:'label',parent_id:'1',received_at:r.labels[0].received_at_utc,body:{fixture:r.labels[0].fixture}}];

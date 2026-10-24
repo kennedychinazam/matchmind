@@ -11,6 +11,7 @@ import {runEngine}from './engine.mjs';
 import {weekendStore}from './store.mjs';
 import {evaluateWeekend,eventsToStudy}from './report.mjs';
 import {privateDirectory}from './files.mjs';
+import {canonicalKickoff}from './kickoff.mjs';
 const dir=process.argv[2],rawFile=process.argv[3];
 if(!dir||!rawFile||!isAbsolute(dir)||!isAbsolute(rawFile)||process.argv.length!==4)throw Error('usage: node audits/phase8/run-weekend.mjs /private/new-directory /private/raw-source.json');
 const real=privateDirectory(dir);
@@ -25,7 +26,7 @@ try{
  const pid=store.append('packet','packet:'+canonicalHash(source),study,source),receipt=store.receipt(pid),packet={...source,receipt_at_utc:receipt};
  const initial=new Map(source.rows.map(r=>[r.fxid,r])),originals=new Map(source.originals.map(r=>[r.fxid,r])),jobs=[];
  const ids=[...source.targets].sort((a,b)=>{const x=initial.get(a),y=initial.get(b);return(x.date+'T'+x.time).localeCompare(y.date+'T'+y.time)||a-b;});
- for(const id of ids){const row=initial.get(id),key=window+':'+id,kickoff=row.date+'T'+row.time+'Z';
+ for(const id of ids){const row=initial.get(id),key=window+':'+id,kickoff=canonicalKickoff(row.date+'T'+row.time+'Z');
   const jid=store.append('job',key,pid,{fixture_id:String(id),league:row.lid,window,kickoff_at_utc:kickoff,original:originals.get(id)??null});jobs.push({jid,id,kickoff});}
  let engine,failure=null;
  try{engine=await runEngine(packet);save('engine-output.json',engine);}catch{failure='engine_packet_or_execution_failed';}
