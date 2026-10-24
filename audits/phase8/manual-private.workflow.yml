@@ -72,8 +72,8 @@ jobs:
           set -euo pipefail
           umask 077
           test -d "$RUNNER_TEMP/mm-weekend"
-          tar -cf "$RUNNER_TEMP/mm-weekend.tar" -C "$RUNNER_TEMP/mm-weekend" .
-          node audits/phase8/seal-results.mjs "$RUNNER_TEMP/mm-weekend.tar" "$RUNNER_TEMP/mm-weekend.encrypted.json" "$RUNNER_TEMP/recipient.pem"
+          tar -czf "$RUNNER_TEMP/mm-weekend.tar.gz" -C "$RUNNER_TEMP/mm-weekend" .
+          node audits/phase8/seal-results.mjs "$RUNNER_TEMP/mm-weekend.tar.gz" "$RUNNER_TEMP/mm-weekend.encrypted.json" "$RUNNER_TEMP/recipient.pem"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
