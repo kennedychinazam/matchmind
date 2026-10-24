@@ -249,3 +249,22 @@ The tasks above are a **planned roadmap**, not completed outcomes or authorizati
 
 ### Change-log maintenance contract
 Every later user-reported Codex milestone gets its own dated, append-only section or linked log entry in this independent documentation branch recording: original task scope and actual approval, base/head SHA, PR links, exact files and diff, test commands and CI jobs, numerical before/after (or rejection), source/data provenance, reproducible checks, failure modes, data/privacy costs, release gating and why the decision was made. **The eventual Claude dossier will include both successful and unsuccessful approaches.** Do not overwrite the original baseline or retroactively present earlier speculative statements as verified.
+
+
+---
+
+## 11. 2026-10-24 — Phase 6 kickoff: offline private shadow-evaluation feasibility [P / owner authorized to proceed]
+
+**Decision:** Owner said “Let's proceed” after explicitly requiring that all agreed development work be completed **before** sending the comprehensive before/after record to Claude. ChatGPT selected a **bounded, offline Phase 6 research/shadow harness** as the next implementation task, not a production rollout, paid AI experiment or retrospective accuracy claim.
+
+**Starting verified refs:** `main` and `backup/build355-20261023` at `036f09b29f27a10c7d8bdcec1f16efd557c714e4`; `feature/matchmind-quality-upgrade` at `68c00ded8043b7ee1a15937db1a32c01d932f4e7`; PR #1 head `codex/phase3-immutable-snapshots` at `e5580b36876b11640bcae5958b971604b3f17876`; PR #2 head `codex/phase5-statistical-validation` at `f56caab20a5dfabc237646909058d57dac7f9a65`. Both PRs remain draft and distinct. **G** as checked immediately before Phase 6 instruction. No `codex/phase6-shadow-feasibility` branch was present then.
+
+**Planned coding agent:** Codex Cloud exclusively, new `codex/phase6-shadow-feasibility` based on immutable-snapshot PR #1 head. A focused **draft PR #3 to `codex/phase3-immutable-snapshots`**, so only incremental Phase 6 changes are reviewed; future integration of PRs #1/#2/#3 must be tested together on a separate, expressly reviewed release-candidate branch, never assumed from individually green CI.
+
+**Objective:** design and implement an offline, isolated research-only shadow evaluation harness that can process immutable original snapshot + archived as-of evidence, a version-frozen candidate adapter (prefer exact existing M14 feature construction when complete/verified; otherwise **identity fallback/abstention**), and optionally eligible fair-odds baseline. Integrate only the minimal Phase 5 scoring helpers in a way that respects repo provenance. No engine retune, no claim of advantage, no provider HTTP, no AI cost.
+
+**Scientific and operational acceptance:** reproduce unaltered original 1X2 probabilities/pick/issue times; reject late/unknown/backdated evidence and invalid odds; preserve identical paired fixture IDs/labels/settlement rules; shadow forecasts are private/not exposed; log missingness and source hashes, exact candidate version/config, fallback/abstention, no-result cases, failures; do not use 2025/October spent holdouts as pristine; run Node 20/24 and local Postgres synthetic integration tests, network-blocked; include realistic worst-case 250 MiB budget/retention/coverage feasibility; no live publishing or public UI code modification. If future real-data or full Supabase compatibility cannot be proven, report the blocker honestly and do not fake the missing step.
+
+**Required deliverables:** before/after technical map, changed-files/commits, reproducible test data/results, full CI run links, coverage-and-power feasibility, candidate hypotheses with status *proposed / frozen / tested / rejected*, open release blockers and exact next decision. **No branch, result, PR or performance improvement for Phase 6 is represented as completed by this entry.**
+
+**Claude timing remains deferred** until agreed build completion. At that point present this ledger, all actual PRs/diffs and explicit comparison of deployed baseline to tested release candidate, including any failed or abandoned ideas.
