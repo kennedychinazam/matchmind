@@ -525,3 +525,25 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 **Recommendation pending owner selection:** To compare both OpenAI and Kimi without two separate minimum purchases, **OpenRouter Standard 5 USD credits plus purchase fee**, disable auto top-up, issue separate restricted key, pin model IDs and search engine, fail-closed request ledger under earlier **US$5 TOTAL AI consumption approval**. For single-model simplicity/direct first-party support, direct OpenAI $5 purchase and `gpt-6-luna` with Responses web-search works. Direct Kimi prepaid minimum not independently verified. Selecting OpenRouter entails a third-party intermediary and some data handling/routing risk; never send secrets/raw private backend source to its model endpoints.
 
 **Status:** source research and Codex answer only; no new billing purchase, API call, private runner launch, collector/publisher invocation, merge, protected branch change or production deployment.
+
+
+---
+
+## 22. 2026-10-24 — Owner approves OpenRouter as weekend AI provider
+
+**Owner's explicit instruction:** “I approve OpenRouter,” in response to recommendation to use OpenRouter to compare OpenAI GPT-6 Luna and Kimi K2.5 with one prepaid account. This is a **provider-selection approval** for the already approved private, time-limited weekend test. No purchase, API call, experimental runner start or hosted deployment was performed by ChatGPT.
+
+### Corrected verified payment economics
+- Official OpenRouter Terms: minimum credit purchase **USD 5**. https://openrouter.ai/terms
+- Official OpenRouter Standard pricing: **5.5% platform fee on credit purchases**. An official announcement describing the fee change adds **a minimum USD 0.80 card/non-crypto processing fee**; for USD 5 of credits, expected **USD 5.80 before possible taxes/additional fees** (NOT the earlier USD 5.28 assumption). Official sources: https://openrouter.ai/pricing and https://openrouter.ai/blog/simplifying-our-platform-fee/ . **Actual user checkout prevails**. User's provider approval should not be interpreted as acceptance of unbounded additional fees; notify the owner of the corrected charge before purchase.
+- Keep auto-recharge **OFF**; initial purchase and wallet balance are not verified until user explicitly confirms.
+- **USD 5 remains the total aggregate AI consumption cap** across all models, fixtures, retries and web-search tools for October 24–25, not USD 5 per model. Credit purchase processing charges may sit outside prepaid inference credits and should be shown separately in financial reporting. User approval is limited to stated test purpose, not new subscriptions, production AI activation or unlimited ongoing credit use.
+
+### Provider and technical implementation
+- Preferred models: `openai/gpt-6-luna` and `moonshotai/kimi-k2.5` via **OpenRouter**. MatchMind must send identical authenticated pre-match evidence to both when comparing AI contribution. Both support structured responses and tool calling; both can use OpenRouter `openrouter:web_search` with an explicitly pinned search engine and hard maximum number of searches. Model/tool pricing, route behavior and privacy should be checked again by Codex preflight.
+- Create **one restricted dedicated private API key** labelled `MatchMind Weekend AI Test`, with **USD 5 nonresetting lifetime spend limit**, preferably lower dispatcher threshold and additional app-side global cost reservation. Do not use separate per-key USD 5 limits for each model, as that could double the total cost. Keep key securely in runner secrets, NEVER in GitHub code, issue comments, dossiers, model requests or ChatGPT.
+- Do not switch production `ai_shadow` from paused; do not reuse old error rows. Implement a versioned private OpenRouter adapter with stable fixture/arm/model/issue timestamps, strict schema checks, provider and search cost tracking, reasonable retries and timeout, no provider auto-routing to expensive models without explicit allowlist, and a verified stop switch. Per-request spend bounds must include billable tools even on failed model responses.
+- No dedicated always-on private execution environment has been approved. Codex should keep supervised/mock integration possible and report any real-run infra blocker. Reuse existing exact Build355 engine logic only when it can be safely run with genuine issue-time inputs; never rewrite immutable public originals.
+- Report real successes/failures/costs on Monday Oct 26 only if pre-kickoff experiment actually ran, and prioritize Oct31 release gating. Preserve PR#1–#4, protected branches, production and 72h publishing gate. Claude final independent review follows agreed development completion.
+
+**State:** OpenRouter provider approved; payment completion not verified; key provisioning not verified; no AI spend or started experiment independently established.
