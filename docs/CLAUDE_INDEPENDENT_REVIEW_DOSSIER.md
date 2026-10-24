@@ -575,3 +575,16 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 **Budget/controls:** OpenRouter endpoint `https://openrouter.ai/api/v1/chat/completions`, API authorization bearer; provider key spend limit plus shared fail-closed USD 5 total software ledger and model/grounding allowlist, conservative request test, and stop switch. Key itself must not be printed, traced, or stored in raw packets. Confirm model, costs and runner readiness before any charge. The owner's prior USD 5 AI cap and no-production/no-merge rules remain unchanged.
 
 **State:** key created (yes), secured/cloud-provisioned (not verified), correct USD 5 key limit (not independently visible on the success screenshot), AI inference called (not verified), research run started (not verified), production untouched. Continue appending actual outcomes once Codex reports them.
+
+
+---
+
+## 26. 2026-10-24 — Codex HTTP secret saved; environment publish outstanding
+
+**Owner's screenshots** of MatchMind Codex Cloud environment settings show `OPENROUTER_API_KEY` entered in **Manage secrets** as an environment-owned HTTPS secret with masked value, scope **Environment**, and dropdown stating **1 domain**. The second screenshot confirms the saved key is listed under **HTTP secrets** and **1 change** is pending. `No environment variables added` is appropriate for proxy-secret substitution. Privacy remains **Only me**. Internet-wide access remains disabled; package manager domains enabled.
+
+**Important verification limit:** screenshot does not expand “1 domain,” so **`openrouter.ai` is not independently confirmed as the exact scoped domain**. Before publishing, owner should verify `openrouter.ai` under the secret's allowed domains; restrict to HTTPS on port 443. The eight pre-existing additional domains visible under settings do not by themselves verify the key's own scoping. The second screenshot shows **Publish** as the next action, not evidence that the environment update has been published or that credentials are available to any running task.
+
+**OpenAI Codex Cloud official environment guide** https://learn.chatgpt.com/docs/environments/cloud-environments confirms: saving a Network secret allows its exact destinations under restricted internet access; raw secret delivered by secure proxy placeholder; **publishing/republishing** the updated environment is necessary for **new tasks**, while **existing tasks keep their own saved workspace and environment**. Request current Codex task to commit and push uncommitted Phase8 work; then start a new task using the newly published MatchMind environment rather than assume the old task automatically receives new credentials. Avoid passing raw token in chat/source/logs.
+
+**Budget and next gates:** Verify OpenRouter key has USD 5 TOTAL nonresetting provider limit and app-level fail-closed ledger. Merely registering/allowlisting a secret is not permission to make unbounded API calls. A real pre-kickoff weekend evaluation still needs a safe runner and eligible timestamped inputs. **No successful OpenRouter API test, spend, published environment or started genuine match experiment is established by this screenshot.**
