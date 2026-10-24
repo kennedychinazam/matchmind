@@ -9,10 +9,10 @@ import {weekendStore}from './store.mjs';
 import {readSource}from './source.mjs';
 import {eventsToStudy,evaluateWeekend}from './report.mjs';
 import {privateDirectory}from './files.mjs';
-const dir=process.argv[2];if(!dir||!isAbsolute(dir)||process.argv.length!==3)throw Error('usage: node audits/phase8/collect-results.mjs /private/weekend-run-directory');
+import {loadBackup}from './archive.mjs';
+const dir=process.argv[2];if(!dir||!isAbsolute(dir)||![3,5].includes(process.argv.length))throw Error('usage: node audits/phase8/collect-results.mjs /private/weekend-run-directory [prior-backup.sql prior-hash.sha256]');
 const real=privateDirectory(dir);
-const input=JSON.parse(readFileSync(resolve(real,'study.json'))),dump=readFileSync(resolve(real,'private-weekend-backup.sql'),'utf8'),expected=readFileSync(resolve(real,'backup.sha256'),'utf8').trim();
-if(createHash('sha256').update(dump).digest('hex')!==expected)throw Error('private backup hash mismatch');
+const input=JSON.parse(readFileSync(resolve(real,'study.json'))),dump=loadBackup(real,process.argv[3]??'private-weekend-backup.sql',process.argv[4]??'backup.sha256');
 const db=localDatabase('phase8-results');docker(['image','inspect',IMAGE]);await db.start();
 try{
  for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);repository(db).install();db.restore(dump);

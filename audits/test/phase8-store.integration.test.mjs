@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {localDatabase,docker,IMAGE}from '../test-support/local-db.mjs';
 import {repository}from '../phase6/repository.mjs';
 import {canonicalHash}from '../lib/snapshot-contract.mjs';
+import {spawn}from 'node:child_process';
+import {readFileSync}from 'node:fs';
 const api=await import('../phase8/store.mjs').catch(()=>({}));
 const db=localDatabase('phase8-store');let store,study,packet,job;
 before(async()=>{docker(['image','inspect',IMAGE]);await db.start();for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);repository(db).install();});
@@ -16,6 +18,8 @@ test('private weekend storage retains originals, roster and failed arms under th
  assert.equal(store.append('job','job-1',packet,{fixture_id:'1',kickoff_at_utc:store.read(job).body.kickoff_at_utc,original}),job);
  assert.throws(()=>store.append('job','job-1',packet,{fixture_id:'1',kickoff_at_utc:store.read(job).body.kickoff_at_utc,original:{...original,p_home:.9}}),/conflict/);
  store.append('forecast','job-1:A1',job,{arm:'A1',status:'failed',reason:'provider_unverified'});
+ store.append('forecast','job-1:E-Refreshed',job,{arm:'E-Refreshed',status:'forecast',generated_at_utc:new Date().toISOString(),probabilities:[.4,.3,.3]});
+ assert.equal(store.read('job-1:E-Refreshed:commit').body.status,'accepted');
  assert.deepEqual(store.read(job).body.original,original);assert.equal(store.events().filter(e=>e.kind==='job').length,1);
  assert.equal(db.sql('select max_bytes from research.control'),'262144000');assert.equal(db.sql('select count(*)from public.predictions'),'0');
 });
@@ -43,4 +47,19 @@ test('populated backup restore retains reservation liability, lineage and permis
  assert.throws(()=>db.sql('set role anon;select *from shadow_eval.weekend_events','matchmind_restore'),/permission/);
  db.sql('update research.control set max_bytes=1');assert.throws(()=>store.append('forecast','job-1:A2',job,{arm:'A2',status:'failed',reason:'test'}),/storage/);db.sql('update research.control set max_bytes=262144000');
  assert.equal(store.events().length,before);
+});
+test('a forecast queued behind the quota lock cannot persist after kickoff with a backdated receipt',async()=>{
+ const kickoff=new Date(Date.now()+4000).toISOString(),jid=store.append('job','queued-job',packet,{fixture_id:'3',kickoff_at_utc:kickoff,original:null});
+ const env={...process.env};for(const k of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH'])delete env[k];
+ const child=spawn('docker',['--host=unix:///var/run/docker.sock','exec','-i',db.name,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','matchmind_test','-At'],{env});
+ const closed=new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(Error('lock holder failed')));});
+ const locked=new Promise(resolve=>child.stdout.on('data',d=>{if(d.toString().includes('locked'))resolve();}));
+ child.stdin.end("BEGIN;SELECT 1 FROM research.control FOR UPDATE;SELECT 'locked';SELECT pg_sleep(6);COMMIT;");await locked;
+ assert.throws(()=>store.append('forecast','queued-job:E-Refreshed',jid,{arm:'E-Refreshed',status:'forecast',generated_at_utc:new Date().toISOString(),probabilities:[.4,.3,.3]}),/late|kickoff/);await closed;
+ assert.equal(store.events().some(e=>e.event_id==='queued-job:E-Refreshed'),false);
+});
+test('local rollback stops new weekend writes while retaining snapshots, receipts and budget liability',()=>{
+ const before=store.events().length;db.sql(readFileSync(new URL('../phase8/rollback.sql',import.meta.url),'utf8'));
+ assert.throws(()=>store.append('usage','after-rollback','request-0',{status:'failed'}),/permission/);
+ assert.equal(store.events().length,before);assert.equal(store.reservedMicros(),5000000);
 });
