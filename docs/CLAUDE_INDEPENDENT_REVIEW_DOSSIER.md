@@ -467,3 +467,20 @@ Revise any Phase8 one-day plan to include **read-only technical feasibility of i
 - **Documentation and final Claude packet:** preserve this owner-approved amount, costs actually charged (if any), vendor bills and estimated/reserved differences, successful vs failed responses, candidate versions, data/cost/receipt lineage and whether the experiment really happened. Claude's final review remains after planned build completion.
 
 **Status when appended:** **USD 5 expenditure ceiling approved; paid API calls not yet independently verified as started; no paid charges established by this chat; no production changes.**
+
+
+---
+
+## 19. 2026-10-24 — Owner reports US$30 Gemini billing minimum (prepay verification pending)
+
+**Owner's statement:** “I was billed minimum amount of $30.” This followed the owner's explicit approval of **a cumulative maximum of US$5 for the October 24–25 private AI experiment**. The billing amount is **owner-reported, not independently verified against a bank statement or AI Studio wallet**, and the precise transaction category (prepaid Gemini API credits, temporary authorization, or another charge) is not yet confirmed.
+
+**Interpretation and safeguards:**
+- Google's Gemini API billing documentation allows account/region/tier-dependent prepayment minimums displayed at checkout; some 2026 users report $30 or €30 minimums. A US$30 prepaid credit purchase, if that is what occurred, represents **account funding, not already-consumed Gemini API inference**; user should inspect AI Studio Billing available credits and Usage.
+- The owner previously approved **up to US$5 of actual AI provider consumption**, **not a higher experimental consumption budget**. **The US$30 reported purchase does not alter or expand the US$5 inference ceiling**. Codex's fail-closed all-modes ledger, max-token/grounding/retry estimates, safety buffer and accounting remain mandatory.
+- Do not purchase more credits, subscribe to a new service, turn on auto-reload or switch to unlimited billing to use the weekend experiment. If already prepaid and credited, only the pre-existing billing account's balance can be used. Auto-reload should remain off. Where available, set project-level monthly spend cap at or below US$5; Google notes spend caps can have delayed enforcement, so application-side limit is independently required.
+- No new payment is required merely because assistant records this update. **No AI API request, provider balance check via authenticated account or billed charge was executed by ChatGPT.** User must verify AI Studio wallet, correct Gemini-project billing linkage and whether payment actually settled; evidence remains unknown until confirmed.
+- Since prepay refunds may be restricted/unused credits expire under Google's current policy, do not promise that an unused balance is refundable or permanently valid. Keep receipts privately, not in public GitHub; do not publish payment info.
+- Preserve the October 31 target release gating and Monday results only with genuine evidence. Avoid counting provider billing credit as incurred AI operating cost.
+
+**Official source at research time:** https://ai.google.dev/gemini-api/docs/billing (prepay minimum displayed in user billing flow; account/project caps; auto-reload; credits). This entry does **not** amend the approved spending limit or grant access to private billing records.
