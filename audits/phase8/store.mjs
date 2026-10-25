@@ -19,7 +19,10 @@ export function weekendStore(db){
  // reserving first would strand real money that can never be confirmed or
  // refunded. Check the store can record the acknowledgement before reserving.
  const confirmable=()=>call("SELECT(EXISTS(SELECT FROM pg_constraint WHERE conrelid='shadow_eval.weekend_events'::regclass AND contype='c' AND pg_get_constraintdef(oid)LIKE '%''confirmation''%')AND pg_get_functiondef('shadow_eval.weekend_append(text,text,text,jsonb)'::regprocedure)LIKE '%''confirmation''%')")==='t';
- const assertConfirmable=()=>{if(!confirmable())throw Error('legacy private store cannot confirm reservations; refresh the restored writer and kind constraint before reserving');};
+ // Remember only the affirmative answer, so concurrent reservations pay for one
+ // catalog read while a store upgraded mid-session is still picked up.
+ let confirmationAdmitted=false;
+ const assertConfirmable=()=>{if(confirmationAdmitted)return;if(!confirmable())throw Error('legacy private store cannot confirm reservations; refresh the restored writer and kind constraint before reserving');confirmationAdmitted=true;};
  const append=(kind,id,parent,body)=>{const result=call(statement(kind,id,parent,body));if(needsConfirmation(kind,body))confirm(id);return result;};
  return{
   install(){return db.sql(readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));},
@@ -28,10 +31,13 @@ export function weekendStore(db){
   events(){return JSON.parse(call("SET ROLE shadow_reader;SELECT coalesce(jsonb_agg(CASE WHEN kind='packet' THEN to_jsonb(e)-'body'||jsonb_build_object('body',jsonb_build_object('omitted_from_report',true))ELSE to_jsonb(e)END ORDER BY received_at,event_id),'[]')FROM shadow_eval.weekend_events e"));},
   receipt(id){return call(`SELECT to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')FROM shadow_eval.weekend_events WHERE event_id=${q(id)}`);},
   reserve(id,job,amount,requestHash){assertConfirmable();return append('reservation',id,job,{reserved_micros:amount,request_hash:requestHash});},
-  reserveAsync(id,job,amount,requestHash){
+  // Async so a refused store rejects instead of throwing synchronously out of a
+  // call the caller is collecting into a promise array.
+  async reserveAsync(id,job,amount,requestHash){
    assertConfirmable();
    const env={...process.env};for(const k of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH'])delete env[k];
-   return new Promise((resolve,reject)=>{const child=execFile('docker',['--host=unix:///var/run/docker.sock','exec','-i',db.name,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','matchmind_test','-At'],{env,timeout:30000,maxBuffer:1024*1024},(error,out,stderr)=>{if(error){error.stderr=stderr;reject(safeError(error));}else resolve(out.trim().split('\n').at(-1));});child.stdin.end(statement('reservation',id,job,{reserved_micros:amount,request_hash:requestHash}));}).then(result=>{confirm(result);return result;});
+   const result=await new Promise((resolve,reject)=>{const child=execFile('docker',['--host=unix:///var/run/docker.sock','exec','-i',db.name,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','matchmind_test','-At'],{env,timeout:30000,maxBuffer:1024*1024},(error,out,stderr)=>{if(error){error.stderr=stderr;reject(safeError(error));}else resolve(out.trim().split('\n').at(-1));});child.stdin.end(statement('reservation',id,job,{reserved_micros:amount,request_hash:requestHash}));});
+   confirm(result);return result;
   },
   reservedMicros(){return Number(call("SET ROLE shadow_reader;SELECT coalesce(sum((body->>'reserved_micros')::bigint),0)FROM shadow_eval.weekend_events WHERE kind='reservation'"));},
   storage(){return JSON.parse(call("SELECT jsonb_build_object('budget_bytes',(SELECT max_bytes FROM research.control),'relation_bytes',(SELECT coalesce(sum(pg_total_relation_size(oid)),0)FROM pg_class WHERE relnamespace IN('research'::regnamespace,'shadow_eval'::regnamespace)AND relkind IN('r','S')))"));},
