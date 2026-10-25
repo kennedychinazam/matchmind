@@ -75,10 +75,12 @@ Windows Docker cannot serve it. CI is currently the only place they execute.
 
 ## Coverage gaps that remain
 
-1. **The journal shape is reconstructed, not produced.** The test hand-builds the
-   event journal rather than generating it with `runSunday`. If the runner's
-   written shape drifts, this test would still pass. Closing this needs an
-   offline dry run of the whole cycle through the real entry points.
+1. ~~**The journal shape is reconstructed, not produced.**~~ Closed by the
+   [Sunday-to-Monday dry run](2026-10-25-full-cycle-dry-run.md), which generates
+   the journal with the real `runSunday` and settles it through the real
+   checkpoint writer, recovery verifier and collector. This file's own test still
+   hand-builds its journal, deliberately, to pin the settlement rules on fixtures
+   a clean runner would not produce.
 2. The genuine network reader is injected away. `sourceURL` and `collectPages`
    have their own unit tests; no test performs a live read, by design.
 3. The collector has never run against a real private Sunday checkpoint, because
