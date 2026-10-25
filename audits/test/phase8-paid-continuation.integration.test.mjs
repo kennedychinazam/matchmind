@@ -16,7 +16,12 @@ async function setup(name){
  for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);
  repository(db).install();const store=weekendStore(db);store.install();return{db,store};
 }
-const source=()=>({synthetic:true,source_read_at_utc:new Date().toISOString(),rows:[1,2].map(fxid=>({fxid,lid:39,home:'H'+fxid,away:'A',date:'2026-10-25',time:'15:00',status:'NS'})),targets:[1,2],originals:[],odds:[]});
+// The paid path needs a kickoff still more than the 450 second allowance away,
+// so the anchor is relative and on a whole minute. A hardcoded wall-clock time
+// silently expires and takes the whole paid branch with it.
+const MINUTE=60000,AHEAD=new Date((Math.floor(Date.now()/MINUTE)+20)*MINUTE).toISOString();
+const KICKOFF={date:AHEAD.slice(0,10),time:AHEAD.slice(11,19)};
+const source=()=>({synthetic:true,source_read_at_utc:new Date().toISOString(),rows:[1,2].map(fxid=>({fxid,lid:39,home:'H'+fxid,away:'A',...KICKOFF,status:'NS'})),targets:[1,2],originals:[],odds:[]});
 const engine=async packet=>({synthetic_clock:true,source_sha256:'synthetic',input_hash:canonicalHash(packet),predictions:packet.targets.map(id=>({fixture_id:String(id),status:'forecast',generated_at_utc:new Date().toISOString(),probabilities:[.5,.3,.2],prediction:{pW:.5,pD:.3,pL:.2},eligible:id===2,exclusion_reason:id===1?'low':null,decision:{pick:'1'},...(packet.contexts?.[id]?{a1:{prediction:{pW:.55,pD:.25,pL:.2}}}:{})}))});
 const preflight=store=>async()=>({account:verifyAccount(key(),credits(),store.clock()),profiles:['openai/gpt-6-luna','moonshotai/kimi-k2.5'].map(m=>freezeProfile(catalog(m),store.clock()))});
 const options=(store,s,extras={})=>({store,source:s,engine,kind:'synthetic_verification',synthetic:true,supervised:true,recoveryVerified:true,externalCopyVerified:true,checkpoint:async()=>{},...extras});

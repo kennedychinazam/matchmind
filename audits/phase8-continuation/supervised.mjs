@@ -2,12 +2,19 @@ import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
 import {runEngine,ENGINE_SOURCE_SHA256} from '../phase8/engine.mjs';
 import {canonicalKickoff} from '../phase8/kickoff.mjs';
 import {MODELS,CEILING,buildRequest} from './contracts.mjs';
-import {admitSunday,evidenceView} from './protocol.mjs';
+import {admitSunday,evidenceView,STUDIES} from './protocol.mjs';
 // Supervised orchestration only; no timer, source collector, public publisher or hosted write.
+// One code path serves both studies. A later prospective study passes its own
+// cohort descriptor, so it shares this journal and therefore the one global
+// ledger, while its study id, experiment and cohort names stay its own. The
+// enrollment guard is per experiment, so neither study can be enrolled twice and
+// neither can overwrite the other.
 export async function runSunday(options){
  const {store,source,client,preflight,checkpoint}=options;
+ const cohorts=options.cohorts??STUDIES[0];
+ const windowTag=options.window??'2026-10-25';
  admitSunday(options,store.clock());
- if(store.events().some(e=>e.kind==='study'&&e.body.experiment==='openrouter-private-v1'||e.kind==='job'&&e.body.cohort==='sunday-engine'))throw Error('Sunday already enrolled; reconcile existing immutable cohort instead of duplicating it');
+ if(store.events().some(e=>e.kind==='study'&&e.body.experiment===cohorts.experiment||e.kind==='job'&&e.body.cohort===cohorts.engine))throw Error('study already enrolled; reconcile existing immutable cohort instead of duplicating it');
  const synthetic=options.kind==='synthetic_verification';
  if(synthetic&&source.synthetic!==true)throw Error('synthetic mode cannot accept genuine football data');
  if(!synthetic&&(epochMicros(store.clock())-epochMicros(source.source_read_at_utc)>900000000n||epochMicros(source.source_read_at_utc)>epochMicros(store.clock())))throw Error('fresh supervised source receipt required');
@@ -16,8 +23,8 @@ export async function runSunday(options){
  const engine=synthetic?options.engine:runEngine;
  const inputRows=new Map(source.rows.map(r=>[r.fxid,r])),inputOriginals=new Map(source.originals.map(r=>[Number(r.fxid),r]));
  const roster=source.targets.map(id=>{const r=inputRows.get(id);if(!r)throw Error('missing source roster');return{fixture_id:String(id),league:r.lid,kickoff_at_utc:canonicalKickoff(r.date+'T'+r.time+'Z'),original:inputOriginals.get(id)??null};});
- const session=store.clock().replaceAll(/[^0-9]/g,''),cohort='sunday:'+session;
- const study=store.append('study',cohort,null,{version:'weekend-v1',windows:['2026-10-24','2026-10-25'],experiment:'openrouter-private-v1',roster,kind:options.kind,ai_total_ceiling_micros:CEILING,selection:'All source target jobs retained; kickoff/fixture order; balanced four-request model bundles subject to complete context, physical worst-case budget and 450-second dispatch allowance.',models:MODELS,tools:false});
+ const session=store.clock().replaceAll(/[^0-9]/g,''),cohort=cohorts.key+':'+session;
+ const study=store.append('study',cohort,null,{version:'weekend-v1',windows:['2026-10-24','2026-10-25'],experiment:cohorts.experiment,window:windowTag,roster,kind:options.kind,ai_total_ceiling_micros:CEILING,selection:'All source target jobs retained; kickoff/fixture order; balanced four-request model bundles subject to complete context, physical worst-case budget and 450-second dispatch allowance.',models:MODELS,tools:false});
  const packetId=store.append('packet',cohort+':packet',study,source),receipt=store.receipt(packetId),packet={...source,receipt_at_utc:receipt};
  const initial=new Map(source.rows.map(r=>[r.fxid,r])),originals=new Map(source.originals.map(r=>[Number(r.fxid),r]));
  const targets=[...source.targets].sort((a,b)=>{const x=initial.get(a),y=initial.get(b);return(x.date+'T'+x.time).localeCompare(y.date+'T'+y.time)||a-b;});
@@ -27,7 +34,7 @@ export async function runSunday(options){
   const ko=canonicalKickoff(row.date+'T'+row.time+'Z'),jobs=[];
   for(const [tag,model]of [['engine',null],['openai',MODELS[0]],['kimi',MODELS[1]]]){
    const jid=cohort+':'+id+':'+tag;
-   store.append('job',jid,packetId,{fixture_id:String(id),league:row.lid,window:'2026-10-25',cohort:model?'sunday-ai':'sunday-engine',provider_model:model,kickoff_at_utc:ko,original:originals.get(id)??null});jobs.push({jid,model});
+   store.append('job',jid,packetId,{fixture_id:String(id),league:row.lid,window:windowTag,cohort:model?cohorts.ai:cohorts.engine,provider_model:model,kickoff_at_utc:ko,original:originals.get(id)??null});jobs.push({jid,model});
   }groups.push({id,ko,jobs});
  }
  const save=(j,arm,body)=>{

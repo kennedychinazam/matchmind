@@ -2,11 +2,16 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {localDatabase} from '../test-support/local-db.mjs';import {repository} from '../phase6/repository.mjs';import {weekendStore} from '../phase8/store.mjs';
 import {catalog,key,credits} from '../test-support/openrouter-fixtures.mjs';import {freezeProfile,verifyAccount} from '../phase8-continuation/contracts.mjs';import {executeRequest} from '../phase8-continuation/execute.mjs';
 const api=await import('../phase8-continuation/supervised.mjs').catch(()=>({}));
+// The paid path needs a kickoff still more than the 450 second allowance away,
+// so the anchor is relative and on a whole minute. A hardcoded wall-clock time
+// silently expires and takes the whole paid branch with it.
+const MINUTE=60000,AHEAD=new Date((Math.floor(Date.now()/MINUTE)+20)*MINUTE).toISOString();
+const KICKOFF={date:AHEAD.slice(0,10),time:AHEAD.slice(11,19)};
 test('supervised synthetic rehearsal freezes three model cohorts without changing originals and preserves all AI failures',async()=>{
  assert.equal(typeof api.runSunday,'function');const db=localDatabase('openrouter-supervised');await db.start();
  try{
   for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);repository(db).install();const store=weekendStore(db);store.install();
-  const source={synthetic:true,source_read_at_utc:store.clock(),rows:[{fxid:1,lid:39,home:'A',away:'B',date:'2026-10-25',time:'15:00',status:'NS'}],targets:[1],originals:[{fxid:1,p_home:.6,p_draw:.2,p_away:.2,made_at:'2026-10-23T10:00:00Z'}],odds:[]};
+  const source={synthetic:true,source_read_at_utc:store.clock(),rows:[{fxid:1,lid:39,home:'A',away:'B',...KICKOFF,status:'NS'}],targets:[1],originals:[{fxid:1,p_home:.6,p_draw:.2,p_away:.2,made_at:'2026-10-23T10:00:00Z'}],odds:[]};
   let calls=0;const preflight=async()=>({account:verifyAccount(key(),credits(),store.clock()),profiles:['openai/gpt-6-luna','moonshotai/kimi-k2.5'].map(m=>freezeProfile(catalog(m),store.clock()))});
   const engine=async packet=>({synthetic_clock:true,input_hash:'a'.repeat(64),source_sha256:'b'.repeat(64),predictions:[{fixture_id:'1',generated_at_utc:store.clock(),status:'forecast',probabilities:[.5,.3,.2],prediction:{pW:.5,pD:.3,pL:.2},eligible:true,decision:{pick:'1'}}]});
   const client={execute:async(s,ctx,opts)=>executeRequest(s,ctx,{...opts,transport:async()=>{calls++;throw Error('synthetic timeout');}})};
@@ -20,7 +25,7 @@ test('successful synthetic model arms use exact delegated context, shared eviden
  const db=localDatabase('openrouter-successful');await db.start();
  try{
   for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);repository(db).install();const store=weekendStore(db);store.install();
-  const source={synthetic:true,source_read_at_utc:store.clock(),rows:[1,2,3].map(fxid=>({fxid,lid:39,home:'A'+fxid,away:'B',date:'2026-10-25',time:'15:00',status:'NS'})),targets:[1,2,3],originals:[],odds:[]},before=JSON.stringify(source);
+  const source={synthetic:true,source_read_at_utc:store.clock(),rows:[1,2,3].map(fxid=>({fxid,lid:39,home:'A'+fxid,away:'B',...KICKOFF,status:'NS'})),targets:[1,2,3],originals:[],odds:[]},before=JSON.stringify(source);
   const preflight=async()=>({account:verifyAccount(key(),credits(),store.clock()),profiles:['openai/gpt-6-luna','moonshotai/kimi-k2.5'].map(m=>freezeProfile(catalog(m),store.clock()))});
   const engine=async packet=>({synthetic_clock:true,input_hash:'a'.repeat(64),source_sha256:'b'.repeat(64),predictions:packet.targets.map(id=>({fixture_id:String(id),generated_at_utc:store.clock(),status:'forecast',probabilities:[.4,.35,.25],prediction:{pW:.4,pD:.35,pL:.25},...(packet.contexts?.[id]?{a1:{prediction:{pW:.45,pD:.3,pL:.25}}}:{}),eligible:true,decision:{pick:'1'}}))});
   let calls=0;const client={execute:async(s,ctx,opts)=>executeRequest(s,ctx,{...opts,transport:async()=>{
