@@ -47,15 +47,20 @@ export function validateRequest(request,profile,now){
  let rebuilt;try{rebuilt=buildRequest(request.arm,profile,JSON.parse(request.body.messages[1].content),now);}catch{throw Error('invalid bounded request');}
  if(canonicalHash(request)!==canonicalHash(rebuilt))throw Error('bounded request differs from pinned schema/backend/prices');
 }
-export function verifyAccount(key,credits,now){
+export function verifyAccount(key,credits,now,operatorEvidence){
  epochMicros(now);const k=key?.data,c=credits?.data;
- if(!k||k.include_byok_in_limit!==true||k.byok_usage!==0||k.limit_reset!==null||typeof k.limit!=='number'||!(k.limit>0&&k.limit<=5)||k.is_management_key!==false||k.is_provisioning_key!==false||k.is_free_tier!==false||!k.label||k.expires_at!==null&&(!k.expires_at||epochMicros(k.expires_at)<=epochMicros(now)))throw Error('key must have a verified nonresetting lifetime budget <= $5');
+ if(!k||![true,false].includes(k.include_byok_in_limit)||k.byok_usage!==0||k.limit_reset!==null||typeof k.limit!=='number'||!(k.limit>0&&k.limit<=5)||k.is_management_key!==false||k.is_provisioning_key!==false||k.is_free_tier!==false||!k.label||k.expires_at!==null&&(!k.expires_at||epochMicros(k.expires_at)<=epochMicros(now)))throw Error('key must have a verified nonresetting lifetime budget <= $5');
+ const keyIdentity=canonicalHash({label:k.label,limit:k.limit,reset:k.limit_reset});
+ if(k.include_byok_in_limit===false){
+  const e=operatorEvidence;
+  if(!k.workspace_id||!e||e.version!=='credit-only-operator-v1'||e.workspace_id!==k.workspace_id||e.key_identity_hash!==keyIdentity||e.credential_count!==0||canonicalHash(e.confirmed_absent_providers)!==canonicalHash(['OpenAI','Moonshot','Novita'])||!e.recorded_at_utc||epochMicros(now)<epochMicros(e.recorded_at_utc)||epochMicros(now)-epochMicros(e.recorded_at_utc)>600000000n)throw Error('fresh workspace/key-bound credit-only operator evidence required');
+ }
  const usage=dollarsToMicros(k.usage),remaining=floorMicros(decimal(k.limit_remaining)),limit=floorMicros(decimal(k.limit));
  if(remaining<0||usage+remaining>limit||usage>limit)throw Error('inconsistent key budget');
  if(!c||c.total_credits===undefined||c.total_usage===undefined)throw Error('account balance unverified; do not broaden secret privileges');
  const credit=floorMicros(decimal(c.total_credits)),spent=dollarsToMicros(c.total_usage);
  if(credit<spent)throw Error('account balance unavailable');
- return{observed_at_utc:now,key_identity_hash:canonicalHash({label:k.label,limit:k.limit,reset:k.limit_reset}),limit_micros:limit,usage_micros:usage,remaining_micros:Math.min(remaining,credit-spent),account_credit_micros:credit-spent};
+ return{observed_at_utc:now,key_identity_hash:keyIdentity,limit_micros:limit,usage_micros:usage,remaining_micros:Math.min(remaining,credit-spent),account_credit_micros:credit-spent};
 }
 function schema(arm){
  const props={abstain:{type:'boolean'},reason:{type:'string',enum:['supported','missing_evidence','insufficient_information']},evidence_refs:{type:'array',items:{type:'string'}}};
