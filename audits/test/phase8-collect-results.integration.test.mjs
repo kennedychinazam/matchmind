@@ -18,15 +18,20 @@ const iso=ms=>new Date(ms).toISOString();
 const fixtureRow=(fxid,kickoffMs,extra)=>({fxid,date:iso(kickoffMs).slice(0,10),time:iso(kickoffMs).slice(11,19),provider:'af',gh:null,ga:null,ft_h:null,ft_a:null,updated_at:iso(Date.now()),...extra});
 
 const db=localDatabase('phase8-collector-source');
-let dir,store,kickoffMs,labels,before_events;
+let dir,store,kickoffMs,labelKickoffMs,labels,before_events;
 before(async()=>{
  docker(['image','inspect',IMAGE]);await db.start();
  for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);
  repository(db).install();store=weekendStore(db);store.install();
  dir=mkdtempSync(join(tmpdir(),'mm-phase8-collector-'));
 
+ // The journal will only accept an issued forecast while its kickoff is still
+ // ahead, and the label will only settle once its own kickoff has passed. Give
+ // the build 45 seconds of headroom and record the kickoff a couple of seconds
+ // out, far inside the 48-hour tolerance the void rule itself uses, so the test
+ // waits seconds rather than racing the build against the clock.
  // One Saturday job for the same fixture, so the report can separate cohorts.
- kickoffMs=Date.now()+20000;
+ kickoffMs=Date.now()+45000;labelKickoffMs=Date.now()+2000;
  const ko=iso(kickoffMs),past48=iso(Date.now()-60*HOUR),past30=iso(Date.now()-30*HOUR);
  const satStudy=store.append('study','weekend-2026-10-24',null,{version:'weekend-v1',windows:['2026-10-24','2026-10-25'],kind:'synthetic_verification'});
  const satPacket=store.append('packet','weekend-2026-10-24:packet',satStudy,{synthetic:true,rows:[{fxid:11}]});
@@ -60,7 +65,7 @@ before(async()=>{
 
  labels=new Map([
   // Extra time is not the regulation result: 2-1 after extra time, 1-1 at 90.
-  ['11',fixtureRow(11,kickoffMs,{status:'AET',gh:2,ga:1,ft_h:1,ft_a:1})],
+  ['11',fixtureRow(11,labelKickoffMs,{status:'AET',gh:2,ga:1,ft_h:1,ft_a:1})],
   ['12',fixtureRow(12,Date.parse(past48),{status:'PST'})],
   ['13',fixtureRow(13,Date.parse(past30),{status:'ABD'})]
  ]);
@@ -70,7 +75,8 @@ before(async()=>{
  writeFileSync(join(dir,'private-weekend-backup.sql'),dump);
  writeFileSync(join(dir,'backup.sha256'),createHash('sha256').update(dump).digest('hex')+'\n');
  writeFileSync(join(dir,'study.json'),JSON.stringify({records:[{odds:[]}]}));
- while(Date.now()<kickoffMs+1000)await sleep(500);
+ assert.ok(Date.now()<kickoffMs,'journal build exceeded its kickoff headroom');
+ while(Date.now()<labelKickoffMs+1000)await sleep(250);
 });
 after(()=>{db.close();if(dir)rmSync(dir,{recursive:true,force:true});});
 
@@ -97,10 +103,13 @@ test('collection settles the real workflow on regulation time and keeps the decl
  const nextDump=readFileSync(join(dir,'private-weekend-backup-'+cycle+'.sql'),'utf8');
  assert.equal(readFileSync(join(dir,'backup-'+cycle+'.sha256'),'utf8').trim(),createHash('sha256').update(nextDump).digest('hex'));
 
- // Saturday and Sunday stay separate cohorts over the same fixture.
- assert.equal(report.saturday.coverage.roster,1);
- assert.equal(report.sunday.coverage.roster,4);
- assert.equal(report.saturday_vs_sunday.n,1);
+ // Assert in dependency order: the fixture must settle before anything scored
+ // from it means anything, so a broken link names itself.
+ const settledRow=study.records.find(r=>r.job_id==='sunday:test:11:engine');
+ assert.equal(settledRow.labels.length,1);
+ assert.equal(settledRow.labels[0].fixture.status,'AET');
+ const issued=settledRow.forecasts.find(f=>f.arm==='E-Refreshed');
+ assert.equal(issued.status,'forecast',issued.reason??'baseline was downgraded');
 
  // Regulation time decides it: Brier 0.78 is [.5,.3,.2] against a draw. The
  // extra-time home win would have scored 0.38.
@@ -113,6 +122,13 @@ test('collection settles the real workflow on regulation time and keeps the decl
  // and the fixture that never enrolled stays pending too.
  assert.equal(report.sunday.coverage.void,1);
  assert.equal(report.sunday.coverage.pending,2);
+
+ // Saturday and Sunday stay separate cohorts over the same fixture.
+ assert.equal(report.saturday.coverage.roster,1);
+ assert.equal(report.sunday.coverage.roster,4);
+ const satIssued=study.records.find(r=>r.job_id==='sat:11:engine').forecasts.find(f=>f.arm==='E-Refreshed');
+ assert.equal(satIssued.status,'forecast',satIssued.reason??'Saturday baseline was downgraded');
+ assert.equal(report.saturday_vs_sunday.n,1);
 
  // Each AI arm is attributed to its own model and scored on its own numbers.
  const openai=report.models[MODELS[0]],kimi=report.models[MODELS[1]];
