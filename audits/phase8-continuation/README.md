@@ -1,5 +1,7 @@
 # Phase 8 secure continuation — supervised handoff
 
+**Start here:** the [unresolved recovery dependency](UNRESOLVED-RECOVERY-DEPENDENCY.md) records what is missing from the private chain, including the retained US$0.306000 reservation, and why no paid inference is authorized.
+
 **October 25 follow-up:** read the [BYOK assessment and CI findings](2026-10-25-byok-ci-findings.md). The earlier blanket instruction to enable BYOK inclusion is superseded by the credit-only assessment; account-level absence of saved provider keys still needs evidence. No spending guard is bypassed and paid activation remains blocked.
 
 **Credit-only correction:** an operator-confirmed workspace with no OpenAI, Moonshot or Novita provider credentials can pass metadata preflight with `include_byok_in_limit:false` only when a private, fresh `credit-only-operator-v1` record binds the workspace ID and dedicated key identity reported by `GET /key`. Pass its absolute path as the optional third argument to `preflight-cli.mjs`; the CLI reads it only for validation. The record expires after ten minutes, and the ordinary account metadata still expires after two minutes. Reconfirm immediately if the workspace's provider credentials, dedicated key or workspace configuration changes. Keep this record private and outside Git. BYOK-inclusive accounts still use the original strict key and budget checks.

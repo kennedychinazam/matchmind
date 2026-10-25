@@ -55,6 +55,20 @@ export function exportContinuation(store){
  const events=store.events(),packets=new Map(events.filter(e=>e.kind==='packet').map(e=>[e.event_id,store.read(e.event_id)]));
  return continuationStudy(events,packets);
 }
+// Outcome collection must take the continuation view whenever the journal holds
+// a continuation study. The single-cohort view maps existing job events only, so
+// it silently drops every declared roster target that never enrolled and reports
+// a smaller denominator than the study actually committed to.
+export function resultsView(store,sourceOdds=[]){
+ const events=store.events();
+ if(events.some(e=>e.kind==='study'&&e.body.experiment==='openrouter-private-v1'))return{mode:'continuation',study:exportContinuation(store)};
+ return{mode:'weekend',study:eventsToStudy(events,sourceOdds)};
+}
+export function resultsReport(view,asOfUtc){
+ if(view.mode==='continuation')return evaluateContinuation(view.study,asOfUtc);
+ if(view.mode==='weekend')return evaluateWeekend(view.study,asOfUtc);
+ throw Error('unknown results view mode');
+}
 export function evaluateContinuation(study,cutoff){
  const sat=study.records.filter(r=>!r.cohort||r.cohort==='saturday'),sun=study.records.filter(r=>r.cohort==='sunday-engine');
  const select=records=>evaluateWeekend({...study,records},cutoff);

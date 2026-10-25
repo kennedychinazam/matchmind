@@ -26,3 +26,20 @@ test('interrupted enrollment remains in every model denominator without inventin
  const report=api.evaluateContinuation(study,'2026-10-26T08:00:00Z');assert.equal(report.models['openai/gpt-6-luna'].coverage.roster,2);assert.equal(report.models['openai/gpt-6-luna'].arms.A3.failed,2);assert.equal(report.sunday.coverage.roster,2);
  assert.equal(study.records.filter(r=>r.missing_enrollment).some(r=>r.forecasts.some(f=>f.generated_at_utc)),false);
 });
+test('outcome collection takes the continuation view so a continuation journal keeps its declared roster denominator',async()=>{
+ assert.equal(typeof api.resultsView,'function');assert.equal(typeof api.resultsReport,'function');
+ const roster=[1,2].map(id=>({fixture_id:String(id),league:39,kickoff_at_utc:'2026-10-25T15:00:00Z',original:null}));
+ const events=[{kind:'study',event_id:'sunday:test',received_at:'2026-10-25T08:00:00Z',body:{version:'weekend-v1',experiment:'openrouter-private-v1',roster}},{kind:'job',event_id:'sunday:test:1:engine',parent_id:'p',body:{...roster[0],cohort:'sunday-engine',window:'2026-10-25'}}];
+ const view=api.resultsView({events:()=>events,read:()=>null});
+ assert.equal(view.mode,'continuation');assert.equal(view.study.records.length,6);
+ // The older single-cohort view sees only the one enrolled job.
+ const {eventsToStudy}=await import('../phase8/report.mjs');
+ assert.equal(eventsToStudy(events).records.length,1);
+ const report=api.resultsReport(view,'2026-10-26T08:00:00Z');
+ assert.equal(report.version,'openrouter-weekend-report-v1');assert.equal(report.sunday.coverage.roster,2);assert.equal(report.accuracy_claim,false);
+ const weekend=[{kind:'study',event_id:'weekend-2026-10-24',received_at:'2026-10-24T09:00:00Z',body:{version:'weekend-v1'}},{kind:'job',event_id:'job-1',parent_id:'p',body:{fixture_id:'1',kickoff_at_utc:'2026-10-24T15:00:00Z',original:null}}];
+ const plain=api.resultsView({events:()=>weekend,read:()=>null});
+ assert.equal(plain.mode,'weekend');assert.equal(plain.study.records.length,1);
+ assert.equal(api.resultsReport(plain,'2026-10-26T08:00:00Z').scorer_version,'weekend-report-v2');
+ assert.throws(()=>api.resultsReport({mode:'guessed',study:plain.study},'2026-10-26T08:00:00Z'),/view mode/);
+});

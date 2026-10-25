@@ -1,5 +1,11 @@
 # Exact new-task handoff
 
+**Superseded on 25 October 2026.** The owner's Codex allowance is exhausted and
+development continues locally in Claude Code. Do not start a new Codex Cloud task
+and do not treat the Codex workspace as a source of private files; read the
+[unresolved recovery dependency](UNRESOLVED-RECOVERY-DEPENDENCY.md) instead. The
+study, custody, budget, date and no-spending safeguards below all still apply.
+
 Read the [October 25 BYOK assessment and CI findings](2026-10-25-byok-ci-findings.md) first. It corrects the blanket BYOK-toggle instruction without relaxing the global spending controls. No paid inference has been performed.
 
 **Subsequent task update:** the published environment and private archive are now available and verified; authenticated metadata preflight is blocked by `include_byok_in_limit:false`. Read the [October 24 runtime follow-up](2026-10-24-runtime-followup.md) before repeating the historical environment recovery steps below. All original study, custody, budget and date safeguards still apply.

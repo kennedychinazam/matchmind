@@ -24,15 +24,20 @@ before(async()=>{
 });
 after(()=>db.close());
 
-test('a restored legacy kind constraint refuses the reservation instead of stranding an unconfirmable hold',()=>{
+test('a restored legacy kind constraint refuses the reservation instead of stranding an unconfirmable hold',async()=>{
  constrain(db,LEGACY_KINDS);
  assert.throws(()=>store.reserve('legacy-request',job,306000,canonicalHash({legacy:1})),/cannot confirm reservations/);
  assert.equal(store.read('legacy-request'),null);
+ // The concurrent path reserves out of band, so it needs the same refusal.
+ await assert.rejects(()=>store.reserveAsync('legacy-async',job,306000,canonicalHash({legacy:2})),/cannot confirm reservations/);
+ assert.equal(store.read('legacy-async'),null);
  assert.equal(store.reservedMicros(),0);
 });
 
 test('restore maintenance widens the constraint and changes no stored event or retained liability',()=>{
  const before=store.events();
+ refreshWriter(db);
+ // An operator may repeat the maintenance; the second pass must be a no-op.
  refreshWriter(db);
  assert.deepEqual(store.events(),before);
  assert.equal(store.reservedMicros(),0);
