@@ -11,7 +11,7 @@ import {canonicalHash}from '../lib/snapshot-contract.mjs';
 // narrower definition back with it and rejects the acknowledgement the current
 // writer requires. Reproduce that exact table constraint, not a filtered view.
 const LEGACY_KINDS="'study','packet','job','forecast','label','reservation','usage'";
-const constrain=(db,kinds)=>db.sql(`BEGIN;SET LOCAL ROLE research_owner;DO $do$DECLARE c text;BEGIN SELECT conname INTO c FROM pg_constraint WHERE conrelid='shadow_eval.weekend_events'::regclass AND contype='c' AND pg_get_constraintdef(oid)LIKE '%kind%IN%';IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE shadow_eval.weekend_events DROP CONSTRAINT %I',c);END IF;END$do$;ALTER TABLE shadow_eval.weekend_events ADD CONSTRAINT weekend_events_kind_check CHECK(kind IN(${kinds}));COMMIT;`);
+const constrain=(db,kinds)=>db.sql(`BEGIN;SET LOCAL ROLE research_owner;DO $do$DECLARE c text;BEGIN FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='shadow_eval.weekend_events'::regclass AND contype='c' AND conkey::int2[]=ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid='shadow_eval.weekend_events'::regclass AND attname='kind')]::int2[] LOOP EXECUTE format('ALTER TABLE shadow_eval.weekend_events DROP CONSTRAINT %I',c);END LOOP;END$do$;ALTER TABLE shadow_eval.weekend_events ADD CONSTRAINT weekend_events_kind_check CHECK(kind IN(${kinds}));COMMIT;`);
 
 const db=localDatabase('phase8-legacy-confirmation');let store,job;
 before(async()=>{

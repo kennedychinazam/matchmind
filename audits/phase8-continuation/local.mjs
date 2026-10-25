@@ -17,7 +17,10 @@ export function refreshWriter(db){
  const ledger=()=>db.sql("SELECT count(*)||':'||coalesce(sum((body->>'reserved_micros')::bigint),0)FROM shadow_eval.weekend_events");
  const before=ledger();
  const result=db.sql('BEGIN;SET LOCAL ROLE research_owner;'
-  +"DO $do$DECLARE c text;BEGIN SELECT conname INTO c FROM pg_constraint WHERE conrelid='shadow_eval.weekend_events'::regclass AND contype='c' AND pg_get_constraintdef(oid)LIKE '%kind%IN%';IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE shadow_eval.weekend_events DROP CONSTRAINT %I',c);END IF;END$do$;"
+  // Match the single-column check on kind by catalog key, never by its text:
+  // PostgreSQL stores IN(...) as = ANY(ARRAY[...]), and the constraint the table
+  // declaration generates already carries the name added back below.
+  +"DO $do$DECLARE c text;BEGIN FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='shadow_eval.weekend_events'::regclass AND contype='c' AND conkey::int2[]=ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid='shadow_eval.weekend_events'::regclass AND attname='kind')]::int2[] LOOP EXECUTE format('ALTER TABLE shadow_eval.weekend_events DROP CONSTRAINT %I',c);END LOOP;END$do$;"
   +`ALTER TABLE shadow_eval.weekend_events ADD CONSTRAINT weekend_events_kind_check CHECK(kind IN(${kinds}));`
   +writer+'COMMIT;');
  if(ledger()!==before)throw Error('restore maintenance must not change stored events or retained liability');
