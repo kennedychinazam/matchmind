@@ -1,6 +1,6 @@
 # Phase 8 secure continuation — supervised handoff
 
-**Start here:** the [unresolved recovery dependency](UNRESOLVED-RECOVERY-DEPENDENCY.md) records what is missing from the private chain, including the retained US$0.306000 reservation, and why no paid inference is authorized.
+**Start here:** the [unresolved recovery dependency](UNRESOLVED-RECOVERY-DEPENDENCY.md) records what is missing from the private chain, including the retained US$0.306000 reservation, and why no paid inference is authorized. The [Monday outcome pipeline coverage note](2026-10-25-monday-pipeline-coverage.md) records what the settlement path is tested to do, and what it is not.
 
 **October 25 follow-up:** read the [BYOK assessment and CI findings](2026-10-25-byok-ci-findings.md). The earlier blanket instruction to enable BYOK inclusion is superseded by the credit-only assessment; account-level absence of saved provider keys still needs evidence. No spending guard is bypassed and paid activation remains blocked.
 
