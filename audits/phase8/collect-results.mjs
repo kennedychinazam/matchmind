@@ -8,6 +8,7 @@ import {repository}from '../phase6/repository.mjs';
 import {weekendStore}from './store.mjs';
 import {readSource}from './source.mjs';
 import {resultsView,resultsReport}from '../phase8-continuation/protocol.mjs';
+import {checkpointWriter}from '../phase8-continuation/checkpoint.mjs';
 import {privateDirectory}from './files.mjs';
 import {loadBackup}from './archive.mjs';
 export const USAGE='usage: node audits/phase8/collect-results.mjs /private/weekend-run-directory [prior-backup.sql prior-hash.sha256]';
@@ -18,13 +19,17 @@ export function parseArguments(argv){
 // The label read and the container label stay injectable so a disposable
 // synthetic run can exercise this exact workflow without a network call. The
 // command line always uses the real read-only reader.
-export async function collectResults({dir,backup,checksum},{read=readSource,label='phase8-results'}={}){
+export async function collectResults({dir,backup,checksum},{read=readSource,label='phase8-results',checkpointDir,parentSha256}={}){
+ // Refuse an incomplete checkpoint request before anything is started.
+ const chaining=checkpointDir!==undefined||parentSha256!==undefined;
+ if(chaining&&!(typeof checkpointDir==='string'&&typeof parentSha256==='string'))throw Error('checkpoint directory and verified parent SHA256 required together');
  const real=privateDirectory(dir);
  const input=JSON.parse(readFileSync(resolve(real,'study.json'))),dump=loadBackup(real,backup,checksum);
  const db=localDatabase(label);docker(['image','inspect',IMAGE]);await db.start();
  try{
   for(const f of ['bootstrap.sql','snapshot-schema.sql','evidence-manifests.sql','permissions.sql','capture-monitoring.sql','capture-hooks.sql'])db.apply(f);repository(db).install();db.restore(dump);
-  const restored={name:db.name,sql:s=>db.sql(s,'matchmind_restore')},store=weekendStore(restored),cycle=store.clock().replaceAll(/[^0-9]/g,''),jobs=store.events().filter(e=>e.kind==='job');
+  const restored={name:db.name,sql:s=>db.sql(s,'matchmind_restore'),dump:()=>docker(['exec',db.name,'pg_dump','-U','postgres','-d','matchmind_restore'])};
+  const store=weekendStore(restored),cycle=store.clock().replaceAll(/[^0-9]/g,''),jobs=store.events().filter(e=>e.kind==='job');
   for(let i=0;i<jobs.length;i+=50){
    const group=jobs.slice(i,i+50),response=read('fixtures',{select:'fxid,date,time,status,gh,ga,ft_h,ft_a,provider,updated_at',fxid:'in.('+group.map(j=>j.body.fixture_id).join(',')+')',order:'fxid.asc',limit:1000});
    const map=new Map(response.rows.map(r=>[String(r.fxid),r]));
@@ -36,11 +41,16 @@ export async function collectResults({dir,backup,checksum},{read=readSource,labe
   const sourceOdds=input.records.flatMap(r=>r.odds),view=resultsView(store,sourceOdds),study=view.study,at=store.clock(),report=resultsReport(view,at);
   const save=(name,value)=>writeFileSync(resolve(real,name),typeof value==='string'?value:JSON.stringify(value,null,2)+'\n',{mode:0o600,flag:'wx'});
   save('study-'+cycle+'.json',study);save('report-'+cycle+'.json',report);
-  const nextDump=docker(['exec',db.name,'pg_dump','-U','postgres','-d','matchmind_restore']);save('private-weekend-backup-'+cycle+'.sql',nextDump);save('backup-'+cycle+'.sha256',createHash('sha256').update(nextDump).digest('hex')+'\n');
+  const nextDump=restored.dump();save('private-weekend-backup-'+cycle+'.sql',nextDump);save('backup-'+cycle+'.sha256',createHash('sha256').update(nextDump).digest('hex')+'\n');
   // Originals and input lineage never change. An operator selects the new verified
   // dump for the next restore; no unattended overwrite or scheduler is claimed.
+  // Given a verified parent, the real checkpoint writer also records this cycle
+  // as a parent-linked generation before the restored session closes, so the new
+  // append-only labels enter the chain instead of standing outside it.
+  const checkpoint=chaining?checkpointWriter(restored,store,checkpointDir,parentSha256)():null;
   const summary=view.mode==='continuation'?{roster:{saturday:report.saturday.coverage.roster,sunday:report.sunday.coverage.roster},saturday:report.saturday.coverage,sunday:report.sunday.coverage,sunday_arms:report.sunday.arms}:{coverage:report.coverage,arms:report.arms};
-  return{cycle,mode:view.mode,observed_at_utc:at,...summary,actual_ai_spend_usd:report.actual_ai_spend_usd,accuracy_claim:false};
+  return{cycle,mode:view.mode,observed_at_utc:at,...summary,actual_ai_spend_usd:report.actual_ai_spend_usd,accuracy_claim:false,
+   ...(checkpoint?{checkpoint:{backup:checkpoint.backup,backup_sha256:checkpoint.backup_sha256,parent_sha256:checkpoint.parent_sha256,events:checkpoint.events.length,reserved_micros:checkpoint.reserved_micros}}:{})};
  }finally{db.close();}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

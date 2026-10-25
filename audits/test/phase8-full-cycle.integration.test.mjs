@@ -46,7 +46,7 @@ const reads=[];
 const read=(table,parameters)=>{reads.push({table,parameters});return{rows:[...LABELS.values()],total:LABELS.size,received_at_utc:iso(Date.now())};};
 
 const db=localDatabase('phase8-full-cycle');
-let home,ckptDir,mondayDir,store,parentSha,ran,metas,finalMeta,coldEvents,summary,study,report;
+let home,ckptDir,mondayDir,mondayCkptDir,store,parentSha,ran,metas,finalMeta,coldEvents,summary,study,report;
 let clientCalls=0,preflightCalls=0;
 before(async()=>{
  docker(['image','inspect',IMAGE]);await db.start();
@@ -73,7 +73,9 @@ before(async()=>{
  mkdirSync(mondayDir,{recursive:true,mode:0o700});
  for(const name of [finalMeta.backup,finalMeta.checksum])copyFileSync(join(ckptDir,name),join(mondayDir,name));
  writeFileSync(join(mondayDir,'study.json'),JSON.stringify({records:[{odds:source.odds}]}));
- summary=await collectResults({dir:mondayDir,backup:finalMeta.backup,checksum:finalMeta.checksum},{read,label:'phase8-cycle-monday'});
+ mondayCkptDir=join(home,'monday-checkpoints');
+ summary=await collectResults({dir:mondayDir,backup:finalMeta.backup,checksum:finalMeta.checksum},
+  {read,label:'phase8-cycle-monday',checkpointDir:mondayCkptDir,parentSha256:finalMeta.backup_sha256});
  study=JSON.parse(readFileSync(join(mondayDir,'study-'+summary.cycle+'.json'),'utf8'));
  report=JSON.parse(readFileSync(join(mondayDir,'report-'+summary.cycle+'.json'),'utf8'));
 });
@@ -159,6 +161,27 @@ test('the real Monday collector settles the restored journal on regulation time'
  assert.equal(report.confirmatory_eligible,false);
  // Collecting outcomes leaves the verified chain exactly as it was.
  assert.deepEqual(verifyCheckpointFiles(ckptDir,parentSha).map(m=>m.backup_sha256),metas.map(m=>m.backup_sha256));
+});
+
+test('outcome collection extends the verified chain instead of standing outside it',async()=>{
+ // The collector wrote its own parent-linked generation from the head hash.
+ assert.equal(summary.checkpoint.parent_sha256,finalMeta.backup_sha256);
+ assert.equal(summary.checkpoint.reserved_micros,0);
+ const chain=verifyCheckpointFiles(mondayCkptDir,finalMeta.backup_sha256);
+ assert.equal(chain.length,1);
+ assert.equal(chain[0].backup_sha256,summary.checkpoint.backup_sha256);
+ assert.equal(readFileSync(join(mondayCkptDir,chain[0].checksum),'utf8').trim(),chain[0].backup_sha256);
+ // Only labels were added, and every pre-collection event keeps its hash.
+ const added=chain[0].events.filter(e=>e.kind==='label');
+ assert.equal(added.length,6);
+ assert.equal(chain[0].events.length,finalMeta.events.length+6);
+ const before=new Map(finalMeta.events.map(e=>[e.event_id,e.hash]));
+ assert.equal(chain[0].events.filter(e=>before.has(e.event_id)).every(e=>before.get(e.event_id)===e.hash),true);
+ assert.equal(chain[0].events.filter(e=>e.kind==='reservation'||e.kind==='usage').length,0);
+ // Both proofs must be given together or neither is accepted, and the refusal
+ // comes before any container or restore is started.
+ await assert.rejects(()=>collectResults({dir:mondayDir,backup:finalMeta.backup,checksum:finalMeta.checksum},{read,label:'phase8-cycle-reject',checkpointDir:mondayCkptDir}),/required together/);
+ await assert.rejects(()=>collectResults({dir:mondayDir,backup:finalMeta.backup,checksum:finalMeta.checksum},{read,label:'phase8-cycle-reject',parentSha256:finalMeta.backup_sha256}),/required together/);
 });
 
 test('nothing in the cycle can reach production, a provider or a real private record',()=>{
