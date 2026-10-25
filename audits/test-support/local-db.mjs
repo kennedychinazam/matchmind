@@ -4,7 +4,15 @@ import {setTimeout} from 'node:timers/promises';
 export const IMAGE='postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27';
 const env={...process.env};
 for(const k of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']) delete env[k];
-export function docker(args,input) { return execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:64*1024*1024}); }
+// The pinned local Unix socket, the pinned image digest, the stripped DOCKER_*
+// environment and the network-none containers are the security controls here and
+// none of them changes. The buffer and timeout are resource limits only: a real
+// research checkpoint dump is already 102 MiB and grows with every appended
+// outcome label, so a 64 MiB buffer aborted genuine collection after the labels
+// were written but before the dump could be hashed. Only synthetic journals ever
+// fit the old limit. The 30 second timeout is unchanged and did carry a 102 MiB
+// restore and dump, but it is near its margin as the journal grows.
+export function docker(args,input) { return execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:768*1024*1024}); }
 export async function waitForPostgres(name,command=docker,pause=setTimeout) {
  // The image's initialization server accepts Unix-socket queries, then stops.
  // It disables TCP; require TCP readiness from the final server before SQL.
