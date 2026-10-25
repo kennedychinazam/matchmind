@@ -49,7 +49,7 @@ export async function runSunday(options){
  await checkpoint();let providerBlocked=false;
  for(const g of groups){
   const modelJobs=g.jobs.filter(j=>j.model),fail=(j,reason,status='failed')=>{for(const arm of ['A1','A2','A3'])save(j,arm,{status,reason,baseline_fallback:g.baseline?.probabilities??null,fallback_scored_as_ai:false});};
-  if(!options.paid||providerBlocked||g.baseline?.status!=='forecast'){for(const j of modelJobs)fail(j,!options.paid?'paid_execution_disabled':providerBlocked?'provider_preflight_or_contract_blocked':'baseline_unavailable');continue;}
+  if(!options.paid||providerBlocked||g.baseline?.status!=='forecast'||g.baseline.eligible!==true){for(const j of modelJobs)fail(j,!options.paid?'paid_execution_disabled':providerBlocked?'provider_preflight_or_contract_blocked':g.baseline?.status!=='forecast'?'baseline_unavailable':'baseline_ineligible');continue;}
   let evidence,initialProfiles;
   try{
    if(epochMicros(g.ko)-epochMicros(store.clock())<450000000n)throw Error('request_deadline');

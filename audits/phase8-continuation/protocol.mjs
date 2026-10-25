@@ -21,10 +21,28 @@ export function continuationStudy(events,packets=new Map()){
   const packet=packets.get(byJob.get(r.job_id)?.parent_id);
   r.odds=(packet?.body?.odds??[]).filter(o=>String(o.fxid)===r.fixture_id).map(o=>({...o,received_at_utc:o.received_at_utc??packet.received_at}));
  }
+ // A paid continuation adds distinct jobs beneath a fresh packet of the same
+ // frozen study. Its report view references the immutable baseline events;
+ // the superseded paid-disabled jobs remain in the event journal.
+ const continued=study.records.filter(r=>r.cohort==='sunday-ai-continuation');
+ for(const row of continued){
+  const event=byJob.get(row.job_id),baselineJob=event?.body?.baseline_job_id;
+  const original=study.records.find(r=>r.job_id===baselineJob);
+  if(!original||original.cohort!=='sunday-engine'||original.fixture_id!==row.fixture_id||event.body.baseline_forecast_id!==baselineJob+':E-Refreshed')throw Error('invalid paid continuation lineage');
+  const expected=events.find(e=>e.event_id===event.body.baseline_forecast_id);
+  if(!expected||expected.event_body_hash!==event.body.baseline_hash)throw Error('changed frozen continuation baseline');
+  row.forecasts=[...original.forecasts.filter(f=>['E','E-Refreshed'].includes(f.arm)),...row.forecasts];
+  row.labels=original.labels;row.cohort='sunday-ai';row.continuation_of=baselineJob;
+ }
+ const covered=new Set(continued.map(r=>r.fixture_id+'|'+r.provider_model));
+ if(continued.length){
+  study.records=study.records.filter(r=>r.cohort!=='sunday-ai'||r.continuation_of||!covered.has(r.fixture_id+'|'+r.provider_model));
+ }
  for(const s of events.filter(e=>e.kind==='study'&&e.body.experiment==='openrouter-private-v1')){
   for(const target of s.body.roster??[]){
    for(const[tag,model]of [['engine',null],['openai',MODELS[0]],['kimi',MODELS[1]]]){
     const job=s.event_id+':'+target.fixture_id+':'+tag;
+   if(model&&covered.has(target.fixture_id+'|'+model))continue;
     if(study.records.some(r=>r.job_id===job))continue;
     const known=study.records.find(r=>r.fixture_id===target.fixture_id);
     study.records.push({...target,job_id:job,window:'2026-10-25',cohort:model?'sunday-ai':'sunday-engine',provider_model:model,missing_enrollment:true,virtual_export_only:true,odds:[],labels:known?.labels??[],forecasts:['E','E-Refreshed','A1','A2','A3'].map(arm=>({arm,status:'failed',reason:'declared_target_enrollment_or_capture_failed'}))});

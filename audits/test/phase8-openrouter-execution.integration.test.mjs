@@ -51,6 +51,15 @@ test('kickoff crossed during checkpoint prevents HTTP while retaining the admitt
  await assert.rejects(()=>api.executeRequest(store,{id:'or-late-checkpoint',job,request:nearKickoff,profile},{kind:'synthetic_verification',account:account(),checkpoint:async()=>{checkpoints++;assert.equal(store.reservedMicros(),306000);virtual=new Date(Date.parse(kickoff)+1000).toISOString();},transport:async()=>{http++;}}),/late or stale dispatch after checkpoint/);
  assert.equal(checkpoints,1);assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
 });
+test('real paid dispatch enforces the 450-second allowance after checkpoint',async()=>{
+ const kickoff=store.read(job).body.kickoff_at_utc;
+ let virtual=new Date(Date.parse(kickoff)-8*60000).toISOString(),http=0;
+ store.clock=()=>virtual;
+ const profile=freezeProfile(catalog(),virtual),bounded=buildRequest('A3',profile,{fixture_id:'1',home:'A',away:'B',receipt_at_utc:virtual,facts:[{ref:'r',data:{synthetic:true}}]},virtual);
+ const runtime={checked_at_utc:virtual,runtime:{observations_current:true,spec_revision:'test',observed_spec_revision:'test',network_policy:{mode:'restricted',state:'enforced',effective_allowed_hosts:['openrouter.ai']},secrets:[{name:'OPENROUTER_API_KEY',state:'ready'}]}};
+ await assert.rejects(()=>api.executeRequest(store,{id:'or-allowance',job,request:bounded,profile},{kind:'football',supervised:true,recoveryVerified:true,externalCopyVerified:true,runtime,account:account(),checkpoint:async()=>{virtual=new Date(Date.parse(kickoff)-6*60000).toISOString();},transport:async()=>{http++;return response();}}),/late or stale dispatch after checkpoint/);
+ assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
+});
 test('a halt arriving during checkpoint blocks the waiting attempt before HTTP',async()=>{
  let http=0;
  await assert.rejects(()=>api.executeRequest(store,{id:'or-concurrent-halt',job,request,profile:p},{kind:'synthetic_verification',account:account(),checkpoint:async()=>{store.append('usage','or-concurrent-halt:other','or-concurrent-halt',{status:'contract_violation',halt:true});},transport:async()=>{http++;return response();}}),/halted/);assert.equal(http,0);

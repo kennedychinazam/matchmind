@@ -33,7 +33,7 @@ export async function executeRequest(store,{id,job,request,profile},options){
  validateRequest(request,profile,store.clock());
  if(store.events().some(e=>e.kind==='usage'&&e.body.halt===true))throw Error('study halted before HTTP');
  const dispatchAt=store.clock(),deadline=store.read(job)?.body?.kickoff_at_utc;
- if(!deadline||epochMicros(dispatchAt)>=epochMicros(deadline)||epochMicros(dispatchAt)-epochMicros(account.observed_at_utc)>120000000n)throw Error('late or stale dispatch after checkpoint; retain liability');
+ if(!deadline||epochMicros(dispatchAt)>=epochMicros(deadline)||kind!=='synthetic_verification'&&epochMicros(deadline)-epochMicros(dispatchAt)<450000000n||epochMicros(dispatchAt)-epochMicros(account.observed_at_utc)>120000000n)throw Error('late or stale dispatch after checkpoint; retain liability');
  if(kind!=='synthetic_verification')assertRuntime(runtime,dispatchAt);
  let receivedResponse=false;
  try{
