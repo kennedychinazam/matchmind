@@ -25,13 +25,16 @@ before(async()=>{
  repository(db).install();store=weekendStore(db);store.install();
  dir=mkdtempSync(join(tmpdir(),'mm-phase8-collector-'));
 
- // The journal will only accept an issued forecast while its kickoff is still
- // ahead, and the label will only settle once its own kickoff has passed. Give
- // the build 45 seconds of headroom and record the kickoff a couple of seconds
- // out, far inside the 48-hour tolerance the void rule itself uses, so the test
- // waits seconds rather than racing the build against the clock.
+ // The journal only accepts an issued forecast while its kickoff is still
+ // ahead, and the label only settles once its own kickoff has passed. Fixture
+ // times are minute-precision, so utcKickoff drops the seconds: a kickoff a few
+ // seconds ahead can round back to before the forecast was issued, and the
+ // contextual comparison then rejects its own baseline. Anchor the kickoff on a
+ // whole minute at least 60 seconds out, where truncation changes nothing, and
+ // record the played kickoff two seconds out, far inside the 48-hour tolerance
+ // the void rule itself defines.
  // One Saturday job for the same fixture, so the report can separate cohorts.
- kickoffMs=Date.now()+45000;labelKickoffMs=Date.now()+2000;
+ kickoffMs=(Math.floor(Date.now()/60000)+2)*60000;labelKickoffMs=Date.now()+2000;
  const ko=iso(kickoffMs),past48=iso(Date.now()-60*HOUR),past30=iso(Date.now()-30*HOUR);
  const satStudy=store.append('study','weekend-2026-10-24',null,{version:'weekend-v1',windows:['2026-10-24','2026-10-25'],kind:'synthetic_verification'});
  const satPacket=store.append('packet','weekend-2026-10-24:packet',satStudy,{synthetic:true,rows:[{fxid:11}]});
