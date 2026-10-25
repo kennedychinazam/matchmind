@@ -171,10 +171,11 @@ test('outcome collection extends the verified chain instead of standing outside 
  assert.equal(chain.length,1);
  assert.equal(chain[0].backup_sha256,summary.checkpoint.backup_sha256);
  assert.equal(readFileSync(join(mondayCkptDir,chain[0].checksum),'utf8').trim(),chain[0].backup_sha256);
- // Only labels were added, and every pre-collection event keeps its hash.
+ // Only labels were added, one per job, and every pre-collection event keeps
+ // its hash.
  const added=chain[0].events.filter(e=>e.kind==='label');
- assert.equal(added.length,6);
- assert.equal(chain[0].events.length,finalMeta.events.length+6);
+ assert.equal(added.length,ran.jobs);
+ assert.equal(chain[0].events.length,finalMeta.events.length+ran.jobs);
  const before=new Map(finalMeta.events.map(e=>[e.event_id,e.hash]));
  assert.equal(chain[0].events.filter(e=>before.has(e.event_id)).every(e=>before.get(e.event_id)===e.hash),true);
  assert.equal(chain[0].events.filter(e=>e.kind==='reservation'||e.kind==='usage').length,0);
