@@ -52,10 +52,22 @@ carry it through as a failure rather than re-apply it. That is what is tested.
 
 ## Verification
 
-Commit `8241325`. GitHub CI on that commit: **247 tests, 247 pass, 0 fail, 0
+Commit `c9a1638`. GitHub CI on that commit: **247 tests, 247 pass, 0 fail, 0
 skipped** on Node 20.20.2 and Node 24.19.0, both the push and pull_request runs.
 The three new tests are reported individually as passing on both runtimes. The
 previous baseline was 244.
+
+The test was intermittent for two commits before that, and the cause is worth
+keeping. Fixture times are minute-precision, so `utcKickoff` drops the seconds.
+A test kickoff set a few seconds ahead truncates to as much as 14 seconds
+**before** the moment its own forecast was issued, and the contextual comparison
+then rejects its own Saturday baseline and reports no pairs. Measured across a
+full minute of start offsets, the original scheme landed the truncated kickoff up
+to 14 seconds early, while anchoring on the second whole minute ahead keeps it at
+least 61 seconds late. The one passing run before the fix was luck in where the
+second fell, not a Node version difference. Any future fixture that needs an
+issued forecast and a settled result in the same run should anchor its kickoff on
+a whole minute for the same reason.
 
 The 15 database-backed integration tests cannot run on the Windows workstation,
 because the harness pins `unix:///var/run/docker.sock` as a security control and
