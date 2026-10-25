@@ -50,7 +50,8 @@ test('append-only paid continuation links one eligible fixture to frozen Sunday 
    calls++;const refs=ctx.request.evidence_refs,scout=ctx.request.arm==='scout';
    return{id:'synthetic-'+calls,provider:ctx.profile.provider,model:ctx.profile.model,usage:{prompt_tokens:100,completion_tokens:80,cost:.001},choices:[{finish_reason:'stop',message:{content:JSON.stringify(scout?{abstain:false,reason:'supported',evidence_refs:refs,hm:1,am:1,veto:false}:{abstain:false,reason:'supported',evidence_refs:refs,probabilities:[.4,.3,.3]})}}]};
   }})};
-  const out=await continueSundayAI(options(store,source(),{paid:true,client,preflight:preflight(store)}));
+  const legacy={...store,events:()=>store.events().filter(e=>e.kind!=='confirmation'),read:id=>id.endsWith(':commit')?null:store.read(id)};
+  const out=await continueSundayAI(options(legacy,source(),{paid:true,client,preflight:preflight(store)}));
   assert.deepEqual(out.selected,['2']);assert.equal(calls,4);assert.equal(store.reservedMicros(),2255640);
   assert.equal(store.read(originalForecast.event_id).event_body_hash,originalForecast.event_body_hash);
   assert.equal(store.events().filter(e=>e.kind==='study'&&e.body.experiment==='openrouter-private-v1').length,1);
@@ -72,8 +73,12 @@ test('continuation rejects altered frozen baseline and never selects a missing f
   const corrupt={...store,events:()=>store.events().map(e=>e.kind==='forecast'&&e.event_id.endsWith(':2:engine:E-Refreshed')?{...e,body:{...e.body,input_hash:'0'.repeat(64)}}:e)};
   await assert.rejects(()=>continueSundayAI(options(corrupt,source(),{paid:true,client,preflight:preflight(store)})),/frozen Sunday engine lineage mismatch/);
   assert.equal(calls,0);
+  const partial={...store,events:()=>store.events().filter(e=>e.kind!=='confirmation'||e.parent_id.endsWith(':1:engine:E-Refreshed'))};
+  await assert.rejects(()=>continueSundayAI(options(partial,source(),{paid:true,client,preflight:preflight(store)})),/frozen Sunday engine lineage mismatch/);
+  assert.equal(calls,0);
   const missing=source();missing.targets=[1];missing.rows=missing.rows.filter(r=>r.fxid===1);
-  const out=await continueSundayAI(options(store,missing,{paid:true,client,preflight:preflight(store)}));
+  const legacy={...store,events:()=>store.events().filter(e=>e.kind!=='confirmation')};
+  const out=await continueSundayAI(options(legacy,missing,{paid:true,client,preflight:preflight(store)}));
   assert.deepEqual(out.selected,[]);assert.equal(out.decisions.find(d=>d.fixture_id==='2').reason,'fresh_source_target_missing');assert.equal(calls,0);
  }finally{db.close();}
 });

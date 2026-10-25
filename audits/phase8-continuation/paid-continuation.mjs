@@ -22,10 +22,12 @@ export async function continueSundayAI(options){
  if(originalPacketEvents.length!==1)throw Error('ambiguous original Sunday packet');
  const frozenId=originalPacketEvents[0].event_id,frozen=store.read(frozenId).body,frozenPacket={...frozen,receipt_at_utc:store.receipt(frozenId)},frozenHash=canonicalHash(frozenPacket),frozenRows=new Map(frozen.rows.map(x=>[String(x.fxid),x]));
  const oldJobs=new Map(prior.filter(e=>e.kind==='job'&&e.body.cohort==='sunday-engine').map(e=>[e.body.fixture_id,e]));
- const original=new Map();
+ // The frozen engine-only checkpoint predates confirmation events. Its entire
+ // event manifest is verified by recovery; newer chains must retain their acks.
+ const legacyWithoutConfirmations=!prior.some(e=>e.kind==='confirmation'),original=new Map();
  for(const r of roster){
   const job=oldJobs.get(r.fixture_id),f=job&&priorById.get(job.event_id+':E-Refreshed'),ack=f&&priorById.get(f.event_id+':commit');
-  if(!job||job.parent_id!==frozenId||!f||f.parent_id!==job.event_id||ack?.body?.status!=='accepted'||!synthetic&&f.body.engine_source_hash!==ENGINE_SOURCE_SHA256||f.body.input_hash!==frozenHash)throw Error('frozen Sunday engine lineage mismatch');
+  if(!job||job.parent_id!==frozenId||!f||f.parent_id!==job.event_id||f.body.status!=='forecast'||typeof f.body.eligible!=='boolean'||!legacyWithoutConfirmations&&ack?.body?.status!=='accepted'||!synthetic&&f.body.engine_source_hash!==ENGINE_SOURCE_SHA256||f.body.input_hash!==frozenHash)throw Error('frozen Sunday engine lineage mismatch');
   for(const tag of ['openai','kimi']){
    const legacy=priorById.get(study.event_id+':'+r.fixture_id+':'+tag);
    if(legacy?.kind!=='job'||legacy.parent_id!==frozenId)throw Error('missing frozen model cohort');
