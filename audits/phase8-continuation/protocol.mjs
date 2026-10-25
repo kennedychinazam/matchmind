@@ -1,7 +1,7 @@
 import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
 import {evaluateWeekend,eventsToStudy} from '../phase8/report.mjs';
 import {canonicalKickoff} from '../phase8/kickoff.mjs';
-import {MODELS} from './contracts.mjs';
+import {MODELS,modelJobs} from './contracts.mjs';
 // A second study shares this journal, and therefore the one global ledger, with
 // the original Sunday research. It is kept apart by its own experiment id and its
 // own cohort names so neither study can absorb the other's records, denominators
@@ -51,8 +51,11 @@ export function continuationStudy(events,packets=new Map()){
    study.records=study.records.filter(r=>r.cohort!==cohorts.ai||r.continuation_of||!covered.has(r.fixture_id+'|'+r.provider_model));
   }
   for(const s of events.filter(e=>e.kind==='study'&&e.body.experiment===cohorts.experiment)){
+   const models=s.body.models??MODELS;
+   if(cohorts!==PROSPECTIVE&&canonicalHash(models)!==canonicalHash(MODELS))throw Error('historical model selection changed');
+   const declaredJobs=modelJobs(models);
    for(const target of s.body.roster??[]){
-    for(const[tag,model]of [['engine',null],['openai',MODELS[0]],['kimi',MODELS[1]]]){
+    for(const[tag,model]of declaredJobs){
      const job=s.event_id+':'+target.fixture_id+':'+tag;
      if(model&&covered.has(target.fixture_id+'|'+model))continue;
      if(study.records.some(r=>r.job_id===job))continue;
@@ -62,6 +65,8 @@ export function continuationStudy(events,packets=new Map()){
    }
   }
  }
+ const declarations=events.filter(e=>e.kind==='study'&&e.body.experiment===PROSPECTIVE.experiment);
+ if(declarations.length)study.prospective_model_names=[...new Set(declarations.flatMap(e=>e.body.models??MODELS))];
  return study;
 }
 export function exportContinuation(store){
@@ -101,7 +106,8 @@ export function evaluateContinuation(study,cutoff){
  const pro=study.records.filter(r=>r.cohort===PROSPECTIVE.engine);
  if(new Set(pro.map(r=>r.fixture_id)).size!==pro.length)throw Error('duplicate prospective fixture');
  const prospective=select(pro);
- const prospective_models=Object.fromEntries(MODELS.map(m=>[m,select(study.records.filter(r=>r.cohort===PROSPECTIVE.ai&&r.provider_model===m))]));
+ const prospectiveNames=study.prospective_model_names??[...new Set(study.records.filter(r=>r.cohort===PROSPECTIVE.ai).map(r=>r.provider_model))];
+ const prospective_models=Object.fromEntries((prospectiveNames.length?prospectiveNames:MODELS).map(m=>[m,select(study.records.filter(r=>r.cohort===PROSPECTIVE.ai&&r.provider_model===m))]));
  return{version:'openrouter-weekend-report-v1',as_of_utc:cutoff,input_hash:canonicalHash(study),saturday,sunday,models,saturday_vs_sunday:{...contrast,timing:'Saturday versus Sunday issuance; identical fixtures, different information cutoffs; exploratory only'},
   prospective,prospective_models,prospective_experiment:PROSPECTIVE.experiment,
   actual_ai_spend_usd:Number.isSafeInteger(study.actual_paid_micros)?study.actual_paid_micros/1000000:null,reserved_liability_usd:study.reserved_micros/1000000,accuracy_claim:false,confirmatory_eligible:false,

@@ -1,6 +1,20 @@
 // Offline contracts; no credentials, provider calls, engine changes or estimated token refunds.
 import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
 export const MODELS=['openai/gpt-6-luna','moonshotai/kimi-k2.5'];
+export const GEMINI_MODELS=Object.freeze(['google/gemini-3-flash-preview','google/gemini-3.1-flash-lite']);
+export const APPROVED_MODELS=Object.freeze([...MODELS,...GEMINI_MODELS]);
+export function comparisonModels(second=MODELS[1]){
+ if(second!==MODELS[1]&&!GEMINI_MODELS.includes(second))throw Error('unapproved comparison model');
+ return[MODELS[0],second];
+}
+export function absenceProviders(models=MODELS){
+ if(!Array.isArray(models)||models.length!==2||models[0]!==MODELS[0]||canonicalHash(models)!==canonicalHash(comparisonModels(models[1])))throw Error('unapproved comparison models');
+ return['OpenAI','Moonshot','Novita',...(GEMINI_MODELS.includes(models[1])?['Google','Google AI Studio']:[])];
+}
+export function modelJobs(models=MODELS){
+ absenceProviders(models);
+ return[['engine',null],['openai',models[0]],[GEMINI_MODELS.includes(models[1])?'gemini':'kimi',models[1]]];
+}
 export const CEILING=5000000;
 const SCALE=10n**18n;
 function decimal(x){
@@ -15,31 +29,44 @@ export const dollarsToMicros=x=>ceilMicros(decimal(x));
 const positiveInt=x=>Number.isSafeInteger(x)&&x>0;
 const caps={
  'openai/gpt-6-luna':{tag:'openai',provider:'OpenAI',prompt:'0.0000002',completion:'0.00000075'},
- 'moonshotai/kimi-k2.5':{tag:'novita',provider:'Novita',prompt:'0.00000057',completion:'0.00000285'}
+ 'moonshotai/kimi-k2.5':{tag:'novita',provider:'Novita',prompt:'0.00000057',completion:'0.00000285'},
+ 'google/gemini-3-flash-preview':{tag:'google-ai-studio',provider:'Google AI Studio',prompt:'0.0000005',completion:'0.000003',reasoning:'0.000003'},
+ 'google/gemini-3.1-flash-lite':{tag:'google-ai-studio',provider:'Google AI Studio',prompt:'0.00000025',completion:'0.0000015',reasoning:'0.0000015'}
 };
+const reservation=(cap,context,output)=>ceilMicros(BigInt(context)*decimal(cap.prompt)+BigInt(output)*(decimal(cap.completion)+decimal(cap.reasoning??'0')));
 export function freezeProfile(catalog,observedAt){
  epochMicros(observedAt);const model=catalog?.data?.id,cap=caps[model];if(!cap)throw Error('unapproved model');
  const e=catalog.data.endpoints?.find(x=>x.model_id===model&&x.tag===cap.tag&&x.provider_name===cap.provider&&x.service_tier===null&&x.status===0);
  if(!e||!positiveInt(e.context_length)||!positiveInt(e.max_completion_tokens)||e.max_completion_tokens>e.context_length||!['max_tokens','response_format','structured_outputs','tools','tool_choice'].every(p=>e.supported_parameters?.includes(p))||e.supports_tool_choice?.none!==true)throw Error('no eligible pinned structured endpoint');
  const pricing=e.pricing;
- if(!pricing||Object.keys(pricing).some(k=>!['prompt','completion','request','web_search','input_cache_read','input_cache_write','discount','overrides'].includes(k)))throw Error('unsupported pricing component');
+ const fields=['prompt','completion','request','web_search','input_cache_read','input_cache_write','discount','overrides',...(cap.reasoning?['internal_reasoning','image','audio','input_audio_cache']:[])];
+ if(!pricing||Object.keys(pricing).some(k=>!fields.includes(k)))throw Error('unsupported pricing component');
  const tiers=[pricing,...(pricing.overrides??[])];let prompt=0n,completion=0n;
  for(const tier of tiers){
-  if(Object.keys(tier).some(k=>!['min_prompt_tokens','prompt','completion','request','web_search','input_cache_read','input_cache_write','discount','overrides'].includes(k)))throw Error('unsupported pricing tier');
+  if(Object.keys(tier).some(k=>!['min_prompt_tokens',...fields].includes(k)))throw Error('unsupported pricing tier');
   const p=decimal(tier.prompt??pricing.prompt),c=decimal(tier.completion??pricing.completion);
   if(p>prompt)prompt=p;if(c>completion)completion=c;
   if(tier.request!==undefined&&decimal(tier.request)!==0n)throw Error('unapproved request pricing');
+  if(cap.reasoning){
+   if(tier.internal_reasoning===undefined&&pricing.internal_reasoning===undefined||decimal(tier.internal_reasoning??pricing.internal_reasoning)>decimal(cap.reasoning))throw Error('unbounded reasoning pricing');
+   // Only text messages, no cache-control, media or search can be emitted by
+   // buildRequest. Disallow implicit caching: its write charge is not requested
+   // and must not become an unaccounted additional input charge.
+   if(e.supports_implicit_caching!==false)throw Error('unsupported implicit cache pricing');
+  }
  }
  if(prompt>decimal(cap.prompt)||completion>decimal(cap.completion)||prompt===0n||completion===0n)throw Error('endpoint pricing exceeds approved price caps');
  // max_tokens is still 1024, but physical endpoint maxima cover uncertain reasoning/limit overruns.
- const reserved=ceilMicros(BigInt(e.context_length)*decimal(cap.prompt)+BigInt(e.max_completion_tokens)*decimal(cap.completion));
+ // Gemini metadata prices internal reasoning separately. Cover a full physical
+ // maximum of each even if the provider includes reasoning in completion usage.
+ const reserved=reservation(cap,e.context_length,e.max_completion_tokens);
  if(reserved<1||reserved>CEILING)throw Error('unbounded endpoint pricing');
- const p={version:'openrouter-private-v1',model,tag:cap.tag,provider:cap.provider,observed_at_utc:observedAt,context_length:e.context_length,physical_completion_max:e.max_completion_tokens,max_output_tokens:1024,prompt_cap:cap.prompt,completion_cap:cap.completion,reserved_micros:reserved,tools:false,grounding:false,endpoint_hash:canonicalHash(e)};
+ const p={version:'openrouter-private-v1',model,tag:cap.tag,provider:cap.provider,observed_at_utc:observedAt,context_length:e.context_length,physical_completion_max:e.max_completion_tokens,max_output_tokens:1024,prompt_cap:cap.prompt,completion_cap:cap.completion,...(cap.reasoning?{reasoning_cap:cap.reasoning}:{}),reserved_micros:reserved,tools:false,grounding:false,endpoint_hash:canonicalHash(e)};
  return{...p,profile_hash:canonicalHash(p)};
 }
 function checkProfile(p,now){
  const{profile_hash,...body}=p,cap=caps[p.model];
- if(!cap||canonicalHash(body)!==profile_hash||p.tag!==cap.tag||p.provider!==cap.provider||p.prompt_cap!==cap.prompt||p.completion_cap!==cap.completion||!positiveInt(p.context_length)||!positiveInt(p.physical_completion_max)||p.physical_completion_max>p.context_length||p.max_output_tokens!==1024||p.tools!==false||p.grounding!==false||p.reserved_micros!==ceilMicros(BigInt(p.context_length)*decimal(cap.prompt)+BigInt(p.physical_completion_max)*decimal(cap.completion)))throw Error('profile altered or unbounded');
+ if(!cap||canonicalHash(body)!==profile_hash||p.tag!==cap.tag||p.provider!==cap.provider||p.prompt_cap!==cap.prompt||p.completion_cap!==cap.completion||p.reasoning_cap!==cap.reasoning||!positiveInt(p.context_length)||!positiveInt(p.physical_completion_max)||p.physical_completion_max>p.context_length||p.max_output_tokens!==1024||p.tools!==false||p.grounding!==false||p.reserved_micros!==reservation(cap,p.context_length,p.physical_completion_max))throw Error('profile altered or unbounded');
  if(epochMicros(now)<epochMicros(p.observed_at_utc)||epochMicros(now)-epochMicros(p.observed_at_utc)>900000000n)throw Error('expired endpoint profile');
 }
 export function validateRequest(request,profile,now){
@@ -47,20 +74,21 @@ export function validateRequest(request,profile,now){
  let rebuilt;try{rebuilt=buildRequest(request.arm,profile,JSON.parse(request.body.messages[1].content),now);}catch{throw Error('invalid bounded request');}
  if(canonicalHash(request)!==canonicalHash(rebuilt))throw Error('bounded request differs from pinned schema/backend/prices');
 }
-export function verifyAccount(key,credits,now,operatorEvidence){
+export function verifyAccount(key,credits,now,operatorEvidence,models=MODELS){
+ const providers=absenceProviders(models);
  epochMicros(now);const k=key?.data,c=credits?.data;
  if(!k||![true,false].includes(k.include_byok_in_limit)||k.byok_usage!==0||k.limit_reset!==null||typeof k.limit!=='number'||!(k.limit>0&&k.limit<=5)||k.is_management_key!==false||k.is_provisioning_key!==false||k.is_free_tier!==false||!k.label||k.expires_at!==null&&(!k.expires_at||epochMicros(k.expires_at)<=epochMicros(now)))throw Error('key must have a verified nonresetting lifetime budget <= $5');
  const keyIdentity=canonicalHash({label:k.label,limit:k.limit,reset:k.limit_reset});
  if(k.include_byok_in_limit===false){
   const e=operatorEvidence;
-  if(!k.workspace_id||!e||e.version!=='credit-only-operator-v1'||e.workspace_id!==k.workspace_id||e.key_identity_hash!==keyIdentity||e.credential_count!==0||canonicalHash(e.confirmed_absent_providers)!==canonicalHash(['OpenAI','Moonshot','Novita'])||!e.recorded_at_utc||epochMicros(now)<epochMicros(e.recorded_at_utc)||epochMicros(now)-epochMicros(e.recorded_at_utc)>600000000n)throw Error('fresh workspace/key-bound credit-only operator evidence required');
+  if(!k.workspace_id||!e||e.version!=='credit-only-operator-v1'||e.workspace_id!==k.workspace_id||e.key_identity_hash!==keyIdentity||e.credential_count!==0||canonicalHash(e.confirmed_absent_providers)!==canonicalHash(providers)||!e.recorded_at_utc||epochMicros(now)<epochMicros(e.recorded_at_utc)||epochMicros(now)-epochMicros(e.recorded_at_utc)>600000000n)throw Error('fresh workspace/key-bound credit-only operator evidence required');
  }
  const usage=dollarsToMicros(k.usage),remaining=floorMicros(decimal(k.limit_remaining)),limit=floorMicros(decimal(k.limit));
  if(remaining<0||usage+remaining>limit||usage>limit)throw Error('inconsistent key budget');
  if(!c||c.total_credits===undefined||c.total_usage===undefined)throw Error('account balance unverified; do not broaden secret privileges');
  const credit=floorMicros(decimal(c.total_credits)),spent=dollarsToMicros(c.total_usage);
  if(credit<spent)throw Error('account balance unavailable');
- return{observed_at_utc:now,key_identity_hash:keyIdentity,limit_micros:limit,usage_micros:usage,remaining_micros:Math.min(remaining,credit-spent),account_credit_micros:credit-spent};
+ return{observed_at_utc:now,key_identity_hash:keyIdentity,limit_micros:limit,usage_micros:usage,remaining_micros:Math.min(remaining,credit-spent),account_credit_micros:credit-spent,...(GEMINI_MODELS.includes(models[1])?{approved_models:[...models]}:{})};
 }
 function schema(arm){
  const props={abstain:{type:'boolean'},reason:{type:'string',enum:['supported','missing_evidence','insufficient_information']},evidence_refs:{type:'array',items:{type:'string'}}};

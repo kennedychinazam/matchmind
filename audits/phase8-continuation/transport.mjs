@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {MODELS} from './contracts.mjs';
+import {APPROVED_MODELS} from './contracts.mjs';
 export {assertRuntime} from './runtime.mjs';
 import {assertRuntime} from './runtime.mjs';
 import {executeRequest} from './execute.mjs';
@@ -21,7 +21,7 @@ export function openrouterClient(runtimeProof,{credential=process.env.OPENROUTER
  };
  return{
   get:async route=>{
-   if(!['key','credits',...MODELS.map(m=>'models/'+m+'/endpoints')].includes(route)&&!/^generation\?id=[A-Za-z0-9_-]{1,160}$/.test(route))throw Error('unapproved OpenRouter route');return send(route);
+   if(!['key','credits',...APPROVED_MODELS.map(m=>'models/'+m+'/endpoints')].includes(route)&&!/^generation\?id=[A-Za-z0-9_-]{1,160}$/.test(route))throw Error('unapproved OpenRouter route');return send(route);
   },
   // The real paid transport is private to this wrapper; synthetic injection cannot obtain it.
   execute:async(store,context,options)=>{

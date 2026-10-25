@@ -1,5 +1,5 @@
 import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
-import {CEILING,parseResponse,MODELS,validateRequest,dollarsToMicros} from './contracts.mjs';
+import {CEILING,parseResponse,GEMINI_MODELS,comparisonModels,validateRequest,dollarsToMicros} from './contracts.mjs';
 import {assertRuntime} from './runtime.mjs';
 // The existing weekend_events reservation authority is the SINGLE shared ledger.
 // Model-specific jobs retain separate immutable A1/A2/A3 slots in the same private table.
@@ -10,6 +10,10 @@ export async function executeRequest(store,{id,job,request,profile},options){
   assertRuntime(runtime,now);
  }
  validateRequest(request,profile,now);
+ if(GEMINI_MODELS.includes(profile.model)){
+  const declared=store.read(job);
+  if(declared?.body?.cohort!=='prospective-ai'||declared.body.provider_model!==profile.model||canonicalHash(account?.approved_models??null)!==canonicalHash(comparisonModels(profile.model)))throw Error('Gemini requires prospective job and model-bound account admission');
+ }
  const request_hash=request.request_hash;
  if(!account||!Number.isSafeInteger(account.usage_micros)||account.usage_micros<0||!Number.isSafeInteger(account.remaining_micros)||!Number.isSafeInteger(account.limit_micros)||account.limit_micros>CEILING||!account.observed_at_utc||epochMicros(now)<epochMicros(account.observed_at_utc)||epochMicros(now)-epochMicros(account.observed_at_utc)>120000000n)throw Error('stale or unverifiable account budget');
  if(store.read(id))throw Error('duplicate request reservation; never redispatch');

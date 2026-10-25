@@ -89,3 +89,45 @@ Completion usage is recorded as **reported**, not final verified billing. Use au
 On actual October26, collect outcome revisions read-only, append real server receipts, and use a witnessed reporting cutoff. Preserve the original90-minute grading and separate48-hour void anchors. Compare original context, Saturday refresh, actually executed Sunday refresh and each provider arm on identical eligible fixtures. Show failed/abstained/un-enrolled arms, veto coverage, pending/missing outcomes, market receipt eligibility, accuracy, Brier/log loss, calibration and paired uncertainty. Different issuance times are explicitly exploratory. Never substitute today's odds for original-time market evidence or call a future-cutoff synthetic report a real Monday evaluation.
 
 The prior combined local release candidate remains inherited; these changes add only private offline research/guards and the missing-event read fix. Full Supabase Auth/JWT/PostgREST/RPC/Edge compatibility, hosted private-schema permissions, live integration, production backup restoration and independent release approval remain unresolved. No October31 deployment approval is implied. Stop/revoke local writers using the existing rollback script, retain all records/liability, close the new draft if reverting code, and leave all prior PRs/protected branches intact.
+
+## Explicit Gemini selection for the prospective study
+
+The original Sunday study and default model pair remain OpenAI/Kimi. Gemini is
+opt-in for the new prospective experiment only; model identity is stored in the
+study declaration, job IDs, request/response records and report sections.
+
+```js
+const models = comparisonModels('google/gemini-3-flash-preview');
+const preflight = () => providerPreflight(client, undefined, operatorEvidence, models);
+await runSunday({store, source, client, preflight, checkpoint,
+  cohorts: PROSPECTIVE, prospectiveModel: models[1], kind: 'football',
+  supervised: true, recoveryVerified: true, externalCopyVerified: true, paid: true});
+```
+
+This example describes an authorized future execution, not an instruction to run
+it. Final owner authorization, fresh evidence, runtime proof and account checks
+are mandatory. The current real execution window remains Sunday 25 October;
+this change does not admit a later date automatically.
+
+Approved alternatives are `google/gemini-3-flash-preview` (recommended) and
+`google/gemini-3.1-flash-lite`. Both pin the standard `google-ai-studio` endpoint,
+never its flex/priority tiers, Vertex or a fallback. Both receive the same
+complete lossless competition view as OpenAI; A3 receives no engine probabilities,
+odds or recommendations. The engine and capacity formula are unchanged.
+
+Gemini metadata prices internal reasoning separately. Reservations conservatively
+cover the full context at the prompt cap plus the full physical completion
+maximum at both the completion cap and reasoning cap. At the verified
+1,048,576/65,536 limits, Flash reserves 917,504 micros per request and Lite
+458,752. The respective four-request bundles, including two OpenAI requests,
+are 2,447,008 and 1,529,504 micros. These are physical worst-case holds, not
+expected charges. Live pricing must be revalidated; the retained 306,000-micro
+hold counts in the same lifetime $5 journal and is never released or redispatched.
+
+Gemini credit-only confirmation additionally requires the owner to verify no
+Google or Google AI Studio BYOK credentials in the same workspace. The exact
+ordered providers list is `['OpenAI','Moonshot','Novita','Google','Google AI Studio']`,
+with the existing workspace/key identity binding and ten-minute freshness rule.
+The legacy Kimi confirmation contract remains unchanged. Search, media, explicit
+cache control, tools and automatic fallback are absent from the bounded requests;
+Gemini endpoints with implicit caching or unknown pricing components are refused.
