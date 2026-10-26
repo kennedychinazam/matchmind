@@ -1,6 +1,6 @@
 # Approved design corrections and stage boundary
 
-**Stage 1 only is implemented. No Stage 2+ component is activated.** Director approval for the research design does not authorize new paid inference, data subscriptions, hosted/production changes, new date policy, selector activation, merge or deployment.
+**Stage 1 and the subsequently authorized Stage 2A/2B offline quote foundation are implemented. No live odds integration, A4 inference or actionable selector is activated.** Director approval for the research design does not authorize new paid inference, data subscriptions, hosted/production changes, new date policy, selector activation, merge or deployment.
 
 The Director's six mandatory corrections A–F are preserved below (the deliverable calls them five; none is omitted).
 
@@ -35,3 +35,11 @@ The review's illustrative ROI/edge/risk-reference/error-allowance values are not
 ## Next review
 
 Review Stage 1 methodology, parameter bounds, independent tests, approximation/error qualifications and E-MARKET's distinction from the old final market outputs. Approval of this stage does not extend authorization to Stage 2, Stage 3 or any paid/production action. Keep PR #6 draft, preserve all original archives and stop for Director review after the verified Stage 1 commit.
+
+## Accepted Stage 1; authorized Stage 2A/2B offline foundation
+
+Stage 1 is accepted at `3586380ec458fa3ceaa209a2710cfbce53262865`. Stage 2 reconnaissance was accepted separately. The Director subsequently authorized **existing source/provenance inspection and offline quote contracts/adapters/tests only**. The isolated implementation lives in `audits/quotes/`; it does not modify the probability engine or integrate odds into any existing publication or AI arm.
+
+Canonicalization preserves unknowns and legacy tokens/clock labels. Classification has no trusted source verifier and always disables actionable admission. Immutable in-memory replay records corrections, duplicates, suspensions and conservative complete-batch inventory barriers without fallback. This is working offline infrastructure, not operationally verified bookmaker information or immutable hosted storage.
+
+Next: review `audits/quotes/STAGE2AB-REPORT.md`, obtain original collector/catalog/raw-response and rule/access/rights evidence under approved access, and separately authorize bounded offline source adapters/verification. Only after real quote evidence exists should source integration be considered. A4 still requires complete football-only packets, real point-in-time training acquisition, measurable learned contribution, calibration/uncertainty and preregistered model/ranking policies. Corrections A–F above remain binding. No paid AI, date-guard extension, reservation release/reuse, actionable selector, production change, merge or deployment is authorized here.

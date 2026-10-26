@@ -1,0 +1,49 @@
+{
+  "schema": "stage2ab-normalization-aggregate-v1",
+  "snapshots": 838,
+  "normalized_quotes": 84558,
+  "actionable_quotes": 0,
+  "rejections": {
+    "unsupported_legacy_market": 7680
+  },
+  "markets": {
+    "AWAY": 7562,
+    "DRAW": 7562,
+    "HOME": 7562,
+    "OVER_1_5": 5296,
+    "OVER_2_5": 5719,
+    "OVER_3_5": 5433,
+    "UNDER_1_5": 5296,
+    "UNDER_2_5": 5719,
+    "UNDER_3_5": 5433,
+    "DC_12": 5894,
+    "DC_1X": 5885,
+    "DC_X2": 5893,
+    "BTTS_NO": 5652,
+    "BTTS_YES": 5652
+  },
+  "books": {
+    "Bet365": 11303,
+    "Betano": 11681,
+    "Betfair": 10960,
+    "Dafabet": 2462,
+    "Pinnacle": 6423,
+    "BetVictor": 11177,
+    "Marathonbet": 11651,
+    "William Hill": 6660,
+    "1xBet": 11095,
+    "SBO": 1146
+  },
+  "classifications": {
+    "research_only_normalized_quote": 84558
+  },
+  "raw_snapshot_slice_bytes": 2733867,
+  "all_original_snapshots_preserved": true,
+  "upstream_raw_provider_tokens_recovered": false,
+  "source": "retained Stage 2 database-response row slices; not original upstream provider JSON",
+  "historical_archive_mutations": 0,
+  "hosted_reads": 0,
+  "hosted_writes": 0,
+  "external_HTTP_calls": 0,
+  "normalized_artifact_sha256": "9e7bc352198a02777c49e41615789d6935f771b69c24e4aa289a36e6d2186b0a"
+}
