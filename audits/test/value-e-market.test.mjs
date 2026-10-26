@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {setTimeout as pause} from 'node:timers/promises';
+import {chromium} from 'playwright-core';
 import {loadSavedLambdaGrid} from '../phase5/saved-lambda.mjs';
 import {scorelineDistribution} from '../value-intelligence/scoreline.mjs';
 import {marketProbabilities} from '../value-intelligence/markets.mjs';
@@ -38,7 +40,18 @@ test('actual offline Build 355 run supplies rates while damped markets remain vi
  for(let i=0;i<60;i++)rows.push({fxid:1000+i,lid:39,lname:'Premier League',lcountry:'England',season:2026,date:new Date(Date.UTC(2026,6,1+i)).toISOString().slice(0,10),time:'12:00',home:i%2?'Away':'Home',away:i%2?'Home':'Away',gh:i%2?i%3:3+i%3,ga:i%2?2:0,ht_h:1,ht_a:0,status:'FT',provider:'af',ft_h:null,ft_a:null});
  rows.push({fxid:900001,lid:39,lname:'Premier League',lcountry:'England',season:2026,date:'2026-10-25',time:'12:00',home:'Home',away:'Away',gh:null,ga:null,status:'NS'});rows.sort((a,b)=>a.date.localeCompare(b.date)||a.fxid-b.fxid);
  const p={schema_version:1,scope_competition_ids:[...ENGINE_COMP_IDS],receipt_at_utc:'2026-10-24T11:59:00.000Z',source_read_at_utc:'2026-10-24T11:58:00.000Z',history_cutoff:'2021-10-24',history_complete:true,rows,targets:[900001],inventory:{row_count:61,competition_count:1,history_count:60,competition_rows:Object.fromEntries(ENGINE_COMP_IDS.map(id=>[id,id===39?61:0]))},measures:[{lid:39,gate:{ready:true,bar:.7,edgeFloor:0,met:true},skill:null,build:355,computed_at:'2026-10-24T10:00:00Z'}],originals:[]};
- const result=await runEngine(p,{nowUtc:'2026-10-24T12:00:00.000Z'}),before=JSON.stringify(result),baseline=eMarketFromBuild355(result,'900001'),original=result.predictions[0];
+ // Inject actual scheduler latency after clock setup, keeping the real browser,
+ // context, source and engine. install()+pauseAt(the same instant) must not race
+ // the host clock; the synthetic Date must stay fixed without freezing timers.
+ const originalLaunch=chromium.launch;
+ chromium.launch=async function(...args){
+  const browser=await originalLaunch.apply(this,args),newContext=browser.newContext.bind(browser);
+  browser.newContext=async(...args)=>{const context=await newContext(...args),newPage=context.newPage.bind(context);
+   context.newPage=async(...args)=>{const page=await newPage(...args);for(const method of ['install','setFixedTime']){const real=page.clock[method].bind(page.clock);page.clock[method]=async(...args)=>{const result=await real(...args);await pause(100);return result;};}return page;};return context;};return browser;
+ };
+ let result;try{result=await runEngine(p,{nowUtc:'2026-10-24T12:00:00.000Z'});}finally{chromium.launch=originalLaunch;}
+ assert.equal(result.generated_at_utc,'2026-10-24T12:00:00.000Z');
+ const before=JSON.stringify(result),baseline=eMarketFromBuild355(result,'900001'),original=result.predictions[0];
  assert.equal(JSON.stringify(result),before);assert.equal(result.network.outbound_requests,0);assert.equal(baseline.distribution.parameters.lambdaHome,original.prediction.lambdaH);assert.equal(baseline.distribution.parameters.lambdaAway,original.prediction.lambdaA);
  assert.deepEqual(baseline.original.probabilities,original.probabilities);assert.equal(baseline.original.btts,original.prediction.btts);assert.equal(baseline.original.over['2.5'],original.prediction.over['2.5']);
  assert.ok(Math.abs(baseline.probabilities.BTTS_YES-original.prediction.btts)>1e-5);assert.ok(Math.abs(baseline.probabilities.OVER_2_5-original.prediction.over['2.5'])>1e-5);

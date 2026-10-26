@@ -33,7 +33,7 @@ async function direct(p){
  try{
   const context=await browser.newContext({serviceWorkers:'block',timezoneId:'UTC'});
   await context.route('**/*',r=>r.request().url()==='http://phase8-direct.test/'?r.fulfill({status:200,contentType:'text/html',body:SOURCE}):r.abort());
-  const page=await context.newPage();await page.clock.install({time:new Date(NOW)});await page.clock.pauseAt(new Date(NOW));
+  const page=await context.newPage();await page.clock.setFixedTime(new Date(NOW));
   await page.goto('http://phase8-direct.test/',{waitUntil:'load'});
   return await page.evaluate(packet=>{
    supa=null;authUser=null;Object.assign(afState,{leagues:{},leagueOrder:[],gate:{},skill:{},archive:{},record:[]});

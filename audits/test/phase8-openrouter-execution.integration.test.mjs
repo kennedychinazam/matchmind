@@ -52,13 +52,23 @@ test('kickoff crossed during checkpoint prevents HTTP while retaining the admitt
  assert.equal(checkpoints,1);assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
 });
 test('real paid dispatch enforces the 450-second allowance after checkpoint',async()=>{
- const kickoff=store.read(job).body.kickoff_at_utc;
+ // Supervisor-clock test of the existing Sunday-only path. The isolated SQL
+ // fixture retains its genuinely future real-clock kickoff for writer admission;
+ // the supervisor sees a fixed Sunday kickoff independently of the host's date.
+ const kickoff='2026-10-25T12:08:00.000Z',read=store.read;
+ store.read=id=>{const row=read(id);return id===job?{...row,body:{...row.body,kickoff_at_utc:kickoff}}:row;};
  let virtual=new Date(Date.parse(kickoff)-8*60000).toISOString(),http=0;
  store.clock=()=>virtual;
  const profile=freezeProfile(catalog(),virtual),bounded=buildRequest('A3',profile,{fixture_id:'1',home:'A',away:'B',receipt_at_utc:virtual,facts:[{ref:'r',data:{synthetic:true}}]},virtual);
  const runtime={checked_at_utc:virtual,runtime:{observations_current:true,spec_revision:'test',observed_spec_revision:'test',network_policy:{mode:'restricted',state:'enforced',effective_allowed_hosts:['openrouter.ai']},secrets:[{name:'OPENROUTER_API_KEY',state:'ready'}]}};
  await assert.rejects(()=>api.executeRequest(store,{id:'or-allowance',job,request:bounded,profile},{kind:'football',supervised:true,recoveryVerified:true,externalCopyVerified:true,runtime,account:account(),checkpoint:async()=>{virtual=new Date(Date.parse(kickoff)-6*60000).toISOString();},transport:async()=>{http++;return response();}}),/late or stale dispatch after checkpoint/);
  assert.equal(http,0);assert.equal(store.reservedMicros(),306000);
+});
+test('outside the original Sunday date real dispatch rejects before any reservation or HTTP',async()=>{
+ const virtual='2026-10-26T12:00:00.000Z';store.clock=()=>virtual;let http=0,checkpoints=0;
+ const profile=freezeProfile(catalog(),virtual),bounded=buildRequest('A3',profile,{fixture_id:'1',home:'A',away:'B',receipt_at_utc:virtual,facts:[{ref:'r',data:{synthetic:true}}]},virtual);
+ await assert.rejects(()=>api.executeRequest(store,{id:'or-monday-blocked',job,request:bounded,profile},{kind:'football',supervised:true,recoveryVerified:true,externalCopyVerified:true,account:account(),checkpoint:async()=>{checkpoints++;},transport:async()=>{http++;}}),/Sunday\/recovery admission absent/);
+ assert.equal(http,0);assert.equal(checkpoints,0);assert.equal(store.reservedMicros(),0);
 });
 test('a halt arriving during checkpoint blocks the waiting attempt before HTTP',async()=>{
  let http=0;
