@@ -1,5 +1,11 @@
 # Single-fixture A3 supervised preparation — research only
 
+The separately versioned, Santos-only capacity-risk extension is documented in
+[CAPACITY-EXCEPTION-IMPLEMENTATION.md](CAPACITY-EXCEPTION-IMPLEMENTATION.md).
+It is an explicit unverified-capacity exception, never a verified token bound.
+Its optional isolated SQL installation is separate from `installSingle`; no
+genuine exception or final authorization is created by installing the code.
+
 This additive controller prepares one GPT-6 Luna independent A3 comparison using
 the accepted `a3-workflow`. It preserves the original Sunday controller, source
 collector, executor, model contracts and database writer. It does not deploy,
