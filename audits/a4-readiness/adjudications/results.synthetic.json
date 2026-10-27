@@ -1,0 +1,179 @@
+{
+  "classification": "SYNTHETIC PROCEDURE DEMONSTRATION; NOT HUMAN GOLD LABELS OR FEATURE APPROVAL",
+  "cases": 8,
+  "overall_agreements": 8,
+  "criterion_agreements": 53,
+  "criterion_comparisons": 56,
+  "results": [
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C01",
+      "case_hash": "7def600d2b23a3703b91e75eb60c0f895d1e53767b6e8d938372c6f9872831e9",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "be83b843b52acd9f98d1857b981b5495dcf05d63dc2c9e78c8a5ddb92e90e272",
+        "8ecc80dd0d72a4685f7ef66475c1c5545f12d11f81d36590503c9de25179a7c6"
+      ],
+      "routing": "synthetic_supported_annotation_only",
+      "requires_third_reviewer": false,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C02",
+      "case_hash": "9592e906d4dba8707a6b8e679ed086d3acc55f995b1b507da093f7fdfed873de",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "d944204d4f066e2f979b9046f323fc8e8d8c21aab671c633ae0d25fb17ba1c28",
+        "3241f916e6f737fb25666beef3e3bfb4ce565db862182e1d8a85e0b0b727729b"
+      ],
+      "routing": "escalate_uncertainty",
+      "requires_third_reviewer": true,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C03",
+      "case_hash": "b5643773b6acd8b07ec90e604f4d8c0b998f564c90f91f62f5e78a02b0b521cf",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "cc424b312fce1293669a895a032fdaaec40b64ad4cb1ab36873c8379ae4c3153",
+        "1e8d43fff938cf13096435aeaea399cf0b600a41405e65a7733c9a0bec2b3ea2"
+      ],
+      "routing": "escalate_disagreement",
+      "requires_third_reviewer": true,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C04",
+      "case_hash": "320b2f66d2108becde120db84e00c5af73a293dc44a37a2f428996002ae69a50",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "e99c12bc97d0e20ec6e6f04075c692caf3f230e8a3c73c7b290521a73c99242c",
+        "41160c44918509bf2c8549af9633fa8cafab727a470011386495ab1d01702e08"
+      ],
+      "routing": "escalate_disagreement",
+      "requires_third_reviewer": true,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C05",
+      "case_hash": "18231781b895b59200a26fac90b18ef5729bd1899de0e5736447054cf679f164",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "43ff55fea055466276182d95671c26b931a97d076c894274cd84552b6584fab0",
+        "a5db30fa5066a6904b808a5a0640441e342e12689e5d248cd4cc5f4649c87b0d"
+      ],
+      "routing": "escalate_uncertainty",
+      "requires_third_reviewer": true,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C06",
+      "case_hash": "666f1c92dee8d02d10050d5bfe1283027a548ee38d35023f11281bb723a558ad",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "02f0039025a610abf2d2f47285b76d925eebaf349e9b66bc1c04dace195f3354",
+        "4ba8247c62e2aa98be98cbb80d0eac32b278f2f9b27d33b77768ad2e72e3627c"
+      ],
+      "routing": "escalate_uncertainty",
+      "requires_third_reviewer": true,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C07",
+      "case_hash": "f6371841dabd18aebf5e14017edf9e5b8a6c49bdb646f1e1cb9786fd97caf1dc",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "2ababecd299a3d8cfe96fbaef96c2a3b0b2cfe7663ef2ebe6e992a294343a201",
+        "02b92083bd421fa42af176057e0669b99cc6d04ab41fa1525611ff74225c217b"
+      ],
+      "routing": "synthetic_supported_annotation_only",
+      "requires_third_reviewer": false,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    },
+    {
+      "version": "synthetic-semantic-routing-v0.1",
+      "case_id": "C08",
+      "case_hash": "8141273f7822e779ebc15d1db20cb970edcec5eba80030db1c3f882f94be4af2",
+      "assignment_hash": "da50ecfd0f8155da53f20b15f626c958189c36bdc3af1286cb9a01e36f9eb546",
+      "vote_hashes": [
+        "93730f61e04def2dd35c7986a81689e5afc1f0868efc783574eeb3206ee72048",
+        "d2819b4732d934c4ef70d640f98ab051df56d1f0535820e767de2cdec1d95aa3"
+      ],
+      "routing": "synthetic_supported_annotation_only",
+      "requires_third_reviewer": false,
+      "reviewer_identity_verified": false,
+      "requires_authenticated_review": true,
+      "feature_admission": false,
+      "actionable": false,
+      "trained_mapping_enabled": false,
+      "reviewer_ids": [
+        "R-A",
+        "R-B"
+      ]
+    }
+  ],
+  "feature_admission": false,
+  "actionable": false
+}

@@ -1,0 +1,5 @@
+# Synthetic review provenance
+
+Eight fictional cases authored in the coordinator context were separately assessed by two isolated assistant reviewer contexts, R-A and R-B. Each received only the same blinded cases, approved feature meanings and rubric; neither saw the other reviewer answers or target outcomes/bookmaker/engine information. No MatchMind OpenAI/Gemini API call or human expert adjudication occurred. Their errors may be correlated; this is illustrative context separation, not validated independence or inter-rater reliability.
+
+Original returned JSON is preserved. Reviewer A supplied additional per-criterion evidence/rationales; its normalized file selects each explicit `rating` without changing it. Reviewer B already used flat ratings. Overall decisions, case IDs, references and overall rationales are retained. Normalization serves the strict synthetic routing prototype only; richer original rationales remain auditable. No vote authenticates a human, admits a feature, trains a coefficient or authorizes a forecast.
