@@ -19,11 +19,16 @@ export function draftRequest(packet,profile,now){
  if(epochMicros(now)<epochMicros(p.source.received_at_utc)||epochMicros(now)>=epochMicros(p.fixture.kickoff_at_utc))throw Error('draft_chronology');
  if(epochMicros(now)-epochMicros(p.source.source_read_at_utc)>900000000n)throw Error('fresh_receipted_source_required_for_request_draft');
  const old=buildRequest('A3',profile,p.evidence,now),body=structuredClone(old.body);
+ // checkProfile inside buildRequest pins plain decimal caps. Shift the decimal
+ // in text before conversion: binary multiplication serialized 0.20 as
+ // 0.19999999999999998, potentially excluding the approved long-context tier.
+ // This changes only this versioned isolated draft, never historical requests.
+ body.provider.max_price={prompt:Number(profile.prompt_cap+'e6'),completion:Number(profile.completion_cap+'e6')};
  body.max_tokens=4096;if(body.max_tokens>profile.physical_completion_max)throw Error('insufficient_output_capacity');
  body.messages=[{role:'system',content:PROMPT},{role:'user',content:JSON.stringify(p)}];
  body.response_format={type:'json_schema',json_schema:{name:'independent_a3_football_v1',strict:true,schema:RESPONSE_SCHEMA}};
  const bytes=Buffer.byteLength(JSON.stringify(body));if(bytes+16384+body.max_tokens>profile.context_length)throw Error('complete_evidence_exceeds_conservative_byte_proxy_no_truncation');
- const draft={version:'a3-offline-request-v1',arm:'A3-OFFLINE',live_dispatch_enabled:false,packet_hash:p.packet_hash,prompt_version:'1.0.0',prompt_hash:PROMPT_HASH,schema_hash:SCHEMA_HASH,profile_hash:profile.profile_hash,input_bytes:bytes,capacity_status:'byte_proxy_only_provider_tokenization_and_schema_unverified',body};
+ const draft={version:'a3-offline-request-v1.1.0',arm:'A3-OFFLINE',live_dispatch_enabled:false,packet_hash:p.packet_hash,prompt_version:'1.0.0',prompt_hash:PROMPT_HASH,schema_hash:SCHEMA_HASH,profile_hash:profile.profile_hash,input_bytes:bytes,capacity_status:'byte_proxy_only_provider_tokenization_and_schema_unverified',body};
  return freeze({...draft,request_hash:canonicalHash(draft)});
 }
 export function validateAnalysis(response,packet,profile){

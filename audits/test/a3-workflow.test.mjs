@@ -35,6 +35,19 @@ test('fresh future fixture draft is offline only and does not change Sunday admi
  assert.equal(draftRequest(p,profile(),RECEIPT).live_dispatch_enabled,false);
  assert.throws(()=>draftRequest({...p},profile(),RECEIPT),/packet/);
 });
+test('A3 provider price ceiling exactly admits approved long-context rates after wire serialization',()=>{
+ for(const [model,price,reserved] of [['openai/gpt-6-luna',{prompt:.2,completion:.75},306000],['google/gemini-3-flash-preview',{prompt:.5,completion:3},917504]]){
+  const c=model.startsWith('openai/')?catalog():geminiCatalog(),pr=freezeProfile(c,RECEIPT),draft=draftRequest(packet(),pr,RECEIPT);
+  const body=JSON.parse(JSON.stringify(draft.body));
+  assert.deepEqual(body.provider.max_price,price);
+  for(const tier of c.data.endpoints[0].pricing.overrides??[]){
+   assert.ok(body.provider.max_price.prompt>=Number(tier.prompt+'e6'));
+   assert.ok(body.provider.max_price.completion>=Number(tier.completion+'e6'));
+  }
+  assert.equal(pr.reserved_micros,reserved);
+  assert.equal(draft.live_dispatch_enabled,false);
+ }
+});
 test('fresh endpoint metadata cannot make a week-old source suitable for an upcoming request',()=>{
  const s=source();s.rows[1].date='2026-10-31';const p=packet(s),now='2026-10-31T12:00:00Z';
  assert.throws(()=>draftRequest(p,freezeProfile(catalog(),now),now),/fresh.*source/);
