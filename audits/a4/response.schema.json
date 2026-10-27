@@ -1,0 +1,493 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matchmind:a4-analysis:0.2.0",
+  "title": "Proposed MatchMind A4 independent football analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "status",
+    "reason_codes",
+    "fixture",
+    "packet_hash",
+    "topics",
+    "features",
+    "contradictions",
+    "limitations",
+    "summary",
+    "numeric_claims"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "a4-analysis-v0.2.0"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "analysis_complete",
+        "abstain"
+      ],
+      "maxLength": 2048,
+      "minLength": 1
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "identity_conflict",
+          "chronology_invalid",
+          "prohibited_input",
+          "settlement_unknown",
+          "essential_evidence_missing",
+          "required_packet_incomplete",
+          "unsupported_interpretation"
+        ],
+        "maxLength": 2048,
+        "minLength": 1
+      },
+      "maxItems": 128
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_id",
+        "home_team_id",
+        "away_team_id",
+        "home",
+        "away",
+        "competition_id",
+        "competition",
+        "country",
+        "kickoff_utc",
+        "evidence_cutoff_utc",
+        "venue",
+        "format",
+        "settlement"
+      ],
+      "properties": {
+        "fixture_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home_team_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "away_team_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "away": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "country": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kickoff_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "evidence_cutoff_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "league",
+            "cup",
+            "playoff",
+            "other",
+            null
+          ],
+          "maxLength": 2048,
+          "minLength": 1
+        },
+        "settlement": {
+          "type": "string",
+          "enum": [
+            "regulation_90_plus_stoppage_excluding_extra_time_and_penalties"
+          ],
+          "maxLength": 2048,
+          "minLength": 1
+        }
+      }
+    },
+    "packet_hash": {
+      "type": "string",
+      "maxLength": 2048,
+      "minLength": 1,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "topic",
+          "state",
+          "conclusion",
+          "evidence_refs",
+          "metric_refs",
+          "limitations",
+          "claim_refs"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string",
+            "enum": [
+              "identity_context",
+              "attacking_performance",
+              "defensive_performance",
+              "recent_form",
+              "home_away",
+              "opposition_strength",
+              "scoring_patterns",
+              "tactical_matchup",
+              "player_availability",
+              "rest_schedule_motivation",
+              "head_to_head",
+              "data_quality_uncertainty"
+            ],
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "partial",
+              "unavailable",
+              "conflict"
+            ],
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "conclusion": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 10000
+          },
+          "metric_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 10000
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 128
+          },
+          "claim_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 128,
+            "minItems": 0
+          }
+        }
+      },
+      "minItems": 12,
+      "maxItems": 12
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "feature_id",
+          "level",
+          "evidence_refs",
+          "metric_refs",
+          "rationale",
+          "counterevidence",
+          "limitations",
+          "warrant",
+          "claim_refs"
+        ],
+        "properties": {
+          "feature_id": {
+            "type": "string",
+            "enum": [
+              "home_attack_sustainability",
+              "away_attack_sustainability",
+              "home_defensive_vulnerability",
+              "away_defensive_vulnerability",
+              "match_openness",
+              "home_availability_impact",
+              "away_availability_impact",
+              "schedule_imbalance"
+            ],
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "enum": [
+              -1,
+              0,
+              1,
+              null
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 10000
+          },
+          "metric_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 10000
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "counterevidence": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 128
+          },
+          "warrant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "left_metric",
+              "right_metric",
+              "relation",
+              "basis"
+            ],
+            "properties": {
+              "left_metric": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "right_metric": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "relation": {
+                "enum": [
+                  "lt",
+                  "eq",
+                  "gt",
+                  null
+                ]
+              },
+              "basis": {
+                "enum": [
+                  "underlying_vs_surface",
+                  "matchup_context",
+                  "availability_context",
+                  "schedule_context",
+                  "unknown"
+                ]
+              }
+            }
+          },
+          "claim_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 128,
+            "minItems": 0
+          }
+        }
+      },
+      "minItems": 8,
+      "maxItems": 8
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "description",
+          "material",
+          "evidence_refs"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "material": {
+            "type": "boolean"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "minLength": 1
+            },
+            "maxItems": 128
+          }
+        }
+      },
+      "maxItems": 128
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2048,
+        "minLength": 1
+      },
+      "maxItems": 128
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 2048,
+      "minLength": 1
+    },
+    "numeric_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "metric_ref",
+          "value",
+          "unit",
+          "denominator",
+          "observation_refs"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "value": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "denominator": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "observation_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 10000,
+            "minItems": 1
+          }
+        }
+      },
+      "maxItems": 128,
+      "minItems": 0
+    }
+  }
+}

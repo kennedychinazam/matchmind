@@ -1,0 +1,275 @@
+{
+  "version": "a4-dictionary-v0.2.0",
+  "topics": [
+    "identity_context",
+    "attacking_performance",
+    "defensive_performance",
+    "recent_form",
+    "home_away",
+    "opposition_strength",
+    "scoring_patterns",
+    "tactical_matchup",
+    "player_availability",
+    "rest_schedule_motivation",
+    "head_to_head",
+    "data_quality_uncertainty"
+  ],
+  "features": [
+    "home_attack_sustainability",
+    "away_attack_sustainability",
+    "home_defensive_vulnerability",
+    "away_defensive_vulnerability",
+    "match_openness",
+    "home_availability_impact",
+    "away_availability_impact",
+    "schedule_imbalance"
+  ],
+  "fields": {
+    "goals_for": {
+      "type": "number",
+      "unit": "goals",
+      "topics": [
+        "attacking_performance",
+        "recent_form",
+        "home_away",
+        "scoring_patterns",
+        "head_to_head"
+      ],
+      "scope": "history"
+    },
+    "goals_against": {
+      "type": "number",
+      "unit": "goals",
+      "topics": [
+        "defensive_performance",
+        "recent_form",
+        "home_away",
+        "scoring_patterns",
+        "head_to_head"
+      ],
+      "scope": "history"
+    },
+    "xg_for": {
+      "type": "number",
+      "unit": "goals",
+      "topics": [
+        "attacking_performance",
+        "recent_form",
+        "scoring_patterns"
+      ],
+      "scope": "history",
+      "definition": "source-measured historical shot-quality statistic; never engine-derived target scoring rate"
+    },
+    "xg_against": {
+      "type": "number",
+      "unit": "goals",
+      "topics": [
+        "defensive_performance",
+        "recent_form",
+        "scoring_patterns"
+      ],
+      "scope": "history",
+      "definition": "source-measured historical shot-quality statistic; never engine-derived target scoring rate"
+    },
+    "shots_for": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "attacking_performance",
+        "recent_form"
+      ],
+      "scope": "history"
+    },
+    "shots_against": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "defensive_performance",
+        "recent_form"
+      ],
+      "scope": "history"
+    },
+    "shots_on_target": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "attacking_performance",
+        "recent_form"
+      ],
+      "scope": "history",
+      "relation": "subset_of_shots_for_same_team_fixture_period"
+    },
+    "possession": {
+      "type": "number",
+      "unit": "percent",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "formation": {
+      "type": "text",
+      "unit": "label",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "context"
+    },
+    "tactical_observation": {
+      "type": "text",
+      "unit": "label",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "context"
+    },
+    "availability_observation": {
+      "type": "text",
+      "unit": "label",
+      "topics": [
+        "player_availability"
+      ],
+      "scope": "context"
+    },
+    "competition_context": {
+      "type": "text",
+      "unit": "label",
+      "topics": [
+        "rest_schedule_motivation"
+      ],
+      "scope": "context"
+    },
+    "opposition_observation": {
+      "type": "text",
+      "unit": "label",
+      "topics": [
+        "opposition_strength"
+      ],
+      "scope": "context"
+    },
+    "corners_for": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "attacking_performance",
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "corners_against": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "defensive_performance",
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "fouls_for": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "fouls_against": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "yellow_cards_for": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "player_availability",
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "red_cards_for": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "player_availability",
+        "data_quality_uncertainty"
+      ],
+      "scope": "history"
+    },
+    "saves_for": {
+      "type": "number",
+      "unit": "saves",
+      "topics": [
+        "defensive_performance"
+      ],
+      "scope": "history"
+    },
+    "passes_for": {
+      "type": "number",
+      "unit": "passes",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "pass_accuracy": {
+      "type": "number",
+      "unit": "percent",
+      "topics": [
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "offsides_for": {
+      "type": "number",
+      "unit": "count",
+      "topics": [
+        "attacking_performance",
+        "tactical_matchup"
+      ],
+      "scope": "history"
+    },
+    "shots_inside_box": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "attacking_performance"
+      ],
+      "scope": "history"
+    },
+    "shots_outside_box": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "attacking_performance"
+      ],
+      "scope": "history"
+    },
+    "blocked_shots": {
+      "type": "number",
+      "unit": "shots",
+      "topics": [
+        "attacking_performance"
+      ],
+      "scope": "history"
+    }
+  },
+  "feature_semantics": {
+    "home_attack_sustainability": "minus: underlying output less sustainable than goals; zero: evidenced no discrepancy; plus: creation exceeds surface output; null: unsupported",
+    "away_attack_sustainability": "same definition for away",
+    "home_defensive_vulnerability": "minus: underlying defense more resilient than concessions; plus: underlying exposure worse; zero: evidenced no discrepancy; null: unsupported",
+    "away_defensive_vulnerability": "same definition for away",
+    "match_openness": "minus: less open interaction; plus: more open interaction; zero: evidenced continuity; null: no matchup support",
+    "home_availability_impact": "minus: weaker available resources than observed sample; plus: stronger; zero: supported continuity; null: unverified",
+    "away_availability_impact": "same definition for away",
+    "schedule_imbalance": "minus: home disadvantaged; plus: away disadvantaged; zero: verified no imbalance; null: incomplete schedule"
+  },
+  "metric_definitions": {
+    "arithmetic_mean_of_observed_match_values_v1": "sum of unique observed match-field values / actual available matches; expected denominator counts all declared eligible matches; conflict -> null",
+    "paired_historical_score_summary_v1": "historical score predicate or sum across paired observed regulation-time goals / usable paired matches; never a target probability",
+    "elapsed_since_latest_declared_fixture_not_verified_total_rest_v1": "(evidence cutoff - latest declared played time) in days; no claim of complete rest"
+  }
+}

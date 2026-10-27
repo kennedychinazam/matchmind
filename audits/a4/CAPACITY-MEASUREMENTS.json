@@ -1,0 +1,71 @@
+{
+  "classification": "SYNTHETICALLY_VERIFIED; no provider calls",
+  "artifacts": {
+    "prompts/0.2.0.md": "e5847427c554d2cd125a0a1c6b5abb5f87410b1487f681d7933564b5ef9cb457",
+    "baselines/prompt-0.1.0.md": "ee38134f087481ce4e0d57951155067b8b2ed563d3be3d145fa2c2fdab5656d9",
+    "baselines/response-0.1.0.schema.json": "602b3e647939b2151e168e4621509c06bc2ff602b0a6381e7ec2fae2ad179bc5",
+    "response.schema.json": "6e62ba8148f63cdd30e710ce4eef98ec2c8b10b7779dc027465cf01cf59c1924",
+    "source.schema.json": "96d3b778a6389b138b37d8f099ae34ff1de8e0b8f90dfcdded9fafac9ba33ae0",
+    "packet.schema.json": "ee5dbdf826fb13176b483863b743e6232d4fafb90492d01313f4f38e57321c59",
+    "definitions.json": "70481f065f77c650cf395be85ad84d899176b7a14c0efd5aa06d655610699c23"
+  },
+  "packet_hash": "1a2e501feddb3dc5f6aa32cb1341d1210d1c2aecbf22e785ff24730a8437d176",
+  "observations": 140,
+  "metrics": 262,
+  "models": [
+    {
+      "model": "openai/gpt-6-luna",
+      "response": {
+        "bytes": 14571,
+        "byte_token_proxy": 14571,
+        "tokenizer_verified": false,
+        "semantic_validity_not_inferred": true
+      },
+      "validation": "accepted_for_offline_review",
+      "feature_admission": false,
+      "request_bytes": {
+        "request": 213497,
+        "schema": 5968,
+        "system_prompt": 18931,
+        "response_bound": 32768
+      },
+      "request_hash": "cef575e74a9cc00ac2107bf0f22580ed64b03113407acc021d09b7c86c59d6b3",
+      "evidence_sha256": "ef08a83e35e70ed70b4b9b36aeb1231a18d5177d04629e97b9f77581db4a08bb",
+      "provider_admission": false,
+      "blockers": [
+        "synthetic_not_prospective",
+        "provider_contract_not_tested",
+        "tokenizer_and_framing_not_verified",
+        "output_reasoning_accounting_unverified",
+        "fresh_runtime_BYOK_model_finance_checkpoint_authorization_required"
+      ]
+    },
+    {
+      "model": "google/gemini-3-flash-preview",
+      "response": {
+        "bytes": 14571,
+        "byte_token_proxy": 14571,
+        "tokenizer_verified": false,
+        "semantic_validity_not_inferred": true
+      },
+      "validation": "accepted_for_offline_review",
+      "feature_admission": false,
+      "request_bytes": {
+        "request": 213519,
+        "schema": 5968,
+        "system_prompt": 18931,
+        "response_bound": 32768
+      },
+      "request_hash": "ffd3d7d8d4df6d6ce1de34c0bb58245691aa3773cedd448eb1cf78bf3a3f7c37",
+      "evidence_sha256": "ef08a83e35e70ed70b4b9b36aeb1231a18d5177d04629e97b9f77581db4a08bb",
+      "provider_admission": false,
+      "blockers": [
+        "synthetic_not_prospective",
+        "provider_contract_not_tested",
+        "tokenizer_and_framing_not_verified",
+        "output_reasoning_accounting_unverified",
+        "fresh_runtime_BYOK_model_finance_checkpoint_authorization_required"
+      ]
+    }
+  ]
+}
