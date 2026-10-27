@@ -23,3 +23,11 @@ export function loadRetainedJournal(raw){
 export function readRetained(handle){const value=journals.get(handle);if(!value)throw Error('untrusted_retained_journal');return value;}
 export function retainedSource(handle){const {packet}=readRetained(handle);return mint(packet.body,packet.received_at,'accepted_historical_receipt_replay');}
 export function readSource(cap){const value=sources.get(cap);if(!value)throw Error('untrusted_source_capability');return value;}
+// Additive genuine A3 source adapter. No caller-supplied verified/status flag.
+// Repository factory enforces the existing pinned isolated database boundary.
+export async function enrolledSource(db,packetId){
+ const {singleStore}=await import('../a3-supervised/local.mjs'),store=singleStore(db);
+ const packet=store.read(packetId),study=packet&&store.read(packet.parent_id);
+ if(packet?.kind!=='packet'||study?.kind!=='study'||study.body.version!=='a3-supervised-single-v1'||packet.body.synthetic===true||packet.body.collection?.kind!=='a3_single_readonly_v1'||packet.body.targets.length!==1||String(packet.body.targets[0])!==study.body.fixture_id||canonicalHash(packet.body)!==study.body.source_hash)throw Error('genuine_enrolled_source_binding');
+ return mint(packet.body,packet.received_at,'a3_isolated_database_receipt');
+}
