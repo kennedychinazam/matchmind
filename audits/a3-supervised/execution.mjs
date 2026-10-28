@@ -7,7 +7,7 @@ import {readPacketSource} from '../a3-workflow/contract.mjs';
 import {dispatchOne} from './controller.mjs';
 import {PRE_HTTP_POLICY} from './window.mjs';
 const staged=new WeakMap();
-const files=['execution.mjs','controller.mjs','transport.mjs','diagnostics.mjs','window.mjs','../phase8-continuation/checkpoint.mjs'];
+const files=['execution.mjs','controller.mjs','transport.mjs','diagnostics.mjs','window.mjs','continuation.mjs','../phase8-continuation/checkpoint.mjs'];
 const artifacts=()=>Object.fromEntries(files.map(name=>[name,canonicalHash(readFileSync(new URL(name,import.meta.url),'utf8'))]));
 function durable(path,body,flags){const fd=openSync(path,flags,0o600);try{writeFileSync(fd,body);fsyncSync(fd);}finally{closeSync(fd);}}
 export function assertStagedExecution(token,plan,authorization,options){

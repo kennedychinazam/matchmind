@@ -5,6 +5,7 @@ const aliases=new Map([['unverified provider response','unverified_provider_resp
 for(const code of ['invalid_single_fixture_capacity_risk_exception','provider_usage_exceeds_capacity_exception_endpoint_limits','bounded_analysis_response_required','response_fixture_or_packet_identity','unverified_or_duplicate_evidence_reference','inconsistent_analysis_or_risk',...aliases.values()])known.add(code);
 const phases=new Set(['pre_reservation_validation','reservation_and_confirmation','checkpoint_creation','checkpoint_verification','final_provider_admission','immediately_before_http','transport_execution','provider_response_handling','ai_validation','post_response_checkpoint']);
 known.add('invalid_diagnostic_phase');
+for(const code of ['invalid_scoped_continuation','invalid_scoped_capacity_risk','ambiguous_continuation_admission','immutable_continuation_absent','immutable_scoped_capacity_absent','scoped_fixture_already_attempted_never_redispatch'])known.add(code);
 const failures=new WeakMap();
 export function observedFailure(code,observed={}){
  const error=Error(known.has(code)?code:'unclassified_failure');
