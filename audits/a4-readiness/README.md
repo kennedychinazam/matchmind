@@ -15,6 +15,16 @@ The old implementation applied one banned-word regex to all text, incorrectly re
 
 Percent/HTML/backslash encodings, compatibility-form ambiguity, invisible control characters and decoded instruction/data payloads reject. Base64 inspection is bounded; if a payload is still encoded beyond the inspected depth, it is quarantined rather than silently accepted. No input string is rewritten in the evidence artifact. Negative text checks are not a universal semantic/steganography detector, nor a substitute for verified source identity, field lineage and independent review. Ambiguous encodings and unapproved reference formats fail closed rather than being guessed.
 
+### Identity decoding correction — policy v0.2.3
+
+Policy `a4-text-policy-v0.2.3` supersedes v0.2.2 without changing either frozen analyst prompt, schema or source authority. Ordinary names such as `Atalanta` and `Adelante` happen to round-trip as Base64URL and decode to valid UTF-8 containing controls. That coincidence is not evidence of an encoded source label. For **identity labels only**, controls in speculative decoded bytes no longer cause rejection by themselves. Literal controls in the original string still reject.
+
+Decoded inspection copies retain the original text and also remove or space controls, so control-fragmented instructions, prices and nested payloads remain checked. Those inspection forms are used between encoding layers too. The original bounded candidate rules (8–256 characters, canonical round-trip, valid UTF-8, opaque-hash exclusion), two-layer inspection and unresolved-depth rejection remain intact. This is a bounded content check, not a universal encoding detector.
+
+Commentary may mention its already-admitted fixture labels: those exact labels are masked only for speculative decoding, after raw instruction/data/control/escape checks. Adjacent malicious content is still inspected. Identifiers remain conservative, including speculative decoded-control rejection; passing a name never admits it as an arbitrary source reference. Source capabilities, closed field schemas, reference equality and commentary restrictions remain mandatory. No registry, team whitelist or genuine source status is introduced.
+
+`audits/test/a4-identity-encoding.test.mjs` reproduces the old rejection through A3 and A4 packet paths and tests ordinary/accented/numeric names, bound-name commentary, control-containing encoded directives, nested/repeated payloads, prices, model outputs and malformed references. These are offline synthetic security checks. A structural replay over retained source rows does not renew their timestamps, establish regulation-time semantics or authorize an experiment.
+
 Tests reproduce the legitimate-name bug before implementation and verify model-independent packet/response handling, malicious labels, source-reference namespaces, nested/aliased fields, encoded attempts, fake authority and adjacent prohibited facts. Independent code review exposed phrased-data and hyphen-boundary regressions plus an encoding-depth limitation; each received failing-first tests and fixes.
 
 ## Semantic review design and prototype

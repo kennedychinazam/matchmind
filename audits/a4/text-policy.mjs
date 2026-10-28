@@ -2,7 +2,7 @@
 // These negative checks supplement source capabilities and closed field schemas;
 // labels/ref strings never establish real source authority or semantic truth.
 import {isUtf8} from 'node:buffer';
-export const TEXT_POLICY_VERSION='a4-text-policy-v0.2.2';
+export const TEXT_POLICY_VERSION='a4-text-policy-v0.2.3';
 export const prohibited=/bookmaker|\bodds\b|implied|\blambda\b|engine|forecast|prediction|recommend|\bROI\b|\bEV\b|consensus|ignore.*(?:instructions|rules|previous)|disregard|assistant:|system:|developer:|system prompt|you are|tool.call|https?:|<script|base64|override|act as|\bbet\b/iu;
 const controls=/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
 const encoded=/\\(?:u[0-9a-f]{4}|x[0-9a-f]{2})|%[0-9a-f]{2}|&#(?:x[0-9a-f]+|[0-9]+);|&(?:lt|gt|quot|amp);/iu;
@@ -27,13 +27,39 @@ function identityPrice(value){
  return false;
 }
 function decodedCandidates(value){const found=[];for(const token of new Set([value,...value.split(/[:.\s]/u)])){if(token.length<8||token.length>256||/^[0-9a-f]{32,128}$/iu.test(token)||!(/^[A-Za-z0-9+/_-]+={0,2}$/u).test(token))continue;const normalized=token.replace(/=+$/u,'').replace(/\+/gu,'-').replace(/\//gu,'_');let bytes;try{bytes=Buffer.from(token,'base64url');}catch{continue;}if(bytes.length>=4&&isUtf8(bytes)&&bytes.toString('base64url')===normalized)found.push(bytes.toString('utf8'));}return found;}
-function views(text){const out=[text];let current=[text];for(let depth=0;depth<2;depth++){const next=[];for(const value of current)for(const decoded of decodedCandidates(value))if(!out.includes(decoded)){out.push(decoded);next.push(decoded);}current=next;}if(current.some(value=>decodedCandidates(value).length))throw Error('unresolved_encoded_football_text');return out;}
+// Decoding an alphabetic name is speculative, not evidence that the source
+// encoded it. Keep decoded views for content inspection. Strip/space controls
+// only in inspection copies, including between encoding layers; never rewrite
+// source data or let control-fragmented directives evade their normal checks.
+const inspectionControls=new RegExp(controls.source,'gu');
+function inspectionForms(value){return controls.test(value)?[...new Set([value,value.replace(inspectionControls,''),value.replace(inspectionControls,' ')])]:[value];}
+function views(text){
+ const out=[text];let current=[text];
+ for(let depth=0;depth<2;depth++){
+  const next=[];
+  for(const value of current)for(const form of inspectionForms(value))for(const decoded of decodedCandidates(form))if(!out.includes(decoded)){out.push(decoded);next.push(decoded);}
+  current=next;
+ }
+ if(current.some(value=>inspectionForms(value).some(form=>decodedCandidates(form).length)))throw Error('unresolved_encoded_football_text');
+ return out;
+}
 function maskLabels(value,labels){let out=value;for(const label of [...new Set(labels.filter(x=>typeof x==='string'&&x.length))].sort((a,b)=>b.length-a.length)){const escaped=label.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&');out=out.replace(new RegExp('(?<![\\p{L}\\p{N}_])'+escaped+'(?![\\p{L}\\p{N}_])','giu'),'[fixture identity]');}return out;}
 export function validateFootballText(value,role='commentary',identityLabels=[]){
  if(!['identity_label','identifier','commentary'].includes(role))throw Error('unknown_football_text_role');if(typeof value!=='string')return;
  if(controls.test(value)||value.normalize('NFKC')!==value||encoded.test(value))throw Error('prohibited_or_ambiguous_football_text');
- const candidates=views(value);for(const candidate of candidates)if(controls.test(candidate)||encoded.test(candidate)||directive.test(candidate)||data.test(candidate)||phrasedData.test(candidate))throw Error('prohibited_football_instruction_or_data');
- if(role==='identity_label'){if(candidates.some(identityPrice))throw Error('identity_label_price_or_fraction');if(/[{}\[\]<>`=;|\\]/u.test(value))throw Error('identity_label_structure');return;}
+ // Raw instructions/data always reject before any admitted-name masking.
+ if(directive.test(value)||data.test(value)||phrasedData.test(value))throw Error('prohibited_football_instruction_or_data');
+ // Commentary can mention its already-admitted fixture names. Mask exact names
+ // for speculative decoding only; adjacent content and raw controls still fail.
+ const scan=role==='commentary'?maskLabels(value,identityLabels):value,candidates=views(scan);
+ for(const candidate of candidates){
+  if(role!=='identity_label'&&controls.test(candidate))throw Error('prohibited_football_instruction_or_data');
+  for(const form of inspectionForms(candidate))if(encoded.test(form)||directive.test(form)||data.test(form)||phrasedData.test(form))throw Error('prohibited_football_instruction_or_data');
+ }
+ // In identities, binary/control noise from a speculative decode alone is not
+ // a denial reason. Recognized encoded instructions, data, prices and unresolved
+ // nested encodings still reject; literal controls were rejected above.
+ if(role==='identity_label'){if(candidates.some(candidate=>inspectionForms(candidate).some(identityPrice)))throw Error('identity_label_price_or_fraction');if(/[{}\[\]<>`=;|\\]/u.test(value))throw Error('identity_label_structure');return;}
  if(role==='identifier'){if(!/^[A-Za-z0-9][A-Za-z0-9_.:/@+-]*$/u.test(value)||/^[A-Za-z]+:\/\//u.test(value)||candidates.some(s=>forbiddenNamespace.test(s)))throw Error('prohibited_or_ambiguous_source_reference');return;}
  // Names already bound to the validated fixture may be cited as names, not used
  // as an exemption for adjacent instructions, prices or forecast information.
