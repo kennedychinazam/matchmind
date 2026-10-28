@@ -44,6 +44,102 @@ test('injected provider execution cannot be certified as a genuine transport',()
 test('a valid synthetic controller permit is explicitly ineligible for the real transport',async()=>{const s=scenario();s.options.transport=async permit=>{const p=consumePermit(permit,s.state.now);assert.equal(p.genuine,false);return envelope(decision(s.p.packet),s.p.profile);};await dispatchOne(s.p,s.options);});
 test('consuming a permit cannot expose mutable state or permit a second consumption',async()=>{const s=scenario();s.options.transport=async permit=>{const p=consumePermit(permit,s.state.now);assert.throws(()=>{p.genuine=true;},TypeError);assert.throws(()=>{p.body.model='other';},TypeError);assert.throws(()=>consumePermit(permit,s.state.now),/permit/);return envelope(decision(s.p.packet),s.p.profile);};await dispatchOne(s.p,s.options);});
 test('fresh endpoint telemetry does not change the pinned safety contract',async()=>{const s=scenario(),refresh=s.options.refresh;s.options.refresh=async()=>{const f=await refresh();Object.assign(f.catalog.data.endpoints[0],{latency_last_30m:Math.random(),uptime_last_30m:99.9,throughput_last_30m:123});return f;};await dispatchOne(s.p,s.options);assert.equal(s.state.calls,1);});
-test('an absent shared-ledger ancestry stops even an otherwise approved plan before liability',async()=>{const s=scenario();s.store.assertLedgerAnchor=()=>{throw Error('ancestry missing');};await assert.rejects(()=>dispatchOne(s.p,s.options),/ancestry/);assert.equal(s.state.calls,0);assert.equal(s.store.reservedMicros(),2753008);});
+test('an absent shared-ledger ancestry stops even an otherwise approved plan before liability',async()=>{const s=scenario();s.store.assertLedgerAnchor=()=>{throw Error('accepted_shared_ledger_ancestry_missing_or_changed');};await assert.rejects(()=>dispatchOne(s.p,s.options),/ancestry/);assert.equal(s.state.calls,0);assert.equal(s.store.reservedMicros(),2753008);});
 test('an existing attempt latch blocks a changed request hash before another reservation',async()=>{const s=scenario();s.store.hasSingleAttempt=()=>true;await assert.rejects(()=>dispatchOne(s.p,s.options),/already_attempted/);assert.equal(s.store.reservedMicros(),2753008);assert.equal(s.state.calls,0);});
 test('expiry during synchronous final job reads is caught before reservation',async()=>{const s=scenario(),read=s.store.read;s.store.read=id=>{const r=read(id);if(id==='packet')s.state.now='2026-10-27T12:11:00Z';return r;};await assert.rejects(()=>dispatchOne(s.p,s.options),/expired/);assert.equal(s.store.reservedMicros(),2753008);});
+
+// Regression: generic catches must retain safe phase evidence, never arbitrary messages.
+test('pre-reservation rejection reports its safe phase without changing the ledger',async()=>{
+ const s=scenario();s.options.authorization_id=null;
+ await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{
+  assert.equal(e.diagnostic?.phase,'pre_reservation_validation');
+  assert.equal(e.diagnostic?.code,'final_operator_authorization_required');
+  assert.equal(e.diagnostic?.http_state,'not_started');return true;
+ });assert.equal(s.store.reservedMicros(),2753008);
+});
+test('checkpoint creation failure is retained in the immutable halt without leaking error text',async()=>{
+ const s=scenario();s.options.checkpoint=async()=>{throw Error('secret sk-private request-body sensitive');};
+ await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{assert.equal(e.diagnostic?.phase,'checkpoint_creation');return true;});
+ const halt=s.store.events().find(e=>e.body?.halt===true);
+ assert.equal(halt.body.diagnostic.phase,'checkpoint_creation');
+ assert.equal(halt.body.diagnostic.code,'unclassified_failure');
+ assert.equal(halt.body.diagnostic.http_state,'not_started');
+ assert.ok(!JSON.stringify(halt).includes('sk-private'));assert.equal(s.state.calls,0);
+});
+test('a live but insufficient authorization window stops before reservation and transport',async()=>{
+ const s=scenario();s.authorization.body.expires_at_utc='2026-10-27T12:00:30Z';
+ await assert.rejects(()=>dispatchOne(s.p,s.options),/insufficient_pre_http_window/);
+ assert.equal(s.store.reservedMicros(),2753008);assert.equal(s.state.calls,0);assert.equal(s.state.checkpoints,0);
+});
+test('post-response checkpoint failure is distinguished from AI validation failure',async()=>{
+ const s=scenario();s.options.checkpoint=async()=>{if(++s.state.checkpoints===2)throw Error('private filesystem path');};
+ await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{assert.equal(e.diagnostic?.phase,'post_response_checkpoint');return true;});
+ assert.equal(s.store.events().find(e=>e.body?.halt===true).body.diagnostic.phase,'post_response_checkpoint');
+ assert.equal(s.store.events().filter(e=>e.kind==='forecast').length,1);assert.equal(s.state.calls,1);
+});
+test('separate checkpoint verification failure is identified before any provider call',async()=>{
+ const s=scenario();s.options.verifyCheckpoint=async()=>{throw Error('checksum mismatch private path');};
+ await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{assert.equal(e.diagnostic?.phase,'checkpoint_verification');assert.equal(e.diagnostic.halt_checkpoint_failed,true);return true;});
+ assert.equal(s.state.calls,0);assert.equal(s.store.reservedMicros(),3059008);
+});
+test('offline staged wrapper records complete safe phases without collecting or authorizing',async t=>{
+ const {stageExecution}=await import('../a3-supervised/execution.mjs');
+ const {mkdtempSync,readFileSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');
+ const dir=mkdtempSync(tmpdir()+'/mm-staged-');t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ const s=scenario();let now='2026-10-27T11:59:59Z',verified=0;
+ const wrapper=stageExecution({directory:dir,clock:()=>now,checkpoint:s.options.checkpoint,verifyCheckpoint:()=>{verified++;},refresh:s.options.refresh,transport:s.options.transport});
+ assert.equal(s.store.events().length,1);assert.equal(s.state.refreshes,0);assert.equal(s.state.calls,0);
+ now=AT;await wrapper.run(s.p,{store:s.store,authorization_id:'operator',readiness_id:'review',supervised:true});
+ const rows=readFileSync(dir+'/diagnostics.jsonl','utf8').trim().split('\n').map(JSON.parse);
+ assert.ok(rows.some(r=>r.phase==='checkpoint_verification'));assert.ok(rows.some(r=>r.phase==='ai_validation'));
+ assert.equal(verified,2);assert.equal(rows[0].wrapper_stage_sha256,wrapper.receipt_hash);assert.equal(s.state.calls,1);
+});
+test('a wrapper staged after source availability fails closed before liability',async t=>{
+ const {stageExecution}=await import('../a3-supervised/execution.mjs');const {mkdtempSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');
+ const dir=mkdtempSync(tmpdir()+'/mm-staged-');t.after(()=>rmSync(dir,{recursive:true,force:true}));const s=scenario();
+ const wrapper=stageExecution({directory:dir,clock:()=>AT,checkpoint:s.options.checkpoint,verifyCheckpoint:()=>{},refresh:s.options.refresh,transport:s.options.transport});
+ await assert.rejects(()=>wrapper.run(s.p,{store:s.store,authorization_id:'operator',readiness_id:'review',supervised:true}),/not_staged_before/);
+ assert.equal(s.state.calls,0);assert.equal(s.store.reservedMicros(),2753008);
+});
+for(const [name,mutate,phase] of [
+ ['reservation rejected',s=>s.store.reserveSingle=()=>{throw Error('private SQL');},'reservation_and_confirmation'],
+ ['confirmation committed but caller response failed',s=>{const reserve=s.store.reserveSingle.bind(s.store);s.store.reserveSingle=(...args)=>{reserve(...args);throw Error('private SQL response');};},'reservation_and_confirmation'],
+ ['dispatch-intent persistence failed',s=>{const append=s.store.append.bind(s.store);s.store.append=(kind,id,parent,body)=>{if(id.endsWith(':dispatch'))throw Error('private SQL');return append(kind,id,parent,body);};},'reservation_and_confirmation'],
+ ['final admission after checkpoint failed',s=>{const refresh=s.options.refresh;s.options.refresh=async()=>{if(s.state.checkpoints)throw Error('private account');return refresh();};},'final_provider_admission'],
+ ['AI response rejected',s=>s.options.transport=async permit=>{consumePermit(permit,s.state.now);const r=envelope(decision(s.p.packet),s.p.profile);r.choices[0].finish_reason='length';return r;},'ai_validation']
+])test('original failure stage survives: '+name,async()=>{
+ const s=scenario();mutate(s);await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{assert.equal(e.diagnostic.phase,phase);assert.ok(!JSON.stringify(e.diagnostic).includes('private'));return true;});assert.equal(s.state.calls,0);
+ const held=s.store.reservedMicros()>2753008;
+ if(held){assert.equal(s.store.events().filter(e=>e.body?.halt).length,1);await assert.rejects(()=>dispatchOne(s.p,s.options));}
+});
+test('six-minute margin is strict and is rechecked after initial metadata refresh',async()=>{
+ const s=scenario();s.state.now='2026-10-27T12:04:00Z';await assert.rejects(()=>dispatchOne(s.p,s.options),/insufficient_pre_http_window/);assert.equal(s.store.reservedMicros(),2753008);
+ const a=scenario();a.state.now='2026-10-27T12:03:59.999Z';await dispatchOne(a.p,a.options);assert.equal(a.state.calls,1);
+ const b=scenario(),refresh=b.options.refresh;b.options.refresh=async()=>{const fresh=await refresh();b.state.now='2026-10-27T12:04:00Z';fresh.observed_at_utc=b.state.now;fresh.fixture_received_at_utc=b.state.now;fresh.runtime.checked_at_utc=b.state.now;return fresh;};
+ await assert.rejects(()=>dispatchOne(b.p,b.options),/insufficient_pre_http_window/);assert.equal(b.store.reservedMicros(),2753008);
+});
+test('initial diagnostic failure cannot reserve and is explicitly reported',async()=>{
+ const s=scenario();s.options.recordDiagnostic=()=>{throw Error('secret fs failure');};await assert.rejects(()=>dispatchOne(s.p,s.options),e=>{assert.equal(e.diagnostic.diagnostic_write_failed,true);return true;});assert.equal(s.store.reservedMicros(),2753008);assert.equal(s.state.calls,0);
+});
+test('a forged staging capability cannot enable a request',async()=>{
+ const s=scenario();s.options.executionStage={version:'a3-offline-wrapper-v1'};await assert.rejects(()=>dispatchOne(s.p,s.options),/not_staged_before/);assert.equal(s.store.reservedMicros(),2753008);
+});
+test('wrapper receipt tampering and dependency replacement stop before any paid operation',async t=>{
+ const {stageExecution}=await import('../a3-supervised/execution.mjs'),{mkdtempSync,writeFileSync,rmSync}=await import('node:fs'),{tmpdir}=await import('node:os');
+ for(const mode of ['tampered','override']){const dir=mkdtempSync(tmpdir()+'/mm-stage-');t.after(()=>rmSync(dir,{recursive:true,force:true}));const s=scenario();
+  const wrapper=stageExecution({directory:dir,clock:()=> '2026-10-27T11:59:59Z',checkpoint:s.options.checkpoint,verifyCheckpoint:()=>{},refresh:s.options.refresh,transport:s.options.transport});
+  if(mode==='tampered')writeFileSync(dir+'/wrapper-stage.json','{}');
+  await assert.rejects(()=>wrapper.run(s.p,{store:s.store,authorization_id:'operator',readiness_id:'review',supervised:true,...(mode==='override'?{refresh:()=>{throw Error('must not call');}}:{})}),/artifact_changed|cannot_be_overridden/);
+  assert.equal(s.store.reservedMicros(),2753008);assert.equal(s.state.calls,0);
+  await assert.rejects(()=>wrapper.run(s.p,{}),/already_used/);
+ }
+});
+test('staged source hash bindings cannot be mutated through the returned receipt',async t=>{
+ const {stageExecution}=await import('../a3-supervised/execution.mjs'),{mkdtempSync,rmSync}=await import('node:fs'),{tmpdir}=await import('node:os');
+ const dir=mkdtempSync(tmpdir()+'/mm-stage-');t.after(()=>rmSync(dir,{recursive:true,force:true}));const s=scenario();
+ const wrapper=stageExecution({directory:dir,clock:()=> '2026-10-27T11:59:59Z',checkpoint:s.options.checkpoint,verifyCheckpoint:()=>{},refresh:s.options.refresh,transport:s.options.transport});
+ assert.throws(()=>{wrapper.receipt.artifacts['controller.mjs']='forged';},TypeError);
+});
+test('late preparation stops before opening another authorization window',()=>{
+ const p=plan();assert.throws(()=>prepareOne(p.packet,p.engine_artifact,p.profile,'2026-10-27T12:10:00Z',{catalog:singleCatalog()}),/insufficient_pre_http_window/);
+});

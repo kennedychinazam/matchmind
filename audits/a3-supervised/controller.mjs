@@ -9,6 +9,9 @@ import {ENGINE_SOURCE_SHA256} from '../phase8/engine.mjs';
 import {assertSingleStore} from './local.mjs';
 import {assertGenuineTransport} from './transport.mjs';
 import {assertCapacityException,assertExceptionUsage} from './capacity-exception.mjs';
+import {assertStagedExecution} from './execution.mjs';
+import {phaseTrace} from './diagnostics.mjs';
+import {assertPreHttpWindow,PRE_HTTP_POLICY} from './window.mjs';
 const plans=new WeakSet(),permits=new WeakMap();
 function endpointContract(e){return{model_id:e.model_id,tag:e.tag,provider_name:e.provider_name,service_tier:e.service_tier,status:e.status,context_length:e.context_length,max_prompt_tokens:e.max_prompt_tokens,max_completion_tokens:e.max_completion_tokens,supported_parameters:[...(e.supported_parameters??[])].sort(),supports_tool_choice:e.supports_tool_choice,supports_implicit_caching:e.supports_implicit_caching,pricing:e.pricing};}
 export function prepareOne(packet,engine,profile,now,{catalog}={}){
@@ -18,6 +21,8 @@ export function prepareOne(packet,engine,profile,now,{catalog}={}){
  if(e.status!=='forecast'||e.eligible!==true||e.home!==p.fixture.home||e.away!==p.fixture.away||epochMicros(e.kickoff_at_utc)!==epochMicros(p.fixture.kickoff_at_utc)||epochMicros(e.generated_at_utc)<epochMicros(p.source.received_at_utc)||epochMicros(e.generated_at_utc)>epochMicros(now)||!Array.isArray(e.probabilities)||e.probabilities.length!==3||e.probabilities.some(x=>typeof x!=='number'||!Number.isFinite(x)||x<0||x>1)||Math.abs(e.probabilities.reduce((a,b)=>a+b,0)-1)>1e-8)throw Error('invalid_engine_forecast_lineage');
  if(!s.synthetic&&engine.synthetic_clock!==false)throw Error('genuine_engine_clock_required');
  const endpoints=catalog?.data?.endpoints?.filter(e=>canonicalHash(e)===profile.endpoint_hash)??[];if(endpoints.length!==1)throw Error('profile_catalog_binding_required');
+ const midnight=new Date(Date.parse(now.slice(0,10)+'T00:00:00Z')+86400000).toISOString();
+ assertPreHttpWindow(now,[epochMicros(s.collection?.earliest_receipt_at_utc??s.source_read_at_utc)+900000000n,epochMicros(s.source_read_at_utc)+900000000n,epochMicros(p.fixture.kickoff_at_utc)-450000000n,epochMicros(midnight)].reduce((a,b)=>a<b?a:b));
  const draft=draftRequest(p,profile,now),body={version:'a3-supervised-one-v1',model:profile.model,fixture:p.fixture,packet:p,engine:structuredClone(e),engine_artifact:structuredClone(engine),profile:structuredClone(profile),endpoint_contract_hash:canonicalHash(endpointContract(endpoints[0])),draft_hash:draft.request_hash,body:draft.body,maximum_new_micros:profile.reserved_micros,dispatch_authorized:false};
  const plan=freeze({...body,request_hash:canonicalHash(body)});plans.add(plan);return plan;
 }
@@ -25,12 +30,16 @@ function assertPlan(p){if(!plans.has(p))throw Error('unadmitted_supervised_plan'
 function t(s){return epochMicros(s);}
 export function consumePermit(permit,now){const p=permits.get(permit);permits.delete(permit);if(!p||t(now)>=t(p.expires))throw Error('missing_expired_or_used_dispatch_permit');return freeze({...p,runtime:structuredClone(p.runtime)});}
 export async function dispatchOne(plan,options){
- assertPlan(plan);const {store,authorization_id,readiness_id,checkpoint,transport,refresh}=options;
+ const {store,authorization_id,readiness_id,checkpoint,transport,refresh}=options;
+ const trace=phaseTrace(()=>store.clock(),options.recordDiagnostic);let reservation,liability='not_attempted';
+ try{
+ trace.enter('pre_reservation_validation');assertPlan(plan);
  if(plan.packet.source.classification==='a3_isolated_database_receipt')assertSingleStore(store);
  if(!authorization_id)throw Error('final_operator_authorization_required');
  const authorization=store.readAuthorization(authorization_id);if(!authorization)throw Error('immutable_final_operator_authorization_absent');
  if(options.supervised!==true)throw Error('explicit_supervised_execution_required');
  if(plan.packet.source.classification==='a3_isolated_database_receipt'&&(options.recoveryVerified!==true||options.externalCopyVerified!==true))throw Error('verified_recovery_and_external_copy_required');
+ if(options.executionStage||plan.packet.source.classification==='a3_isolated_database_receipt')assertStagedExecution(options.executionStage,plan,authorization,options);
  const exception_id=options.capacity_exception_id;
  if(exception_id&&readiness_id)throw Error('ambiguous_capacity_admission_receipts');
  const exception=exception_id&&store.readCapacityException(exception_id);
@@ -41,15 +50,17 @@ export async function dispatchOne(plan,options){
  if(store.hasSingleAttempt(authorization.job_id))throw Error('single_study_already_attempted_never_redispatch');
  if(exception_id&&store.hasCapacityAttempt())throw Error('capacity_experiment_already_attempted_never_redispatch');
  if(typeof checkpoint!=='function'||typeof transport!=='function'||typeof refresh!=='function')throw Error('supervised_dependencies_required');
- if(plan.packet.source.classification==='a3_isolated_database_receipt')assertGenuineTransport(transport);
- const s=readPacketSource(plan.packet),ko=t(plan.fixture.kickoff_at_utc),sid=plan.request_hash.slice(0,48),reservation='a3one:'+sid;
- const gate=async()=>{
+ if(plan.packet.source.classification==='a3_isolated_database_receipt'){assertGenuineTransport(transport);if(typeof options.recordDiagnostic!=='function'||typeof options.verifyCheckpoint!=='function')throw Error('durable_diagnostics_and_checkpoint_verification_required');}
+ const s=readPacketSource(plan.packet),ko=t(plan.fixture.kickoff_at_utc),sid=plan.request_hash.slice(0,48);reservation='a3one:'+sid;
+ const nextMidnight=()=>t(new Date(Date.parse(authorization.body.issuance_date_utc+'T00:00:00Z')+86400000).toISOString());
+ const hardDeadline=()=>[nextMidnight(),t(authorization.body.expires_at_utc),t(authorization.received_at)+600000000n,t(authorization.body.byok.recorded_at_utc)+600000000n,t(s.collection?.earliest_receipt_at_utc??s.source_read_at_utc)+900000000n,t(s.source_read_at_utc)+900000000n,ko-450000000n,...(exception_id?[t(exception.body.expires_at_utc)]:[])].reduce((a,b)=>a<b?a:b);
+ const gate=async(initial=false)=>{
   let now=store.clock();const a=authorization.body,r=(exception??readiness).body;
   const timeGuard=at=>{
    if(!/^2026-10-(?:2[7-9]|3[01])$/u.test(at.slice(0,10))||a.issuance_date_utc!==at.slice(0,10)||t(at)<t(authorization.received_at)||t(at)>=t(a.expires_at_utc)||t(at)-t(authorization.received_at)>600000000n||ko-t(at)<=450000000n)throw Error('expired_authorization_or_issue_deadline');
    if(t(at)-t(s.collection?.earliest_receipt_at_utc??s.source_read_at_utc)>900000000n||t(at)-t(s.source_read_at_utc)>900000000n)throw Error('fresh_complete_history_required');
    if(exception_id&&(t(at)<t(exception.received_at)||t(at)>=t(r.expires_at_utc)))throw Error('expired_capacity_risk_exception');
-  };timeGuard(now);
+  };timeGuard(now);if(initial)assertPreHttpWindow(now,hardDeadline());
   if(a.version!=='a3-single-final-v1'||a.fixture_id!==plan.fixture.fixture_id||a.request_hash!==plan.request_hash||a.packet_hash!==plan.packet.packet_hash||a.model!==plan.model||a.provider!=='OpenAI'||a.max_new_micros!==plan.maximum_new_micros||!(/^[a-f0-9]{64}$/u).test(a.operator_message_sha256??''))throw Error('authorization_scope_mismatch');
   // A caller flag cannot provide readiness. Only a separate immutable reviewed
   // receipt loaded by the pinned local repository can attest a complete bound.
@@ -85,23 +96,38 @@ export async function dispatchOne(plan,options){
   return{now,account,runtime:fresh.runtime,dispatch_deadline_micros:exception_id&&t(r.expires_at_utc)<deadline?t(r.expires_at_utc):deadline};
  };
  if(store.read(reservation))throw Error('request_already_attempted_never_redispatch');
- const first=await gate();
+ const first=await gate(true);
  const job=store.read(authorization.job_id),sourceEvent=job&&store.read(job.parent_id);if(!job||job.kind!=='job'||job.body.fixture_id!==plan.fixture.fixture_id||sourceEvent?.kind!=='packet'||canonicalHash(sourceEvent.body)!==plan.packet.source.source_hash||t(sourceEvent.received_at)!==t(plan.packet.source.received_at_utc))throw Error('immutable_job_binding');
  if(t(store.clock())>=first.dispatch_deadline_micros)throw Error('authorization_expired_before_atomic_reservation');
- const reservationBody={reserved_micros:plan.maximum_new_micros,request_hash:plan.request_hash,integration:'openrouter-private-v1',key_identity_hash:first.account.key_identity_hash,profile:plan.profile,request:{body:plan.body,request_hash:plan.request_hash,arm:'A3'},authorization_id,...(exception_id?{capacity_exception_id:exception_id,capacity_exception_body_hash:exception.body_hash,capacity_status:'unverified',complete_input_upper_tokens:null}:{readiness_id}),gate_deadline_utc:new Date(Number(first.dispatch_deadline_micros/1000n)).toISOString()};
+ assertPreHttpWindow(store.clock(),hardDeadline());
+ const reservationBody={reserved_micros:plan.maximum_new_micros,request_hash:plan.request_hash,integration:'openrouter-private-v1',key_identity_hash:first.account.key_identity_hash,profile:plan.profile,request:{body:plan.body,request_hash:plan.request_hash,arm:'A3'},authorization_id,...(exception_id?{capacity_exception_id:exception_id,capacity_exception_body_hash:exception.body_hash,capacity_status:'unverified',complete_input_upper_tokens:null}:{readiness_id}),timing_policy:PRE_HTTP_POLICY,gate_deadline_utc:new Date(Number(first.dispatch_deadline_micros/1000n)).toISOString()};
+ trace.enter('reservation_and_confirmation');liability='reservation_outcome_unknown';
  if(exception_id)store.reserveCapacity(authorization_id,reservation,job.event_id,reservationBody);else store.reserveSingle(authorization_id,reservation,job.event_id,reservationBody);
- store.append('usage',reservation+':dispatch',reservation,{status:'dispatched'});
- try{
-  await checkpoint();const last=await gate();
+ liability='retained';
+ store.append('usage',reservation+':dispatch',reservation,{status:'dispatched',meaning:'dispatch_intent_only',http_transmission_confirmed:false});
+ trace.enter('checkpoint_creation');const before=await checkpoint();
+ trace.enter('checkpoint_verification');if(options.verifyCheckpoint)await options.verifyCheckpoint(before);
+ trace.enter('final_provider_admission');const last=await gate();
   if(store.read(reservation+':commit')?.body?.status!=='accepted'||store.read(reservation+':dispatch')?.body?.status!=='dispatched')throw Error('immutable_dispatch_confirmation_missing');
-  const permit=Object.freeze({kind:'a3-single-dispatch'});permits.set(permit,{used:false,genuine:plan.packet.source.classification==='a3_isolated_database_receipt'&&plan.engine_artifact.synthetic_clock===false,request_hash:plan.request_hash,body:plan.body,runtime:last.runtime,expires:authorization.body.expires_at_utc,beforeHttp:gate});
-  const raw=await transport(permit);store.append('usage',reservation+':raw',reservation,{status:'provider_response',response:raw});
+  const permit=Object.freeze({kind:'a3-single-dispatch'});permits.set(permit,{used:false,genuine:plan.packet.source.classification==='a3_isolated_database_receipt'&&plan.engine_artifact.synthetic_clock===false,request_hash:plan.request_hash,body:plan.body,runtime:last.runtime,expires:authorization.body.expires_at_utc,trace,beforeHttp:async()=>{trace.enter('final_provider_admission');return gate();}});
+  trace.enter('transport_execution');const raw=await transport(permit);trace.enter('provider_response_handling');store.append('usage',reservation+':raw',reservation,{status:'provider_response',response:raw});
   if(exception_id)assertExceptionUsage(raw.usage);
   else if(!raw.usage||raw.usage.prompt_tokens>readiness.body.complete_input_upper_tokens||raw.usage.completion_tokens>plan.body.max_tokens||raw.usage.prompt_tokens+raw.usage.completion_tokens>plan.profile.context_length)throw Error('provider_usage_exceeds_reviewed_request_contract');
-  const analysis=validateAnalysis(raw,plan.packet,plan.profile),now=store.clock();
+  trace.enter('ai_validation');const analysis=validateAnalysis(raw,plan.packet,plan.profile),now=store.clock();
   store.append('forecast',job.event_id+':A3',job.event_id,{arm:'A3',status:analysis.status,generated_at_utc:now,probabilities:analysis.probabilities,model:analysis.model,request_hash:plan.request_hash,source_hash:plan.packet.source.source_hash,packet_hash:plan.packet.packet_hash,prompt_hash:analysis.prompt_hash,schema_hash:analysis.schema_hash,generation_id:analysis.generation_id,provider_dispatch_verified:plan.packet.source.classification==='a3_isolated_database_receipt',...(exception_id?{capacity_exception_id:exception_id,capacity_status:'unverified',complete_input_upper_tokens:null}:{}),analysis,risk:analysis.risk,uncertainty:analysis.uncertainty});
-  store.append('usage',reservation+':result',reservation,{status:'response',response_hash:canonicalHash(raw)});await checkpoint();return analysis;
+  store.append('usage',reservation+':result',reservation,{status:'response',response_hash:canonicalHash(raw)});trace.enter('post_response_checkpoint');const after=await checkpoint();if(options.verifyCheckpoint)await options.verifyCheckpoint(after);return analysis;
  }catch(error){
-  store.append('usage',reservation+':halt',reservation,{status:'failed_or_ambiguous',halt:true,liability_retained:true});try{await checkpoint();}catch{}throw Error('single_request_stopped_retain_liability_no_retry');
+  let diagnostic=trace.failure(error);
+  let diagnosticWriteFailed=false;try{diagnostic=trace.recordFailure(error);}catch{diagnosticWriteFailed=true;}
+  // A reservation call may have committed even if its local transport failed.
+  if(liability==='reservation_outcome_unknown'){try{if(store.read(reservation))liability='retained';}catch{}}
+  let haltWriteFailed=false,haltCheckpointFailed=false;
+  if(liability==='retained'){
+   try{store.append('usage',reservation+':halt',reservation,{status:'failed_or_ambiguous',halt:true,liability_retained:true,diagnostic});}catch{haltWriteFailed=true;}
+   try{const halted=await checkpoint();if(options.verifyCheckpoint)await options.verifyCheckpoint(halted);}catch{haltCheckpointFailed=true;}
+  }
+  const stopped=Error(liability==='not_attempted'?diagnostic.code:'single_request_stopped_retain_liability_no_retry');
+  // Only closed safe diagnostic fields are exposed. Never copy cause/stack/stderr.
+  stopped.diagnostic=Object.freeze({...diagnostic,liability_state:liability,diagnostic_write_failed:diagnosticWriteFailed,halt_write_failed:haltWriteFailed,halt_checkpoint_failed:haltCheckpointFailed});throw stopped;
  }
 }

@@ -151,3 +151,10 @@ also expires: a recent fixture read cannot refresh the older complete history.
 This is a working, tested controller with genuine preparation evidence, not a
 claim of new AI inference, calibrated probabilities or readiness obtained through
 configuration flags. Keep PR6 draft. Stop for Director review.
+
+## Execution correction
+
+Genuine future execution now requires the pre-staged offline wrapper, safe
+failure-phase evidence, separate checkpoint verification and conservative time
+admission described in [EXECUTION-CORRECTION.md](EXECUTION-CORRECTION.md).
+This does not clear any halt, reuse an experiment or authorize another request.
