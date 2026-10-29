@@ -55,6 +55,10 @@ Provider rights are no longer unanswered. API-SPORTS support confirmed in writin
 
 The condition is enforced rather than noted: [RETENTION-POLICY.md](RETENTION-POLICY.md) and `retention.mjs` hold a deletion deadline of 2026-11-10T12:00:00Z, ahead of the 2026-11-11T13:47:51Z expiry, covering original bodies, error bodies, temporary copies and every registered backup, with a durable intent, a deletion receipt and a verification step that re-reads the filesystem instead of trusting the receipt. Retention also stops at once if the subscription ends early. Nothing there touches a production record or the historical research archive, and it authorizes no capture.
 
+## Prepared transport boundary — inert
+
+[TRANSPORT-BOUNDARY.md](TRANSPORT-BOUNDARY.md) and `transport.mjs` prepare the single-batch request using the production convention observed at `index.html:2596` and `:2640`: the fixed API-SPORTS host and the one `x-apisports-key` header. It cannot send a request, for two structural reasons rather than a branch anyone can edit. It holds no credential and never reads one, so the request it builds names the header and never its value. And no Director public key is installed, so the exact-scope signed authorization every real dispatch must present has nothing to verify it against. Dispatch is simulated-only, redirects are never followed, nothing retries, and the durable attempt is consumed before the transport is called and never refunded.
+
 ## Independent source review before any future GO
 
 A reviewer independent of the collector must verify actual authorized provider connection/account evidence (redacted), trustworthy capture process/clocks, exact endpoint/response/version and immutable receipt/backup linkage. A label or hash alone proves none of those facts. Reconcile every required record by exact provider fixture/competition/team IDs and orientation, original raw pointers, scores/null/missingness, original status and revision order; partial data cannot certify a cohort.

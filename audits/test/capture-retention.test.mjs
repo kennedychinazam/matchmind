@@ -29,7 +29,7 @@ function store(extra={}){
 }
 
 test('retention API exists, grants no authority and refuses real transport',()=>{
- for(const name of ['retentionPolicy','registerRetention','readRetention','assertRetainable','planDeletion','recordSubscriptionEnd','beginDeletion','executeDeletion','verifyDeletion','grantsExecutionAuthority','executeRealTransportUnderRetention'])assert.equal(typeof api[name],'function');
+ for(const name of ['retentionPolicy','registerRetention','readRetention','assertRetainable','planDeletion','recordSubscriptionEnd','complianceStatus','readRetainedCapture','beginDeletion','executeDeletion','verifyDeletion','grantsExecutionAuthority','executeRealTransportUnderRetention'])assert.equal(typeof api[name],'function');
  assert.equal(api.grantsExecutionAuthority(),false);
  assert.throws(()=>api.executeRealTransportUnderRetention({director_approved:true,fetch:()=>assert.fail('no call')}),/disabled/);
 });
@@ -212,9 +212,14 @@ test('a backup that drifts from the original is a tamper signal, not a copy',t=>
  api.registerRetention(dir,{...REG(),backups:[backup]});
  writeFileSync(join(backup,'response.bin'),Buffer.from('{}'));
  assert.throws(()=>api.assertRetainable(dir,NOW),/backup_copy_mismatch/);
- // An absent backup is not a mismatch: it is one fewer place holding raw bytes.
+ // A declared backup that is not there is a failure, not one fewer copy to
+ // worry about: the operator believes a backup exists and it does not.
  unlinkSync(join(backup,'response.bin'));
- assert.equal(api.assertRetainable(dir,NOW).backups_verified,0);
+ assert.throws(()=>api.assertRetainable(dir,NOW),/backup_missing/);
+ // Once a deletion is under way, an absent backup is exactly what is wanted.
+ api.beginDeletion(dir,{nowUtc:NOW,reason:'rehearsal'});
+ api.executeDeletion(dir,{nowUtc:NOW});
+ assert.equal(api.verifyDeletion(dir).verified,true);
 });
 
 test('registration refuses an unusable storage, reviewer or backup declaration',t=>{
@@ -269,4 +274,55 @@ test('a target already gone is removed but not attested, and that is reported',t
  api.beginDeletion(complete,{nowUtc:NOW,reason:'rehearsal'});
  api.executeDeletion(complete,{nowUtc:NOW});
  assert.equal(api.verifyDeletion(complete).fully_attested,true);
+});
+
+test('compliance status makes a missed deadline loud instead of silent',t=>{
+ if(!posix)return t.skip('POSIX only');
+ const dir=store();
+ const inside=api.complianceStatus(dir,NOW);
+ assert.equal(inside.compliant,true);
+ assert.equal(inside.overdue,false);
+ assert.equal(inside.breach,false);
+ assert.equal(inside.deadline_utc,'2026-11-10T12:00:00Z');
+ // Past the deadline with bytes still on disk. Nothing here can delete on a
+ // schedule, so the only honest behaviour is to say so plainly.
+ const late=api.complianceStatus(dir,'2026-11-10T12:00:01Z');
+ assert.equal(late.compliant,false);
+ assert.equal(late.overdue,true);
+ assert.equal(late.breach,true);
+ assert.equal(late.raw_bytes_present,true);
+ assert.equal(late.overdue_since_utc,'2026-11-10T12:00:00Z');
+ assert.match(late.required_action,/delete/i);
+ // Deletion after the deadline is still possible and still clears the breach.
+ api.beginDeletion(dir,{nowUtc:'2026-11-10T12:30:00Z',reason:'retention_deadline'});
+ const resolved=api.complianceStatus(dir,'2026-11-10T12:30:00Z');
+ assert.equal(resolved.breach,true);
+ assert.equal(resolved.stage,'deletion_in_progress');
+ api.executeDeletion(dir,{nowUtc:'2026-11-10T12:30:00Z'});
+ const done=api.complianceStatus(dir,'2026-11-10T13:00:00Z');
+ assert.equal(done.compliant,true);
+ assert.equal(done.breach,false);
+ assert.equal(done.raw_bytes_present,false);
+ // An ended subscription is a breach while bytes remain, whatever the date.
+ const ended=store();
+ api.recordSubscriptionEnd(ended,{ended_at_utc:'2026-11-02T09:00:00Z',source:'provider-cancellation'});
+ const after=api.complianceStatus(ended,'2026-11-02T09:01:00Z');
+ assert.equal(after.breach,true);
+ assert.equal(after.stage,'subscription_ended');
+});
+
+test('the guarded read is the only supported way in, and it refuses past the boundary',t=>{
+ if(!posix)return t.skip('POSIX only');
+ const dir=store();
+ const capture=api.readRetainedCapture(dir,NOW);
+ assert.match(capture.manifest.capture_hash,/^[a-f0-9]{64}$/);
+ assert.equal(capture.bytes.length,body().length);
+ // Past the deadline, after an early subscription end, and after deletion.
+ assert.throws(()=>api.readRetainedCapture(dir,'2026-11-10T12:00:00Z'),/retention_deadline_passed/);
+ const ended=store();
+ api.recordSubscriptionEnd(ended,{ended_at_utc:NOW,source:'provider'});
+ assert.throws(()=>api.readRetainedCapture(ended,NOW),/subscription_ended/);
+ api.beginDeletion(dir,{nowUtc:NOW,reason:'rehearsal'});
+ api.executeDeletion(dir,{nowUtc:NOW});
+ assert.throws(()=>api.readRetainedCapture(dir,NOW),/raw_data_deleted/);
 });

@@ -149,6 +149,21 @@ cannot become an acquisition path.
 It also authorizes nothing to be captured. It says how a capture must be looked
 after if one is ever separately approved.
 
+## Lifecycle, failures and what stays procedural
+
+The boundary above is the rule. What happens when something goes wrong near it,
+including the window between receiving bytes and registering them, incomplete
+captures, backup failures, an early subscription end, a missed deadline, an
+interrupted deletion, use after the period and copies outside the store, is in
+[RETENTION-LIFECYCLE.md](RETENTION-LIFECYCLE.md), together with an explicit list
+of the controls that remain procedural rather than technically enforceable.
+
+Two functions exist for day-to-day use. `complianceStatus(dir, nowUtc)` reports
+whether a store is inside the boundary and names a breach as a breach, since no
+scheduler exists to delete on time. `readRetainedCapture(dir, nowUtc)` is the
+one supported way to read a retained capture, refusing past the deadline, after
+an early subscription end and after deletion.
+
 ## Limits of this enforcement, stated plainly
 
 Three limits matter, and none of them is hidden by the tests passing.

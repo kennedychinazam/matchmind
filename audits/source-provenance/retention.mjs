@@ -13,7 +13,7 @@
 // file cannot become an acquisition path. It deletes only raw response bytes it
 // was given to look after: it has no reach into production records or the
 // historical research archive, and nothing here walks a tree or takes a glob.
-import {openSync,writeFileSync,readFileSync,readdirSync,unlinkSync,fsyncSync,closeSync,lstatSync,fstatSync,constants} from 'node:fs';
+import {openSync,writeFileSync,readFileSync,readdirSync,unlinkSync,fsyncSync,closeSync,lstatSync,fstatSync,existsSync,constants} from 'node:fs';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
@@ -203,7 +203,9 @@ export function assertRetainable(dir,nowUtc){
  for(const t of targets(dir,r).filter(x=>x.role==='backup')){
   let d;
   realDir(dirname(t.path));
-  try{d=digest(t.path);}catch(error){if(absent(error))continue;throw error;}
+  // Reached only before a deletion is under way, so an absent backup here means
+  // the operator believes a copy exists and it does not.
+  try{d=digest(t.path);}catch(error){throw absent(error)?Error('backup_missing'):error;}
   if(d.sha256!==r.raw_sha256||d.length!==r.raw_length)throw Error('backup_copy_mismatch');
   backups_verified++;
  }
@@ -214,6 +216,39 @@ export function assertRetainable(dir,nowUtc){
 
 // Deliberately not gated on the deadline or on retainability: deletion is most
 // needed exactly when retention has stopped being valid.
+// Nothing here runs on a schedule, so a missed deadline cannot be fixed
+// automatically. The only honest alternative is to make it loud.
+export function complianceStatus(dir,nowUtc){
+ const state=readRetention(dir);
+ const r=state.registration;
+ const now=clock(nowUtc);
+ const deadline=epochMicros(r.deletion_deadline_utc);
+ const raw=existsSync(join(dir,RAW));
+ const overdue=now>=deadline&&!state.deleted;
+ const stage=state.deleted?'deleted':state.deletion_in_progress?'deletion_in_progress':state.subscription_ended?'subscription_ended':'registered';
+ const reasons=[];
+ if(overdue)reasons.push('retention_deadline_passed_with_raw_data_present');
+ if(state.subscription_ended&&!state.deleted)reasons.push('subscription_ended_with_raw_data_present');
+ if(state.deleted&&raw)reasons.push('raw_data_present_after_deletion_receipt');
+ if(!state.deleted&&!raw)reasons.push('raw_data_missing_without_a_deletion_receipt');
+ const breach=reasons.length>0;
+ return Object.freeze({compliant:!breach,stage,breach,overdue,
+  deadline_utc:r.deletion_deadline_utc,overdue_since_utc:overdue?r.deletion_deadline_utc:null,
+  subscription_expires_utc:r.subscription_expires_utc,raw_bytes_present:raw,deleted:state.deleted,
+  reasons:Object.freeze(reasons),
+  required_action:breach
+   ?'Delete the raw bytes now and verify the deletion, then report the receipt hashes. This is a retention breach, not a warning.'
+   :state.deleted?'Nothing further. Keep the receipt.':'Under retention. Delete before the recorded deadline.'});
+}
+
+// The one supported way to read a retained capture, so application code has no
+// reason to open the file itself. It binds this tooling and nothing more: see
+// the limits section of RETENTION-POLICY.md.
+export function readRetainedCapture(dir,nowUtc){
+ assertRetainable(dir,nowUtc);
+ return readAdapterCapture(dir);
+}
+
 export function beginDeletion(dir,{nowUtc,reason}={}){
  const state=readRetention(dir);
  if(state.deleted)throw Error('deletion_already_complete');
