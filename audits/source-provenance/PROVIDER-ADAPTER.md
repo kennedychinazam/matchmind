@@ -22,7 +22,40 @@ The closed receipt binds plan/request identity, original HTTP status, safe heade
 
 `analyzeCapture(capture,normalized)` requires the complete unique three-row inventory. It reuses prototype validation and reconciles without the optional fictional period rule: even a matching valid response stays `period-unverified`; it never certifies regulation semantics or source admission. All analysis remains synthetic, provider authenticity/period semantics unverified, source_review_admissible=false. Successful and failed observations refer to the persisted adapter receipt hash, not an unpublished intermediate prototype hash.
 
-`originals` contains the accepted safe fixture/league/team/score projection plus a `status` object preserving short/long/elapsed/extra when present. All original fixture.status fields and all score components, including unknown fields and null/missing distinctions, remain in raw bytes. Unknown status properties are not promoted to the review projection. Invalid status text/clock types quarantine the response. Normalized scores are compared, never replaced, and AET/PEN totals are not reinterpreted as regulation goals.
+`originals` contains the accepted safe fixture/league/team/score projection plus a `status` object preserving short/long/elapsed/extra when present. All original fixture.status fields and all score components, including unknown fields and null/missing distinctions, remain in raw bytes. Unknown status properties are not promoted to the review projection. Invalid status text/clock types quarantine the response, and so does a `status.short` outside the recorded vocabulary. Normalized scores are compared, never replaced, and AET/PEN totals are not reinterpreted as regulation goals.
+
+## Status vocabulary
+
+`STATUS_VOCABULARY` is versioned `matchmind-build355-status-v1` and holds the
+nineteen codes `NS TBD 1H 2H HT ET BT P INT LIVE FT AET PEN PST SUSP CANC ABD AWD WO`.
+
+**Authority: internal application only.** The list is taken verbatim from Build 355
+production `index.html` line 20367 `STATUS_CODES`, corroborated by the mirrored
+grading reference `audits/lib/independent-grade.mjs` (`FIN` of FT/AET/PEN, the
+live pattern `1H|2H|HT|ET|BT|P|LIVE|INT`, and the long aliases FINISHED, AWARDED,
+CANCELLED, POSTPONED mapping to FT, AWD, CANC, PST). It records what this
+application already recognizes. It is **not independent provider documentation**,
+and the module carries that classification in data as
+`authority:'matchmind_accepted_code_not_provider_documentation'`.
+
+Consequently a code absent from the list is **unrecognized by MatchMind**, not
+proven invalid by the provider. The adapter therefore quarantines rather than
+rejects: raw bytes, `raw_sha256` and the raw status are preserved untouched so a
+later authoritative review can read whatever the provider actually sent, while
+`inventory_complete` is false, `originals` is empty and every record carries the
+reason `unrecognized_provider_status`. `source_review_admissible` is `false` in
+every case regardless.
+
+**Official provider documentation was sought and not established.** On 29 October
+2026 `https://www.api-football.com/documentation-v3` and
+`https://api-sports.io/documentation/football/v3` both returned HTTP 403 to an
+automated read, and `https://dashboard.api-football.com/documentation` returned
+404. A public search surfaced only third-party pages and a different provider's
+state list, neither of which is authoritative here. The only authoritative routes
+offered were to call the API or to read the docs behind a login, and this task
+authorizes neither. The conservative quarantine behaviour is therefore retained
+unchanged, and an authoritative status list is requested in the provider-rights
+inquiry rather than inferred.
 
 ## Private persistence
 

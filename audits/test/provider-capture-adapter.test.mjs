@@ -103,6 +103,12 @@ test('an unrecognized provider status code quarantines the response and keeps it
  assert.equal(typeof api.STATUS_VOCABULARY,'object');
  assert.equal(api.STATUS_VOCABULARY.version,'matchmind-build355-status-v1');
  assert.equal(api.STATUS_VOCABULARY.codes.includes('ZZZ'),false);
+ // The vocabulary's authority is internal application code, never independent
+ // provider documentation, and that classification is pinned here so it cannot
+ // drift into an implied provider guarantee.
+ assert.equal(api.STATUS_VOCABULARY.authority,'matchmind_accepted_code_not_provider_documentation');
+ assert.equal(api.STATUS_VOCABULARY.codes.length,19);
+ assert.equal(Object.isFrozen(api.STATUS_VOCABULARY)&&Object.isFrozen(api.STATUS_VOCABULARY.codes),true);
  for(const codes of [['ZZZ','ZZZ','ZZZ'],['FT','ZZZ','PEN'],['FT','AET','ZZ9']]){
   const rows=ids.map(fixture);rows.forEach((r,i)=>{r.fixture.status.short=codes[i];});
   const bytes=body(rows),c=capture(response(bytes)),a=api.analyzeCapture(c,normalized());
