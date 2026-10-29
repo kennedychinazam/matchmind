@@ -54,12 +54,23 @@ the per-minute limit.
 3. Historical-season entitlement covering fixture IDs 788036, 788048, 788038.
 4. Whether those three IDs belong to a season this subscription may read.
 
+### A second trap: production's own limiter
+
+Build 355's API-Football client self-throttles to **nine requests per
+sixty-one seconds** and tells the user it is hitting a ten-per-minute free-plan
+limit (`index.html:2607`, `:2633`, `:2642`, `:2644`). **That calibration is the
+free tier, not this subscription.** It is harmless for a single request, but
+anyone diagnosing a real rate limit using those messages would be misled, and
+the numbers must not be read as this account's per-minute headroom. Reported and
+deliberately not changed, because Build 355 is protected.
+
 ### A trap to avoid
 
 Our test fixtures contain `x-ratelimit-requests-limit: 75000`,
 `x-ratelimit-requests-remaining: 70000`, `x-ratelimit-limit: 450` and
-`x-ratelimit-remaining: 449`. **Those are synthetic values written for the
-tests.** They are not observations of this account and must never be quoted as
+`x-ratelimit-remaining: 449`, and `provider-adapter.example.mjs` carries the
+same shape. **Those are synthetic values written for the tests and the
+example.** They are not observations of this account and must never be quoted as
 entitlement. A rate-limit header from a real response would be a sample taken
 after the fact, which is also not an entitlement.
 
@@ -208,7 +219,7 @@ The inquiry's twelve rows, with today's status.
 | 8 | Access and quota | **NO-GO** | Nothing about this account's headroom or historical entitlement has been observed |
 | 9 | Approved storage location | **NO-GO** | No path, administrator or encryption posture named |
 | 10 | Retention schedule in place | **GO** | Policy written, enforced in code, 15 tests, deletion rehearsed and verified |
-| 11 | Execution authority | **NO-GO** | No reviewed real transport, no window, no credential boundary, no owner permission |
+| 11 | Execution authority | **NO-GO** | A reviewed transport boundary now exists and is inert: no Director key installed, no credential bound, no window, no owner permission. See below |
 | 12 | Durable latch provisioned | **NO-GO** | Not created at an approved location, because there is no approved location |
 
 **Seven GO, four NO-GO, one narrowed.** Rows 1 to 7 were the provider's and are
@@ -216,6 +227,24 @@ now answered. Rows 8 to 12 are the owner's, and four of the five are open.
 
 Row 1 gated everything and has cleared. Row 11 now gates everything, and no
 amount of work in this repository can clear it.
+
+## 8a. What closing row 11 now requires
+
+The transport boundary exists (`TRANSPORT-BOUNDARY.md`) and is inert for two
+structural reasons: it holds no credential, and no Director public key is
+installed to verify the exact-scope authorization every dispatch must present.
+Closing row 11 therefore means four distinct things, in order:
+
+| # | Who | Step |
+|---|---|---|
+| A | owner | Generate an ed25519 keypair **outside this repository**, on a machine Claude Code does not touch, and keep the private key |
+| B | reviewer | Separately review the authorization process itself, then install only the public key as the module's anchor |
+| C | owner | Review and approve a real transport implementation that binds the credential. It does not exist |
+| D | owner | Sign one exact-scope statement: plan hash, request hash, kind, latch directory, store, a window of at most 24 hours, and a nonce |
+
+**Claude Code must not perform step A or hold any part of the private key**, and
+has not. Step B is the one that ends inertness, which is why it is a reviewed
+process and not an edit.
 
 ## 9. The timing decision the owner has to make
 
@@ -249,8 +278,12 @@ In writing, each separately:
 3. The approved private storage path, its administrator, its encryption posture.
 4. The backup arrangement, or an explicit decision against one.
 5. The approved Linux execution environment and the execution window.
-6. Approval of a separately reviewed real-transport implementation, which does
-   not yet exist.
+6. Approval of a separately reviewed real-transport implementation that binds
+   the credential, which does not yet exist.
+6a. Generation of the Director ed25519 keypair outside this repository, review
+   of the authorization process, and installation of the public key as the
+   module's anchor.
+6b. One signed exact-scope authorization statement, valid for at most 24 hours.
 7. Explicit permission to send the one `/fixtures` request.
 8. Separately, permission to send the one `/status` request, or a decision
    against it.
