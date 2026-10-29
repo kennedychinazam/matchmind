@@ -55,7 +55,13 @@ function append(dir,records,record){
  const parent=records.length?records[records.length-1].record_sha256:null;
  const full={...record,sequence:records.length+1,parent_sha256:parent};
  full.record_sha256=hashOf(full);
- durableWrite(dir,name(full.sequence),JSON.stringify(full));
+ // Two processes that read the same state both target this name, and O_EXCL
+ // makes the loser fail rather than overwrite a receipt or share an allowance.
+ // Independent review found the loser surfaced a raw EEXIST, which is correct
+ // but reads like a disk fault at exactly the moment an operator needs to know
+ // the ceiling held, so it is named.
+ try{durableWrite(dir,name(full.sequence),JSON.stringify(full));}
+ catch(error){throw error?.code==='EEXIST'?Error('concurrent_latch_append'):error;}
  return full;
 }
 

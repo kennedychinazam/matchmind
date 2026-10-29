@@ -48,6 +48,16 @@ const LATCH_KIND=Object.freeze({fixture:'fixture',status:'metadata'});
 const NONCE=/^[a-f0-9]{32,64}$/;
 const HEX=/^[a-f0-9]{64}$/;
 const MAX_WINDOW_MICROS=24*60*60*1000000;
+// F04: the statement is closed. A field this verifier does not check must not
+// travel inside something that looks checked, even signed by the Director, and
+// an accessor must not be able to report one value to the hasher and another to
+// the checks.
+const STATEMENT_KEYS=Object.freeze(['version','transport_version','plan_hash','request_hash','kind','latch_directory','storage_directory','not_before_utc','not_after_utc','nonce']);
+function closedStatement(value){
+ if(value===null||typeof value!=='object'||Object.getPrototypeOf(value)!==Object.prototype)throw Error('authorization_statement_shape');
+ if(Reflect.ownKeys(value).length!==STATEMENT_KEYS.length||STATEMENT_KEYS.some(k=>!Object.hasOwn(value,k)))throw Error('authorization_statement_shape');
+ for(const d of Object.values(Object.getOwnPropertyDescriptors(value)))if(!('value' in d)||!d.enumerable)throw Error('authorization_statement_shape');
+}
 const clock=value=>{try{return epochMicros(value);}catch{throw Error('invalid_clock');}};
 const absolutePath=(value,label)=>{
  if(typeof value!=='string'||!isAbsolute(value)||resolve(value)!==value)throw Error('absolute_'+label+'_required');
@@ -82,6 +92,7 @@ export function authorizationStatement({kind,latch_directory,storage_directory,n
  absolutePath(storage_directory,'storage_directory');
  const from=clock(not_before_utc),until=clock(not_after_utc);
  if(!(from<until))throw Error('invalid_authorization_window');
+ if(until-from>MAX_WINDOW_MICROS)throw Error('authorization_window_too_long');
  return Object.freeze({
   version:'director-execution-authorization-v1',
   transport_version:TRANSPORT_VERSION,
@@ -106,6 +117,7 @@ export function verifyAuthorizationWith(publicKeyBase64,{statement,signature_bas
  if(!verified)throw Error('authorization_signature_invalid');
  // Signed, so now check that what was signed is the scope in front of us. A
  // valid signature over the wrong scope authorizes nothing.
+ closedStatement(statement);
  if(statement.version!=='director-execution-authorization-v1'||statement.transport_version!==TRANSPORT_VERSION)throw Error('authorization_version_mismatch');
  if(!HEX.test(statement.plan_hash??'')||statement.plan_hash!==pilotPlan().plan_hash)throw Error('authorization_plan_mismatch');
  if(!KINDS[statement.kind])throw Error('unknown_request_kind');

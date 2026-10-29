@@ -4,6 +4,7 @@ import {existsSync,mkdtempSync,unlinkSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {generateKeyPairSync,sign as signRaw} from 'node:crypto';
+import {spawn} from 'node:child_process';
 const url=new URL('../source-provenance/transport.mjs',import.meta.url);
 const api=existsSync(url)?await import('../source-provenance/transport.mjs'):{};
 const adapter=await import('../source-provenance/provider-adapter.mjs');
@@ -84,8 +85,11 @@ test('a correctly signed exact-scope authorization verifies, and every drift is 
 
 test('an open-ended or off-plan authorization is refused however well signed',()=>{
  const {pub,priv}=keys();
- // A window wide enough to be a standing permission is not an exact scope.
- const wide=signed(priv,stmt({not_after_utc:'2026-11-09T11:00:00Z'}));
+ // A window wide enough to be a standing permission is not an exact scope, and
+ // it is refused at construction so no one is handed an unverifiable statement.
+ assert.throws(()=>api.authorizationStatement({kind:'fixture',latch_directory:'/approved/latch',storage_directory:'/approved/store',
+  not_before_utc:'2026-11-01T11:00:00Z',not_after_utc:'2026-11-09T11:00:00Z',nonce:'a'.repeat(32)}),/authorization_window_too_long/);
+ const wide=signed(priv,{...stmt(),not_after_utc:'2026-11-09T11:00:00Z'});
  assert.throws(()=>api.verifyAuthorizationWith(pub,wide,NOW,ctx()),/authorization_window_too_long/);
  assert.throws(()=>api.authorizationStatement({...stmt(),not_before_utc:'2026-11-01T13:00:00Z',not_after_utc:'2026-11-01T11:00:00Z'}),/invalid_authorization_window/);
  assert.throws(()=>api.authorizationStatement({...stmt(),nonce:'short'}),/authorization_nonce/);
@@ -208,4 +212,64 @@ test('an incomplete or orphaned capture directory is named as such, not register
  adapter.writeAdapterCapture(other,capture);
  writeFileSync(join(other,'response.bin.bak'),body());
  assert.throws(()=>retention.registerRetention(other,{storage_id:'v',reviewers:['owner'],backups:[],nowUtc:NOW}),/unexpected_retention_file/);
+});
+
+test('a signed statement of the wrong shape is refused, extra fields included',()=>{
+ const {pub,priv}=keys();
+ // Signed by the Director and still refused: a field this verifier does not
+ // check must not travel inside something that looks checked.
+ const extra=signed(priv,{...stmt(),override_attempt_ceiling:true});
+ assert.throws(()=>api.verifyAuthorizationWith(pub,extra,NOW,ctx()),/authorization_statement_shape/);
+ const {nonce,...missing}=stmt();
+ assert.throws(()=>api.verifyAuthorizationWith(pub,signed(priv,missing),NOW,ctx()),/authorization_statement_shape/);
+ // A getter cannot smuggle a different value past the signature check either.
+ const sneaky={...stmt()};
+ Object.defineProperty(sneaky,'kind',{get(){return 'fixture';},enumerable:true});
+ assert.throws(()=>api.verifyAuthorizationWith(pub,signed(priv,sneaky),NOW,ctx()),/authorization_statement_shape/);
+});
+
+test('captured bytes are a copy: mutating the transport buffer afterwards changes nothing',t=>{
+ if(!posix)return t.skip('POSIX only');
+ const dir=join(root(),'latch');openLatch(dir);
+ const bytes=body(),expected=Buffer.from(bytes);
+ const capture=api.rehearseDispatch({kind:'fixture',latchDirectory:dir,simulated:true,nowUtc:NOW,metadata:meta(),transport:()=>ok(200,bytes)});
+ bytes[0]=0x78;bytes[1]=0x79;
+ assert.deepEqual(capture.bytes,expected);
+ assert.equal(capture.manifest.raw_length,expected.length);
+ assert.equal(adapter.analyzeCapture(capture,normalized()).inventory_complete,true);
+});
+
+test('two processes racing the same latch produce exactly one dispatch',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ const dir=join(root(),'latch');openLatch(dir);
+ // A shared start barrier makes this a genuine race on the reservation itself.
+ // Both children spin until the same wall-clock instant, then both read the
+ // same state and both try to append, so the loser must refuse rather than
+ // share an allowance or overwrite a receipt.
+ const barrier=Date.now()+1200;
+ const script=`const t=await import(${JSON.stringify(url.href)});
+const ok={status:200,headers:{'content-type':'application/json'},body:Buffer.from('{"get":"fixtures"}'),body_complete:true,content_decoding:{mode:'none',encoding:'identity'}};
+while(Date.now()<${barrier});
+try{t.rehearseDispatch({kind:'fixture',latchDirectory:${JSON.stringify(dir)},simulated:true,nowUtc:${JSON.stringify(NOW)},
+ metadata:{request_id:'race',request_started_at_utc:'2026-11-01T12:00:00Z',response_received_at_utc:'2026-11-01T12:00:01Z',collector_sha256:'a'.repeat(64)},
+ transport:()=>ok});process.stdout.write('WON');}
+catch(e){process.stdout.write('REFUSED:'+e.message);}`;
+ const run=()=>new Promise(resolve=>{
+  const child=spawn(process.execPath,['--input-type=module','-e',script]);
+  let out='';
+  child.stdout.on('data',d=>{out+=d;});
+  child.on('close',()=>resolve(out));
+ });
+ // Both spawned before either is awaited.
+ const results=await Promise.all([run(),run()]);
+ assert.equal(results.filter(r=>r==='WON').length,1,JSON.stringify(results));
+ const refused=results.filter(r=>r.startsWith('REFUSED'));
+ assert.equal(refused.length,1,JSON.stringify(results));
+ // The loser must refuse with a named reason. A raw EEXIST is fail-closed but
+ // reads like a disk fault just when the operator needs to know the ceiling held.
+ assert.match(refused[0],/fixture_attempt_exhausted|concurrent_latch_append/,refused[0]);
+ const state=latch.readLatch(dir);
+ assert.equal(state.remaining.fixture,0);
+ assert.equal(state.reservations.length,1);
+ assert.equal(state.records.length,3);
 });

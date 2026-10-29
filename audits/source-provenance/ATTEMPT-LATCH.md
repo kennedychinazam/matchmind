@@ -63,7 +63,8 @@ ceiling), `unknown_attempt_kind`, `fixture_attempt_exhausted`,
 `simulated_transport_required` (refused before anything is consumed, so a
 refused dispatch costs nothing), `latch_directory_required` and
 `latch_record_must_be_regular_file` (symlinks and non-regular files refused),
-`posix_private_persistence_required` (fails closed on Windows).
+`posix_private_persistence_required` (fails closed on Windows) and
+`concurrent_latch_append` (a second process lost the race to append).
 
 ## Properties worth naming
 
@@ -73,8 +74,15 @@ prepared request to a real client. A real client would have nothing to send.
 
 **Concurrency fails closed.** Each record is created `O_EXCL` at a name derived
 from the verified sequence, so if two processes read the same state and both try
-to append, the second gets `EEXIST` and refuses rather than overwriting a receipt
-or silently sharing an allowance.
+to append, the second refuses rather than overwriting a receipt or silently
+sharing an allowance. Measured with a shared start barrier across four rounds:
+exactly one winner every time, one reservation and three records in the latch,
+and the loser refusing with either `fixture_attempt_exhausted` (it read after
+the winner appended) or `concurrent_latch_append` (both read the same state).
+
+That second refusal is named rather than raw. Independent review found the loser
+surfaced an unmapped `EEXIST`, which is fail-closed but reads like a disk fault
+at exactly the moment an operator needs to know the ceiling held.
 
 **The directory mode is reported, not enforced, on read.** `readLatch` returns
 `directory_mode`. Refusing on a wrong mode would make the receipts unreadable for
