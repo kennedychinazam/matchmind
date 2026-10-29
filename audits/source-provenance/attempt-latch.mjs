@@ -68,8 +68,13 @@ export function createLatch(dir,{plan_hash,authorized_from_utc,authorized_until_
  if(!(from<until))throw Error('invalid_authorization_window');
  if(typeof dir!=='string'||!isAbsolute(dir))throw Error('absolute_latch_directory_required');
  if(process.platform==='win32')throw Error('posix_private_persistence_required');
- if(existsSync(dir)&&readdirSync(dir).length)throw Error('latch_already_exists');
- if(!existsSync(dir))privateDir(dir,{create:true});
+ // Independent review found that accepting a pre-existing directory wrote the
+ // authorization receipt into whatever mode that directory already had, so a
+ // directory created in advance left the receipts world-readable. The latch now
+ // creates its own directory or refuses, which is the same exclusive-create
+ // discipline the capture adapter uses.
+ if(existsSync(dir))throw Error('latch_already_exists');
+ privateDir(dir,{create:true});
  return append(dir,[],{version:LATCH_VERSION,type:'authorization',classification:'synthetic_only',
   plan_hash,allowances:{...ALLOWANCES},authorized_from_utc,authorized_until_utc,
   grants_execution_authority:false,
@@ -96,8 +101,11 @@ export function readLatch(dir){
  const outcomes=records.filter(r=>r.type==='outcome');
  const remaining={};
  for(const k of KINDS)remaining[k]=Math.max(0,authorization.allowances[k]-reservations.filter(r=>r.attempt===k).length);
+ // The mode is reported rather than enforced on read: refusing here would make
+ // the receipts unreadable for forensics after a privacy breach, so a breach is
+ // made visible to the caller instead of hidden.
  return Object.freeze({authorization,records,reservations,outcomes,remaining:Object.freeze(remaining),
-  grants_execution_authority:false});
+  directory_mode:lstatSync(dir).mode&0o777,grants_execution_authority:false});
 }
 
 export function reserveAttempt(dir,attempt,nowUtc){

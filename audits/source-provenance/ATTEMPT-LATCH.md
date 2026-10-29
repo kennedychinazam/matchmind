@@ -65,6 +65,43 @@ refused dispatch costs nothing), `latch_directory_required` and
 `latch_record_must_be_regular_file` (symlinks and non-regular files refused),
 `posix_private_persistence_required` (fails closed on Windows).
 
+## Properties worth naming
+
+**The transport receives no arguments.** `dispatchSimulated` calls
+`transport()` with nothing, so it cannot be a thin wrapper that forwards a
+prepared request to a real client. A real client would have nothing to send.
+
+**Concurrency fails closed.** Each record is created `O_EXCL` at a name derived
+from the verified sequence, so if two processes read the same state and both try
+to append, the second gets `EEXIST` and refuses rather than overwriting a receipt
+or silently sharing an allowance.
+
+**The directory mode is reported, not enforced, on read.** `readLatch` returns
+`directory_mode`. Refusing on a wrong mode would make the receipts unreadable for
+forensics precisely after a privacy breach, so the breach is surfaced to the
+caller instead of hidden.
+
+## Independent review
+
+One material finding was raised against this module and corrected before
+delivery.
+
+**F01, privacy.** `createLatch` accepted a directory that already existed and
+wrote the authorization receipt into whatever mode that directory already had. A
+directory pre-created by anyone else, or left behind by an earlier operator, left
+the receipts world-readable, which defeats the private-evidence requirement the
+module exists to uphold. Reproduced by probe: a directory pre-created at `0755`
+was accepted and the receipt written into it. Corrected to create its own
+directory or refuse with `latch_already_exists`, matching the capture adapter's
+exclusive-create discipline, and covered by a regression that asserts nothing is
+written into a directory the latch did not create. Re-probed after the fix:
+refused.
+
+Considered and deliberately not changed: `recordOutcome` stamps
+`recorded_at_utc` from the wall clock rather than an injected clock. It is a
+receipt of when something happened, not a validated authorization time, and it
+has no influence on the ceiling.
+
 ## Verification
 
 `audits/test/attempt-latch.test.mjs`. The restart guarantee is proven by

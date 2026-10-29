@@ -146,6 +146,13 @@ test('latch files are private, exclusive and immutable receipts',t=>{
  assert.equal(statSync(dir).mode&0o777,0o700);
  for(const f of readdirSync(dir))assert.equal(statSync(join(dir,f)).mode&0o777,0o600);
  const s=api.readLatch(dir);
+ assert.equal(s.directory_mode,0o700,'the mode is reported so a later breach is visible');
+ // Independent review finding: a directory created in advance used to be
+ // accepted, leaving the receipts in whatever mode it already had. The latch now
+ // creates its own directory or refuses.
+ const pre=join(root(),'pre-created');mkdirSync(pre,{mode:0o755});
+ assert.throws(()=>open(pre),/latch_already_exists/);
+ assert.deepEqual(readdirSync(pre),[],'nothing is written into a directory it did not create');
  assert.equal(s.records.length,3);
  assert.deepEqual(s.records.map(r=>r.type),['authorization','reservation','outcome']);
  // Each record chains to the one before it.
