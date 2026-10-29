@@ -13,6 +13,20 @@ const IDS=Object.freeze([788036,788048,788038]);
 const META=['request_id','request_started_at_utc','response_received_at_utc','collector_sha256'];
 const SAFE_HEADERS=new Set(['content-type','content-length','content-encoding','date','x-ratelimit-requests-limit','x-ratelimit-requests-remaining','x-ratelimit-limit','x-ratelimit-remaining','retry-after']);
 const HEX=/^[a-f0-9]{64}$/;
+// Versioned provider-status vocabulary, taken from this repository's own accepted
+// code rather than invented or fetched: Build 355 production `index.html` line
+// 20367 `STATUS_CODES`, cross-checked against the mirrored grading reference
+// `audits/lib/independent-grade.mjs` (FT/AET/PEN final, 1H/2H/HT/ET/BT/P/LIVE/INT
+// live, FINISHED/AWARDED/CANCELLED/POSTPONED long aliases of FT/AWD/CANC/PST).
+// It records what MatchMind already recognizes. It is NOT provider documentation,
+// and no provider endpoint was contacted to build it, so a code absent here is
+// unrecognized by this project rather than proven invalid by the provider.
+export const STATUS_VOCABULARY=Object.freeze({
+ version:'matchmind-build355-status-v1',
+ evidence:Object.freeze(['index.html:20367 STATUS_CODES (Build 355 production)','audits/lib/independent-grade.mjs FIN/STATUS_ALIAS/live pattern']),
+ authority:'matchmind_accepted_code_not_provider_documentation',
+ codes:Object.freeze(['NS','TBD','1H','2H','HT','ET','BT','P','INT','LIVE','FT','AET','PEN','PST','SUSP','CANC','ABD','AWD','WO'])
+});
 const plain=x=>x!==null&&Object.getPrototypeOf(x)===Object.prototype;
 function closed(value,keys){
  if(!plain(value)||Reflect.ownKeys(value).length!==keys.length||keys.some(k=>!Object.hasOwn(value,k)))throw Error('closed_adapter_shape');
@@ -100,13 +114,21 @@ export function analyzeCapture(input,normalized){
  const r=m.response,hasJSON=/^application\/json(?:; charset=utf-8)?$/i.test(r.headers['content-type']??'');
  let usable=r.status===200&&r.body_complete&&r.content_decoding.mode!=='unknown'&&hasJSON;
  if(r.content_decoding.mode==='none'&&r.headers['content-length']!==undefined&&Number(r.headers['content-length'])!==c.bytes.length)usable=false;
- const base=derived(c),view=verifyCapture(base);let originals=[];
+ const base=derived(c),view=verifyCapture(base);let originals=[],unknownStatus=false;
  if(usable&&view.inventory_complete&&view.invalid_ids.length===0){
   try{
    const parsed=parseBoundedJSON(new TextDecoder('utf-8',{fatal:true}).decode(c.bytes)).value;
-   originals=view.fixtures.map(f=>({...f,status:statusProjection(parsed.response.find(x=>x.fixture.id===f.fixture.id).fixture.status)}));
+   const projected=view.fixtures.map(f=>({...f,status:statusProjection(parsed.response.find(x=>x.fixture.id===f.fixture.id).fixture.status)}));
+   // The inherited prototype accepts any /^[A-Z0-9]{1,16}$/ status.short, which is
+   // a character pattern and not a vocabulary. PROVIDER-ADAPTER.md requires an
+   // invalid status to quarantine the response, so an unrecognized code must not
+   // reach the review projection and must not report complete inventory. The raw
+   // bytes, their hash and the raw status are left untouched either way.
+   if(projected.some(f=>!STATUS_VOCABULARY.codes.includes(f.status.short)))unknownStatus=true;
+   else originals=projected;
   }catch{usable=false;}
  }else usable=false;
+ if(unknownStatus)usable=false;
  let result;
  if(usable){
   const comparison=reconcile({captures:[base],normalized:rows});
@@ -114,7 +136,7 @@ export function analyzeCapture(input,normalized){
  }
  else{
   const empty=reconcile({captures:[],normalized:rows});
-  result={...empty,inventory:{...empty.inventory,classification_counts:{supported:0,conflicting:0,missing:0,duplicated:0,incomplete:3,'period-unverified':0}},records:empty.records.map(x=>({...x,classification:'incomplete',reasons:['response_or_inventory_incomplete'],observations:[{capture_hash:m.capture_hash,raw_sha256:m.raw_sha256,received_at_utc:m.response_received_at_utc}]}))};
+  result={...empty,inventory:{...empty.inventory,classification_counts:{supported:0,conflicting:0,missing:0,duplicated:0,incomplete:3,'period-unverified':0}},records:empty.records.map(x=>({...x,classification:'incomplete',reasons:[unknownStatus?'unrecognized_provider_status':'response_or_inventory_incomplete'],observations:[{capture_hash:m.capture_hash,raw_sha256:m.raw_sha256,received_at_utc:m.response_received_at_utc}]}))};
   originals=[];
  }
  return freeze({version:'synthetic-provider-analysis-v1',classification:'synthetic_only',capture_hash:m.capture_hash,inventory_complete:usable,provider_authenticity:'unverified',regulation_period_semantics:'unverified',source_review_admissible:false,originals,reconciliation:result});

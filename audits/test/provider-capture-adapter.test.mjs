@@ -95,6 +95,37 @@ test('nonregular stored files fail promptly rather than waiting for a FIFO write
   const child=spawnSync(process.execPath,['--input-type=module','-e',script],{timeout:1500});assert.equal(child.status,0);assert.equal(child.error,undefined);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+test('an unrecognized provider status code quarantines the response and keeps its bytes',()=>{
+ // The inherited prototype validates only the character pattern of status.short,
+ // so a syntactically safe but unknown code reached the review projection and
+ // still reported complete inventory, while PROVIDER-ADAPTER.md says invalid
+ // status quarantines the response. The two disagreed.
+ assert.equal(typeof api.STATUS_VOCABULARY,'object');
+ assert.equal(api.STATUS_VOCABULARY.version,'matchmind-build355-status-v1');
+ assert.equal(api.STATUS_VOCABULARY.codes.includes('ZZZ'),false);
+ for(const codes of [['ZZZ','ZZZ','ZZZ'],['FT','ZZZ','PEN'],['FT','AET','ZZ9']]){
+  const rows=ids.map(fixture);rows.forEach((r,i)=>{r.fixture.status.short=codes[i];});
+  const bytes=body(rows),c=capture(response(bytes)),a=api.analyzeCapture(c,normalized());
+  const unknown=codes.find(x=>!api.STATUS_VOCABULARY.codes.includes(x));
+  assert.deepEqual(c.bytes,bytes,'exact received bytes are preserved');
+  assert.equal(c.bytes.includes(Buffer.from(unknown)),true,'the raw unknown code stays in the bytes');
+  assert.equal(c.manifest.raw_sha256,createHash('sha256').update(bytes).digest('hex'),'the hash still binds the original bytes');
+  assert.equal(a.inventory_complete,false,codes.join('/')+' must not complete inventory');
+  assert.equal(a.source_review_admissible,false);
+  assert.equal(a.originals.length,0,'no unknown status reaches the review projection');
+  assert.equal(a.reconciliation.records.every(r=>r.classification==='incomplete'),true);
+  assert.equal(a.reconciliation.records.every(r=>r.reasons.includes('unrecognized_provider_status')),true);
+ }
+ // The accepted codes are unchanged, including non-final ones, so the correction
+ // narrows nothing beyond the unknown case.
+ for(const codes of [['FT','AET','PEN'],['FT','PST','ABD'],['NS','TBD','WO']]){
+  const rows=ids.map(fixture);rows.forEach((r,i)=>{r.fixture.status.short=codes[i];});
+  const a=api.analyzeCapture(capture(response(body(rows))),normalized());
+  assert.equal(a.inventory_complete,true,codes.join('/')+' are recognized provider codes');
+  assert.deepEqual(a.originals.map(x=>x.status.short),codes);
+  assert.equal(a.source_review_admissible,false,'admission stays false regardless');
+ }
+});
 test('oversize bodies and native response callbacks are rejected without decoding or reading',()=>{
  assert.throws(()=>capture(response(Buffer.alloc(16777217))),/body_size/);
  let reads=0;const r=response();r.body={arrayBuffer(){reads++;throw Error('must not read');}};assert.throws(()=>capture(r),/inert_bytes/);assert.equal(reads,0);
