@@ -14,7 +14,7 @@
 // was given to look after: it has no reach into production records or the
 // historical research archive, and nothing here walks a tree or takes a glob.
 import {openSync,writeFileSync,readFileSync,readdirSync,unlinkSync,fsyncSync,closeSync,lstatSync,fstatSync,constants} from 'node:fs';
-import {isAbsolute,join,resolve} from 'node:path';
+import {dirname,isAbsolute,join,resolve} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {canonicalHash,epochMicros} from '../lib/snapshot-contract.mjs';
 import {readAdapterCapture} from './provider-adapter.mjs';
@@ -53,6 +53,14 @@ const hashOf=record=>{const {record_sha256,...rest}=record;return canonicalHash(
 const absolute=p=>typeof p==='string'&&isAbsolute(p)&&resolve(p)===p;
 const clock=value=>{try{return epochMicros(value);}catch{throw Error('invalid_clock');}};
 const absent=error=>error?.code==='ENOENT';
+// A backup directory that is a symlink would have its target followed, so an
+// unlink could land outside the approved storage. Deletion is destructive, so
+// the directory is required to be real at registration and again at every use.
+function realDir(dir){
+ const s=lstatSync(dir);
+ if(s.isSymbolicLink()||!s.isDirectory())throw Error('backup_directory_must_be_real_directory');
+ return dir;
+}
 
 export function retentionPolicy(){return POLICY;}
 
@@ -101,6 +109,7 @@ export function registerRetention(dir,{storage_id,reviewers,backups=[],nowUtc}={
  if(typeof storage_id!=='string'||!LABEL.test(storage_id))throw Error('retention_registration_storage');
  if(!Array.isArray(reviewers)||!reviewers.length||reviewers.length>16||reviewers.some(r=>typeof r!=='string'||!LABEL.test(r)))throw Error('retention_registration_reviewers');
  if(!Array.isArray(backups)||backups.length>8||backups.some(b=>!absolute(b))||new Set(backups).size!==backups.length||backups.includes(dir))throw Error('retention_registration_backups');
+ for(const b of backups)realDir(b);
  const now=clock(nowUtc);
  if(now>=epochMicros(POLICY.deletion_deadline_utc))throw Error('retention_deadline_passed');
  // A capture that is incomplete or does not match its own manifest is never
@@ -193,6 +202,7 @@ export function assertRetainable(dir,nowUtc){
  let backups_verified=0;
  for(const t of targets(dir,r).filter(x=>x.role==='backup')){
   let d;
+  realDir(dirname(t.path));
   try{d=digest(t.path);}catch(error){if(absent(error))continue;throw error;}
   if(d.sha256!==r.raw_sha256||d.length!==r.raw_length)throw Error('backup_copy_mismatch');
   backups_verified++;
@@ -202,6 +212,8 @@ export function assertRetainable(dir,nowUtc){
   subscription_expires_utc:r.subscription_expires_utc,grants_execution_authority:false});
 }
 
+// Deliberately not gated on the deadline or on retainability: deletion is most
+// needed exactly when retention has stopped being valid.
 export function beginDeletion(dir,{nowUtc,reason}={}){
  const state=readRetention(dir);
  if(state.deleted)throw Error('deletion_already_complete');
@@ -224,7 +236,7 @@ export function executeDeletion(dir,{nowUtc}={}){
  const results=[];
  for(const t of state.intent.targets){
   let d=null;
-  try{d=digest(t.path);}
+  try{if(t.role==='backup')realDir(dirname(t.path));d=digest(t.path);}
   catch(error){
    if(absent(error)){results.push({...t,status:'absent',sha256:null,length:null,matched_registration:null,reason:'already_absent'});continue;}
    results.push({...t,status:'unverified',sha256:null,length:null,matched_registration:null,reason:'unreadable'});continue;
@@ -257,7 +269,12 @@ export function verifyDeletion(dir){
   if(present){remaining++;unverified.push({role:t.role,path:t.path,reason:'raw_data_still_present'});}
   if(t.status==='unverified')unverified.push({role:t.role,path:t.path,reason:'receipt_recorded_unverified'});
  }
+ // Removal and attestation are different claims. A target that was already
+ // gone by the time deletion ran leaves no hash to attest to, which is honest
+ // but weaker evidence, so it is counted rather than folded into `verified`.
+ const attested=state.receipt.results.filter(t=>HEX.test(t.sha256??'')).length;
  return Object.freeze({verified:unverified.length===0,raw_bytes_remaining:remaining,
+  attested,fully_attested:attested===state.receipt.results.length,
   targets:state.receipt.results.length,capture_hash:state.receipt.capture_hash,
   completed_at_utc:state.receipt.completed_at_utc,unverified:Object.freeze(unverified)});
 }

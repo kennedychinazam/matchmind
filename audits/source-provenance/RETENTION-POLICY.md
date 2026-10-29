@@ -149,11 +149,63 @@ cannot become an acquisition path.
 It also authorizes nothing to be captured. It says how a capture must be looked
 after if one is ever separately approved.
 
+## Limits of this enforcement, stated plainly
+
+Three limits matter, and none of them is hidden by the tests passing.
+
+**1. It makes retention invalid, not impossible.** After the deadline every
+retention path refuses, so nothing in the tooling will treat the bytes as
+validly retainable. The bytes themselves stay readable to anyone with the
+file and a copy of `cat` until the deletion runs. Closing that gap properly
+means encrypting the capture and destroying the key at the deadline, so expiry
+makes the data unreadable rather than merely unauthorized. That is a real
+hardening step, it is not implemented here, and the policy should not be read as
+if it were.
+
+**2. It can only see copies it was told about.** The registration lists the one
+approved store and up to eight backups, and those are what deletion reaches. A
+copy made somewhere else is outside its knowledge entirely. The store itself is
+guarded, since any unexpected file in it is refused, but the wider filesystem is
+not. This is why "only approved private storage" is a procedural control and not
+a technical one.
+
+**3. Removal and attestation are different claims.** If a target is already gone
+when deletion runs, the bytes are gone, which is the point, but there is no hash
+left to prove what went. The verification reports `attested` and
+`fully_attested` separately from `verified` so the weaker evidence is visible
+rather than rounded up.
+
+## Independent review
+
+Two findings were raised against this module and corrected before delivery, both
+reproduced as failing tests against the committed pre-fix version.
+
+**F02, destructive scope, material.** A registered backup directory was used as
+given. Replacing it with a symlink after registration meant `response.bin` was
+resolved inside the symlink's target, so a verification would pass against
+foreign bytes and, worse, `executeDeletion` would unlink a file outside the
+approved storage. Deletion is destructive, so the directory is now required to
+be a real directory, not a symlink, at registration and again on every read and
+every deletion. The regression swaps a registered backup for a symlink and
+asserts the retention check refuses, the file behind the symlink survives, and
+the receipt records that target as `unverified` rather than deleted.
+
+**F03, evidence strength, minor.** `verifyDeletion` returned `verified:true`
+when a target had been `absent` all along, which is correct about the bytes and
+silently over-strong about the proof. It now counts attested targets separately,
+as described above.
+
+Considered and deliberately not changed: `beginDeletion` is not gated on the
+deadline or on retainability. Deletion is most needed exactly when retention has
+stopped being valid, so gating it would be the one change that could strand raw
+data past the boundary. A comment in the source says so, to stop it being
+"fixed" later.
+
 ## Verification
 
-`audits/test/capture-retention.test.mjs`, 13 tests, run on Linux so the POSIX
+`audits/test/capture-retention.test.mjs`, 15 tests, run on Linux so the POSIX
 paths are genuinely exercised. Covered: process restart, an early subscription
 end, a passed deadline, interrupted deletion resumed across a real process
 boundary, a backup cleared with the original, a copy restored after deletion, a
 partial capture, tampered retention metadata both unhashed and re-hashed, a
-missing record, and a receipt proven non-reconstructive.
+missing record, a symlinked backup directory refused rather than followed, a target already absent, and a receipt proven non-reconstructive.

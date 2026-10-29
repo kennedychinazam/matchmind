@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {existsSync,mkdtempSync,readFileSync,writeFileSync,unlinkSync,rmSync,statSync,readdirSync} from 'node:fs';
+import {existsSync,mkdtempSync,readFileSync,writeFileSync,unlinkSync,renameSync,symlinkSync,mkdirSync,rmSync,statSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -225,4 +225,48 @@ test('registration refuses an unusable storage, reviewer or backup declaration',
   assert.throws(()=>api.registerRetention(dir,{...REG(),...change}),/retention_registration/);
   assert.equal(readdirSync(dir).some(f=>f.startsWith('retention-')),false);
  }
+});
+
+test('a backup directory swapped for a symlink is refused, not followed',t=>{
+ if(!posix)return t.skip('POSIX only');
+ const c=capture();
+ const base=root(),dir=join(base,'capture'),backup=join(base,'backup'),elsewhere=join(base,'elsewhere');
+ adapter.writeAdapterCapture(dir,c);
+ adapter.writeAdapterCapture(backup,c);
+ api.registerRetention(dir,{...REG(),backups:[backup]});
+ // A symlinked backup directory would have its target followed, so a
+ // destructive unlink could land outside the approved storage.
+ adapter.writeAdapterCapture(elsewhere,c);
+ renameSync(backup,join(base,'backup-real'));
+ symlinkSync(elsewhere,backup);
+ assert.throws(()=>api.assertRetainable(dir,NOW),/backup_directory_must_be_real_directory/);
+ api.beginDeletion(dir,{nowUtc:NOW,reason:'rehearsal'});
+ api.executeDeletion(dir,{nowUtc:NOW});
+ // The file behind the symlink is untouched, and the receipt says so.
+ assert.equal(existsSync(join(elsewhere,'response.bin')),true);
+ const v=api.verifyDeletion(dir);
+ assert.equal(v.verified,false);
+ assert.equal(v.unverified.some(u=>u.reason==='receipt_recorded_unverified'),true);
+ const symlinked=api.readRetention(dir).receipt.results.find(r=>r.role==='backup');
+ assert.equal(symlinked.status,'unverified');
+});
+
+test('a target already gone is removed but not attested, and that is reported',t=>{
+ if(!posix)return t.skip('POSIX only');
+ const dir=store();
+ api.beginDeletion(dir,{nowUtc:NOW,reason:'rehearsal'});
+ unlinkSync(join(dir,'response.bin'));
+ const receipt=api.executeDeletion(dir,{nowUtc:NOW});
+ assert.deepEqual(receipt.results.map(r=>r.status),['absent']);
+ assert.equal(receipt.results[0].sha256,null);
+ const v=api.verifyDeletion(dir);
+ assert.equal(v.verified,true);
+ assert.equal(v.raw_bytes_remaining,0);
+ // Nothing remains, but there is no hash to prove what went: a weaker claim.
+ assert.equal(v.attested,0);
+ assert.equal(v.fully_attested,false);
+ const complete=store();
+ api.beginDeletion(complete,{nowUtc:NOW,reason:'rehearsal'});
+ api.executeDeletion(complete,{nowUtc:NOW});
+ assert.equal(api.verifyDeletion(complete).fully_attested,true);
 });
