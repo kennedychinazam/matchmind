@@ -12,8 +12,9 @@ A real request needs a credential and a permission. Neither exists here.
 ['x-apisports-key']` and no header values. There is no environment read, no
 credential file, no secret and no place to put one. A transport that wrapped the
 platform's own `fetch` would send an unauthenticated request and get a 403.
-Binding a credential is part of the separately approved implementation, not of
-this file.
+Binding a credential belongs to `real-transport.mjs` (`REAL-TRANSPORT.md`), not
+to this file, and that module binds one only at runtime, from the operator, for
+the length of one request.
 
 **No installed trust anchor.** `DIRECTOR_AUTHORITY.public_key_spki_base64` is
 `null`. Every real dispatch must present a Director-signed, exact-scope
@@ -151,6 +152,20 @@ outside every Git checkout, hosted application and synchronized folder.
 The owner must still name the path, its administrator and its encryption
 posture. The modules enforce privacy on a directory they are handed. They do not
 bless one, and they do not encrypt.
+
+## The real transport
+
+This file prepares and refuses. `real-transport.mjs` is the implementation that
+would dispatch, and it is inert for this file's second reason: the only function
+there that can open a socket reads `installedDirectorKey()` and refuses while it
+is `null`, and refuses again unless the call came from its own authorized
+pipeline. It imports everything here unchanged and adds the credential binding,
+the real `node:https` client, the bounded body read, the target assertion, the
+preflight gate and the one ordered pipeline. See [REAL-TRANSPORT.md](REAL-TRANSPORT.md).
+
+`rehearseDispatch` in this file stays as it is: the shortest path for exercising
+the ordering guarantees on synthetic bytes without a store or a retention
+record. The real pipeline carries those too.
 
 ## Standing position
 

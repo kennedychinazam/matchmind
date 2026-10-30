@@ -219,32 +219,45 @@ The inquiry's twelve rows, with today's status.
 | 8 | Access and quota | **NO-GO** | Nothing about this account's headroom or historical entitlement has been observed |
 | 9 | Approved storage location | **NO-GO** | No path, administrator or encryption posture named |
 | 10 | Retention schedule in place | **GO** | Policy written, enforced in code, 15 tests, deletion rehearsed and verified |
-| 11 | Execution authority | **NO-GO** | A reviewed transport boundary now exists and is inert: no Director key installed, no credential bound, no window, no owner permission. See below |
+| 11 | Execution authority | **NO-GO** | The real transport implementation now exists (`REAL-TRANSPORT.md`) and is inert: no Director key installed, no credential bound, no window, no owner permission. See below |
 | 12 | Durable latch provisioned | **NO-GO** | Not created at an approved location, because there is no approved location |
 
 **Seven GO, four NO-GO, one narrowed.** Rows 1 to 7 were the provider's and are
 now answered. Rows 8 to 12 are the owner's, and four of the five are open.
 
-Row 1 gated everything and has cleared. Row 11 now gates everything, and no
-amount of work in this repository can clear it.
+Row 1 gated everything and has cleared. Row 11 now gates everything. Its one
+part that work in this repository could deliver, step C below, is delivered; the
+remaining three parts are the owner's and no amount of work here can clear
+them.
 
 ## 8a. What closing row 11 now requires
 
-The transport boundary exists (`TRANSPORT-BOUNDARY.md`) and is inert for two
-structural reasons: it holds no credential, and no Director public key is
-installed to verify the exact-scope authorization every dispatch must present.
-Closing row 11 therefore means four distinct things, in order:
+The transport boundary exists (`TRANSPORT-BOUNDARY.md`), the real transport
+implementation now exists too (`REAL-TRANSPORT.md`), and both are inert for one
+structural reason: no Director public key is installed to verify the exact-scope
+authorization every dispatch must present, so the only function that can open a
+socket refuses. Closing row 11 therefore means four distinct things, in order,
+of which **step C is now done and awaiting review**:
 
 | # | Who | Step |
 |---|---|---|
 | A | owner | Generate an ed25519 keypair **outside this repository**, on a machine Claude Code does not touch, and keep the private key |
 | B | reviewer | Separately review the authorization process itself, then install only the public key as the module's anchor |
-| C | owner | Review and approve a real transport implementation that binds the credential. It does not exist |
+| C | owner | Review and approve a real transport implementation that binds the credential. **It now exists**: `real-transport.mjs`, described in `REAL-TRANSPORT.md`, 20 tests, six self-review findings fixed. It awaits independent review and the owner's written approval |
 | D | owner | Sign one exact-scope statement: plan hash, request hash, kind, latch directory, store, a window of at most 24 hours, and a nonce |
 
 **Claude Code must not perform step A or hold any part of the private key**, and
 has not. Step B is the one that ends inertness, which is why it is a reviewed
 process and not an edit.
+
+Step C delivered `real-transport.mjs`: the credential binding, the real
+`node:https` client, the bounded body read, the target assertion, the preflight
+gate and the single ordered pipeline. It designs nothing new; the request
+inventory, the authorization verifier, the attempt ceiling, the capture adapter
+and the retention lifecycle are imported unchanged. Three decisions it could not
+make alone are documented rather than bypassed: the `accept-encoding: identity`
+header (DECISION-1), that a declared backup is the operator's copy to make
+(DECISION-3), and which clock governs which record (DECISION-6).
 
 ## 9. The timing decision the owner has to make
 
@@ -278,8 +291,10 @@ In writing, each separately:
 3. The approved private storage path, its administrator, its encryption posture.
 4. The backup arrangement, or an explicit decision against one.
 5. The approved Linux execution environment and the execution window.
-6. Approval of a separately reviewed real-transport implementation that binds
-   the credential, which does not yet exist.
+6. Approval of the real-transport implementation that binds the credential,
+   which now exists at `real-transport.mjs` and needs an independent review and
+   written approval. Acceptance or rejection of DECISION-1, DECISION-3 and
+   DECISION-6 in `REAL-TRANSPORT.md` is part of that approval.
 6a. Generation of the Director ed25519 keypair outside this repository, review
    of the authorization process, and installation of the public key as the
    module's anchor.

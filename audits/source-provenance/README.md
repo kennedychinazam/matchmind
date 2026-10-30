@@ -59,6 +59,25 @@ The condition is enforced rather than noted: [RETENTION-POLICY.md](RETENTION-POL
 
 [TRANSPORT-BOUNDARY.md](TRANSPORT-BOUNDARY.md) and `transport.mjs` prepare the single-batch request using the production convention observed at `index.html:2596` and `:2640`: the fixed API-SPORTS host and the one `x-apisports-key` header. It cannot send a request, for two structural reasons rather than a branch anyone can edit. It holds no credential and never reads one, so the request it builds names the header and never its value. And no Director public key is installed, so the exact-scope signed authorization every real dispatch must present has nothing to verify it against. Dispatch is simulated-only, redirects are never followed, nothing retries, and the durable attempt is consumed before the transport is called and never refunded.
 
+## The real transport — present, and still inert
+
+[REAL-TRANSPORT.md](REAL-TRANSPORT.md) and `real-transport.mjs` are the
+implementation the preflight named as missing. They add only the integration the
+other modules leave out: a runtime-only credential binding that calls its
+supplier once and keeps the value in a closure no accessor can reach, the real
+`node:https` client, a bounded body read that runs before any parsing, a target
+assertion that rebuilds the request rather than trusting a caller, a preflight
+that refuses everything refusable before the ceiling is touched, and one ordered
+pipeline from authorization to retention registration.
+
+It cannot reach the provider. The only function that can open a socket refuses
+unless the call came from its own authorized pipeline, and refuses again while
+no Director public key is installed. Nothing here installed a key, bound a
+credential, created a latch at an approved location or sent a request, and no
+credential was created, read, requested or transferred. Three decisions that
+needed the owner rather than a default are documented in that file instead of
+being taken quietly.
+
 ## Independent source review before any future GO
 
 A reviewer independent of the collector must verify actual authorized provider connection/account evidence (redacted), trustworthy capture process/clocks, exact endpoint/response/version and immutable receipt/backup linkage. A label or hash alone proves none of those facts. Reconcile every required record by exact provider fixture/competition/team IDs and orientation, original raw pointers, scores/null/missingness, original status and revision order; partial data cannot certify a cohort.
