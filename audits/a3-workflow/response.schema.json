@@ -1,0 +1,15 @@
+{
+  "type":"object","additionalProperties":false,
+  "required":["fixture_id","packet_hash","abstain","reason","probabilities","evidence_refs","analysis","risk","uncertainty"],
+  "properties":{
+    "fixture_id":{"type":"string","minLength":1,"maxLength":32},
+    "packet_hash":{"type":"string","minLength":64,"maxLength":64},
+    "abstain":{"type":"boolean"},
+    "reason":{"type":"string","enum":["supported","missing_evidence","insufficient_information"]},
+    "probabilities":{"type":["array","null"],"minItems":3,"maxItems":3,"items":{"type":"number","minimum":0,"maximum":1}},
+    "evidence_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}},
+    "analysis":{"type":"array","maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["statement","evidence_refs"],"properties":{"statement":{"type":"string","minLength":1,"maxLength":1000},"evidence_refs":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}}}}},
+    "risk":{"type":"object","additionalProperties":false,"required":["status","explanation","evidence_refs"],"properties":{"status":{"type":"string","enum":["concern","no_additional_concern","insufficient_evidence"]},"explanation":{"type":"string","minLength":1,"maxLength":1000},"evidence_refs":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}}}},
+    "uncertainty":{"type":"object","additionalProperties":false,"required":["calibration","limitations"],"properties":{"calibration":{"type":"string","enum":["not_validated"]},"limitations":{"type":"array","minItems":1,"maxItems":12,"items":{"type":"string","minLength":1,"maxLength":500}}}}
+  }
+}

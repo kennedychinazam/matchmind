@@ -1,0 +1,106 @@
+[
+  {
+    "case_id": "C01", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"1.8 exceeds 1.1 in the same ten-match sample."},
+      "direction": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"Creation exceeding surface scoring corresponds to plus."},
+      "counterevidence": {"rating":"pass","evidence_refs":["F3"],"rationale":"Unavailable opposition adjustment, persistent finishing differences and small sample are acknowledged."},
+      "missingness": {"rating":"pass","evidence_refs":["F3"],"rationale":"Missing opposition adjustment is explicitly retained as unavailable."},
+      "feature_semantics": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"Uses matched creation and scoring means for the stated home-team feature."},
+      "no_invention": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Adds no unsupported tactical, personnel or numerical facts."},
+      "no_overstatement": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Provisional descriptive interpretation explicitly excludes calibrated predictive or numerical effects."}
+    },
+    "evidence_refs":["F1","F2","F3"], "rationale":"The matched sample supports the dictionary's positive descriptive category, with appropriate limitations. This does not establish predictive usefulness.", "overall":"supported"
+  },
+  {
+    "case_id": "C02", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Wins do not entail high-quality chance creation or sustainable scoring."},
+      "direction": {"rating":"uncertain","evidence_refs":["F2"],"rationale":"No creation-versus-scoring comparison establishes the appropriate sign."},
+      "counterevidence": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Result-based selection and unavailable underlying output are not addressed by 'recent form only'."},
+      "missingness": {"rating":"fail","evidence_refs":["F2"],"rationale":"Unknown measured creation is replaced by an affirmative creation claim."},
+      "feature_semantics": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Winning frequency is not the defined underlying-versus-surface discrepancy."},
+      "no_invention": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"High-quality chance creation is asserted without a supplied supporting measure."},
+      "no_overstatement": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"'Proves' and sustainability exceed the result-only evidence."}
+    },
+    "evidence_refs":["F1","F2"], "rationale":"The winning run cannot substitute for missing underlying creation evidence; positive sustainability is unsupported.", "overall":"unsupported"
+  },
+  {
+    "case_id": "C03", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Exposure of 1.9 versus concessions of 0.6 contradicts the asserted greater underlying resilience."},
+      "direction": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Higher underlying exposure corresponds to plus vulnerability, not minus."},
+      "counterevidence": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"High conceded chance quality is listed but its contrary implication is not reconciled."},
+      "missingness": {"rating":"not_applicable","evidence_refs":["F1","F2"],"rationale":"No explicit unavailable or null fact is presented."},
+      "feature_semantics": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Reverses the approved vulnerability meaning despite matched windows."},
+      "no_invention": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"No additional tactical, personnel or numerical fact is invented; the error is interpretation of supplied values."},
+      "no_overstatement": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Categorical resilience claim is contrary to the observed discrepancy; sample caveat does not cure it."}
+    },
+    "evidence_refs":["F1","F2"], "rationale":"The interpretation reverses the feature sign and meaning of higher chance exposure relative to concessions.", "overall":"unsupported"
+  },
+  {
+    "case_id": "C04", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"fail","evidence_refs":["F1"],"rationale":"Unavailable availability information does not establish unchanged resources."},
+      "direction": {"rating":"fail","evidence_refs":["F1"],"rationale":"The defined category is null for unverified availability; zero requires supported continuity."},
+      "counterevidence": {"rating":"fail","evidence_refs":["F1"],"rationale":"Acknowledging the absent source does not consider that resources could have changed."},
+      "missingness": {"rating":"fail","evidence_refs":["F1"],"rationale":"Explicitly converts unknown into neutral continuity."},
+      "feature_semantics": {"rating":"fail","evidence_refs":["F1"],"rationale":"Zero lacks the required evidence of continuity relative to the observed sample."},
+      "no_invention": {"rating":"fail","evidence_refs":["F1"],"rationale":"Unchanged available resources is an unsupported personnel-state claim."},
+      "no_overstatement": {"rating":"fail","evidence_refs":["F1"],"rationale":"The categorical unchanged conclusion exceeds an absent source."}
+    },
+    "evidence_refs":["F1"], "rationale":"Missing availability should remain null; neither resources nor continuity are established.", "overall":"unsupported"
+  },
+  {
+    "case_id": "C05", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Formation labels alone do not entail pressing intensity or an open interaction."},
+      "direction": {"rating":"uncertain","evidence_refs":["F1","F2"],"rationale":"The supplied labels cannot establish more or less openness."},
+      "counterevidence": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Alternative ways to play the formations and latest-match applicability are not considered."},
+      "missingness": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"The stated limitation admits only labels exist, yet unknown behavior is treated as established."},
+      "feature_semantics": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"No matchup behavior supports plus openness; the dictionary calls for null without matchup support."},
+      "no_invention": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Aggressive high pressing is invented from formation labels."},
+      "no_overstatement": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"'Prove' claims certainty unavailable from the evidence."}
+    },
+    "evidence_refs":["F1","F2"], "rationale":"The tactical and openness claims cannot be inferred from two formation labels.", "overall":"unsupported"
+  },
+  {
+    "case_id": "C06", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Different three- and ten-match windows cannot establish the asserted matched-sample discrepancy."},
+      "direction": {"rating":"uncertain","evidence_refs":["F1","F2"],"rationale":"Although 2.0 exceeds 1.0 arithmetically, mismatched samples leave the feature direction unestablished."},
+      "counterevidence": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Competition differences are mentioned, but distinct windows, denominators and the three-match sample are not accounted for."},
+      "missingness": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"A comparable paired scoring/creation sample is unavailable but is asserted to exist."},
+      "feature_semantics": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"Compares underlying output and surface output from incompatible samples."},
+      "no_invention": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"The claim that samples match invents comparability contradicted by their windows and denominators."},
+      "no_overstatement": {"rating":"fail","evidence_refs":["F1","F2"],"rationale":"'Proves' sustainable creation exceeds what these small incompatible samples establish."}
+    },
+    "evidence_refs":["F1","F2"], "rationale":"A numerical ordering across incompatible windows does not establish sustainability; the claimed matching sample is false.", "overall":"unsupported"
+  },
+  {
+    "case_id": "C07", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"Equal means in the same ten-match sample support no observed mean discrepancy."},
+      "direction": {"rating":"pass","evidence_refs":["F1","F2"],"rationale":"Evidenced equality corresponds to neutral under the dictionary."},
+      "counterevidence": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Future finishing stability, limited sample and unverified broader comparability are acknowledged."},
+      "missingness": {"rating":"pass","evidence_refs":["F3"],"rationale":"Broader comparability remains unverified and is not asserted established."},
+      "feature_semantics": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Neutral is based on an evidenced within-sample discrepancy comparison."},
+      "no_invention": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"No extra football or numerical facts are asserted."},
+      "no_overstatement": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Restricts the conclusion to the supplied descriptive sample and disclaims prediction."}
+    },
+    "evidence_refs":["F1","F2","F3"], "rationale":"The qualified neutral descriptive category follows from equal matched means, without claiming future stability or predictive usefulness.", "overall":"supported"
+  },
+  {
+    "case_id": "C08", "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Observed gaps differ, but complete scheduling is explicitly unknown."},
+      "direction": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Null follows the incomplete-schedule definition despite the observed shorter away gap."},
+      "counterevidence": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Acknowledges shorter observed away gap and that omitted matches could change it."},
+      "missingness": {"rating":"pass","evidence_refs":["F3"],"rationale":"Schedule completeness remains unknown, with no conversion to neutral."},
+      "feature_semantics": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Distinguishes elapsed time since observed matches from verified total rest."},
+      "no_invention": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Adds no fatigue or recovery-state claim."},
+      "no_overstatement": {"rating":"pass","evidence_refs":["F1","F2","F3"],"rationale":"Restricts inference to observed gaps and preserves unknown feature status."}
+    },
+    "evidence_refs":["F1","F2","F3"], "rationale":"The null category correctly preserves uncertainty about complete schedules and recovery; observed gap differences alone do not establish disadvantage.", "overall":"supported"
+  }
+]

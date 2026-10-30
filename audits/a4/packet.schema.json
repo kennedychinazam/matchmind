@@ -1,0 +1,1761 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "essential_complete",
+    "version",
+    "fixture",
+    "fixture_received_at_utc",
+    "freeze_utc",
+    "issuance_deadline_utc",
+    "provenance",
+    "dictionary",
+    "history_scope",
+    "observations",
+    "metrics",
+    "topics",
+    "contradictions",
+    "limitations",
+    "packet_hash"
+  ],
+  "properties": {
+    "essential_complete": {
+      "type": "boolean"
+    },
+    "version": {
+      "const": "a4-evidence-v0.2.0"
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_id",
+        "home_team_id",
+        "away_team_id",
+        "home",
+        "away",
+        "competition_id",
+        "competition",
+        "country",
+        "kickoff_utc",
+        "evidence_cutoff_utc",
+        "venue",
+        "format",
+        "settlement"
+      ],
+      "properties": {
+        "fixture_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home_team_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "away_team_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "away": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "country": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kickoff_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "evidence_cutoff_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "league",
+            "cup",
+            "playoff",
+            "other",
+            null
+          ]
+        },
+        "settlement": {
+          "type": "string",
+          "enum": [
+            "regulation_90_plus_stoppage_excluding_extra_time_and_penalties"
+          ]
+        }
+      }
+    },
+    "fixture_received_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 32,
+      "format": "date-time"
+    },
+    "freeze_utc": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "format": "date-time"
+    },
+    "issuance_deadline_utc": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "format": "date-time"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "certified_prospective",
+        "source_hash",
+        "source_id",
+        "source_kind",
+        "receipt_authority"
+      ],
+      "properties": {
+        "classification": {
+          "enum": [
+            "synthetically_verified",
+            "exploratory_unverified"
+          ]
+        },
+        "certified_prospective": {
+          "const": false
+        },
+        "source_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_kind": {
+          "enum": [
+            "synthetic_football",
+            "observed_football",
+            "mutable_legacy"
+          ]
+        },
+        "receipt_authority": {
+          "enum": [
+            "unverified",
+            "synthetic_signature_only"
+          ]
+        }
+      }
+    },
+    "dictionary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "topics",
+        "features",
+        "fields",
+        "feature_semantics",
+        "metric_definitions"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "topics": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "goals_for",
+            "goals_against",
+            "xg_for",
+            "xg_against",
+            "shots_for",
+            "shots_against",
+            "shots_on_target",
+            "possession",
+            "formation",
+            "tactical_observation",
+            "availability_observation",
+            "competition_context",
+            "opposition_observation",
+            "corners_for",
+            "corners_against",
+            "fouls_for",
+            "fouls_against",
+            "yellow_cards_for",
+            "red_cards_for",
+            "saves_for",
+            "passes_for",
+            "pass_accuracy",
+            "offsides_for",
+            "shots_inside_box",
+            "shots_outside_box",
+            "blocked_shots"
+          ],
+          "properties": {
+            "goals_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "goals_against": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "xg_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope",
+                "definition"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "definition": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "xg_against": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope",
+                "definition"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "definition": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "shots_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "shots_against": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "shots_on_target": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope",
+                "relation"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "relation": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "possession": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "formation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "tactical_observation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "availability_observation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "competition_context": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "opposition_observation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "corners_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "corners_against": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "fouls_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "fouls_against": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "yellow_cards_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "red_cards_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "saves_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "passes_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "pass_accuracy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "offsides_for": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "shots_inside_box": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "shots_outside_box": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            },
+            "blocked_shots": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "unit",
+                "topics",
+                "scope"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "topics": {
+                  "type": "array",
+                  "maxItems": 65536,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            }
+          }
+        },
+        "feature_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "home_attack_sustainability",
+            "away_attack_sustainability",
+            "home_defensive_vulnerability",
+            "away_defensive_vulnerability",
+            "match_openness",
+            "home_availability_impact",
+            "away_availability_impact",
+            "schedule_imbalance"
+          ],
+          "properties": {
+            "home_attack_sustainability": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "away_attack_sustainability": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "home_defensive_vulnerability": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "away_defensive_vulnerability": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "match_openness": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "home_availability_impact": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "away_availability_impact": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "schedule_imbalance": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        },
+        "metric_definitions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "arithmetic_mean_of_observed_match_values_v1",
+            "paired_historical_score_summary_v1",
+            "elapsed_since_latest_declared_fixture_not_verified_total_rest_v1"
+          ],
+          "properties": {
+            "arithmetic_mean_of_observed_match_values_v1": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "paired_historical_score_summary_v1": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "elapsed_since_latest_declared_fixture_not_verified_total_rest_v1": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        }
+      }
+    },
+    "history_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_utc",
+        "end_utc",
+        "team_ids",
+        "matches",
+        "required_fields",
+        "complete",
+        "observation_ids"
+      ],
+      "properties": {
+        "start_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "end_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "format": "date-time"
+        },
+        "team_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fixture_id",
+              "team_id",
+              "opponent_id",
+              "venue",
+              "played_at_utc",
+              "period"
+            ],
+            "properties": {
+              "fixture_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "team_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "opponent_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "venue": {
+                "enum": [
+                  "home",
+                  "away",
+                  "neutral"
+                ]
+              },
+              "played_at_utc": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "format": "date-time"
+              },
+              "period": {
+                "const": "regulation_90_plus_stoppage"
+              }
+            }
+          },
+          "maxItems": 10000,
+          "minItems": 2
+        },
+        "required_fields": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "goals_for",
+              "goals_against",
+              "xg_for",
+              "xg_against",
+              "shots_for",
+              "shots_against",
+              "shots_on_target",
+              "possession",
+              "formation",
+              "tactical_observation",
+              "availability_observation",
+              "competition_context",
+              "opposition_observation",
+              "corners_for",
+              "corners_against",
+              "fouls_for",
+              "fouls_against",
+              "yellow_cards_for",
+              "red_cards_for",
+              "saves_for",
+              "passes_for",
+              "pass_accuracy",
+              "offsides_for",
+              "shots_inside_box",
+              "shots_outside_box",
+              "blocked_shots"
+            ]
+          },
+          "maxItems": 32,
+          "minItems": 2
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "observation_ids": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observation_id",
+          "source_id",
+          "source_record_ref",
+          "fixture_id",
+          "team_id",
+          "field",
+          "value",
+          "missingness",
+          "received_at_utc",
+          "effective_at_utc",
+          "played_at_utc",
+          "period"
+        ],
+        "properties": {
+          "observation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_record_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "fixture_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "team_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "field": {
+            "enum": [
+              "goals_for",
+              "goals_against",
+              "xg_for",
+              "xg_against",
+              "shots_for",
+              "shots_against",
+              "shots_on_target",
+              "possession",
+              "formation",
+              "tactical_observation",
+              "availability_observation",
+              "competition_context",
+              "opposition_observation",
+              "corners_for",
+              "corners_against",
+              "fouls_for",
+              "fouls_against",
+              "yellow_cards_for",
+              "red_cards_for",
+              "saves_for",
+              "passes_for",
+              "pass_accuracy",
+              "offsides_for",
+              "shots_inside_box",
+              "shots_outside_box",
+              "blocked_shots"
+            ]
+          },
+          "value": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ],
+            "maxLength": 2048
+          },
+          "missingness": {
+            "enum": [
+              "observed",
+              "unknown",
+              "not_collected"
+            ]
+          },
+          "received_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 32,
+            "format": "date-time"
+          },
+          "effective_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 32,
+            "format": "date-time"
+          },
+          "played_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 32,
+            "format": "date-time"
+          },
+          "period": {
+            "enum": [
+              "regulation_90_plus_stoppage",
+              "prematch_context"
+            ]
+          }
+        }
+      },
+      "maxItems": 65536,
+      "minItems": 0
+    },
+    "metrics": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric_id",
+          "definition",
+          "team_id",
+          "field",
+          "window",
+          "unit",
+          "value",
+          "denominator",
+          "expected_denominator",
+          "complete",
+          "observation_refs",
+          "conflict"
+        ],
+        "properties": {
+          "metric_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "team_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "window": {
+            "enum": [
+              "all",
+              "last5",
+              "last10",
+              "home",
+              "away"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "denominator": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "expected_denominator": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "observation_refs": {
+            "type": "array",
+            "maxItems": 65536,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "conflict": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "topics": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "topic",
+          "observation_refs",
+          "missing",
+          "scope_note"
+        ],
+        "properties": {
+          "topic": {
+            "enum": [
+              "identity_context",
+              "attacking_performance",
+              "defensive_performance",
+              "recent_form",
+              "home_away",
+              "opposition_strength",
+              "scoring_patterns",
+              "tactical_matchup",
+              "player_availability",
+              "rest_schedule_motivation",
+              "head_to_head",
+              "data_quality_uncertainty"
+            ]
+          },
+          "observation_refs": {
+            "type": "array",
+            "maxItems": 65536,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "missing": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "scope_note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "observation_refs",
+          "reason"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "observation_refs": {
+            "type": "array",
+            "maxItems": 65536,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "packet_hash": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matchmind:a4-evidence:0.2.0"
+}

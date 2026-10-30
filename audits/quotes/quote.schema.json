@@ -1,0 +1,990 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matchmind:observed-quote:1",
+  "title": "Isolated research quote observation v1; actionable admission disabled",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "observation_id",
+    "stream_id",
+    "source_quote_id",
+    "fixture",
+    "bookmaker",
+    "market",
+    "price",
+    "source",
+    "times",
+    "state",
+    "settlement",
+    "accessibility",
+    "revision",
+    "limitations",
+    "legacy"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "matchmind-observed-quote-v1"
+    },
+    "observation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stream_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_quote_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "matchmind_fixture_id",
+        "provider_fixture_id",
+        "competition_id",
+        "competition_name",
+        "country",
+        "season",
+        "home_team_id",
+        "away_team_id",
+        "home_name",
+        "away_name",
+        "kickoff_utc",
+        "identity_mapping_ref",
+        "fixture_context_version"
+      ],
+      "properties": {
+        "matchmind_fixture_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider_fixture_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "competition_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "country": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "season": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "home_team_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "away_team_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "home_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "away_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kickoff_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "identity_mapping_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "fixture_context_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "bookmaker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_id",
+        "provider_id",
+        "display_name",
+        "product_kind",
+        "jurisdiction",
+        "identity_mapping_ref"
+      ],
+      "properties": {
+        "canonical_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "product_kind": {
+          "enum": [
+            "sportsbook",
+            "exchange_back",
+            "exchange_lay",
+            "unknown"
+          ]
+        },
+        "jurisdiction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "identity_mapping_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_code",
+        "family",
+        "selection",
+        "line_half_units",
+        "handicap_half_units",
+        "period",
+        "payoff_kind",
+        "provider_market_id",
+        "provider_market_label",
+        "provider_selection_id",
+        "provider_selection_label",
+        "legacy_code",
+        "mapping_version",
+        "mapping_evidence_ref",
+        "context"
+      ],
+      "properties": {
+        "canonical_code": {
+          "enum": [
+            "HOME",
+            "DRAW",
+            "AWAY",
+            "DC_1X",
+            "DC_12",
+            "DC_X2",
+            "BTTS_YES",
+            "BTTS_NO",
+            "OVER_1_5",
+            "UNDER_1_5",
+            "OVER_2_5",
+            "UNDER_2_5",
+            "OVER_3_5",
+            "UNDER_3_5",
+            null
+          ]
+        },
+        "family": {
+          "enum": [
+            "match_result",
+            "double_chance",
+            "btts",
+            "match_total",
+            "unknown"
+          ]
+        },
+        "selection": {
+          "enum": [
+            "home",
+            "draw",
+            "away",
+            "home_or_draw",
+            "home_or_away",
+            "draw_or_away",
+            "yes",
+            "no",
+            "over",
+            "under",
+            "unknown"
+          ]
+        },
+        "line_half_units": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "enum": [
+            3,
+            5,
+            7,
+            null
+          ]
+        },
+        "handicap_half_units": {
+          "type": "null"
+        },
+        "period": {
+          "enum": [
+            "regulation_90_plus_stoppage",
+            "unknown"
+          ]
+        },
+        "payoff_kind": {
+          "enum": [
+            "ordinary_win_lose",
+            "unknown"
+          ]
+        },
+        "provider_market_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider_market_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "provider_selection_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider_selection_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "legacy_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mapping_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mapping_evidence_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "context": {
+          "enum": [
+            "prematch",
+            "live",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "price": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decimal_text",
+        "representation_origin",
+        "upstream_original_text",
+        "commission_rate",
+        "cost_policy_ref",
+        "currency",
+        "offer_terms_ref"
+      ],
+      "properties": {
+        "decimal_text": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,18})?$",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "representation_origin": {
+          "enum": [
+            "upstream_raw",
+            "stored_json_numeric",
+            "unknown"
+          ]
+        },
+        "upstream_original_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "commission_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cost_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "offer_terms_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_name",
+        "feed_product",
+        "endpoint_ref",
+        "collector_version",
+        "collector_run_ref",
+        "source_response_ref",
+        "raw_content_hash",
+        "page_inventory_ref",
+        "record_origin",
+        "inventory_status",
+        "source_sequence"
+      ],
+      "properties": {
+        "provider_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "feed_product": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "endpoint_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "collector_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "collector_run_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_response_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "raw_content_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "page_inventory_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "record_origin": {
+          "enum": [
+            "legacy_database_snapshot",
+            "upstream_received_response",
+            "unknown"
+          ]
+        },
+        "inventory_status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "source_sequence": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(?:0|[1-9][0-9]{0,17})$",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "times": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_update_utc",
+        "provider_time_semantics_ref",
+        "provider_seen_utc",
+        "collector_receipt_utc",
+        "database_commit_utc",
+        "reconnaissance_receipt_utc",
+        "legacy_captured_at_utc",
+        "clock_domain_ref"
+      ],
+      "properties": {
+        "provider_update_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "provider_time_semantics_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "provider_seen_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "collector_receipt_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "database_commit_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "reconnaissance_receipt_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "legacy_captured_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "clock_domain_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suspension",
+        "availability",
+        "status_evidence_ref",
+        "observation_purpose"
+      ],
+      "properties": {
+        "suspension": {
+          "enum": [
+            "active",
+            "suspended",
+            "closed",
+            "unknown"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "offered",
+            "withdrawn",
+            "unknown"
+          ]
+        },
+        "status_evidence_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "observation_purpose": {
+          "enum": [
+            "historical_snapshot",
+            "recent_database_observation",
+            "upstream_observation",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rules_status",
+        "bookmaker_rules_ref",
+        "rules_version",
+        "rules_hash",
+        "rules_received_utc",
+        "scope",
+        "postponement_policy_ref",
+        "abandonment_policy_ref",
+        "void_policy_ref",
+        "rules_compatibility_ref"
+      ],
+      "properties": {
+        "rules_status": {
+          "enum": [
+            "verified",
+            "unverified",
+            "unknown"
+          ]
+        },
+        "bookmaker_rules_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "rules_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "rules_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "rules_received_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "scope": {
+          "enum": [
+            "regulation_90_plus_stoppage_excluding_extra_time_and_penalties",
+            "unknown"
+          ]
+        },
+        "postponement_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "abandonment_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "void_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "rules_compatibility_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "accessibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "operator_policy_ref",
+        "access_evidence_ref",
+        "verified_utc",
+        "source_rights_ref"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "verified_accessible",
+            "inaccessible",
+            "unknown"
+          ]
+        },
+        "operator_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "access_evidence_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "verified_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "source_rights_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision_id",
+        "previous_observation_ref",
+        "supersedes_ref",
+        "retracts_ref",
+        "change_kind",
+        "original_source_record_ref",
+        "correction_reason"
+      ],
+      "properties": {
+        "revision_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "previous_observation_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "supersedes_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retracts_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "change_kind": {
+          "enum": [
+            "initial_observation",
+            "unchanged_observation",
+            "price_change",
+            "status_change",
+            "correction",
+            "retraction",
+            "unknown"
+          ]
+        },
+        "original_source_record_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "correction_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 32
+    },
+    "legacy": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id_value": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "fixture_id_value": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "bookmaker_display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "market_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "stored_price_value": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "stored_price_json_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "captured_at_original": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "source_observation_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "snapshot_id_value",
+        "fixture_id_value",
+        "bookmaker_display_name",
+        "market_code",
+        "stored_price_value",
+        "stored_price_json_token",
+        "captured_at_original",
+        "source_observation_ref"
+      ]
+    }
+  }
+}

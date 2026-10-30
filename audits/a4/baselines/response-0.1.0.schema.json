@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matchmind:a4-analysis:0.1.0",
+  "title": "Proposed MatchMind A4 independent football analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "status", "reason_codes", "fixture", "packet_hash", "topics", "features", "contradictions", "limitations", "summary"],
+  "properties": {
+    "contract_version": {"type": "string", "enum": ["a4-analysis-v0.1.0"]},
+    "status": {"type": "string", "enum": ["analysis_complete", "abstain"]},
+    "reason_codes": {"type": "array", "items": {"type": "string", "enum": ["identity_conflict", "chronology_invalid", "prohibited_input", "settlement_unknown", "essential_evidence_missing", "required_packet_incomplete", "unsupported_interpretation"]}},
+    "fixture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fixture_id", "home_team_id", "away_team_id", "home", "away", "competition_id", "competition", "country", "kickoff_utc", "evidence_cutoff_utc", "venue", "format", "settlement"],
+      "properties": {
+        "fixture_id": {"type": "string"},
+        "home_team_id": {"type": ["string", "null"]},
+        "away_team_id": {"type": ["string", "null"]},
+        "home": {"type": "string"}, "away": {"type": "string"},
+        "competition_id": {"type": "string"}, "competition": {"type": "string"}, "country": {"type": "string"},
+        "kickoff_utc": {"type": "string"}, "evidence_cutoff_utc": {"type": "string"},
+        "venue": {"type": ["string", "null"]},
+        "format": {"type": ["string", "null"], "enum": ["league", "cup", "playoff", "other", null]},
+        "settlement": {"type": "string", "enum": ["regulation_90_plus_stoppage_excluding_extra_time_and_penalties"]}
+      }
+    },
+    "packet_hash": {"type": "string"},
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["topic", "state", "conclusion", "evidence_refs", "metric_refs", "limitations"],
+        "properties": {
+          "topic": {"type": "string", "enum": ["identity_context", "attacking_performance", "defensive_performance", "recent_form", "home_away", "opposition_strength", "scoring_patterns", "tactical_matchup", "player_availability", "rest_schedule_motivation", "head_to_head", "data_quality_uncertainty"]},
+          "state": {"type": "string", "enum": ["supported", "partial", "unavailable", "conflict"]},
+          "conclusion": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}},
+          "metric_refs": {"type": "array", "items": {"type": "string"}},
+          "limitations": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["feature_id", "level", "evidence_refs", "metric_refs", "rationale", "counterevidence", "limitations"],
+        "properties": {
+          "feature_id": {"type": "string", "enum": ["home_attack_sustainability", "away_attack_sustainability", "home_defensive_vulnerability", "away_defensive_vulnerability", "match_openness", "home_availability_impact", "away_availability_impact", "schedule_imbalance"]},
+          "level": {"type": ["integer", "null"], "enum": [-1, 0, 1, null]},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}},
+          "metric_refs": {"type": "array", "items": {"type": "string"}},
+          "rationale": {"type": "string"},
+          "counterevidence": {"type": "string"},
+          "limitations": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["description", "material", "evidence_refs"],
+        "properties": {"description": {"type": "string"}, "material": {"type": "boolean"}, "evidence_refs": {"type": "array", "items": {"type": "string"}}}
+      }
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": "string"}
+  }
+}

@@ -1,0 +1,156 @@
+[
+  {
+    "case_id": "C01",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "The matched sample supports the dictionary's positive descriptive category, with appropriate limitations. This does not establish predictive usefulness.",
+    "overall": "supported"
+  },
+  {
+    "case_id": "C02",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "The winning run cannot substitute for missing underlying creation evidence; positive sustainability is unsupported.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C03",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "fail",
+      "counterevidence": "fail",
+      "missingness": "not_applicable",
+      "feature_semantics": "fail",
+      "no_invention": "pass",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "The interpretation reverses the feature sign and meaning of higher chance exposure relative to concessions.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C04",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "fail",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1"
+    ],
+    "rationale": "Missing availability should remain null; neither resources nor continuity are established.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C05",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "The tactical and openness claims cannot be inferred from two formation labels.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C06",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "A numerical ordering across incompatible windows does not establish sustainability; the claimed matching sample is false.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C07",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "The qualified neutral descriptive category follows from equal matched means, without claiming future stability or predictive usefulness.",
+    "overall": "supported"
+  },
+  {
+    "case_id": "C08",
+    "reviewer_id": "R-A",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "The null category correctly preserves uncertainty about complete schedules and recovery; observed gap differences alone do not establish disadvantage.",
+    "overall": "supported"
+  }
+]

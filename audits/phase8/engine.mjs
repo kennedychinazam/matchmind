@@ -106,7 +106,10 @@ export async function runEngine(packet,{nowUtc}={}){
    blocked.push(route.request().url());return route.abort();
   });
   const page=await context.newPage();
-  if(synthetic){await page.clock.install({time:new Date(admissionTime)});await page.clock.pauseAt(new Date(admissionTime));}
+  // Synthetic execution needs a fixed Date, not paused timers. Advancing a
+  // running installed clock back to its installation instant races host latency.
+  // Ordinary football execution still uses the genuine, advancing system clock.
+  if(synthetic)await page.clock.setFixedTime(new Date(admissionTime));
   await page.goto(ORIGIN,{waitUntil:'load'});
   await page.waitForFunction(()=>typeof footballEngine==='object'&&typeof applyGatePass==='function');
   const output=await page.evaluate(packet=>{

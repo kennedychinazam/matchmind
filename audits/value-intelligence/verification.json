@@ -1,0 +1,513 @@
+{
+  "version": "stage1-mathematics-verification-v1",
+  "data_kind": "synthetic_reference_only",
+  "markets": [
+    "HOME",
+    "DRAW",
+    "AWAY",
+    "DC_1X",
+    "DC_12",
+    "DC_X2",
+    "BTTS_YES",
+    "BTTS_NO",
+    "OVER_1_5",
+    "UNDER_1_5",
+    "OVER_2_5",
+    "UNDER_2_5",
+    "OVER_3_5",
+    "UNDER_3_5"
+  ],
+  "supported_rate_domain": [
+    0,
+    20
+  ],
+  "default_tail_tolerance": 1e-12,
+  "maximum_reference_error": 5.142553050063725e-13,
+  "reference_method": "Python decimal precision 75; direct product PMF/factorial recurrence summed through 149 per side; no JS implementation imported; omitted mass negligible for rates <=20",
+  "cases": [
+    {
+      "parameters": {
+        "lambdaHome": 0,
+        "lambdaAway": 0,
+        "rho": 0
+      },
+      "probabilities": {
+        "HOME": 0,
+        "DRAW": 1,
+        "AWAY": 0,
+        "DC_1X": 1,
+        "DC_12": 0,
+        "DC_X2": 1,
+        "BTTS_YES": 0,
+        "BTTS_NO": 1,
+        "OVER_1_5": 0,
+        "UNDER_1_5": 1,
+        "OVER_2_5": 0,
+        "UNDER_2_5": 1,
+        "OVER_3_5": 0,
+        "UNDER_3_5": 1
+      },
+      "support": {
+        "homeMax": 0,
+        "awayMax": 0
+      },
+      "normalization": {
+        "retainedMass": 1,
+        "factor": 1,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 0,
+        "awayTailUpperBound": 0,
+        "analyticTailUpperBound": 0,
+        "floatingPointAllowance": 4.663256414560601e-14,
+        "eventProbabilityAllowance": 4.663256414560601e-14,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 0
+    },
+    {
+      "parameters": {
+        "lambdaHome": 1,
+        "lambdaAway": 1,
+        "rho": 0
+      },
+      "probabilities": {
+        "HOME": 0.3457458387230719,
+        "DRAW": 0.30850832255385613,
+        "AWAY": 0.3457458387230719,
+        "DC_1X": 0.654254161276928,
+        "DC_12": 0.6914916774461438,
+        "DC_X2": 0.654254161276928,
+        "BTTS_YES": 0.39957640089358853,
+        "BTTS_NO": 0.6004235991064115,
+        "OVER_1_5": 0.5939941502899183,
+        "UNDER_1_5": 0.4060058497100817,
+        "OVER_2_5": 0.32332358381653054,
+        "UNDER_2_5": 0.6766764161834695,
+        "OVER_3_5": 0.1428765395009387,
+        "UNDER_3_5": 0.8571234604990613
+      },
+      "support": {
+        "homeMax": 14,
+        "awayMax": 14
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999994,
+        "factor": 1.0000000000006,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 3.000783274888997e-13,
+        "awayTailUpperBound": 3.000783274888997e-13,
+        "analyticTailUpperBound": 6.001566549777994e-13,
+        "floatingPointAllowance": 2.4558453015843405e-13,
+        "eventProbabilityAllowance": 8.457411851362334e-13,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 5.142553050063725e-13
+    },
+    {
+      "parameters": {
+        "lambdaHome": 1.8,
+        "lambdaAway": 1.4,
+        "rho": 0
+      },
+      "probabilities": {
+        "HOME": 0.47020060730336793,
+        "DRAW": 0.229479751694159,
+        "AWAY": 0.30031964100247305,
+        "DC_1X": 0.6996803589975269,
+        "DC_12": 0.770520248305841,
+        "DC_X2": 0.529799392696632,
+        "BTTS_YES": 0.628866351815113,
+        "BTTS_NO": 0.3711336481848871,
+        "OVER_1_5": 0.8287987432908046,
+        "UNDER_1_5": 0.17120125670919542,
+        "OVER_2_5": 0.6200962589214997,
+        "UNDER_2_5": 0.37990374107850033,
+        "OVER_3_5": 0.3974802755942411,
+        "UNDER_3_5": 0.602519724405759
+      },
+      "support": {
+        "homeMax": 18,
+        "awayMax": 16
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999996653,
+        "factor": 1.0000000000003348,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 1.0575758280026017e-13,
+        "awayTailUpperBound": 2.292240775848989e-13,
+        "analyticTailUpperBound": 3.349816603851591e-13,
+        "floatingPointAllowance": 2.8821709430404006e-13,
+        "eventProbabilityAllowance": 6.231987546891991e-13,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 2.017830347256222e-13
+    },
+    {
+      "parameters": {
+        "lambdaHome": 2.3,
+        "lambdaAway": 1.1,
+        "rho": -0.08
+      },
+      "probabilities": {
+        "HOME": 0.6357680255935183,
+        "DRAW": 0.20236645445371715,
+        "AWAY": 0.1618655199527645,
+        "DC_1X": 0.8381344800472355,
+        "DC_12": 0.7976335455462829,
+        "DC_X2": 0.36423197440648164,
+        "BTTS_YES": 0.6069980923793847,
+        "BTTS_NO": 0.39300190762061527,
+        "OVER_1_5": 0.8599123620145122,
+        "UNDER_1_5": 0.14008763798548782,
+        "OVER_2_5": 0.6602601118038246,
+        "UNDER_2_5": 0.3397398881961754,
+        "OVER_3_5": 0.44164294471701254,
+        "UNDER_3_5": 0.5583570552829875
+      },
+      "support": {
+        "homeMax": 20,
+        "awayMax": 15
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999998354,
+        "factor": 1.0000000000001648,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 8.650073367427135e-14,
+        "awayTailUpperBound": 7.816120311009557e-14,
+        "analyticTailUpperBound": 1.6466193678436693e-13,
+        "floatingPointAllowance": 2.9532252166164106e-13,
+        "eventProbabilityAllowance": 4.59984458446008e-13,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 9.192646643896296e-14
+    },
+    {
+      "parameters": {
+        "lambdaHome": 20,
+        "lambdaAway": 20,
+        "rho": 0
+      },
+      "probabilities": {
+        "HOME": 0.46836086006235556,
+        "DRAW": 0.06327827987528892,
+        "AWAY": 0.46836086006235556,
+        "DC_1X": 0.5316391399376444,
+        "DC_12": 0.9367217201247111,
+        "DC_X2": 0.5316391399376444,
+        "BTTS_YES": 0.9999999958776927,
+        "BTTS_NO": 4.1223072406305045e-9,
+        "OVER_1_5": 0.9999999999999998,
+        "UNDER_1_5": 1.7418252446710246e-16,
+        "OVER_2_5": 0.9999999999999964,
+        "UNDER_2_5": 3.572865928703248e-15,
+        "OVER_3_5": 0.9999999999999512,
+        "UNDER_3_5": 4.888864465185186e-14
+      },
+      "support": {
+        "homeMax": 59,
+        "awayMax": 59
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999991543,
+        "factor": 1.0000000000008458,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 4.2489461860198805e-13,
+        "awayTailUpperBound": 4.2489461860198805e-13,
+        "analyticTailUpperBound": 8.497892372039761e-13,
+        "floatingPointAllowance": 8.850729923425242e-13,
+        "eventProbabilityAllowance": 1.7348622295465003e-12,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 5.358213872597162e-14
+    },
+    {
+      "parameters": {
+        "lambdaHome": 0.000001,
+        "lambdaAway": 20,
+        "rho": 0
+      },
+      "probabilities": {
+        "HOME": 2.0611732034541495e-15,
+        "DRAW": 2.0611927845241787e-9,
+        "AWAY": 0.9999999979388051,
+        "DC_1X": 2.0611948456973823e-9,
+        "DC_12": 0.9999999979388072,
+        "DC_X2": 0.9999999999999979,
+        "BTTS_YES": 9.999994979390139e-7,
+        "BTTS_NO": 0.999999000000502,
+        "OVER_1_5": 0.9999999567158151,
+        "UNDER_1_5": 4.3284184848175156e-8,
+        "OVER_2_5": 0.9999995444854617,
+        "UNDER_2_5": 4.555145383285749e-7,
+        "OVER_3_5": 0.9999967962829677,
+        "UNDER_3_5": 0.000003203717032274691
+      },
+      "support": {
+        "homeMax": 4,
+        "awayMax": 59
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999995772,
+        "factor": 1.0000000000004228,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 8.333326388892016e-33,
+        "awayTailUpperBound": 4.2489461860198805e-13,
+        "analyticTailUpperBound": 4.2489461860198805e-13,
+        "floatingPointAllowance": 4.942744876744691e-13,
+        "eventProbabilityAllowance": 9.191691062764572e-13,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 1.1102230246251565e-16
+    },
+    {
+      "parameters": {
+        "lambdaHome": 7,
+        "lambdaAway": 0.1,
+        "rho": -0.08
+      },
+      "probabilities": {
+        "HOME": 0.9983215195221171,
+        "DRAW": 0.0016043806475408953,
+        "AWAY": 0.00007409983034195413,
+        "DC_1X": 0.999925900169658,
+        "DC_12": 0.998395619352459,
+        "DC_X2": 0.0016784804778828494,
+        "BTTS_YES": 0.09512201079724956,
+        "BTTS_NO": 0.9048779892027504,
+        "OVER_1_5": 0.9933628559972462,
+        "UNDER_1_5": 0.006637144002753824,
+        "OVER_2_5": 0.9725198805306171,
+        "UNDER_2_5": 0.02748011946938291,
+        "OVER_3_5": 0.9233008591654251,
+        "UNDER_3_5": 0.07669914083457485
+      },
+      "support": {
+        "homeMax": 33,
+        "awayMax": 7
+      },
+      "normalization": {
+        "retainedMass": 0.9999999999995643,
+        "factor": 1.0000000000004357,
+        "interpretation": "conditional_on_retained_grid"
+      },
+      "error": {
+        "requestedTailTolerance": 1e-12,
+        "homeTailUpperBound": 2.0893798217138455e-13,
+        "awayTailUpperBound": 2.2693554826343616e-13,
+        "analyticTailUpperBound": 4.3587353043482073e-13,
+        "floatingPointAllowance": 3.3084965844964607e-13,
+        "eventProbabilityAllowance": 7.667231888844668e-13,
+        "qualification": "analytical_tail_plus_binary64_engineering_allowance; not_formal_interval_certification"
+      },
+      "independent_decimal_max_abs_error": 2.051414593751133e-13
+    }
+  ],
+  "legacy_grid_parity": [
+    {
+      "parameters": {
+        "lambdaHome": 0.2,
+        "lambdaAway": 0.2,
+        "rho": -0.08
+      },
+      "new_1x2": [
+        0.14915389057290285,
+        0.7016922188541943,
+        0.14915389057290285
+      ],
+      "legacy_source_1x2": [
+        0.14915389057291947,
+        0.7016922188541618,
+        0.14915389057291947
+      ],
+      "max_abs_difference": 3.2529534621517087e-14
+    },
+    {
+      "parameters": {
+        "lambdaHome": 1,
+        "lambdaAway": 1,
+        "rho": -0.08
+      },
+      "new_1x2": [
+        0.33491901606413643,
+        0.3301619678717272,
+        0.33491901606413643
+      ],
+      "legacy_source_1x2": [
+        0.33491901604323815,
+        0.33016196791352426,
+        0.33491901604323804
+      ],
+      "max_abs_difference": 4.179706580842435e-11
+    },
+    {
+      "parameters": {
+        "lambdaHome": 1.8,
+        "lambdaAway": 1.4,
+        "rho": -0.08
+      },
+      "new_1x2": [
+        0.4619829469813266,
+        0.24591507233824175,
+        0.29210198068043164
+      ],
+      "legacy_source_1x2": [
+        0.4619829145141854,
+        0.24591508877314977,
+        0.2921019967126643
+      ],
+      "max_abs_difference": 3.246714119775618e-8
+    },
+    {
+      "parameters": {
+        "lambdaHome": 2.3,
+        "lambdaAway": 1.1,
+        "rho": -0.08
+      },
+      "new_1x2": [
+        0.6357680255935183,
+        0.20236645445371715,
+        0.1618655199527645
+      ],
+      "legacy_source_1x2": [
+        0.6357676728929782,
+        0.2023666505245124,
+        0.16186567658250964
+      ],
+      "max_abs_difference": 3.527005401071648e-7
+    },
+    {
+      "parameters": {
+        "lambdaHome": 3,
+        "lambdaAway": 2,
+        "rho": -0.08
+      },
+      "new_1x2": [
+        0.5820552002062599,
+        0.1741903149810711,
+        0.24375448481266898
+      ],
+      "legacy_source_1x2": [
+        0.5820485713751715,
+        0.1741931641503884,
+        0.24375826447444046
+      ],
+      "max_abs_difference": 0.00000662883108837331
+    }
+  ],
+  "limitations": [
+    "Uncalibrated research mathematics; no value selector or paid inference.",
+    "Analytical tail majorant plus binary64 engineering allowance; not formal interval certification of Math.exp.",
+    "E-MARKET intentionally differs from legacy separate goals/BTTS dampening and fixed grid."
+  ],
+  "tiny_event_regressions": [
+    {
+      "parameters": {
+        "lambdaHome": 0.000001,
+        "lambdaAway": 0.000001
+      },
+      "support": {
+        "homeMax": 4,
+        "awayMax": 4
+      },
+      "probabilities": {
+        "HOME": 9.999985000016666e-7,
+        "DRAW": 0.999998000003,
+        "AWAY": 9.999985000016666e-7,
+        "DC_1X": 0.9999990000015,
+        "DC_12": 0.000001999997000003333,
+        "DC_X2": 0.9999990000015,
+        "BTTS_YES": 9.99999000000583e-13,
+        "BTTS_NO": 0.999999999999,
+        "OVER_1_5": 1.999997333335333e-12,
+        "UNDER_1_5": 0.999999999998,
+        "OVER_2_5": 1.3333313333349165e-18,
+        "UNDER_2_5": 1,
+        "OVER_3_5": 6.666655833342359e-25,
+        "UNDER_3_5": 1
+      }
+    },
+    {
+      "parameters": {
+        "lambdaHome": 1e-100,
+        "lambdaAway": 0
+      },
+      "support": {
+        "homeMax": 4,
+        "awayMax": 0
+      },
+      "probabilities": {
+        "HOME": 1e-100,
+        "DRAW": 1,
+        "AWAY": 0,
+        "DC_1X": 1,
+        "DC_12": 1e-100,
+        "DC_X2": 1,
+        "BTTS_YES": 0,
+        "BTTS_NO": 1,
+        "OVER_1_5": 5e-201,
+        "UNDER_1_5": 1,
+        "OVER_2_5": 1.6666666666666667e-301,
+        "UNDER_2_5": 1,
+        "OVER_3_5": 0,
+        "UNDER_3_5": 1
+      }
+    },
+    {
+      "parameters": {
+        "lambdaHome": 0.0001,
+        "lambdaAway": 0
+      },
+      "support": {
+        "homeMax": 4,
+        "awayMax": 0
+      },
+      "probabilities": {
+        "HOME": 0.00009999500016666251,
+        "DRAW": 0.9999000049998333,
+        "AWAY": 0,
+        "DC_1X": 1,
+        "DC_12": 0.00009999500016666251,
+        "DC_X2": 0.9999000049998333,
+        "BTTS_YES": 0,
+        "BTTS_NO": 1,
+        "OVER_1_5": 4.99966667916625e-9,
+        "UNDER_1_5": 0.9999999950003333,
+        "OVER_2_5": 1.6665416708332642e-13,
+        "UNDER_2_5": 0.9999999999998334,
+        "OVER_3_5": 4.16625002083264e-18,
+        "UNDER_3_5": 1
+      }
+    }
+  ],
+  "focused_tests": {
+    "passed": 13,
+    "failed": 0,
+    "property_cases": 300,
+    "dc_property_cases": 60
+  },
+  "review": {
+    "critical": 0,
+    "important": 1,
+    "fixed": 1,
+    "minor": 0,
+    "detail": "Cancellation and minimum positive-event support fixed with RED-to-GREEN positivity regressions; no second review claimed."
+  }
+}

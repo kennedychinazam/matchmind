@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "artifacts": {
+    "prompts/0.2.0.md": "e5847427c554d2cd125a0a1c6b5abb5f87410b1487f681d7933564b5ef9cb457",
+    "baselines/prompt-0.1.0.md": "ee38134f087481ce4e0d57951155067b8b2ed563d3be3d145fa2c2fdab5656d9",
+    "baselines/response-0.1.0.schema.json": "602b3e647939b2151e168e4621509c06bc2ff602b0a6381e7ec2fae2ad179bc5",
+    "response.schema.json": "6e62ba8148f63cdd30e710ce4eef98ec2c8b10b7779dc027465cf01cf59c1924",
+    "source.schema.json": "96d3b778a6389b138b37d8f099ae34ff1de8e0b8f90dfcdded9fafac9ba33ae0",
+    "packet.schema.json": "ee5dbdf826fb13176b483863b743e6232d4fafb90492d01313f4f38e57321c59",
+    "definitions.json": "70481f065f77c650cf395be85ad84d899176b7a14c0efd5aa06d655610699c23"
+  }
+}

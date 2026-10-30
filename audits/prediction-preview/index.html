@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#070c18">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>MatchMind — Prediction comparison preview</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./styles.css">
+<script type="module" src="./app.mjs"></script>
+</head>
+<body>
+<a class="skip" href="#comparison">Skip to comparison</a>
+<header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">M</span>MatchMind</div><span class="preview-label">Research preview</span></header>
+<main>
+<div class="intro"><div><h1>Prediction comparison</h1><p>Compare the statistical forecast with independently recorded AI analysis.</p></div><p class="halt"><span aria-hidden="true"></span>Live research execution halted</p></div>
+<section class="controls" aria-label="Preview controls">
+<div><label for="example">Preview example</label><select id="example"><option value="santos">Santos vs Palmeiras · genuine engine record</option><option value="demo">Harbour FC vs Ridge Athletic · synthetic demo</option></select></div>
+<div id="state-control" hidden><label for="ai-state">Synthetic AI state</label><select id="ai-state"><option value="available">Available analysis</option><option value="pending">Pending</option><option value="unavailable">Unavailable</option><option value="failed">Failed</option><option value="abstained">Abstained</option></select></div>
+</section>
+<div id="demo-notice" class="demo-notice" hidden><strong>SYNTHETIC DEMONSTRATION</strong><span>Fictional teams, statistics, AI outputs and decisions. No provider was called.</span></div>
+<div id="content" aria-live="polite" aria-atomic="true"></div>
+<noscript><p class="notice">JavaScript is required to switch between the bundled offline examples. No provider connection is available.</p></noscript>
+<footer>Isolated comparison preview · Regulation time, including stoppage time · No betting or live generation controls</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,156 @@
+[
+  {
+    "case_id": "C01",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "The same ten-match sample has measured creation of 1.8 versus scoring of 1.1 (F1,F2), supporting the dictionary plus category only descriptively. Missing opposition adjustment is explicitly acknowledged (F3), along with persistent finishing differences, sample size and absent calibration. No rate or future sustainability guarantee is asserted.",
+    "overall": "supported"
+  },
+  {
+    "case_id": "C02",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "Eight wins (F1) do not establish chance quality or creation versus goals. Measured xG is unavailable (F2), so the positive direction is unidentifiable and null is appropriate. Recent-form wording does not address this missingness or alternative explanations; high-quality creation and proven sustainability are invented and overstated.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C03",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "fail",
+      "counterevidence": "fail",
+      "missingness": "pass",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "In the matched sample, xGA 1.9 exceeds concessions 0.6 (F1,F2): the dictionary points to positive vulnerability, not minus resilience. High exposure is listed but its contradiction of the conclusion is not resolved. No supplied values are concealed as missing, but the resilience assertion has no evidentiary basis and exceeds the small-sample evidence.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C04",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1"
+    ],
+    "rationale": "Availability is null (F1), which establishes unknown resources, not continuity. The stated missing-source limitation conflicts with treating the feature as zero. No comparison supports either resource direction; possible changes remain unaddressed, and unchanged resources are an invented certainty.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C05",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "The two latest observed 4-3-3 labels (F1,F2) establish formations only. They supply no pressing behavior or interaction comparison to support plus openness. Acknowledging label-only evidence does not prevent converting absent tactical observations into certainty; alternative implementations of the formations are unconsidered.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C06",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "fail",
+      "direction": "uncertain",
+      "counterevidence": "fail",
+      "missingness": "fail",
+      "feature_semantics": "fail",
+      "no_invention": "fail",
+      "no_overstatement": "fail"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2"
+    ],
+    "rationale": "Creation 2.0 over three recent cross-competition matches (F1) and scoring 1.0 over ten earlier league matches (F2) are not matched evidence. The positive feature direction is therefore unverified. The competition caveat omits denominator and temporal mismatch, while the claim of a matching sample is false and proven sustainability is overstated.",
+    "overall": "unsupported"
+  },
+  {
+    "case_id": "C07",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "Measured xG and scoring both equal 1.2 across the same ten-match window (F1,F2), supporting zero as an observed descriptive discrepancy category. Comparability is qualified (F3), and the statement explicitly preserves sample limits, future instability and lack of predictive calibration.",
+    "overall": "supported"
+  },
+  {
+    "case_id": "C08",
+    "reviewer_id": "R-B",
+    "ratings": {
+      "evidence_support": "pass",
+      "direction": "pass",
+      "counterevidence": "pass",
+      "missingness": "pass",
+      "feature_semantics": "pass",
+      "no_invention": "pass",
+      "no_overstatement": "pass"
+    },
+    "evidence_refs": [
+      "F1",
+      "F2",
+      "F3"
+    ],
+    "rationale": "Observed gaps of seven and three days differ (F1,F2), but schedule completeness is unknown (F3). Null follows the approved incomplete-schedule definition. The shorter away gap is acknowledged without asserting total rest, fatigue or a validated disadvantage; missing matches and recovery context are explicitly retained.",
+    "overall": "supported"
+  }
+]
