@@ -156,9 +156,9 @@ Order matters. Every *owner* step happens in the owner's own session.
 | 1 | owner | Read the dashboard: current plan, renewal state, remaining daily allowance, per-minute limit | The four values are written down, with the time read |
 | 2 | owner | Confirm the three fixture IDs fall in an entitled season | Confirmed, or the pilot is rescoped |
 | 3 | owner | Decide: run now, or renew first and revise the deadline | Decision recorded (see section 9) |
-| 4 | owner | Name the private storage path, its administrator, its encryption posture | All three recorded |
+| 4 | owner | Name the private storage path, its administrator, its encryption posture, **and the storage label and reviewer names the retention registration will carry** | All five recorded. The preflight now refuses without the label and reviewers, before the attempt is reserved |
 | 5 | owner | Decide the backup arrangement, or decide against one | Recorded either way |
-| 6 | owner | Name the execution environment and the execution window | Recorded |
+| 6 | owner | Name the execution environment, its **system clock source**, and the execution window | Recorded. The host clock decides authorization validity, so an unsynchronised host is a stop |
 | 7 | owner | Approve the real transport implementation, separately reviewed | A reviewed implementation exists and is approved in writing |
 | 8 | owner | Authorize, or withhold, the single `/status` request | Recorded either way |
 | 9 | operator | Create the latch directory at the approved location | `readLatch` shows `{fixture:1,metadata:1}` |
@@ -174,6 +174,7 @@ reviewed task.
 
 | # | Who | Step |
 |---|---|---|
+| 12a | operator | Confirm the execution host's clock is synchronised and correct in UTC | Checked within the hour before execution. The pipeline reads this clock and no caller can override it |
 | 13 | operator | Reserve the fixture attempt through the latch, before dispatch |
 | 14 | operator | Send the one request. No retry, no redirect, no fallback |
 | 15 | operator | Record the outcome through the latch, whatever it was |
@@ -243,7 +244,7 @@ of which **step C is now done and awaiting review**:
 |---|---|---|
 | A | owner | Generate an ed25519 keypair **outside this repository**, on a machine Claude Code does not touch, and keep the private key |
 | B | reviewer | Separately review the authorization process itself, then install only the public key as the module's anchor |
-| C | owner | Review and approve a real transport implementation that binds the credential. **It now exists**: `real-transport.mjs`, described in `REAL-TRANSPORT.md`, 20 tests, six self-review findings fixed. It awaits independent review and the owner's written approval |
+| C | owner | Review and approve a real transport implementation that binds the credential. **It now exists**: `real-transport.mjs`, described in `REAL-TRANSPORT.md`, 27 tests, eight findings fixed. The Director's independent review of `b8f5ab6` conditionally accepted it and raised two more, D01 and D02, both now closed. It awaits the owner's written approval |
 | D | owner | Sign one exact-scope statement: plan hash, request hash, kind, latch directory, store, a window of at most 24 hours, and a nonce |
 
 **Claude Code must not perform step A or hold any part of the private key**, and
@@ -257,7 +258,31 @@ inventory, the authorization verifier, the attempt ceiling, the capture adapter
 and the retention lifecycle are imported unchanged. Three decisions it could not
 make alone are documented rather than bypassed: the `accept-encoding: identity`
 header (DECISION-1), that a declared backup is the operator's copy to make
-(DECISION-3), and which clock governs which record (DECISION-6).
+(DECISION-3), and that one clock governs everything (DECISION-6).
+
+The Director's independent review raised two findings against it, both closed:
+
+**D01, the authorization clock.** The real entry point forwarded a
+caller-supplied `nowUtc` into authorization verification, the retention
+preflight and the attempt reservation. Once the anchor is installed, that would
+have let an expired but validly signed authorization be replayed against an
+earlier timestamp. Reproduced against `b8f5ab6`: an authorization that expired
+on 2026-10-01 dispatched on 2026-10-30, and the permanent attempt was consumed.
+There is now no caller-supplied timestamp in the pipeline at all. Real
+authorization validity, the subscription and retention deadlines and the
+reservation read the host clock; it is read again immediately before the
+reservation and everything time-dependent re-checked; a backwards clock and an
+unusable clock value both fail closed; rehearsals keep deterministic injected
+clocks. **Step 6 of this checklist now implies approving the environment's
+clock**, because a host whose clock is wrong produces a wrong judgement and
+nothing in software fixes that from inside the host.
+
+**D02, the retention registration inputs.** The preflight treated `storageId`
+and `reviewers` as optional while `registerRetention` requires them, so a
+missing or malformed value surfaced only after the permanent attempt had been
+consumed, leaving raw provider bytes ungoverned on disk for a refusal that was
+free to make. Reproduced against `b8f5ab6`. Both are mandatory in the preflight
+now, and row 19 below cannot be reached with inputs row 4 has not settled.
 
 ## 9. The timing decision the owner has to make
 

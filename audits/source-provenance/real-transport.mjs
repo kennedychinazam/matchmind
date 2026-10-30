@@ -75,7 +75,19 @@ const LABEL=/^[a-zA-Z0-9][a-zA-Z0-9 ._-]{0,79}$/;
 // could call it directly with a key and a valid request and reach the provider.
 const AUTHORIZED_DISPATCH=Symbol('authorized_dispatch');
 
-const clockNow=()=>new Date().toISOString();
+// The trusted runtime clock for real execution. Read from the host, never from
+// a caller. Independent review found that forwarding a caller-supplied `nowUtc`
+// into the pipeline would let an expired but validly signed authorization be
+// replayed against an earlier timestamp once the anchor is installed, so there
+// is no caller-supplied timestamp anywhere in the pipeline any more.
+function trustedRuntimeClock(){return new Date().toISOString();}
+// A clock that returns something unusable fails closed rather than producing a
+// timestamp nothing downstream can check.
+const trustedInstant=value=>{
+ if(typeof value!=='string'||!value.endsWith('Z'))throw Error('untrusted_clock_value');
+ try{epochMicros(value);}catch{throw Error('untrusted_clock_value');}
+ return value;
+};
 const absolutePath=(value,label)=>{
  if(typeof value!=='string'||!isAbsolute(value)||resolve(value)!==value)throw Error('absolute_'+label+'_required');
  return value;
@@ -271,21 +283,24 @@ export function preflight({kind,latchDirectory,storageDirectory,nowUtc,metadata,
  // reject must not cost the attempt first.
  const m=metadata;
  if(m===null||typeof m!=='object'||!REQUEST_ID.test(m?.request_id??'')||!HEX.test(m?.collector_sha256??''))refusals.push('invalid_adapter_metadata');
- // Same reason, for the retention registration. An unusable storage label,
- // reviewer list or backup path is knowable for free, and knowing it after the
- // reservation leaves raw bytes on disk with nothing governing them. The checks
- // mirror `retention.mjs`; registration remains the authority.
- if(storageId!==undefined&&(typeof storageId!=='string'||!LABEL.test(storageId)))refusals.push('retention_registration_storage');
- if(reviewers!==undefined&&(!Array.isArray(reviewers)||!reviewers.length||reviewers.length>16||reviewers.some(r=>typeof r!=='string'||!LABEL.test(r))))refusals.push('retention_registration_reviewers');
- if(backups!==undefined){
-  const list=backups;
-  if(!Array.isArray(list)||list.length>8||list.some(b=>typeof b!=='string'||!isAbsolute(b)||resolve(b)!==b)||new Set(list).size!==list.length||list.includes(storageDirectory))refusals.push('retention_registration_backups');
-  else for(const b of list){
-   try{
-    const s=lstatSync(b);
-    if(s.isSymbolicLink()||!s.isDirectory())throw Error('backup_directory_must_be_real_directory');
-   }catch(error){refusals.push('backup:'+error.message);}
-  }
+ // Same reason, for the retention registration, and **mandatory** rather than
+ // checked-if-present. Independent review found these were optional here while
+ // `registerRetention` requires them, so a missing storage label or reviewer
+ // list was discovered only after the permanent attempt had been consumed,
+ // leaving raw provider bytes on disk with nothing governing them for a refusal
+ // that was free to make. The checks mirror `retention.mjs`; registration
+ // remains the authority.
+ if(typeof storageId!=='string'||!LABEL.test(storageId))refusals.push('retention_registration_storage');
+ if(!Array.isArray(reviewers)||!reviewers.length||reviewers.length>16||reviewers.some(r=>typeof r!=='string'||!LABEL.test(r)))refusals.push('retention_registration_reviewers');
+ // An omitted backup list is a declaration of none, which registration accepts.
+ // Anything else present must be usable.
+ const list=backups===undefined?[]:backups;
+ if(!Array.isArray(list)||list.length>8||list.some(b=>typeof b!=='string'||!isAbsolute(b)||resolve(b)!==b)||new Set(list).size!==list.length||list.includes(storageDirectory))refusals.push('retention_registration_backups');
+ else for(const b of list){
+  try{
+   const s=lstatSync(b);
+   if(s.isSymbolicLink()||!s.isDirectory())throw Error('backup_directory_must_be_real_directory');
+  }catch(error){refusals.push('backup:'+error.message);}
  }
  if(typeof latchDirectory==='string'&&isAbsolute(latchDirectory)){
   if(!existsSync(latchDirectory))refusals.push('latch_missing');
@@ -324,37 +339,53 @@ const failure=(label,error,extra)=>Object.assign(Error(label),{cause:error,...ex
 
 // The one dispatch sequence. Order is the whole safety property:
 //
-//  1. verify the Director authorization              free
-//  2. rebuild and assert the request                 free
-//  3. preflight every refusable condition            free
-//  4. reserve the durable attempt                    spent, never refunded
-//  5. dispatch once, carrying the credential
-//  6. clear the credential, and refuse a response that echoed it
-//  7. copy and hash the bytes before any parsing
-//  8. record the outcome whatever it was
-//  9. persist privately, verified by readback
-// 10. register retention immediately
-async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,credential,client,verify,authorization,simulated,timeoutMs,storageId,reviewers,backups,clock=clockNow}){
- // 1. No self-issued permission: the verifier is the reviewed one and the
- //    statement must be signed over exactly this scope.
- const view=verify(authorization,nowUtc,{kind,latchDirectory,storageDirectory});
+//  1. read the trusted clock, verify the Director authorization   free
+//  2. rebuild and assert the request                              free
+//  3. preflight every refusable condition                         free
+//  4. re-read the clock and re-check everything time-dependent     free
+//  5. reserve the durable attempt                    spent, never refunded
+//  6. dispatch once, carrying the credential
+//  7. clear the credential, and refuse a response that echoed it
+//  8. copy and hash the bytes before any parsing
+//  9. record the outcome whatever it was
+// 10. persist privately, verified by readback
+// 11. register retention immediately
+async function runPilot({kind,latchDirectory,storageDirectory,metadata,credential,client,verify,authorization,simulated,timeoutMs,storageId,reviewers,backups,clock}){
+ if(typeof clock!=='function')throw Error('clock_function_required');
+ // Every timestamp below comes from here, from the clock the entry point bound.
+ // No caller supplies one.
+ const read=()=>trustedInstant(clock());
+ const scope={kind,latchDirectory,storageDirectory};
+ const checks=now=>preflight({kind,latchDirectory,storageDirectory,nowUtc:now,metadata,storageId,reviewers,backups:backups??[]});
+ // 1. No self-issued permission: the verifier is the reviewed one, the
+ //    statement must be signed over exactly this scope, and the validity window
+ //    is judged against the trusted clock.
+ const authorizationAt=read();
+ const view=verify(authorization,authorizationAt,scope);
  // 2. The request is ours, not the caller's.
  const request=buildRequest(kind);
  if(canonicalHash(request)!==view.request_hash)throw Error('authorization_request_mismatch');
  assertPermittedTarget(request);
  if(credential===null||typeof credential!=='object'||typeof credential.use!=='function'||typeof credential.state!=='function')throw Error('credential_binding_required');
  if(credential.state()!=='bound')throw Error('credential_'+credential.state());
- if(typeof clock!=='function')throw Error('clock_function_required');
  // 3. Everything that can refuse for free.
- const pre=preflight({kind,latchDirectory,storageDirectory,nowUtc,metadata,storageId,reviewers,backups:backups??[]});
+ const pre=checks(authorizationAt);
  if(!pre.clear)throw Error('preflight_refused:'+pre.refusals.join(','));
 
- const startedAt=clock();
- // 4. From here the attempt is spent whatever happens next.
- const reservation=reserveAttempt(latchDirectory,LATCH_KIND[kind],nowUtc);
+ // 4. Immediately before committing: the clock is read again and everything
+ //    time-dependent is re-checked, so a slow or stalled preflight cannot carry
+ //    a validity that has since lapsed into a dispatch. A clock that went
+ //    backwards between the two reads is refused rather than preferred.
+ const startedAt=read();
+ if(epochMicros(startedAt)<epochMicros(authorizationAt))throw Error('clock_moved_backwards');
+ verify(authorization,startedAt,scope);
+ const atDispatch=checks(startedAt);
+ if(!atDispatch.clear)throw Error('preflight_refused_at_dispatch:'+atDispatch.refusals.join(','));
+ // 5. From here the attempt is spent whatever happens next.
+ const reservation=reserveAttempt(latchDirectory,LATCH_KIND[kind],startedAt);
  let dispatched;
  try{
-  // 5 and 6. The credential is used once. The echo scan runs inside the same
+  // 6 and 7. The credential is used once. The echo scan runs inside the same
   //    `use`, while the value is still reachable, so it cannot be skipped by
   //    clearing early, and the binding clears as the dispatch settles.
   dispatched=await credential.use(async secret=>{
@@ -374,7 +405,15 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
   throw failure('pilot_dispatch_failed',null,{delivery:'ambiguous',attempt_spent:true,
    transport_error:'withheld_may_contain_credential'});
  }finally{credential.discard();}
- const receivedAt=clock();
+ // Guarded: the attempt is already spent, so a clock that stops being readable
+ // here must still leave an outcome on the latch rather than a reservation with
+ // no record of what became of it.
+ let receivedAt;
+ try{receivedAt=read();}
+ catch(error){
+  recordOutcome(latchDirectory,reservation,{status:'unusable',reason:'clock_unreadable_after_dispatch'});
+  throw failure('pilot_clock_unreadable',error,{attempt_spent:true});
+ }
  if(credential.supplyCalls()!==1)throw Error('credential_supply_calls');
 
  if(dispatched.echoed){
@@ -384,7 +423,7 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
  }
  const response=dispatched.response;
 
- // 7 and 8. Copy and hash before any parsing, and record the outcome either way.
+ // 8 and 9. Copy and hash before any parsing, and record the outcome either way.
  let capture;
  try{
   const session=createSyntheticSession();
@@ -397,7 +436,7 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
  }
  recordOutcome(latchDirectory,reservation,{status:'response',reason:simulated?'rehearsal':'provider_response'});
 
- // 9. Private, exclusive, mode 0700/0600, verified by reading it back.
+ // 10. Private, exclusive, mode 0700/0600, verified by reading it back.
  let stored;
  try{stored=writeAdapterCapture(storageDirectory,capture);}
  catch(error){
@@ -405,17 +444,20 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
    lifecycle:lifecycleState({captureDirectory:storageDirectory,latchDirectory}),
    required_action:'An attempt was spent and the evidence is not on disk. Account for the spent attempt: the ceiling is not refundable.'});
  }
- // 10. Immediately: raw bytes are held under the provider's terms from the
+ // 11. Immediately: raw bytes are held under the provider's terms from the
  //     moment they land, and the window before registration is ungoverned.
  const declared=backups??[];
- let registration,retainable;
+ let registration,retainable,registeredAt;
  try{
-  registration=registerRetention(storageDirectory,{storage_id:storageId,reviewers,backups:declared,nowUtc});
+  // Inside the guard: a clock that stops being readable now leaves raw bytes on
+  // disk with nothing governing them, which is the loud failure below.
+  registeredAt=read();
+  registration=registerRetention(storageDirectory,{storage_id:storageId,reviewers,backups:declared,nowUtc:registeredAt});
   // A declared backup is the operator's copy to make. `retention.mjs` never
   // copies raw bytes and neither does this, so with one declared the pipeline
   // reports the declaration rather than a verification it cannot honestly
   // make: the copy is preflight step 18 and the check is step 20.
-  retainable=declared.length===0?assertRetainable(storageDirectory,nowUtc):null;
+  retainable=declared.length===0?assertRetainable(storageDirectory,registeredAt):null;
  }catch(error){
   throw failure('pilot_retention_not_registered',error,{attempt_spent:true,
    lifecycle:lifecycleState({captureDirectory:storageDirectory,latchDirectory}),
@@ -429,6 +471,13 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
   kind,
   authorization:Object.freeze({nonce:view.nonce,plan_hash:view.plan_hash,request_hash:view.request_hash}),
   reservation_id:reservation,
+  // Every timestamp this run acted on, so a reviewer sees which clock governed
+  // it rather than taking the source on trust.
+  clock_source:simulated?'injected_rehearsal_clock':'trusted_runtime_clock',
+  authorization_checked_at_utc:authorizationAt,
+  dispatched_at_utc:startedAt,
+  response_received_at_utc:receivedAt,
+  registered_at_utc:registeredAt,
   http_status:capture.manifest.response.status,
   body_complete:capture.manifest.response.body_complete,
   read_error:response.read_error??null,
@@ -454,24 +503,36 @@ async function runPilot({kind,latchDirectory,storageDirectory,nowUtc,metadata,cr
 // installed it refuses synchronously, before a credential is used, an attempt
 // is reserved or a socket exists.
 export function executeAuthorizedPilot(options={}){
+ // Argument validation first, so a caller who tried to supply a boundary or a
+ // timestamp is told exactly that. Both paths refuse; the anchor check below is
+ // the gate and is not reachable past.
+ // Neither boundary, and nothing time-related, is caller-supplied. `nowUtc` is
+ // refused outright rather than ignored, so a caller cannot believe it set the
+ // time: real authorization validity, the subscription and retention deadlines
+ // and the attempt reservation all read the trusted runtime clock.
+ if(['client','verify','simulated','clock','nowUtc','now','at','trustedNow','read'].some(k=>Object.hasOwn(options,k)))throw Error('real_execution_boundaries_are_not_caller_supplied');
  if(installedDirectorKey()===null)throw Error('director_public_key_not_installed');
- if(['client','verify','simulated','clock'].some(k=>Object.hasOwn(options,k)))throw Error('real_execution_boundaries_are_not_caller_supplied');
  // The token is minted here and nowhere else, and it is bound into the wrapper
  // rather than passed through the client arguments, so no caller-supplied
  // function ever sees it.
- return runPilot({...options,simulated:false,verify:authorizeExecution,clock:clockNow,
+ return runPilot({...options,simulated:false,verify:authorizeExecution,clock:trustedRuntimeClock,
   client:args=>realHttpsClient({...args,token:AUTHORIZED_DISPATCH})});
 }
 
 // The rehearsal entry. Same pipeline, with the two boundaries replaced by an
 // explicit test key and an injected client, so the real client can never be
 // reached from here and the installed anchor can never be reached from a test.
-export function rehearsePilotExecution({publicKeyBase64,client,simulated,...rest}={}){
+export function rehearsePilotExecution({publicKeyBase64,client,simulated,clock,...rest}={}){
  if(simulated!==true)throw Error('simulated_rehearsal_required');
  if(typeof client!=='function')throw Error('injected_client_required');
  if(client===realHttpsClient)throw Error('real_client_forbidden_in_rehearsal');
  if(typeof publicKeyBase64!=='string'||!publicKeyBase64)throw Error('director_public_key_required');
- return runPilot({...rest,simulated:true,client,
+ if(clock!==undefined&&typeof clock!=='function')throw Error('clock_function_required');
+ // A rehearsal injects a clock function, deterministic and isolated. It does
+ // not supply a timestamp, so the rehearsal and the real path differ in where
+ // time comes from and in nothing else.
+ if(['nowUtc','now','at'].some(k=>Object.hasOwn(rest,k)))throw Error('rehearsal_clock_is_injected_not_a_timestamp');
+ return runPilot({...rest,simulated:true,client,clock:clock??trustedRuntimeClock,
   verify:(authorization,now,scope)=>verifyAuthorizationWith(publicKeyBase64,authorization,now,scope)});
 }
 

@@ -34,6 +34,9 @@ const body=()=>Buffer.from(JSON.stringify({get:'fixtures',parameters:{ids:'78803
 const ok=(status=200,bytes=body(),extra={})=>({status,headers:{'content-type':'application/json; charset=utf-8'},body:bytes,body_complete:true,content_decoding:{mode:'none',encoding:'identity'},...extra});
 const normalized=()=>ids.map((id,i)=>({fxid:id,lid:81,season:2021,date:'2021-10-26',time:'18:45',lname:'Synthetic Cup',lcountry:'Synthetic Country',home:'Home '+i,away:'Away '+i,status:'FINISHED',gh:i+1,ga:i,ht_h:0,ht_a:0,ft_h:i+1,ft_a:i,provider:'af'}));
 const meta=()=>({request_id:'synthetic-real-rehearsal-001',collector_sha256:'a'.repeat(64)});
+// The retention-registration inputs `registerRetention` requires. The preflight
+// now requires them too, so a standalone check has to supply them.
+const REG={storageId:'synthetic-private-volume',reviewers:['owner'],backups:[]};
 
 const keys=()=>{const {publicKey,privateKey}=generateKeyPairSync('ed25519');return {pub:publicKey.export({type:'spki',format:'der'}).toString('base64'),priv:privateKey};};
 const sign=(priv,statement)=>({statement,signature_base64:signRaw(null,Buffer.from(canonicalJSON(statement)),priv).toString('base64')});
@@ -50,7 +53,7 @@ function rig(over={}){
  return {base,latchDir,store,pub,priv,
   run:(changes={})=>api.rehearsePilotExecution({
    publicKeyBase64:pub,simulated:true,kind:'fixture',
-   latchDirectory:latchDir,storageDirectory:store,nowUtc:NOW,clock:CLOCK,
+   latchDirectory:latchDir,storageDirectory:store,clock:CLOCK,
    metadata:meta(),credential:api.bindCredential({supply:()=>SECRET}),
    authorization:sign(priv,statement(latchDir,store)),
    storageId:'synthetic-private-volume',reviewers:['owner'],backups:[],
@@ -72,9 +75,10 @@ test('the real path is unreachable, ships no authority and cannot be handed its 
  assert.equal(transport.installedDirectorKey(),null);
  // Synchronous, at the missing anchor, before a credential or an attempt.
  assert.throws(()=>api.executeAuthorizedPilot({kind:'fixture'}),/director_public_key_not_installed/);
- // And it refuses to accept the two boundaries that make the rehearsal safe.
+ // And it refuses to accept the boundaries that make the rehearsal safe, by
+ // name, so a caller who tried is told which argument was rejected.
  for(const k of ['client','verify','simulated','clock'])
-  assert.throws(()=>api.executeAuthorizedPilot({[k]:()=>assert.fail('no call')}),/director_public_key_not_installed/);
+  assert.throws(()=>api.executeAuthorizedPilot({[k]:()=>assert.fail('no call')}),/real_execution_boundaries_are_not_caller_supplied/,k);
  // A rehearsal cannot borrow the real client, and will not run unsimulated.
  assert.throws(()=>api.rehearsePilotExecution({publicKeyBase64:'x',simulated:true,client:api.realHttpsClient}),/real_client_forbidden_in_rehearsal/);
  assert.throws(()=>api.rehearsePilotExecution({publicKeyBase64:'x',simulated:false,client:()=>{}}),/simulated_rehearsal_required/);
@@ -234,8 +238,8 @@ test('a missing, unsigned, misscoped or expired authorization refuses before the
   // A field the verifier does not check must not travel inside something signed.
   [{authorization:sign(r.priv,{...good.statement,override_attempt_ceiling:true})},/authorization_statement_shape/],
   // Outside the signed window on both sides, and off the reviewed plan.
-  [{nowUtc:'2026-11-01T10:00:00Z'},/authorization_not_yet_valid/],
-  [{nowUtc:'2026-11-01T13:00:00Z'},/authorization_expired/],
+  [{clock:()=>'2026-11-01T10:00:00Z'},/authorization_not_yet_valid/],
+  [{clock:()=>'2026-11-01T13:00:00Z'},/authorization_expired/],
   [{authorization:sign(r.priv,{...good.statement,plan_hash:'b'.repeat(64)})},/authorization_plan_mismatch/],
   [{authorization:sign(r.priv,{...good.statement,request_hash:'c'.repeat(64)})},/authorization_request_mismatch/],
   [{authorization:sign(r.priv,{...good.statement,transport_version:'other'})},/authorization_version_mismatch/]
@@ -328,11 +332,12 @@ const {publicKey,privateKey}=generateKeyPairSync('ed25519');
 const st=t.authorizationStatement({kind:'fixture',latch_directory:${JSON.stringify(r.latchDir)},storage_directory:${JSON.stringify(join(r.base,'store-3'))},
  not_before_utc:'2026-11-01T11:00:00Z',not_after_utc:'2026-11-01T13:00:00Z',nonce:'a'.repeat(32)});
 const pre=api.preflight({kind:'fixture',latchDirectory:${JSON.stringify(r.latchDir)},storageDirectory:${JSON.stringify(join(r.base,'store-3'))},
- nowUtc:${JSON.stringify(NOW)},metadata:{request_id:'restart',collector_sha256:'a'.repeat(64)}});
+ nowUtc:${JSON.stringify(NOW)},metadata:{request_id:'restart',collector_sha256:'a'.repeat(64)},
+ storageId:'synthetic-private-volume',reviewers:['owner'],backups:[]});
 try{
  await api.rehearsePilotExecution({publicKeyBase64:publicKey.export({type:'spki',format:'der'}).toString('base64'),simulated:true,
   kind:'fixture',latchDirectory:${JSON.stringify(r.latchDir)},storageDirectory:${JSON.stringify(join(r.base,'store-3'))},
-  nowUtc:${JSON.stringify(NOW)},clock:()=>${JSON.stringify(NOW)},metadata:{request_id:'restart',collector_sha256:'a'.repeat(64)},
+  clock:()=>${JSON.stringify(NOW)},metadata:{request_id:'restart',collector_sha256:'a'.repeat(64)},
   credential:api.bindCredential({supply:()=>${JSON.stringify(SECRET)}}),
   authorization:{statement:st,signature_base64:sign(null,Buffer.from(canonicalJSON(st)),privateKey).toString('base64')},
   storageId:'synthetic-private-volume',reviewers:['owner'],backups:[],client:async()=>{process.stdout.write('DISPATCHED');return null;}});
@@ -363,7 +368,7 @@ const bytes=Buffer.from('{"get":"fixtures"}');
 while(Date.now()<${barrier});
 try{
  await api.rehearsePilotExecution({publicKeyBase64:publicKey.export({type:'spki',format:'der'}).toString('base64'),simulated:true,
-  kind:'fixture',latchDirectory:${JSON.stringify(r.latchDir)},storageDirectory:store,nowUtc:${JSON.stringify(NOW)},
+  kind:'fixture',latchDirectory:${JSON.stringify(r.latchDir)},storageDirectory:store,
   clock:()=>${JSON.stringify(NOW)},metadata:{request_id:'race-'+${i},collector_sha256:'a'.repeat(64)},
   credential:api.bindCredential({supply:()=>${JSON.stringify(SECRET)}}),
   authorization:{statement:st,signature_base64:sign(null,Buffer.from(canonicalJSON(st)),privateKey).toString('base64')},
@@ -537,27 +542,27 @@ test('the preflight refuses an expired subscription or a passed deletion deadlin
  assert.equal(policy.deletion_deadline_utc,'2026-11-10T12:00:00Z');
  assert.equal(policy.subscription_expires_utc,'2026-11-11T13:47:51Z');
  const r=rig();
- const clean=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta()});
+ const clean=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta(),...REG});
  assert.equal(clean.clear,true);
  assert.deepEqual(clean.remaining,{fixture:1,metadata:1});
  assert.equal(clean.grants_execution_authority,false);
  // At the deadline, and past the subscription.
- const atDeadline=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:'2026-11-10T12:00:00Z',metadata:meta()});
+ const atDeadline=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:'2026-11-10T12:00:00Z',metadata:meta(),...REG});
  assert.equal(atDeadline.clear,false);
  assert.ok(atDeadline.refusals.includes('retention_deadline_passed'));
- const expired=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:'2026-11-11T14:00:00Z',metadata:meta()});
+ const expired=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:'2026-11-11T14:00:00Z',metadata:meta(),...REG});
  assert.ok(expired.refusals.includes('subscription_expired'));
  assert.ok(expired.refusals.includes('retention_deadline_passed'));
  // And the pipeline refuses with the attempt untouched, even fully authorized.
  const late=sign(r.priv,statement(r.latchDir,r.store,{not_before_utc:'2026-11-10T11:30:00Z',not_after_utc:'2026-11-10T12:30:00Z'}));
- await assert.rejects(()=>r.run({nowUtc:'2026-11-10T12:00:00Z',authorization:late,client:async()=>assert.fail('no dispatch')}),/preflight_refused:.*retention_deadline_passed/);
+ await assert.rejects(()=>r.run({clock:()=>'2026-11-10T12:00:00Z',authorization:late,client:async()=>assert.fail('no dispatch')}),/preflight_refused:.*retention_deadline_passed/);
  assert.equal(latch.readLatch(r.latchDir).remaining.fixture,1);
 });
 
 test('the preflight names every other refusable condition before the ceiling',async t=>{
  if(!posix)return t.skip('POSIX only');
  const r=rig();
- const at=(over)=>api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta(),...over});
+ const at=(over)=>api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta(),...REG,...over});
  assert.ok(at({kind:'odds'}).refusals.includes('unknown_request_kind'));
  assert.ok(at({latchDirectory:'relative/path'}).refusals.includes('absolute_latch_directory_required'));
  assert.ok(at({storageDirectory:'relative/path'}).refusals.includes('absolute_storage_directory_required'));
@@ -600,4 +605,200 @@ test('a registered backup is verified byte for byte and shares the deletion dead
  assert.equal(retention.assertRetainable(r.store,NOW).backups_verified,1);
  writeFileSync(join(backup,'response.bin'),Buffer.from('tampered'));
  assert.throws(()=>retention.assertRetainable(r.store,NOW),/backup_copy_mismatch/);
+});
+
+// Task 1 remediation. The real entrypoint forwarded a caller-supplied nowUtc
+// into authorization verification, the retention preflight and the attempt
+// reservation. Once the anchor is installed that would have let an expired but
+// validly signed authorization be replayed against an earlier timestamp. There
+// is now no caller-supplied timestamp anywhere in the pipeline.
+test('no caller-supplied timestamp reaches the pipeline, on either entrypoint',()=>{
+ // The real entry names the attempt rather than ignoring it, so a caller cannot
+ // believe they set the time.
+ for(const k of ['nowUtc','now','at','trustedNow','read','clock','client','verify','simulated'])
+  assert.throws(()=>api.executeAuthorizedPilot({[k]:'2026-11-01T12:00:00Z'}),/real_execution_boundaries_are_not_caller_supplied/,k);
+ // With none of them supplied it refuses at the anchor, which is the gate.
+ assert.throws(()=>api.executeAuthorizedPilot({kind:'fixture'}),/director_public_key_not_installed/);
+ // A rehearsal injects a clock function, never a timestamp.
+ for(const k of ['nowUtc','now','at'])
+  assert.throws(()=>api.rehearsePilotExecution({publicKeyBase64:'x',simulated:true,client:()=>{},[k]:'2026-11-01T12:00:00Z'}),/rehearsal_clock_is_injected_not_a_timestamp/,k);
+ for(const bad of ['2026-11-01T12:00:00Z',42,null,{}])
+  assert.throws(()=>api.rehearsePilotExecution({publicKeyBase64:'x',simulated:true,client:()=>{},clock:bad}),/clock_function_required/,String(bad));
+});
+
+test('a spoofed historical clock cannot revive an expired signed authorization',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ // The same statement, signed once, valid 11:00 to 13:00. It verifies inside
+ // its window, which is what makes the replay attempt worth refusing.
+ const inside=rig();
+ await inside.run({clock:()=>'2026-11-01T12:00:00Z'});
+ assert.equal(latch.readLatch(inside.latchDir).remaining.fixture,0);
+ // Past its window. Before the fix a caller passed nowUtc:'2026-11-01T12:00:00Z'
+ // and this dispatched. Now the trusted clock decides and it fails closed.
+ for(const [at,pattern]of [['2026-11-01T13:00:00Z',/authorization_expired/],['2026-11-01T18:00:00Z',/authorization_expired/],
+  ['2026-11-01T10:00:00Z',/authorization_not_yet_valid/],['2026-11-01T00:00:00Z',/authorization_not_yet_valid/]]){
+  const r=rig();
+  await assert.rejects(()=>r.run({clock:()=>at,client:async()=>assert.fail('no dispatch')}),pattern,at);
+  assert.equal(latch.readLatch(r.latchDir).remaining.fixture,1,'a refused clock costs no attempt');
+  assert.equal(existsSync(r.store),false);
+ }
+});
+
+test('the clock is re-read immediately before dispatch, and lapsing refuses there',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ // A clock valid on the first read and lapsed on the second: a slow preflight
+ // must not carry a validity that has since expired into a dispatch.
+ const expiring=rig();
+ const ticks=['2026-11-01T12:00:00Z','2026-11-01T13:00:00Z'];
+ let i=0;
+ await assert.rejects(()=>expiring.run({clock:()=>ticks[Math.min(i++,1)],client:async()=>assert.fail('no dispatch')}),/authorization_expired/);
+ assert.equal(latch.readLatch(expiring.latchDir).remaining.fixture,1);
+ assert.equal(existsSync(expiring.store),false);
+ // Crossing the retention deadline between the two reads, inside a signed
+ // window that still covers both.
+ const crossing=rig();
+ const late=sign(crossing.priv,statement(crossing.latchDir,crossing.store,{not_before_utc:'2026-11-10T11:00:00Z',not_after_utc:'2026-11-10T13:00:00Z'}));
+ const deadlineTicks=['2026-11-10T11:30:00Z','2026-11-10T12:30:00Z'];
+ let k=0;
+ await assert.rejects(()=>crossing.run({authorization:late,clock:()=>deadlineTicks[Math.min(k++,1)],client:async()=>assert.fail('no dispatch')}),
+  /preflight_refused_at_dispatch:.*retention_deadline_passed/);
+ assert.equal(latch.readLatch(crossing.latchDir).remaining.fixture,1);
+ // A clock that moves backwards is refused rather than preferred, even though
+ // the earlier value is inside the signed window.
+ const back=rig();
+ const backTicks=['2026-11-01T12:00:00Z','2026-11-01T11:30:00Z'];
+ let b=0;
+ await assert.rejects(()=>back.run({clock:()=>backTicks[Math.min(b++,1)],client:async()=>assert.fail('no dispatch')}),/clock_moved_backwards/);
+ assert.equal(latch.readLatch(back.latchDir).remaining.fixture,1);
+ assert.equal(existsSync(back.store),false);
+});
+
+test('an unusable clock fails closed before anything is spent',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ for(const bad of [42,null,undefined,'','not-a-time','2026-11-01T12:00:00','2026-11-01T12:00:00+01:00',new Date(),{}]){
+  const r=rig();
+  await assert.rejects(()=>r.run({clock:()=>bad,client:async()=>assert.fail('no dispatch')}),/untrusted_clock_value/,String(bad));
+  assert.equal(latch.readLatch(r.latchDir).remaining.fixture,1);
+  assert.equal(existsSync(r.store),false);
+ }
+ const thrower=rig();
+ await assert.rejects(()=>thrower.run({clock:()=>{throw Error('no clock source');},client:async()=>assert.fail('no dispatch')}),/no clock source/);
+ assert.equal(latch.readLatch(thrower.latchDir).remaining.fixture,1);
+});
+
+test('every timestamp the run acted on comes from the clock, and is reported',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ const r=rig();
+ const ticks=['2026-11-01T12:00:00Z','2026-11-01T12:00:01Z','2026-11-01T12:00:02Z','2026-11-01T12:00:03Z','2026-11-01T12:00:04Z'];
+ let reads=0;
+ const result=await r.run({clock:()=>ticks[Math.min(reads++,ticks.length-1)]});
+ // Four reads: authorization, dispatch, response, registration.
+ assert.equal(reads,4);
+ assert.equal(result.clock_source,'injected_rehearsal_clock');
+ assert.equal(result.authorization_checked_at_utc,ticks[0]);
+ assert.equal(result.dispatched_at_utc,ticks[1]);
+ assert.equal(result.response_received_at_utc,ticks[2]);
+ assert.equal(result.registered_at_utc,ticks[3]);
+ // The capture's own chronology is the dispatch and response reads, not a
+ // caller's assertion about when the request happened.
+ const stored=adapter.readAdapterCapture(r.store);
+ assert.equal(stored.manifest.request_started_at_utc,ticks[1]);
+ assert.equal(stored.manifest.response_received_at_utc,ticks[2]);
+});
+
+test('with no clock injected the rehearsal reads the real runtime clock',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ // Proven on both sides of the signed window rather than by a positive run, so
+ // the assertion does not decay as real time passes. A statement whose window
+ // sat in the past can only be refused by a clock reading the present.
+ const past=rig();
+ const old=sign(past.priv,statement(past.latchDir,past.store,{not_before_utc:'2026-10-01T11:00:00Z',not_after_utc:'2026-10-01T13:00:00Z'}));
+ await assert.rejects(()=>past.run({authorization:old,clock:undefined,client:async()=>assert.fail('no dispatch')}),/authorization_expired/);
+ assert.equal(latch.readLatch(past.latchDir).remaining.fixture,1);
+ const future=rig();
+ const ahead=sign(future.priv,statement(future.latchDir,future.store,{not_before_utc:'2099-01-01T00:00:00Z',not_after_utc:'2099-01-01T12:00:00Z'}));
+ await assert.rejects(()=>future.run({authorization:ahead,clock:undefined,client:async()=>assert.fail('no dispatch')}),/authorization_not_yet_valid/);
+ assert.equal(latch.readLatch(future.latchDir).remaining.fixture,1);
+});
+
+// Task 2 remediation. The preflight treated storageId and reviewers as optional
+// while registerRetention requires them, so a missing or malformed registration
+// input surfaced only after the permanent attempt had been consumed, leaving
+// raw provider bytes on disk with nothing governing them.
+test('mandatory retention-registration inputs are required before the ceiling',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ const r=rig();
+ // Absent entirely, which is the case that used to cost the attempt.
+ const bare=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta()});
+ assert.equal(bare.clear,false);
+ assert.ok(bare.refusals.includes('retention_registration_storage'));
+ assert.ok(bare.refusals.includes('retention_registration_reviewers'));
+ // An omitted backup list is a declaration of none, which registration accepts.
+ assert.equal(bare.refusals.includes('retention_registration_backups'),false);
+ const named=api.preflight({kind:'fixture',latchDirectory:r.latchDir,storageDirectory:r.store,nowUtc:NOW,metadata:meta(),storageId:'synthetic-private-volume',reviewers:['owner']});
+ assert.equal(named.clear,true);
+ // Through the pipeline: no attempt spent, no store, no socket.
+ const cases=[
+  [{storageId:undefined},'retention_registration_storage'],
+  [{storageId:''},'retention_registration_storage'],
+  [{storageId:'bad/label'},'retention_registration_storage'],
+  [{storageId:' leading'},'retention_registration_storage'],
+  [{storageId:'x'.repeat(81)},'retention_registration_storage'],
+  [{storageId:42},'retention_registration_storage'],
+  [{reviewers:undefined},'retention_registration_reviewers'],
+  [{reviewers:[]},'retention_registration_reviewers'],
+  [{reviewers:'owner'},'retention_registration_reviewers'],
+  [{reviewers:[null]},'retention_registration_reviewers'],
+  [{reviewers:['bad/name']},'retention_registration_reviewers'],
+  [{reviewers:Array(17).fill('owner')},'retention_registration_reviewers'],
+  [{storageId:undefined,reviewers:undefined},'retention_registration_storage'],
+  [{backups:'one'},'retention_registration_backups'],
+  [{backups:['relative/path']},'retention_registration_backups'],
+  [{backups:Array(9).fill(0).map((_,i)=>'/tmp/b'+i)},'retention_registration_backups']
+ ];
+ for(const [change,label]of cases){
+  const c=rig();
+  let dispatched=false;
+  await assert.rejects(()=>c.run({...change,client:async()=>{dispatched=true;return ok();}}),
+   error=>{assert.match(error.message,/^preflight_refused:/);assert.ok(error.message.includes(label),error.message);return true;},JSON.stringify(change));
+  assert.equal(dispatched,false,'no socket, no dispatch');
+  assert.equal(latch.readLatch(c.latchDir).remaining.fixture,1,'no attempt consumed');
+  assert.equal(latch.readLatch(c.latchDir).records.length,1,'nothing appended to the latch');
+  assert.equal(existsSync(c.store),false,'no raw bytes on disk');
+ }
+ // A duplicate or self-referential backup is still refused.
+ const dupe=rig();
+ await assert.rejects(()=>dupe.run({backups:['/tmp','/tmp'],client:async()=>assert.fail('no dispatch')}),/retention_registration_backups/);
+ const self=rig();
+ await assert.rejects(()=>self.run({backups:[self.store],client:async()=>assert.fail('no dispatch')}),/retention_registration_backups/);
+});
+
+test('a clock that fails after dispatch still records the spent attempt',async t=>{
+ if(!posix)return t.skip('POSIX only');
+ // The attempt is already gone by the third read, so a reservation must never
+ // be left without a record of what became of it.
+ const after=rig();
+ let n=0;
+ await assert.rejects(()=>after.run({clock:()=>{if(n++<2)return '2026-11-01T12:00:00Z';throw Error('clock source lost');}}),error=>{
+  assert.equal(error.message,'pilot_clock_unreadable');
+  assert.equal(error.attempt_spent,true);
+  return true;
+ });
+ const state=latch.readLatch(after.latchDir);
+ assert.equal(state.remaining.fixture,0);
+ assert.equal(state.outcomes.length,1,'the spent attempt has an outcome');
+ assert.equal(state.outcomes[0].outcome.reason,'clock_unreadable_after_dispatch');
+ assert.equal(existsSync(after.store),false);
+ // And a clock that fails at the registration read is the loud ungoverned case.
+ const atReg=rig();
+ let m=0;
+ await assert.rejects(()=>atReg.run({clock:()=>{if(m++<3)return '2026-11-01T12:00:0'+m+'Z';throw Error('clock source lost');}}),error=>{
+  assert.equal(error.message,'pilot_retention_not_registered');
+  assert.equal(error.lifecycle.stage,'capture_unregistered');
+  assert.equal(error.lifecycle.governed,false);
+  assert.equal(error.lifecycle.raw_bytes_present,true);
+  return true;
+ });
+ assert.equal(latch.readLatch(atReg.latchDir).outcomes[0].outcome.status,'response');
+ assert.equal(existsSync(join(atReg.store,'response.bin')),true);
 });
