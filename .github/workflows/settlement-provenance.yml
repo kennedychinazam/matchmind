@@ -1,0 +1,38 @@
+# Build 357 settlement-provenance regressions (Issue #7, finding F6). Offline: the suite serves
+# index.html from 127.0.0.1 and aborts every other request. No provider, no backend, no deployment.
+name: Settlement provenance
+
+on:
+  push:
+    branches:
+      - claude/issue7-settlement-provenance-20261031
+    paths:
+      - 'index.html'
+      - 'test/**'
+      - '.github/workflows/settlement-provenance.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  settlement-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        node: ['20.20.2', '24.19.0']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install the browser driver
+        run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Select the installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Run the settlement regressions
+        run: node --test test/settlement-provenance.test.mjs

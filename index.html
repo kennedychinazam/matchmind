@@ -3241,19 +3241,48 @@ function actualCode(gh,ga){ return gh>ga?'1':gh===ga?'X':'2'; }
    Only a FINISHED row is settled. During extra time `fulltime` is already filled while the live score
    is still the one to show. The final score rides along as `fgh`/`fga` only when it differs, so a
    grade is never displayed beside a score it was not computed on. */
+/* Statuses whose FINAL score is not the 90-minute score. For these, and only these, the
+   fallback below would hand a market settled on 90 minutes a total that includes extra time. */
+const EXTRA_TIME_STATUS = ['AET','PEN'];
 function settledScore(r){
   const gh = r ? r.gh : null, ga = r ? r.ga : null, fh = r ? r.ft_h : null, fa = r ? r.ft_a : null;
   if(gh != null && ga != null && Number.isInteger(fh) && Number.isInteger(fa)
      && fh >= 0 && fa >= 0 && fh <= gh && fa <= ga)
     return { gh: fh, ga: fa, via: 'ft', fgh: gh, fga: ga };
+  /* == BUILD 357 - EXTRA TIME WITHOUT A USABLE 90-MINUTE PAIR NOW FAILS CLOSED ================
+     Build 320 made every grade read `score.fulltime`, which is right, and fell back to the final
+     score when that pair was unusable, which is right for an FT match and WRONG for an AET or PEN
+     one. Probed across nine score shapes (`audit/issue7/t8-final.mjs`): a missing pair, a half
+     missing pair, a pair exceeding the final score, a non-integer and a negative all returned
+     `via:'final'` on an AET row, so a 2-2-at-90 tie that finished 3-2 settled as a 3-2 HOME WIN.
+     A home Draw No Bet on it graded `hit` where the truth is `void`. Nothing marked the row, and
+     `settledRow` discarded `via`, so no consumer could tell the two apart.
+
+     THE RULE IS NARROW ON PURPOSE. An ordinary FT row with no `ft` pair keeps the fallback, because
+     for a match that ended at 90 minutes the final score IS the 90-minute score. Most of the
+     historical corpus is exactly that, and rejecting it would discard legitimate league history for
+     a cup-only defect. Only AET and PEN change behaviour.
+
+     FAIL CLOSED MEANS NO 90-MINUTE SCORE, NOT A GUESS. `gh`/`ga` come back null, which every
+     existing `gh == null` guard already treats as not-yet-settled, so the app's own pending
+     semantics carry the refusal for free. The raw provider values are preserved untouched on the
+     row and in `fgh`/`fga`, so the extra-time result is still displayable and nothing is lost. */
+  if(gh != null && ga != null && EXTRA_TIME_STATUS.includes(canonStatus(r && r.status)))
+    return { gh: null, ga: null, via: 'unresolved', fgh: gh, fga: ga };
   return { gh, ga, via: 'final', fgh: gh, fga: ga };
 }
 function settledRow(r){
   if(!r || !isFin(r.status)) return r;
   const s = settledScore(r), out = Object.assign({}, r, { gh: s.gh, ga: s.ga });
+  /* build 357 - the marker travels WITH the row, because `via` used to be computed and thrown
+     away, which is why no consumer could distinguish a true 90-minute settlement from the
+     fallback. The raw final is kept so the extra-time result stays displayable. */
+  if(s.via === 'unresolved'){ out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga; }
   if(s.via === 'ft' && (s.fgh !== s.gh || s.fga !== s.ga)){ out.fgh = s.fgh; out.fga = s.fga; }
   return out;
 }
+/* One predicate, read by every consumer that would otherwise have to re-derive the condition. */
+function unsettled90(x){ return !!(x && x.settlement === 'unresolved_90'); }
 function aetOf(x){ return (x && x.fgh != null && x.fga != null) ? { fgh: x.fgh, fga: x.fga } : {}; }
 function aetText(x){ return (x && x.fgh != null && x.fga != null) ? 'AET ' + x.fgh + '–' + x.fga : ''; }
 /* The legacy no-backend path reads the provider directly, so it settles the same way from the raw
@@ -6934,6 +6963,7 @@ async function sharedResultsLoad(rows){
     for(const raw of (q.data || [])){
       if(!isFin(raw.status) || raw.gh == null || raw.ga == null) continue;
       const f = settledRow(raw);                                   // build 320 - the 90-minute score
+      if(unsettled90(f)) continue;   // build 357 - extra time with no 90-minute pair settles nothing
       _sharedResFinal.add(String(f.fxid));
       /* ══ 🔑 BUILD 355 (WO-61, Amendment 1 item 11) — THE CHIP DIES WHERE THE LEG SETTLES ════════
          Ken photographed his Banker card showing the live chip **53' 0-0** beside **"Result — Won
@@ -10301,7 +10331,9 @@ async function renderLedger(){
     for(let i=0;i<ids.length;i+=200){
       const { data: fx } = await supa.from('fixtures')
         .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));   // build 349 - date and time, for the late test
-      for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320 — graded on the 90-minute score
+      /* build 357 - an unresolved row is OMITTED rather than stored null, so every reader that
+         already treats a missing entry as "not settled yet" refuses it without a new branch. */
+      for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320 — graded on the 90-minute score
     }
 
     /* build -1 is a RECONSTRUCTION and build < 62 predates the freeze rule, so neither is evidence
@@ -12841,7 +12873,7 @@ async function m15Fetch(){
   for(let i = 0; i < ids.length; i += 150){
     const q = await supa.from('fixtures').select('fxid,date,time,status,gh,ga,ft_h,ft_a,provider').in('fxid', ids.slice(i, i + 150));   // build 349
     if(q.error) throw new Error('fixtures: ' + q.error.message);
-    for(const r of q.data) fx.push(settledRow(r));   // build 320 — the grader reads the 90-minute score
+    for(const r of q.data){ const s = settledRow(r); if(!unsettled90(s)) fx.push(s); }   // build 320 — the grader reads the 90-minute score; build 357 - unresolved rows are withheld
   }
   return { preds: preds, snaps: snaps, fx: fx };
 }
@@ -16158,7 +16190,7 @@ async function renderArchiveDay(){
        heading. It costs no extra round trip and it is the same collision that had the engine
        pricing Brasileirão with Italy's constant. */
     const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
-    const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
+    const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
 
     let graded=0, hits=0, stale=0;
     const byLeague = {};
@@ -17588,7 +17620,12 @@ async function settleRecord(){
     for(const r of todo){
       const f = byId[r.fxid];
       if(f && isFin(f.status) && f.gh != null && f.ga != null){
-        const s = settledScore(f), res = actualCode(s.gh, s.ga);
+        const s = settledScore(f);
+        /* build 357 - WITHOUT THIS LINE the fail-closed null pair reaches `actualCode`, where
+           `null === null` is true and the row would be written as a DRAW. A refusal that invents
+           a result is worse than the defect it replaces. */
+        if(s.via === 'unresolved' || s.gh == null || s.ga == null) continue;
+        const res = actualCode(s.gh, s.ga);
         if(r.result !== res || (r.gh != null && (r.gh !== s.gh || r.ga !== s.ga))) changed++;
         r.result = res; r.gh = s.gh; r.ga = s.ga;
       }
@@ -17643,7 +17680,7 @@ async function loadCloudResults(){
       q => q.gte('date', from).lte('date', upto).not('gh','is',null));
     if(error || !data) return;
     const m = {};
-    for(const r0 of freshRows(data)){ if(r0.gh!=null && r0.ga!=null && isFin(r0.status)){ const s = settledRow(r0); m[r0.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); } }   // build 160; build 320 — settled
+    for(const r0 of freshRows(data)){ if(r0.gh!=null && r0.ga!=null && isFin(r0.status)){ const s = settledRow(r0); if(!unsettled90(s)) m[r0.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); } }   // build 160; build 320 — settled; build 357 - unresolved withheld
     afState.cloudFix = m;
     gradeFromHistory();
     settleRecord().catch(() => {});   // build 320 — once per entry, then never again
@@ -18680,6 +18717,10 @@ async function backfillSettledHistory(ids){
         if(r.away_logo) afState.logos[r.away] = r.away_logo;
         if(isFin(r.status) && r.gh != null && r.ga != null){
           const s = settledRow(r);   // build 320 — the engine is trained on the 90-minute score
+          /* build 357 - AND NEVER ON A GUESS. `_accum` reads `hgOf(m) || 0`, so a null-goal row
+             would enter the fit as a phantom 0-0 rather than being skipped. An unresolved row is
+             withheld from the corpus outright. */
+          if(!unsettled90(s))
           add.push(Object.assign({ date:r.date, time:r.time, home:r.home, away:r.away,
                      hg:s.gh, ag:s.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r) }, aetOf(s)));
         }
@@ -19135,7 +19176,9 @@ async function loadCloudLeagues(force){
            because the historical match list carried the date and the goals but never the time.
            The feature was reading a field that had never existed on these rows. Exactly what the
            coverage column was put there to catch, and cheaper to find now than after a fit. */
-        if(fin){ const s = settledRow(r);   // build 320 — the engine and every grade read the 90-minute score
+        /* build 357 - an unresolved extra-time row joins neither the fit nor the result map:
+           `_accum` would read its null goals as 0-0 and every grade would read the map. */
+        if(fin && !unsettled90(settledRow(r))){ const s = settledRow(r);   // build 320 — the engine and every grade read the 90-minute score
                  L.matches.push(Object.assign({date:r.date, time:r.time, home:r.home, away:r.away, hg:s.gh, ag:s.ga, hth:r.ht_h, hta:r.ht_a, _x:providerExtras(r)}, aetOf(s)));
                  cf[r.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); }
         // feed shows upcoming fixtures + recently-played ones (so you see the score + whether the pick hit)
@@ -20261,7 +20304,7 @@ async function sharedRecordsPublish(){
       const { data: fx, error: fe } = await supa.from('fixtures')
         .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));   // build 328; `time` added at 349 for the late test
       if(fe) throw fe;
-      for(const f of (fx || [])) res[f.fxid] = settledRow(f);
+      for(const f of (fx || [])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 357
     }
     const payload = engineRecordPayload(preds || [], res, todayStrLocal());
     const w = await supa.from(RECORDS_TABLE).upsert(
@@ -20460,7 +20503,10 @@ async function afScoresFromCloud(){
     afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
       date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
-      home:r.home, away:r.away, gh:r.gh, ga:r.ga }, aetOf(r))) };
+      home:r.home, away:r.away, gh:r.gh, ga:r.ga,
+      /* build 357 - the marker and the raw final travel with the row so the feed can say the
+         90-minute score is unavailable instead of silently showing a dash on a played match. */
+      settlement:r.settlement, raw_gh:r.raw_gh, raw_ga:r.raw_ga }, aetOf(r))) };
     gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
     return true;
@@ -20574,7 +20620,10 @@ function renderScores(){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
       const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : s.status;
-      const score = (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}${s.fgh!=null ? ' <span class="ftl">' + aetText(s) + '</span>' : ''}` : '–';
+      /* build 357 - an unresolved extra-time tie shows its real result and says plainly that the
+         90-minute score, which is what every market here settles on, is not available. */
+      const score = unsettled90(s) ? `${s.raw_gh} – ${s.raw_ga}<span class="ftl">AET · 90' n/a</span>`
+        : (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}${s.fgh!=null ? ' <span class="ftl">' + aetText(s) + '</span>' : ''}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
@@ -21427,7 +21476,7 @@ async function showPredictDate(d){
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
     const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
-    const res = {}; for(const f of (fx||[])) res[f.fxid] = settledRow(f);   // build 320
+    const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
       const f = res[p.fxid];
