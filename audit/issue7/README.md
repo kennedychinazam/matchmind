@@ -31,9 +31,24 @@ The argument is the directory holding `index.html`. Chromium comes from `playwri
 | `t4-mechanisms.mjs` | the same with a corrected league id, the newcomer floor's inputs, home/away orientation, a realistic seeding mix, and opponent-quality discrimination |
 | `t8-final.mjs` | cup versus league shrink as a control, the Build 320 ninety-minute fallback across nine score shapes, the archive's shape, and whether the rung ladder is implicated |
 
-## One correction recorded against my own work
+## Execution transcripts
 
-An earlier version of `t2-division.mjs` used competition id 96 as a "fourth tier". Id 96 is in
-`CUP_COMPS`, so it can never be an `xcSource`, and that probe was invalid. It is redone in
-`t4-mechanisms.mjs` with ids 79 and 88, which are genuine loaded leagues. The invalid result is
-not relied on anywhere in the report.
+`t1-minsrc.output.txt`, `t2-division.output.txt`, `t4-mechanisms.output.txt` and
+`t8-final.output.txt` are the verbatim stdout of each probe, captured on 31 October 2026 in the
+Claude Cloud container, Node v22.22.0, Chromium from `/opt/pw-browsers/chromium`. They are attached
+because the Director's review of commit `c87276e` noted that no run transcript had been provided.
+Re-running a probe overwrites its own transcript and nothing else.
+
+## Two corrections recorded against my own work
+
+**The invalid competition id.** An earlier version of `t2-division.mjs` used competition id 96 as a
+"fourth tier". Id 96 is in `CUP_COMPS`, so it can never be an `xcSource`, and that probe was
+invalid. It is redone in `t4-mechanisms.mjs` with ids 79 and 88, which are genuine loaded leagues.
+The invalid result is not relied on anywhere in the report. The probe is left in place, with its
+`xa: null` output visible in the transcript, rather than deleted.
+
+**The hardcoded Playwright path.** `harness.mjs` imported an absolute cloud-specific path while this
+README claimed flexible dependency resolution. The Director's review caught the inconsistency.
+`harness.mjs` now resolves `playwright` or `playwright-core` through `createRequire`, falls back to
+the cloud path last, and takes the browser binary from `MM_TEST_CHROMIUM` or a short list of usual
+locations. The README's claim and the code now agree.

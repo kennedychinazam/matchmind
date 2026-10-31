@@ -1,0 +1,169 @@
+{
+ "config": {
+  "MIN_SRC": 10,
+  "RECENT_DAYS": 180,
+  "A": 0.5833,
+  "B": 0.5152,
+  "W": 1.1672,
+  "K": {
+   "SAME": 1.5,
+   "CROSS": 0.75,
+   "ONE": 1.5
+  },
+  "COMPS": [
+   2,
+   13,
+   45,
+   66,
+   81,
+   90,
+   96,
+   137,
+   143
+  ],
+  "NEWCOMER": {
+   "MIN": 0.85,
+   "FULL": 20
+  },
+  "SHRINK_K_LEAGUE": 8,
+  "SHRINK_K_CUP": 32,
+  "CUP_COMPS": [
+   2,
+   13,
+   45,
+   66,
+   81,
+   90,
+   96,
+   137,
+   143,
+   3,
+   848
+  ]
+ },
+ "threshold": [
+  {
+   "n": 8,
+   "lastGapDays": 5,
+   "source": null,
+   "attack": null
+  },
+  {
+   "n": 9,
+   "lastGapDays": 5,
+   "source": null,
+   "attack": null
+  },
+  {
+   "n": 10,
+   "lastGapDays": 5,
+   "source": {
+    "cid": "78",
+    "k": 10
+   },
+   "attack": 1
+  },
+  {
+   "n": 11,
+   "lastGapDays": 5,
+   "source": {
+    "cid": "78",
+    "k": 11
+   },
+   "attack": 1
+  },
+  {
+   "n": 12,
+   "lastGapDays": 5,
+   "source": {
+    "cid": "78",
+    "k": 12
+   },
+   "attack": 1
+  }
+ ],
+ "crossSeason": {
+  "totalAppearances": 10,
+  "inCurrentSeason": 4,
+  "source": {
+   "cid": "78",
+   "k": 10
+  }
+ },
+ "recency": [
+  {
+   "lastAppearanceDaysBefore": 5,
+   "source": {
+    "cid": "78",
+    "k": 12
+   }
+  },
+  {
+   "lastAppearanceDaysBefore": 90,
+   "source": {
+    "cid": "78",
+    "k": 12
+   }
+  },
+  {
+   "lastAppearanceDaysBefore": 179,
+   "source": {
+    "cid": "78",
+    "k": 12
+   }
+  },
+  {
+   "lastAppearanceDaysBefore": 181,
+   "source": null
+  },
+  {
+   "lastAppearanceDaysBefore": 400,
+   "source": null
+  }
+ ],
+ "cupAsSource": {
+  "cupOnly": null,
+  "cupPlusLeague": {
+   "cid": "78",
+   "k": 15
+  }
+ },
+ "failPath": {
+  "alphaSource": 12,
+  "betaSource": null,
+  "alphaAttack": 2.3076923076923075,
+  "betaAttack": null,
+  "priced": {
+   "base": {
+    "pW": 0.33491901604323815,
+    "pD": 0.33016196791352426,
+    "pL": 0.33491901604323804,
+    "lambdaH": 1,
+    "lambdaA": 1
+   },
+   "adjusted": {
+    "pW": 0.6615987439960277,
+    "pD": 0.25340355044984125,
+    "pL": 0.08499770555413177,
+    "lambdaH": 1.5889154887408192,
+    "lambdaA": 0.4110845112591808,
+    "xcShift": 0.7722
+   },
+   "changed": true,
+   "avgH": 1,
+   "avgA": 1,
+   "ratingH": {
+    "attackHome": 0.8574999999999999,
+    "attackAway": 0.8574999999999999,
+    "defenceHome": 1.1661807580174928,
+    "defenceAway": 1.1661807580174928
+   },
+   "ratingA": {
+    "attackHome": 0.8574999999999999,
+    "attackAway": 0.8574999999999999,
+    "defenceHome": 1.1661807580174928,
+    "defenceAway": 1.1661807580174928
+   }
+  }
+ }
+}

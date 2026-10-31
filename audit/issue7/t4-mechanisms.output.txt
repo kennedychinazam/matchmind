@@ -1,0 +1,161 @@
+{
+ "cupIdsCannotBeSources": {
+  "CUP_COMPS": [
+   2,
+   13,
+   45,
+   66,
+   81,
+   90,
+   96,
+   137,
+   143,
+   3,
+   848
+  ],
+  "XC_COMPS": [
+   2,
+   13,
+   45,
+   66,
+   81,
+   90,
+   96,
+   137,
+   143
+  ],
+  "note": "96 and 143 are cups, so an earlier probe that used 96 as a \"lower league\" was invalid and is redone below with 88"
+ },
+ "noLevelTerm": {
+  "asSecondTier": {
+   "lowerId": 79,
+   "xh": 1.3333333333333333,
+   "xa": 1.3333333333333333,
+   "pW": 0.33491901604323815,
+   "xcShift": null
+  },
+  "asOtherLeague": {
+   "lowerId": 88,
+   "xh": 1.3333333333333333,
+   "xa": 1.3333333333333333,
+   "pW": 0.33491901604323815,
+   "xcShift": null
+  },
+  "levelsIdentical": true,
+  "priceIdentical": true,
+  "conclusion": "changing only the division identity moves nothing: no absolute level term exists"
+ },
+ "newcomerFloor": {
+  "bothNewToCup": {
+   "appsStrong": 4,
+   "appsWeak": 4,
+   "floorStrong": 0.88,
+   "floorWeak": 0.88,
+   "sameFloor": true,
+   "atkStrong": 1.0352,
+   "atkWeak": 0.7809
+  },
+  "strongEstablished": {
+   "appsStrong": 20,
+   "appsWeak": 4,
+   "floorStrong": 1,
+   "floorWeak": 0.88,
+   "sameFloor": false,
+   "atkStrong": 1.2208,
+   "atkWeak": 0.7515
+  },
+  "bothEstablished": {
+   "appsStrong": 20,
+   "appsWeak": 20,
+   "floorStrong": 1,
+   "floorWeak": 1,
+   "sameFloor": true,
+   "atkStrong": 1.4738,
+   "atkWeak": 0.6095
+  },
+  "note": "the floor is a function of appearance COUNT only, never of division or quality"
+ },
+ "orientation": {
+  "avgH": 2,
+  "avgA": 0.7998,
+  "alphaHome": {
+   "pW": 0.7766,
+   "pD": 0.162,
+   "pL": 0.0615,
+   "lamH": 2.3599,
+   "lamA": 0.538
+  },
+  "alphaAway": {
+   "pW": 0.4498,
+   "pD": 0.2977,
+   "pL": 0.2525,
+   "lamH": 1.3452,
+   "lamA": 0.9437
+  },
+  "homeFieldWorthPoints": 52.41,
+  "drawPreserved": false
+ },
+ "seedingMix": [
+  {
+   "seededShare": 0,
+   "avgH": 1,
+   "avgA": 1,
+   "pHome": 0.3349,
+   "pDraw": 0.3302,
+   "pAway": 0.3349,
+   "ratingsEqual": true
+  },
+  {
+   "seededShare": 0.25,
+   "avgH": 0.7624,
+   "avgA": 1.2376,
+   "pHome": 0.2185,
+   "pDraw": 0.3169,
+   "pAway": 0.4646,
+   "ratingsEqual": false
+  },
+  {
+   "seededShare": 0.5,
+   "avgH": 0.5245,
+   "avgA": 1.4755,
+   "pHome": 0.1223,
+   "pDraw": 0.2789,
+   "pAway": 0.5988,
+   "ratingsEqual": false
+  },
+  {
+   "seededShare": 0.6,
+   "avgH": 0.4293,
+   "avgA": 1.5707,
+   "pHome": 0.0906,
+   "pDraw": 0.2578,
+   "pAway": 0.6516,
+   "ratingsEqual": false
+  },
+  {
+   "seededShare": 0.75,
+   "avgH": 0.2863,
+   "avgA": 1.7137,
+   "pHome": 0.0509,
+   "pDraw": 0.221,
+   "pAway": 0.7281,
+   "ratingsEqual": false
+  },
+  {
+   "seededShare": 1,
+   "avgH": 0.0478,
+   "avgA": 1.9522,
+   "pHome": 0.0062,
+   "pDraw": 0.1506,
+   "pAway": 0.8431,
+   "ratingsEqual": false
+  }
+ ],
+ "opponentQuality": {
+  "minnowAttack": 0.9204,
+  "giantAttack": 0.9521,
+  "giantRatedHigher": true,
+  "ratio": 1.0344,
+  "note": "both went 3-0 five times; only the opposition differed"
+ }
+}

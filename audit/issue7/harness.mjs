@@ -2,11 +2,28 @@
    Loads the unmodified Build 355 index.html in Chromium and calls its own engine functions on
    synthetic, deterministic corpora. No network, no provider, no Supabase, no archive, no real
    fixture. Nothing it prints is a claim about any real match. */
-import pw from '/opt/node-tools/node_modules/playwright/index.js';
 import {createServer} from 'node:http';
 import {readFileSync, existsSync} from 'node:fs';
 import {join, extname} from 'node:path';
-const {chromium} = pw;
+import {createRequire} from 'node:module';
+
+/* Resolve Chromium from whatever the host already has, in this order, downloading nothing.
+   The first version of this file hardcoded a cloud-specific absolute path while the README
+   claimed flexible resolution. The Director's review caught the inconsistency; this is the fix. */
+function loadChromium(){
+  const require = createRequire(import.meta.url);
+  for(const id of ['playwright','playwright-core','/opt/node-tools/node_modules/playwright/index.js']){
+    try{ return require(id).chromium; }catch{}
+  }
+  throw Error('no playwright or playwright-core on this host');
+}
+function browserPath(){
+  for(const p of [process.env.MM_TEST_CHROMIUM, '/opt/pw-browsers/chromium',
+                  '/usr/bin/chromium', '/usr/bin/google-chrome'])
+    if(p && existsSync(p)) return p;
+  return undefined;   // let playwright use its own bundled browser if it has one
+}
+const chromium = loadChromium();
 
 const ROOT = process.argv[2] || '.';
 const TYPES = {'.html':'text/html','.js':'text/javascript','.json':'application/json','.png':'image/png','.webmanifest':'application/manifest+json'};
@@ -22,7 +39,8 @@ export async function openEngine(){
   });
   await new Promise(ok=>srv.listen(0,'127.0.0.1',ok));
   const port = srv.address().port;
-  const browser = await chromium.launch({args:['--no-sandbox','--disable-background-networking','--disable-component-update','--disable-sync']});
+  const browser = await chromium.launch({executablePath: browserPath(),
+    args:['--no-sandbox','--disable-background-networking','--disable-component-update','--disable-sync']});
   const ctx = await browser.newContext({viewport:{width:1280,height:900}});
   await ctx.route('**/*', r => r.request().url().startsWith('http://127.0.0.1:'+port) ? r.continue() : r.abort());
   const page = await ctx.newPage();

@@ -1,0 +1,142 @@
+{
+ "shrinkControl": {
+  "asCup": {
+   "shrinkK": 32,
+   "minnow": 0.9204,
+   "giant": 0.9521,
+   "ratio": 1.0344
+  },
+  "asLeague": {
+   "shrinkK": 8,
+   "minnow": 0.9163,
+   "giant": 1.1692,
+   "ratio": 1.276
+  },
+  "discriminationLostToCupShrink": 87.5,
+  "note": "identical corpus; only the shrink differs because 81 is in CUP_COMPS"
+ },
+ "ninetyMinute": [
+  {
+   "label": "clean AET: 2-2 at 90, 3-2 after extra time",
+   "via": "ft",
+   "settledAs": "2-2",
+   "aetShown": "AET 3–2",
+   "dnbGradeIfHomePicked": "void",
+   "contaminated": false
+  },
+  {
+   "label": "clean PEN: 1-1 at 90, 4-3 on penalties recorded in goals",
+   "via": "ft",
+   "settledAs": "1-1",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "void",
+   "contaminated": false
+  },
+  {
+   "label": "normal FT",
+   "via": "ft",
+   "settledAs": "2-0",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": false
+  },
+  {
+   "label": "ft pair MISSING (league history not backfilled)",
+   "via": "final",
+   "settledAs": "3-2",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": true
+  },
+  {
+   "label": "ft pair HALF missing",
+   "via": "final",
+   "settledAs": "3-2",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": true
+  },
+  {
+   "label": "ft EXCEEDS the final score (impossible)",
+   "via": "final",
+   "settledAs": "2-1",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": true
+  },
+  {
+   "label": "ft non-integer",
+   "via": "final",
+   "settledAs": "3-2",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": true
+  },
+  {
+   "label": "ft negative",
+   "via": "final",
+   "settledAs": "3-2",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": "hit",
+   "contaminated": true
+  },
+  {
+   "label": "not finished yet",
+   "via": "final",
+   "settledAs": "null-null",
+   "aetShown": null,
+   "dnbGradeIfHomePicked": null,
+   "contaminated": false
+  }
+ ],
+ "archiveShape": {
+  "archivePresentInThisSession": false,
+  "archiveKeyCount": 0,
+  "consumedFields": [
+   "kickoff",
+   "ktime",
+   "xgH",
+   "xgA"
+  ],
+  "note": "an empty archive here is expected: this container has no backend and no provider access"
+ },
+ "rungPassThrough": {
+  "skewed": [
+   {
+    "code": "2",
+    "prob": 0.7
+   },
+   {
+    "code": "2D",
+    "prob": 0.8485
+   },
+   {
+    "code": "X2",
+    "prob": 0.875
+   },
+   {
+    "code": "U35",
+    "prob": 0.6825
+   }
+  ],
+  "symmetric": [
+   {
+    "code": "1",
+    "prob": 0.35
+   },
+   {
+    "code": "1D",
+    "prob": 0.5
+   },
+   {
+    "code": "1X",
+    "prob": 0.65
+   },
+   {
+    "code": "U35",
+    "prob": 0.6825
+   }
+  ],
+  "note": "the ladder faithfully reports whatever 1X2 it is handed; the defect is upstream"
+ }
+}

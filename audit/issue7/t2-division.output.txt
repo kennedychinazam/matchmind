@@ -1,0 +1,114 @@
+{
+ "invariance": {
+  "topTierStar": 1.3333333333333333,
+  "lowerTierStar": 1.3333333333333333,
+  "identical": true,
+  "note": "each scores 1.5x its own division rate"
+ },
+ "tierInversion": {
+  "topTierLevel": 0.4,
+  "lowerTierLevel": 1.8181818181818181,
+  "lowerTierRatedHigher": true,
+  "convertedH": 0.7893800000000001,
+  "convertedA": 1.5200272727272726,
+  "z": -0.7306472727272725,
+  "kxApplied": 0.75,
+  "kxName": "CROSS",
+  "logOddsShift": -0.6396086225454543
+ },
+ "noLevelTerm": {
+  "secondTierOpponent": {
+   "xa": 1.3333333333333333,
+   "pW": 0.33491901604323815,
+   "xcShift": null
+  },
+  "fourthTierOpponent": {
+   "xa": null,
+   "pW": 0.46160644662336375,
+   "xcShift": 0.2702
+  },
+  "priceIdentical": false
+ },
+ "cupSeedingConfound": {
+  "balancedCup": {
+   "avgH": 1,
+   "avgA": 1,
+   "awayAdvantage": false,
+   "pHome": 0.33491901604323815,
+   "pDraw": 0.33016196791352426,
+   "pAway": 0.33491901604323804,
+   "lambdaH": 1,
+   "lambdaA": 1,
+   "ratingsEqual": true
+  },
+  "seededCup_2_0": {
+   "avgH": 0,
+   "avgA": 2,
+   "awayAdvantage": true,
+   "pHome": 0.005903247639323365,
+   "pDraw": 0.14399361792859955,
+   "pAway": 0.8501031344320772,
+   "lambdaH": 0.05,
+   "lambdaA": 2,
+   "ratingsEqual": true
+  },
+  "seededCup_3_1": {
+   "avgH": 1,
+   "avgA": 3,
+   "awayAdvantage": true,
+   "pHome": 0.08946880486136609,
+   "pDraw": 0.13991536154926493,
+   "pAway": 0.7706158335893692,
+   "lambdaH": 1,
+   "lambdaA": 3,
+   "ratingsEqual": true
+  }
+ },
+ "homeAwayOnly": [
+  {
+   "homeGoals": 1,
+   "awayGoals": 1,
+   "avgH": 1,
+   "avgA": 1,
+   "pHome": 0.3349,
+   "pDraw": 0.3302,
+   "pAway": 0.3349
+  },
+  {
+   "homeGoals": 1,
+   "awayGoals": 2,
+   "avgH": 1,
+   "avgA": 2,
+   "pHome": 0.1746,
+   "pDraw": 0.2276,
+   "pAway": 0.5977
+  },
+  {
+   "homeGoals": 0,
+   "awayGoals": 2,
+   "avgH": 0,
+   "avgA": 2,
+   "pHome": 0.0059,
+   "pDraw": 0.144,
+   "pAway": 0.8501
+  },
+  {
+   "homeGoals": 1,
+   "awayGoals": 3,
+   "avgH": 1,
+   "avgA": 3,
+   "pHome": 0.0895,
+   "pDraw": 0.1399,
+   "pAway": 0.7706
+  },
+  {
+   "homeGoals": 0,
+   "awayGoals": 3,
+   "avgH": 0,
+   "avgA": 3,
+   "pHome": 0.002,
+   "pDraw": 0.0559,
+   "pAway": 0.9421
+  }
+ ]
+}
