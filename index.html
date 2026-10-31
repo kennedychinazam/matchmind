@@ -23191,6 +23191,27 @@ setTimeout(()=>{
      ten-minute blindness that was the actual harm. */
   const _emptyCache = afState.scores && !(afState.scores.list && afState.scores.list.length);
   if((k || supa) && (!afState.scores || _emptyCache || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
+  /* == LAUNCH FIX, 31 October 2026 - "Loading matches..." FOR EVER ON A FIRST VISIT ==============
+     The gate above needs a saved API-Football key OR a backend client. With NEITHER, `afScores`
+     was never called, so `scoresMeta` kept the value it is born with in the markup - "Loading
+     matches..." - and never resolved. MEASURED in Chromium at 390x844 with `cdn.jsdelivr.net`
+     unreachable: still "Loading matches..." after 30 seconds, zero rows rendered, and NOT ONE
+     console error to hint at why. That is the first screen an invited user sees, and the app that
+     forbids "showing nothing while claiming there is nothing to show" was doing the worse thing -
+     claiming to still be working.
+
+     `afScores` itself is sound: called by hand in exactly that state it answers immediately. The
+     defect is this gate, so the fix routes the no-source case into the app's OWN failure path
+     instead of leaving the placeholder standing. `scoresReadFailed` is the right call and not a new
+     message: it repaints the last good list when there is one, so a returning user still sees their
+     cached scores with the age on them, and only a genuine first visit reads "Scores unavailable".
+
+     WHY THE REASON IS SPLIT. `cloudEnabled()` requires `window.supabase`, which arrives from a CDN.
+     An ad-blocker, a corporate proxy or an offline first launch all leave it undefined while
+     SUPA_URL and SUPA_KEY are perfectly well configured in this build, so "cannot reach the server"
+     is the honest half of the truth to tell. If the SDK did load and there is still no client, the
+     configuration is what is missing, not the network. */
+  else if(!k && !supa) scoresReadFailed(window.supabase ? 'no data source' : 'cannot reach the server');
   if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (API-Football Pro since build 158)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);

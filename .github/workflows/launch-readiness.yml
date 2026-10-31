@@ -1,0 +1,41 @@
+# Launch-readiness regressions for Build 355. Opens the real index.html in Chromium over a
+# local static server, with every off-host request aborted. It reaches no provider, no
+# backend and no paid service, and it deploys nothing.
+name: Launch readiness
+
+on:
+  push:
+    branches:
+      - claude/launch-readiness-20261031
+    paths:
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - 'test/**'
+      - '.github/workflows/launch-readiness.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  launch-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        node: ['20.20.2', '24.19.0']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install the browser driver
+        run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Select the installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Run the launch regressions
+        run: node --test test/launch-readiness.test.mjs
