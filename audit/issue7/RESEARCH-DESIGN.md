@@ -150,9 +150,25 @@ touches it.
   overall and split by: league versus cup, tier gap (0, 1, 2+), and home-side tier relative to the
   away side. The split by tier gap is the whole point and must be declared primary, not exploratory.
 - **Secondary.** DNB wins, voids and losses as three separate counts, never a single rate.
-- **Benchmarks declared in advance.** The current Build 355 model, and two trivial baselines: the
-  competition's base rates, and home-or-draw. A change that does not beat Build 355 on the tier-gap
-  buckets has failed whatever it does overall.
+- **Benchmarks declared in advance, and all of them probabilistic.** Log loss and Brier score a
+  DISTRIBUTION over the three outcomes, so a categorical pick is not a comparable benchmark. An
+  earlier draft of this document listed "home-or-draw", which is a selection rather than a
+  distribution and has no log loss; the Director's review of PR #11 caught it. The three benchmarks
+  are:
+  1. **Build 355 as it stands**, the incumbent, scored on the same held-out fixtures.
+  2. **The competition's empirical 1X2 base rates**, a single distribution per competition
+     estimated on the fit window only and applied unchanged to every fixture in it. This is the
+     "know nothing about who is playing" baseline, and the engine's own `neutral()` is its
+     in-app analogue.
+  3. **A home-advantage-only Poisson**, fitted with every team rating held at 1 so the only live
+     parameters are the competition's `avgH` and `avgA`. This isolates how much of the engine's
+     skill is team knowledge rather than venue, which matters directly to F2.
+
+  If a categorical comparison is wanted alongside these, report it separately as accuracy on the
+  argmax pick, clearly labelled, and never inside a log-loss table.
+
+  A change that does not beat Build 355 on the tier-gap buckets has failed whatever it does
+  overall.
 - **Abstention.** The confidence gate should be re-derived per stratum rather than globally, because
   a cup tie with a two-tier gap is a different estimation problem from a league fixture. Proposal:
   abstain when the posterior interval on the 1X2 split is wider than a declared threshold, which
@@ -162,6 +178,18 @@ touches it.
   available held-out cross-tier fixtures and state the minimum detectable effect. If the count is
   too small to resolve a tier offset, the correct outcome is to publish the interval and keep
   abstaining on those ties, not to ship a point estimate.
+
+## A limitation that survives the settlement patch
+
+PR #11 refuses an extra-time row whose `ft` pair is missing or invalid. It cannot refuse a pair that
+is **plausible but wrong**, and Build 320's own audit found 7 of 128 extra-time rows where the
+provider's `fulltime` already carried the final score. Those pass every field check and settle as if
+they were the 90-minute score.
+
+This matters to the evaluation below, not only to grading: any cup metric computed from settled
+history inherits those rows. The honest treatment is to report cup figures with that residual named,
+and to treat a cup calibration result as having an unquantified contamination floor until goal
+events are available. Nothing here proposes loading events, and nothing invents a 90-minute score.
 
 ## Recalculating the calibration baseline
 

@@ -213,15 +213,19 @@ test('every settlement consumer in the file is guarded or provably safe', async 
   lines.forEach((line, i) => {
     if(!/\b(settledRow|settledScore)\s*[({]/.test(line)) return;
     if(/^function\s+(settledRow|settledScore)/.test(line.trim())) return;
-    sites.push({line: i+1, text: line.trim(), window: lines.slice(i, i+6).join('\n')});
+    /* An eight-line window, because `legacySettled`'s call spans three lines and its guard sits
+       just past a two-line comment. The window size is a readability allowance, not a standard:
+       what matters is that the refusal is in the same statement block as the call. */
+    sites.push({line: i+1, text: line.trim(), window: lines.slice(i, i+8).join('\n')});
   });
   assert.ok(sites.length >= 12, 'expected at least twelve call sites, found '+sites.length);
 
   /* Three sites are safe without naming the predicate, and each is named here with its reason so
      a future reader cannot mistake an omission for one of them. */
+  /* `legacySettled` is deliberately NOT on this list any more: since the PR #11 review it names
+     `unsettled90` itself, so it must satisfy the scan like every other consumer. */
   const PROVEN_SAFE = [
     {match: /settledScore\(x\)/,                reason: 'loadAiShadow guards on s.gh == null and continues'},
-    {match: /settledRow\(\{ status: f\.fixture/, reason: 'legacySettled settles a live provider response inline'},
     {match: /const s = settledScore\(r\), out =/, reason: 'inside settledRow itself'}
   ];
   /* The refusal is spelled two ways, one per layer: `unsettled90(row)` for a settled ROW, and

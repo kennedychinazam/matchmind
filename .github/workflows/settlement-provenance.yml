@@ -35,4 +35,4 @@ jobs:
           test -n "$chromium_path"
           echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
       - name: Run the settlement regressions
-        run: node --test test/settlement-provenance.test.mjs
+        run: node --test test/settlement-provenance.test.mjs test/settlement-consumers.test.mjs

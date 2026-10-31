@@ -3215,7 +3215,12 @@ function isFinishedScore(s){ return !!(s && FINISHED.includes(s.status) && s.gh!
 // final result for a fixture: today's scores by id, else league history by teams+date
 function fixtureResult(L,f,smap){
   smap=smap||scoreMap();
+  /* build 357 - FIRST, and before any fallback. A fixture whose 90-minute score is unavailable has
+     no result to give, and the three sources below cannot tell a contaminated cached row from a
+     clean one. Returning null is what every caller already treats as "not settled yet". */
+  if(f && unresolved90Fixture(f.fxid)) return null;
   const s = f.fxid!=null ? smap[f.fxid] : null;
+  if(unsettled90(s)) return null;                       // build 357 - belt and braces on the row itself
   if(isFinishedScore(s)) return Object.assign({gh:s.gh, ga:s.ga}, aetOf(s));
   // recent finished results from the shared cloud collector (covers past days too)
   if(f.fxid!=null && afState.cloudFix && afState.cloudFix[f.fxid]){ const c=afState.cloudFix[f.fxid]; return Object.assign({gh:c.gh, ga:c.ga}, aetOf(c)); }
@@ -3267,6 +3272,14 @@ function settledScore(r){
      existing `gh == null` guard already treats as not-yet-settled, so the app's own pending
      semantics carry the refusal for free. The raw provider values are preserved untouched on the
      row and in `fgh`/`fga`, so the extra-time result is still displayable and nothing is lost. */
+  /* ⚠ WHAT THIS STILL DOES NOT FIX, and it is the same residual Build 320 declared above: on
+     7 of its 128 audited extra-time rows the provider's `fulltime` pair ALREADY carried the final
+     score. Such a pair is integer, non-negative and no greater than the final, so it passes the
+     check above and settles as `via:'ft'` on a score that is not the 90-minute one. Nothing in the
+     score fields can distinguish it; only goal events could, and the app does not load them
+     (build 247). This rule rejects a MISSING or INVALID pair, never a plausible but wrong one, and
+     it makes no claim of full 90-minute correctness. Inventing a 90-minute score for those seven
+     would be exactly the guess this refusal exists to avoid. */
   if(gh != null && ga != null && EXTRA_TIME_STATUS.includes(canonStatus(r && r.status)))
     return { gh: null, ga: null, via: 'unresolved', fgh: gh, fga: ga };
   return { gh, ga, via: 'final', fgh: gh, fga: ga };
@@ -3277,21 +3290,56 @@ function settledRow(r){
   /* build 357 - the marker travels WITH the row, because `via` used to be computed and thrown
      away, which is why no consumer could distinguish a true 90-minute settlement from the
      fallback. The raw final is kept so the extra-time result stays displayable. */
-  if(s.via === 'unresolved'){ out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga; }
+  if(s.via === 'unresolved'){ out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga; noteUnresolved90(out); }
   if(s.via === 'ft' && (s.fgh !== s.gh || s.fga !== s.ga)){ out.fgh = s.fgh; out.fga = s.fga; }
   return out;
 }
 /* One predicate, read by every consumer that would otherwise have to re-derive the condition. */
 function unsettled90(x){ return !!(x && x.settlement === 'unresolved_90'); }
+/* == BUILD 357, SECOND PASS - THE REFUSAL HAS TO OUTRANK A CACHED RESULT ======================
+   Independent review found the first pass could be walked around, and the route is `fixtureResult`:
+   an unresolved row has null goals, so `isFinishedScore` is false, so the function FELL THROUGH to
+   `afState.cloudFix` and then to `L.matches.find(date,home,away)`. `afState.leagues` IS persisted,
+   through `af.leagues` in `saveState` and `trimForCache`, so a history row written by a build
+   BEFORE this refusal existed still sits in localStorage holding the post-extra-time final as
+   `hg`/`ag`. That row would come back as the result and be graded, which is the exact defect the
+   marker exists to stop, arriving by a different door. `gradeFromHistory` reads the same two
+   stores directly and had no settlement check at all.
+
+   A CACHED HISTORY ROW CANNOT IDENTIFY ITSELF. `L.matches` rows carry no status, so a contaminated
+   extra-time row is indistinguishable from an ordinary FT row by inspection. The authority has to
+   come from the settlement pass, which does have the status, so the id is recorded there.
+
+   Replayed deterministically in `test/settlement-consumers.test.mjs` before the fix: the stale row
+   came back 3-2 and a home Draw No Bet graded `hit` on a tie that was level at 90 minutes.
+
+   SCOPE, STATED HONESTLY. This covers every fixture the current session has settled, which is the
+   window the collector refreshes. A cached row for a fixture outside that window is not re-settled
+   and is read exactly as before; that is pre-existing behaviour, not something this patch changes.
+   Nothing is deleted from the cache or the archive to achieve this. */
+const _unresolved90Ids = new Set();
+function noteUnresolved90(row){
+  if(row && row.fxid != null) _unresolved90Ids.add(String(row.fxid));
+  return row;
+}
+function unresolved90Fixture(fxid){ return fxid != null && _unresolved90Ids.has(String(fxid)); }
 function aetOf(x){ return (x && x.fgh != null && x.fga != null) ? { fgh: x.fgh, fga: x.fga } : {}; }
 function aetText(x){ return (x && x.fgh != null && x.fga != null) ? 'AET ' + x.fgh + '–' + x.fga : ''; }
 /* The legacy no-backend path reads the provider directly, so it settles the same way from the raw
    response rather than keeping a second rule. */
 function legacySettled(f){
   const fullT = f && f.score && f.score.fulltime;
-  const s = settledRow({ status: f.fixture.status.short, gh: f.goals.home, ga: f.goals.away,
+  /* build 357 - the id travels in, so the no-backend path registers an unresolved fixture in the
+     same place every other path does. Without it this branch settled correctly and then told
+     nobody, so a finished extra-time tie showed an unexplained dash. */
+  const s = settledRow({ fxid: f && f.fixture ? f.fixture.id : null,
+                         status: f.fixture.status.short, gh: f.goals.home, ga: f.goals.away,
                          ft_h: fullT ? fullT.home : null, ft_a: fullT ? fullT.away : null });
-  return Object.assign({ gh: s.gh, ga: s.ga }, aetOf(s));
+  const out = Object.assign({ gh: s.gh, ga: s.ga }, aetOf(s));
+  /* and the marker and the real final come out with it, so the legacy feed can say the
+     90-minute score is unavailable instead of showing nothing. */
+  if(unsettled90(s)){ out.settlement = s.settlement; out.raw_gh = s.raw_gh; out.raw_ga = s.raw_ga; }
+  return out;
 }
 
 /* ================= HALF-TIME / FULL-TIME MODEL (build 48) =================
@@ -4516,6 +4564,13 @@ function pickMarket(code){
 }
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
+  smap=smap||scoreMap();
+  /* build 357 - a played tie whose 90-minute score is unavailable would otherwise fall to the
+     "upcoming" branch below and read as if it had not kicked off. It shows its real result and
+     says what is missing, and it carries NO grade chip, because there is nothing to grade on. */
+  { const u = (f && f.fxid!=null) ? smap[f.fxid] : null;
+    if(u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
+      return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`, chip:'', finished:true}; }
   const res=fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
@@ -17581,13 +17636,18 @@ function gradeFromHistory(){
   if(!pend.length) return;
   // first, grade from the shared cloud results (fxid match)
   if(afState.cloudFix){
-    for(const r of pend){ if(r.result) continue; const c=afState.cloudFix[r.fxid];
-      if(c){ r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; r.gh=c.gh; r.ga=c.ga; } }   // build 120 — score kept
+    for(const r of pend){ if(r.result) continue;
+      if(unresolved90Fixture(r.fxid)) continue;   // build 357 - no 90-minute score, so no grade
+      const c=afState.cloudFix[r.fxid];
+      if(c && !unsettled90(c)){ r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; r.gh=c.gh; r.ga=c.ga; } }   // build 120 — score kept
   }
   for(const id of (afState.leagueOrder.length?afState.leagueOrder:Object.keys(afState.leagues))){
     const L=afState.leagues[id]; if(!L||!L.matches||!L.matches.length) continue;
     for(const r of pend){
       if(r.result) continue;
+      /* build 357 - the cached-history leg of the same bypass. A row here carries no status, so it
+         cannot be screened on its own; the id recorded by the settlement pass is the authority. */
+      if(unresolved90Fixture(r.fxid)) continue;
       const m=L.matches.find(x=>x.date===r.date && x.home===r.home && x.away===r.away);
       if(m){ r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2'; r.gh=m.hg; r.ga=m.ag; }   // build 120 — score kept
     }
