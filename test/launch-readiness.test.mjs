@@ -43,6 +43,13 @@ function serve(){
   return new Promise(ok => server.listen(0,'127.0.0.1',()=>ok({server, port: server.address().port})));
 }
 
+/* The release build, read from the source rather than pinned twice. Task 4's whole point is that
+   APP_BUILD and the service-worker cache name move together, so the test derives one and compares
+   the other against it. */
+const APP_HTML = readFileSync(join(ROOT,'index.html'),'utf8');
+const SW_JS = readFileSync(join(ROOT,'sw.js'),'utf8');
+const RELEASE_BUILD = Number(/const APP_BUILD = (\d+)/.exec(APP_HTML)[1]);
+
 const chromium = loadChromium();
 const exe = browserPath();
 const ready = !!(chromium && exe);
@@ -142,7 +149,7 @@ test('a saved API-Football key still takes the legacy path, not the no-source br
   }
 });
 
-test('the app boots as Build 355 on a phone viewport with no errors and no sideways scroll', async t => {
+test('the app boots as the release build on a phone viewport with no errors and no sideways scroll', async t => {
   if(!ready) return t.skip(skip());
   const {port} = await host();
   {
@@ -156,7 +163,7 @@ test('the app boots as Build 355 on a phone viewport with no errors and no sidew
       tabs: [...document.querySelectorAll('.nav-btn[data-view]')].map(b=>b.getAttribute('data-view')),
       sw: !!(navigator.serviceWorker && navigator.serviceWorker.controller)
     }));
-    assert.equal(info.build, 355);
+    assert.equal(info.build, RELEASE_BUILD);
     assert.equal(info.lang, 'en');
     assert.match(info.viewport, /width=device-width/);
     assert.equal(info.overflow, false);
@@ -217,13 +224,194 @@ test('Draw No Bet stays named wherever it is shown, and a drawn DNB grades as vo
 });
 
 test('no provider or AI credential is embedded in the shipped page', async t => {
-  const html = readFileSync(join(ROOT,'index.html'),'utf8');
+  const html = APP_HTML;
   // The Supabase publishable key is meant to ship and is RLS-gated. Nothing else may.
   assert.equal(/eyJ[A-Za-z0-9_-]{20,}\./.test(html), false, 'a JWT is embedded in the page');
   assert.equal(/sk-[A-Za-z0-9_-]{16,}/.test(html), false, 'an AI provider key is embedded');
   assert.equal(/sk_live|sb_secret|service_role/.test(html), false, 'a secret-tier key is embedded');
   // The API-Football key is the user's own, read from the input, never shipped.
   assert.match(html, /const afState = \{ key:''/, 'afState.key must ship empty');
+});
+
+
+/* ── Build 356 corrections ────────────────────────────────────────────────────────────────── */
+
+test('the release build and the service-worker cache move together', async t => {
+  // A mismatch is what traps a returning device on an old version: mmVersionWatch compares
+  // APP_BUILD against the matchmind-v<n> it reads out of sw.js over the network, so if the two
+  // ever drift the banner either never appears or appears for ever.
+  const cache = /const CACHE = 'matchmind-v(\d+)';/.exec(SW_JS);
+  assert.ok(cache, 'sw.js must declare a matchmind-v<n> cache name');
+  assert.equal(Number(cache[1]), RELEASE_BUILD,
+    'APP_BUILD and the sw.js cache version must be the same number');
+  assert.ok(RELEASE_BUILD > 355, 'the release build must be ahead of Build 355');
+  // The watcher and its reload banner must still be present and compare against APP_BUILD.
+  assert.match(APP_HTML, /fetch\('\.\/sw\.js\?cb=' \+ Date\.now\(\), \{ cache: 'no-store' \}\)/);
+  assert.match(APP_HTML, /\+m\[1\] > APP_BUILD/);
+  assert.match(APP_HTML, /is available — tap to reload/);
+  // sw.js must never answer its own version probe out of the cache.
+  assert.match(SW_JS, /if\(SW_PATH_RE\.test\(url\.pathname\)\)\{ e\.respondWith\(fetch\(e\.request\)\); return; \}/);
+});
+
+test('the product describes statistical forecasts, not AI predictions', async t => {
+  const manifest = readFileSync(join(ROOT,'manifest.webmanifest'),'utf8');
+  // The brand stays.
+  assert.match(APP_HTML, /<title>MatchMind PRO/);
+  assert.match(manifest, /"name": "MatchMind PRO"/);
+  // No surface may claim the predictions themselves are AI.
+  for(const [where, text] of [['title', /<title>([^<]*)<\/title>/.exec(APP_HTML)[1]],
+                              ['manifest description', /"description": "([^"]*)"/.exec(manifest)[1]]]){
+    assert.doesNotMatch(text, /AI (sports )?(predictions|forecasts)/i, where+' still claims AI predictions');
+    assert.match(text, /statistical/i, where+' must say what actually produces the numbers');
+  }
+  assert.doesNotMatch(APP_HTML, /AI's strongest recommendation/,
+    'the hero placeholder must not attribute the engine pick to AI');
+  // The planned AI feature is described, not removed: the write-up path and its providers stay.
+  assert.match(APP_HTML, /runAIWriter/, 'the AI write-up path must not be removed');
+  assert.match(APP_HTML, /Professional AI Write-up/, 'the AI write-up feature must still be offered');
+  assert.match(manifest, /AI-written commentary/i, 'the manifest should still name the AI commentary');
+  // And the write-up must keep saying it is derived from the engine output.
+  assert.match(APP_HTML, /Written by \$\{r\.label\} from the engine output above/);
+});
+
+test('a Draw No Bet headline is explained as conditional, with the three outright numbers', async t => {
+  if(!ready) return t.skip(skip());
+  const {port} = await host();
+  {
+    const {ctx, page} = await open({port});
+    // The Director's worked example: 70% win, 17.5% draw, 12.5% loss -> about 84.8% conditional.
+    const seen = await page.evaluate(()=>{
+      const shown = {pW:0.125, pD:0.175, pL:0.70};
+      return {
+        away: dnbNote('2D', shown),
+        home: dnbNote('1D', {pW:0.70, pD:0.175, pL:0.125}),
+        straight: dnbNote('1', shown),
+        double: dnbNote('1X', shown),
+        goals: dnbNote('O25', shown),
+        missing: dnbNote('2D', {pW:0.125, pD:null, pL:0.70}),
+        // the conditional the ladder itself publishes for this fixture
+        rung: (()=>{ const r = rungsFor({pW:0.125, pD:0.175, pL:0.70, over:null, btts:null})
+                                 .find(x=>x.code==='2D'); return r ? r.prob : null; })()
+      };
+    });
+    // The conditional the user sees above the line is the win share of the numbers on it.
+    assert.ok(seen.rung > 0.848 && seen.rung < 0.849, 'conditional DNB: '+seen.rung);
+    // All four quantities are present and distinguishable.
+    assert.match(seen.away, /Draws are set aside/);
+    assert.match(seen.away, /70\.0% win/);
+    assert.match(seen.away, /17\.5% draw, stake returned/);
+    assert.match(seen.away, /12\.5% loss/);
+    // Orientation: the home DNB names the home side's own win probability.
+    assert.match(seen.home, /70\.0% win/);
+    assert.match(seen.home, /12\.5% loss/);
+    // Every non-DNB market stays untouched, so the card is not overloaded.
+    assert.equal(seen.straight, '');
+    assert.equal(seen.double, '');
+    assert.equal(seen.goals, '');
+    // Incomplete inputs produce no claim at all.
+    assert.equal(seen.missing, '');
+    await ctx.close();
+  }
+});
+
+test('the DNB line is shown only when a pick is actually published', async t => {
+  if(!ready) return t.skip(skip());
+  const {port} = await host();
+  {
+    const {ctx, page} = await open({port});
+    const seen = await page.evaluate(()=>{
+      const shown = {pW:0.125, pD:0.175, pL:0.70};
+      const el = document.getElementById('heroDnb');
+      const conf = document.getElementById('heroConf');
+      const out = {};
+      // A published DNB pick: the line appears.
+      conf.textContent = '84.8% confidence';
+      setHeroDnb('2D', shown);
+      out.published = {text: el.textContent, hidden: el.classList.contains('hidden')};
+      // A gated or withheld fixture leaves heroConf empty, so the line must go.
+      conf.textContent = '';
+      setHeroDnb('2D', shown);
+      out.gated = {text: el.textContent, hidden: el.classList.contains('hidden')};
+      // A published straight win: no line.
+      conf.textContent = '72.0% confidence';
+      setHeroDnb('1', shown);
+      out.straight = {text: el.textContent, hidden: el.classList.contains('hidden')};
+      return out;
+    });
+    assert.match(seen.published.text, /Draws are set aside/);
+    assert.equal(seen.published.hidden, false);
+    assert.equal(seen.gated.text, '');
+    assert.equal(seen.gated.hidden, true);
+    assert.equal(seen.straight.text, '');
+    assert.equal(seen.straight.hidden, true);
+    await ctx.close();
+  }
+});
+
+test('a saved API-Football key is restored even with no cached matches', async t => {
+  if(!ready) return t.skip(skip());
+  const {port} = await host();
+  {
+    // The regression for the restoreState guard: a key with an EMPTY corpus, which is what a
+    // cleared cache or a quota-dropped corpus leaves behind.
+    const {ctx, page} = await open({port, seed:{mm_state: JSON.stringify({
+      afKey:'synthetic-launch-test-key', fb:[]
+    })}});
+    const seen = await page.evaluate(()=>({
+      field: (document.getElementById('afKey')||{}).value,
+      meta: document.getElementById('scoresMeta').textContent
+    }));
+    assert.equal(seen.field, 'synthetic-launch-test-key',
+      'the key must come back without a cached corpus');
+    assert.doesNotMatch(seen.meta, /cannot reach the server/i,
+      'with a key restored the app must not report itself sourceless');
+    await ctx.close();
+  }
+});
+
+test('the existing prediction and grading behaviour is unchanged', async t => {
+  if(!ready) return t.skip(skip());
+  const {port} = await host();
+  {
+    const {ctx, page} = await open({port});
+    const seen = await page.evaluate(()=>{
+      const P = {pW:0.125, pD:0.175, pL:0.70, over:{2.5:0.55, 3.5:0.30}, btts:0.52};
+      return {
+        // the ladder: straight win -> DNB -> double chance, in that order, unchanged
+        rungs: rungsFor(P).map(r=>r.code),
+        probs: rungsFor(P).map(r=>+r.prob.toFixed(4)),
+        // grading and settlement, unchanged
+        dnbVoid: gradePick('1D','X',1,1),
+        dnbHit: gradePick('1D','1',2,1),
+        dnbMiss: gradePick('1D','2',0,1),
+        dcHit: gradePick('1X','X',1,1),
+        over: gradePick('O25',null,2,1),
+        under: gradePick('U25',null,1,0),
+        // labels and market names, unchanged
+        labels: ['1','X','2','1X','X2','1D','2D','12'].map(c=>pickLabel(c,'Home','Away')),
+        markets: ['1','1X','1D','BTS','O25'].map(pickMarket),
+        // the calibration table still touches only U35
+        // rounded: binary64 makes 0.8-0.0175 land at 0.7825000000000001
+        calib: [calibrate('1D',0.8), calibrate('2D',0.8), +calibrate('U35',0.8).toFixed(6)]
+      };
+    });
+    /* The ladder: best-paying rung first, then DNB, then double chance, then the strongest goals
+       line. U35 leads the goals group at 1-0.30 = 0.70 shifted to 0.6825 by CALIB_SHIFT.U35, which
+       is the one calibration entry that exists and is visible right here. */
+    assert.deepEqual(seen.rungs, ['2','2D','X2','U35']);
+    assert.deepEqual(seen.probs, [0.7, 0.8485, 0.875, 0.6825]);
+    assert.equal(seen.dnbVoid, 'void');
+    assert.equal(seen.dnbHit, 'hit');
+    assert.equal(seen.dnbMiss, 'miss');
+    assert.equal(seen.dcHit, 'hit');
+    assert.equal(seen.over, 'hit');
+    assert.equal(seen.under, 'hit');
+    assert.deepEqual(seen.labels, ['Home to win','Draw','Away to win','Home or Draw','Draw or Away',
+      'Home (Draw No Bet)','Away (Draw No Bet)','Either team']);
+    assert.deepEqual(seen.markets, ['Winner','Double Chance','Draw No Bet','BTTS','Goals']);
+    assert.deepEqual(seen.calib, [0.8, 0.8, 0.7825]);
+    await ctx.close();
+  }
 });
 
 test('release the shared browser and server', async t => {
