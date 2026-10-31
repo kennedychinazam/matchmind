@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23070c18'/%3E%3Crect x='20.5' y='6' width='7' height='5' rx='1.6' fill='%23f6c344'/%3E%3Ccircle cx='24' cy='28' r='15' fill='none' stroke='%23f6c344' stroke-width='3.2'/%3E%3Cpath d='M16 35 V21 L24 29 L32 21 V35' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<title>MatchMind PRO — AI Sports Predictions</title>
+<title>MatchMind PRO — Statistical Football Forecasts</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -75,6 +75,7 @@
   .hero .pick{font-size:1.45rem; font-weight:900; letter-spacing:.3px; margin:2px 0;}
   .hero .conf{font-size:.95rem; color:var(--green2); font-weight:700; margin-bottom:6px;}
   .hero .strong{color:var(--gold); font-size:.8rem; font-weight:600;}
+.hero .dnbnote{color:var(--muted); font-size:.74rem; font-weight:600; line-height:1.35; margin:-2px 0 6px;}
 
   /* ---------- accordions (market sections) ---------- */
   .acc{background:var(--card); border:1px solid var(--border); border-radius:16px; margin-bottom:10px; overflow:hidden;}
@@ -634,7 +635,8 @@
         </div>
         <div class="pick" id="heroPick">—</div>
         <div class="conf" id="heroConf">—</div>
-        <div class="strong" id="heroStrong">AI's strongest recommendation for this match</div>
+        <div class="strong" id="heroStrong">The engine's strongest statistical read for this match</div>
+        <div class="dnbnote hidden" id="heroDnb"></div>
       </div>
 
       <div id="favRow" style="display:flex; gap:8px; justify-content:center; margin:0 0 12px;"></div>
@@ -838,7 +840,7 @@
       </div>
       <div class="setrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
-        <span class="muted" style="font-size:.72rem">AI sports predictions</span>
+        <span class="muted" style="font-size:.72rem">Statistical football forecasts</span>
       </div>
     </div>
 
@@ -952,7 +954,7 @@
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 355;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 356;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 
 /* ================================================================
@@ -4484,6 +4486,48 @@ function pickMarket(code){
        : code==='1X'||code==='X2' ? 'Double Chance'
        : (code==='BTS'||code==='NBT') ? 'BTTS'
        : GOAL_MARKETS[code] ? 'Goals' : 'Winner';
+}
+/* == BUILD 356 - DRAW NO BET IS A CONDITIONAL, AND NOW SAYS SO =================================
+   `rungsFor` prices a DNB rung as P.pW/(P.pW+P.pL) - the win share of the outcomes that are NOT a
+   draw - because that is what the market pays: a win pays, a draw RETURNS THE STAKE, a loss loses.
+   That number is honest about the market and it is NOT the chance the team wins the match. It then
+   sits in the same slot, under the same word "confidence", as a straight-win percentage that IS.
+   On the 27 October Pokal ties that is 84.8% against an outright 70.0%, and a reader comparing the
+   two is comparing two different questions without being told so.
+
+   Build 283 put the odds on the card for exactly this reason: "a user who is shown 83% and not
+   @ 1.20 thirty times, and then loses once, has been misled by omission." This is the other half of
+   that omission, and it is a SENTENCE, not a redesign.
+
+   ONE LINE, ONLY FOR DNB, ONLY WHEN A PICK IS ACTUALLY PUBLISHED. The three outright numbers come
+   from the same `shown` object the bars directly below it are built from, so the line and the bars
+   cannot drift apart, and for a played fixture both read the frozen pre-match snapshot rather than
+   a re-estimate. `CALIB_SHIFT` holds no entry for '1D' or '2D', so `calibrate` is the identity
+   there and the headline really is the win share of these very numbers - the arithmetic a reader
+   does on the line checks out.
+
+   WHETHER A PICK IS PUBLISHED IS READ OFF THE SCREEN, not re-derived. A gated fixture, a withheld
+   board verdict and a not-priced fixture all leave `heroConf` empty, and there is no fourth way to
+   show a confidence. Re-testing the gate here would be a second copy of that decision, which is
+   how this project has drifted before.
+
+   NOTHING HERE CHANGES A PROBABILITY, A RUNG, A THRESHOLD, A GRADE OR A SETTLEMENT RULE. */
+function dnbNote(code, shown){
+  if(code!=='1D' && code!=='2D') return '';
+  if(!shown || shown.pW==null || shown.pD==null || shown.pL==null) return '';
+  const win  = code==='1D' ? shown.pW : shown.pL;
+  const lose = code==='1D' ? shown.pL : shown.pW;
+  return 'Draws are set aside, so the figure above excludes them. Outright: '
+       + pct(win) + ' win \u00b7 ' + pct(shown.pD) + ' draw, stake returned \u00b7 '
+       + pct(lose) + ' loss.';
+}
+function setHeroDnb(code, shown){
+  const el = $('heroDnb');
+  if(!el) return;
+  const published = !!(($('heroConf').textContent)||'').trim();
+  const note = published ? dnbNote(code, shown) : '';
+  el.textContent = note;
+  el.classList.toggle('hidden', !note);
 }
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
@@ -9233,6 +9277,10 @@ async function analyze(){
        hindsight, and it is what made the bars contradict the headline above them (build 62). */
     const shown = (pendingMetaPlayed && pendingMetaPW!=null)
       ? { pW:pendingMetaPW, pD:pendingMetaPD, pL:pendingMetaPL } : pred;
+    /* build 356 - placed HERE and nowhere else: `hp` is only final once the ladder (119), the gate
+       (118) and the robot board (345) have each had their say, and `shown` is the one source the
+       bars below use. Earlier would read a pick that is about to change; later would be a second copy. */
+    setHeroDnb(hp.code, shown);
     $('outcomeRows').innerHTML =
       probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) +
       (pred.unknownTeams
@@ -22052,11 +22100,22 @@ function accountInitials(){
 function restoreState(){
   try{
     const s = JSON.parse(localStorage.getItem('mm_state')||'null');
-    if(!s || !s.fb || !s.fb.length) return false;
+    if(!s) return false;
+    /* BUILD 356 - THE SAVED KEY IS RESTORED BEFORE THE CORPUS CHECK, NOT AFTER IT.
+       `saveState` writes `afKey` and the match corpus into one blob, and this function used to
+       bail on `!s.fb.length` BEFORE reading the key back. So a user who had entered an
+       API-Football key but held no cached matches - a cleared cache, a first run on a second
+       device, a corpus dropped by the 5MB quota - was silently handed an empty key field, and the
+       boot gate below then read `k` as '' and treated them as having no data source at all.
+       Found by a regression that seeded a key and watched it not come back.
+       This moves ONE line above ONE guard. It stores nothing new, sends nothing anywhere and
+       widens no credential: the key was already being persisted by `saveState` and already being
+       restored whenever a corpus happened to exist. It only makes that restoration consistent. */
+    if(s.afKey) $('afKey').value = s.afKey;
+    if(!s.fb || !s.fb.length) return false;
     footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
-    if(s.afKey) $('afKey').value = s.afKey;
     if(s.prefs){ prefs.tz = s.prefs.tz || ''; prefs.edgeOnly = !!s.prefs.edgeOnly; prefs.lang = s.prefs.lang || ''; }
     if(s.notif){ notif.kickoff=!!s.notif.kickoff; notif.result=!!s.notif.result; notif.digest=!!s.notif.digest; }
     if(s.af){
@@ -23191,6 +23250,27 @@ setTimeout(()=>{
      ten-minute blindness that was the actual harm. */
   const _emptyCache = afState.scores && !(afState.scores.list && afState.scores.list.length);
   if((k || supa) && (!afState.scores || _emptyCache || Date.now()-afState.scores.at > 10*60*1000 || _thinCache || (afState.scores && afState.scores.source!=='cloud'))) afScores();
+  /* == LAUNCH FIX, 31 October 2026 - "Loading matches..." FOR EVER ON A FIRST VISIT ==============
+     The gate above needs a saved API-Football key OR a backend client. With NEITHER, `afScores`
+     was never called, so `scoresMeta` kept the value it is born with in the markup - "Loading
+     matches..." - and never resolved. MEASURED in Chromium at 390x844 with `cdn.jsdelivr.net`
+     unreachable: still "Loading matches..." after 30 seconds, zero rows rendered, and NOT ONE
+     console error to hint at why. That is the first screen an invited user sees, and the app that
+     forbids "showing nothing while claiming there is nothing to show" was doing the worse thing -
+     claiming to still be working.
+
+     `afScores` itself is sound: called by hand in exactly that state it answers immediately. The
+     defect is this gate, so the fix routes the no-source case into the app's OWN failure path
+     instead of leaving the placeholder standing. `scoresReadFailed` is the right call and not a new
+     message: it repaints the last good list when there is one, so a returning user still sees their
+     cached scores with the age on them, and only a genuine first visit reads "Scores unavailable".
+
+     WHY THE REASON IS SPLIT. `cloudEnabled()` requires `window.supabase`, which arrives from a CDN.
+     An ad-blocker, a corporate proxy or an offline first launch all leave it undefined while
+     SUPA_URL and SUPA_KEY are perfectly well configured in this build, so "cannot reach the server"
+     is the honest half of the truth to tell. If the SDK did load and there is still no client, the
+     configuration is what is missing, not the network. */
+  else if(!k && !supa) scoresReadFailed(window.supabase ? 'no data source' : 'cannot reach the server');
   if(supa) loadCloudLeagues(true);   // build Predict feed + predictions from the cloud (API-Football Pro since build 158)
   if(k) reconcilePastScores();   // update finished scores for any past-dated fixtures (#17)
 }, 800);

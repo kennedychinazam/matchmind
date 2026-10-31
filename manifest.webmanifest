@@ -1,7 +1,7 @@
 {
   "name": "MatchMind PRO",
   "short_name": "MatchMind",
-  "description": "AI sports analysis & outcome predictions",
+  "description": "Statistical football forecasts, with optional AI-written commentary",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
