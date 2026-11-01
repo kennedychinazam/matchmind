@@ -3297,20 +3297,32 @@ function settledScore(r){
 }
 function settledRow(r){
   if(!r || !isFin(r.status)) return r;
-  const s = settledScore(r), out = Object.assign({}, r, { gh: s.gh, ga: s.ga });
-  /* build 357 - the marker travels WITH the row, because `via` used to be computed and thrown
-     away, which is why no consumer could distinguish a true 90-minute settlement from the
-     fallback. The raw final is kept so the extra-time result stays displayable. */
-  /* Reconcile fresh provider fulltime corrections before any cached-history fallback.
-     Older or undated observations never override a newer timestamped refusal. */
   const extra = EXTRA_TIME_STATUS.includes(canonStatus(r.status));
-  const blocked = extra && r.fxid != null && (s.via === 'ft' || s.via === 'unresolved')
-    ? observe90Settlement(r, s) : false;
-  if(s.via === 'unresolved' || blocked){
-    out.gh = null; out.ga = null;
-    out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga;
+  // Once observed, a fixture cannot bypass ordering through an FT/FINISHED spelling.
+  const tracked = extra || (r.fxid != null && _settlement90Observed.has(String(r.fxid)));
+  // A projected row may be processed again. Recover its raw final, not its 90-minute goals.
+  let raw = r;
+  if(tracked && unsettled90(r)) raw = Object.assign({}, r, {gh:r.raw_gh, ga:r.raw_ga});
+  else if(tracked && r.fgh != null && r.fga != null) raw = Object.assign({}, r, {gh:r.fgh, ga:r.fga});
+  const s = tracked && unsettled90(r)
+    ? {gh:null, ga:null, via:'unresolved', fgh:raw.gh, fga:raw.ga} : settledScore(raw);
+  const decision = tracked && r.fxid != null
+    ? observe90Settlement(raw, s) : null;
+  const a = decision ? decision.authoritative : {
+    unresolved:s.via === 'unresolved', gh:s.gh, ga:s.ga, fgh:s.fgh, fga:s.fga
+  };
+  const out = Object.assign({}, r, decision ? a.row : raw, {gh:a.gh, ga:a.ga});
+  if(decision){
+    // Rejected input cannot lend its score fields or timestamp to the accepted observation.
+    for(const key of ['ft_h','ft_a','updated_at','updatedAt']){
+      delete out[key]; if(Object.prototype.hasOwnProperty.call(a.row,key)) out[key]=a.row[key];
+    }
+    for(const key of ['settlement','raw_gh','raw_ga','fgh','fga']) delete out[key];
   }
-  if(s.via === 'ft' && (s.fgh !== s.gh || s.fga !== s.ga)){ out.fgh = s.fgh; out.fga = s.fga; }
+  if(a.unresolved){
+    out.settlement = 'unresolved_90'; out.raw_gh = a.fgh; out.raw_ga = a.fga;
+  }
+  if(!a.unresolved && (a.fgh !== a.gh || a.fga !== a.ga)){ out.fgh = a.fgh; out.fga = a.fga; }
   return out;
 }
 /* One predicate, read by every consumer that would otherwise have to re-derive the condition. */
@@ -3342,19 +3354,25 @@ function observe90Settlement(row, s){
   const id = String(row.fxid);
   const stamp = Date.parse(row.updated_at || row.updatedAt || '');
   const at = Number.isFinite(stamp) ? stamp : null;
-  const prev = _settlement90Observed.get(id);
-  /* A newer confirmed missing score must not be overruled by an older score, or
-     an undated one. Equal-timestamp contradictions also fail closed. */
-  if(prev && prev.at != null &&
-     ((at != null && (at < prev.at || (at === prev.at && prev.unresolved && s.via === 'ft'))) ||
-      (at == null && prev.unresolved && s.via === 'ft'))) return prev.unresolved;
-  const unresolved = s.via === 'unresolved';
-  _settlement90Observed.set(id, {at:at == null && prev ? prev.at : at,
-    unresolved, gh:unresolved ? null : s.gh, ga:unresolved ? null : s.ga,
-    fgh:unresolved ? null : s.fgh, fga:unresolved ? null : s.fga});
+  const prev = _settlement90Observed.get(id) || null;
+  const result = (accepted,reason,authoritative)=>Object.freeze({accepted,reason,prior:prev,authoritative});
+  // A dated observation fences both older and undated replacements, confirmed or missing.
+  if(prev && prev.at != null && (at == null || at < prev.at))
+    return result(false,at == null ? 'undated' : 'older',prev);
+  let unresolved = s.via === 'unresolved' || s.gh == null || s.ga == null, conflict = false;
+  if(prev && at != null && at === prev.at){
+    if(prev.unresolved) return result(false,'equal_time_unresolved',prev);
+    conflict = unresolved || prev.gh !== s.gh || prev.ga !== s.ga || prev.fgh !== s.fgh || prev.fga !== s.fga;
+    if(!conflict) return result(false,'duplicate',prev);
+    unresolved = true; // Equally dated contradictory observations cannot choose a winner.
+  }
+  const authoritative = Object.freeze({at,unresolved,
+    gh:unresolved ? null : s.gh, ga:unresolved ? null : s.ga,
+    fgh:s.fgh, fga:s.fga, row:Object.freeze(Object.assign({},row))});
+  _settlement90Observed.set(id,authoritative);
   if(unresolved) _unresolved90Ids.add(id);
   else _unresolved90Ids.delete(id);
-  return unresolved;
+  return result(!conflict,conflict ? 'equal_time_conflict' : 'accepted',authoritative);
 }
 function unresolved90Fixture(fxid){ return fxid != null && _unresolved90Ids.has(String(fxid)); }
 function verified90Fixture(fxid){
