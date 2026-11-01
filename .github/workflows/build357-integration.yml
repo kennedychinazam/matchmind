@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/build357-safe-release-20261101
+      - codex/build357-takeover-20261101
     paths:
       - 'index.html'
       - 'sw.js'
@@ -32,5 +33,5 @@ jobs:
           chromium_path=$(command -v google-chrome || command -v chromium)
           test -n "$chromium_path"
           echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
-      - name: Run all 36 offline launch, settlement and integration tests
-        run: node --test test/launch-readiness.test.mjs test/settlement-provenance.test.mjs test/settlement-consumers.test.mjs test/integration-build357.test.mjs
+      - name: Run offline launch, settlement, integration and takeover UI tests
+        run: node --test test/*.test.mjs

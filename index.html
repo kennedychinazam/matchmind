@@ -289,6 +289,10 @@
   /* BUILD 213 — 36px -> 44px. */
   .iconbtn{background:var(--card); border:1px solid var(--border); color:var(--muted); width:44px; height:44px; border-radius:11px; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
   .topright{display:flex; align-items:center; gap:8px;}
+  @media(max-width:360px){
+    .brand{font-size:1.1rem; gap:6px;}
+    .chip-status{padding:5px 8px;}
+  }
   .searchOverlay{position:fixed; inset:0; left:50%; transform:translateX(-50%); width:100%; max-width:520px; background:var(--overlay); backdrop-filter:blur(14px); z-index:120; padding:14px; overflow-y:auto;}
   .searchBar{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
   .searchBar input{flex:1; background:var(--card2); color:var(--text); border:1px solid var(--border2); border-radius:12px; padding:13px 14px; font-size:.95rem;}
@@ -644,8 +648,9 @@
       <!-- BUILD 156 — share cards. Hidden until analyze() has confirmed there is a PUBLISHED pick
            worth sharing: a gated fixture has no pick on screen, so it has no card either. `.hidden`
            carries !important, so it still wins over the inline display:flex here. -->
-      <div id="shareRow" class="hidden" style="display:flex; justify-content:center; margin:0 0 12px;">
+      <div id="shareRow" class="hidden" style="display:flex; flex-direction:column; align-items:center; gap:6px; margin:0 0 12px;">
         <button class="btn" id="shareCardBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg>Share this pick</button>
+        <div id="shareStatus" class="subnote" role="status" style="text-align:center"></div>
       </div>
 
       <div class="acc open" id="acc-result">
@@ -714,7 +719,7 @@
       </div>
 
       <div class="acc open" id="acc-analysis">
-        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-flame"/></svg></span><span class="t">Professional AI Write-up</span><span class="chev">▼</span></div>
+        <div class="acc-head"><span class="ic"><svg aria-hidden="true"><use href="#ic-flame"/></svg></span><span class="t" id="analysisHeading">Statistical analysis</span><span class="chev">▼</span></div>
         <div class="acc-body">
           <div id="aiStatus" class="muted hidden" style="padding-top:10px;"><span class="spinner"></span>Asking Claude for the full write-up…</div>
           <div id="analysisText" class="analysis"></div>
@@ -2304,7 +2309,7 @@ function localAnalysis(ctx){
     }
     if(ctx.injuries){
       const iH = ctx.injuries[home]||[], iA = ctx.injuries[away]||[];
-      const side = (t,l)=> l.length ? `${t} are sweating on ${l.map(i=>i.name).join(', ')}` : `${t} report a clean bill of health`;
+      const side = (t,l)=> l.length ? `${t} are sweating on ${l.map(i=>i.name).join(', ')}` : `${t}: no injuries reported in the available data`;
       paras.push(`Team news: ${side(home,iH)}; ${side(away,iA)}. Note the engine's numbers are based on results and do not yet discount for absences — weigh this news accordingly.`);
     }
     /* BUILD 117 — the write-up has to quote the same scoreline the panel leads with. It was still
@@ -4634,6 +4639,22 @@ function dnbNote(code, shown){
        + pct(lose) + ' loss.';
 }
 function setHeroDnb(code, shown){
+  // The export keeps a copy of the same displayed snapshot, never a later re-estimate.
+  if(shareCtx) {
+    const dnb = code==='1D' || code==='2D';
+    const vector = shown && [shown.pW, shown.pD, shown.pL];
+    const valid = vector && vector.every(p=>typeof p==='number' && Number.isFinite(p) && p>=0 && p<=1)
+      && shown.pW + shown.pL > 0;
+    // Agreement at displayed precision is a consistency check, not proof of shared provenance.
+    if(dnb && (!valid || pct((code==='1D' ? shown.pW : shown.pL)/(shown.pW+shown.pL))!==shareCtx.conf)){
+      setShareCard(false, null, valid
+        ? 'Share unavailable: DNB confidence and outright probabilities do not match.'
+        : 'Share unavailable: the outright DNB probabilities are not available.');
+    } else {
+      shareCtx.code = code;
+      shareCtx.shown = shown ? {pW:shown.pW, pD:shown.pD, pL:shown.pL} : null;
+    }
+  }
   const el = $('heroDnb');
   if(!el) return;
   const published = !!(($('heroConf').textContent)||'').trim();
@@ -5135,7 +5156,10 @@ function renderShareCanvas(d){
   shareCentred(g, 'PREDICTION', by + 62, bw - 60, 22, 800, SHARE_INK.muted);
   g.letterSpacing = '0px';
   shareCentred(g, d.pick, by + 148, bw - 70, 66, 900, SHARE_INK.gold2);
-  if(d.conf) shareCentred(g, d.conf + ' confidence', by + 206, bw - 70, 30, 700, SHARE_INK.muted);
+  const dnb = dnbNote(d.code, d.shown);
+  if(d.conf) shareCentred(g, d.conf + (dnb ? ' win share excluding draws' : ' confidence'),
+    by + (dnb ? 195 : 206), bw - 70, dnb ? 27 : 30, 700, SHARE_INK.muted);
+  if(dnb) shareCentred(g, dnb.slice(dnb.indexOf('Outright:')), by + 235, bw - 50, 23, 600, SHARE_INK.muted);
 
   g.strokeStyle = SHARE_INK.line; g.lineWidth = 1;
   g.beginPath(); g.moveTo(PAD, 924); g.lineTo(S - PAD, 924); g.stroke();
@@ -5214,15 +5238,17 @@ async function shareCard(){
     toast('Could not make the picture: ' + ((e && e.message) || 'unknown error'));
   }finally{
     _shareBusy = false;
-    const b = $('shareCardBtn'); if(b) b.disabled = false;
+    const b = $('shareCardBtn'); if(b) b.disabled = !shareCtx;
   }
 }
 
 /* Called by analyze() at the moment the hero card is final. `ok` false hides the button outright
    rather than showing one that explains why it cannot do anything. */
-function setShareCard(ok, d){
+function setShareCard(ok, d, status=''){
   shareCtx = ok ? d : null;
-  const row = $('shareRow'); if(row) row.classList.toggle('hidden', !ok);
+  const row = $('shareRow'); if(row) row.classList.toggle('hidden', !ok && !status);
+  const btn = $('shareCardBtn'); if(btn) btn.disabled = !ok;
+  const note = $('shareStatus'); if(note) note.textContent = status;
 }
 
 /* ---------- favourite tombstones (build 275) ---------- */
@@ -9587,8 +9613,9 @@ async function analyze(){
   // analysis
   const ctx = {sport, home, away, pred, formH, formA, h2h, scorers:scorerCtx, injuries,
                L: (sport==='football') ? (afState.leagues[afState.activeLeagueId] || null) : null};   // build 128
+  $('analysisHeading').textContent = 'Statistical analysis';
   $('analysisText').textContent = localAnalysis(ctx);
-  $('verdictBox').textContent = localVerdict(ctx);
+  $('verdictBox').textContent = 'Built-in engine analysis. ' + localVerdict(ctx);
 
   /* BUILD 192 — THE SCROLL HAPPENS HERE, WHERE THE RESULTS APPEAR, and not at the end of this
      function. Ken: "once the analysis loads up, the page returns to the top."
@@ -9610,6 +9637,7 @@ async function analyze(){
     const payload = enginePayloadStr(ctx);
     try{
       const r = await runAIWriter(aiProvider, payload);
+      $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label;
       $('analysisText').textContent = deLatex(r.text);
       $('verdictBox').textContent = `✨ Written by ${r.label} from the engine output above.` + quotaNote(r.via);
       // head-to-head compare against a second provider (#20)
@@ -9618,6 +9646,7 @@ async function analyze(){
         $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_p2.name+' too…';
         try{
           const r2 = await runAIWriter(aiCompare, payload);
+          $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label + ' vs ' + r2.label;
           $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${r.label}</div>${escapeHtml(deLatex(r.text))}</div><div class="cmp"><div class="cmp-h">${r2.label}</div>${escapeHtml(deLatex(r2.text))}</div>`;
           $('verdictBox').textContent = `✨ ${r.label} vs ${r2.label} — compare their takes above.` + quotaNote(r2.via);
         }catch(e2){ $('verdictBox').textContent += `  (${_p2.name} compare unavailable: ${e2.message})`; }
@@ -16447,6 +16476,7 @@ function heroSide(name, label){
 
 // fallback analysis via API-Football's own prediction model (works on all plans)
 async function apiAnalyze(f, L){
+  $('analysisHeading').textContent = 'API-Football analysis';
   showAnalysis();
   $('heroHome').innerHTML = heroSide(f.home,'Home');
   $('heroAway').innerHTML = heroSide(f.away,'Away');
@@ -16634,6 +16664,7 @@ function showAnalysis(){
    showing this page without clearing them would leave the previous fixture's form, scorers and
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
+  $('analysisHeading').textContent = 'Statistical analysis';
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
   /* BUILD 157 — TWO panels were missing from this list, and the second one was found by the check
      rather than by a person. `acc-standings` (League Table, build 155) and `acc-combo` (Combos,
@@ -23288,9 +23319,25 @@ $('lineupsHead').addEventListener('click', async ()=>{
 });
 
 
-document.querySelectorAll('.acc-head').forEach(h=>h.addEventListener('click',()=>{
-  h.parentElement.classList.toggle('open');
-}));
+document.querySelectorAll('.acc-head').forEach((h,i)=>{
+  const panel = h.parentElement.querySelector('.acc-body');
+  h.setAttribute('role','button');
+  h.tabIndex = 0;
+  if(panel){
+    if(!panel.id) panel.id = 'accordion-panel-' + i;
+    h.setAttribute('aria-controls',panel.id);
+  }
+  const syncExpanded = ()=>h.setAttribute('aria-expanded',String(h.parentElement.classList.contains('open')));
+  syncExpanded();
+  new MutationObserver(syncExpanded).observe(h.parentElement,{attributes:true,attributeFilter:['class']});
+  h.addEventListener('click',()=>{
+    const open = h.parentElement.classList.toggle('open');
+    h.setAttribute('aria-expanded',String(open));
+  });
+  h.addEventListener('keydown',e=>{
+    if(e.key==='Enter' || e.key===' '){ e.preventDefault(); h.click(); }
+  });
+});
 
 $('analyzeBtn').addEventListener('click', analyze);
 $('loadCsvBtn').addEventListener('click', ()=>{
