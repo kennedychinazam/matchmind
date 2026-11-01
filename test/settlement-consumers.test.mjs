@@ -268,6 +268,59 @@ test('R4: a plausible but wrong fulltime pair is a declared residual, not a fixe
   assert.equal(seen.honest.grade, 'void');
 });
 
+test('R7: newer confirmed fulltime recovers while old and undated replays cannot override', async t => {
+  if(!ready) return t.skip(skip());
+  const page=await enginePage();
+  const seen=await page.evaluate(()=>{
+    const id=990771, d='2026-10-27', home='Recovery H', away='Recovery A';
+    const f={fxid:id,date:d,home,away,status:'AET'};
+    const L={matches:[{date:d,home,away,hg:3,ag:2}]};
+    const row=(at,fh,fa)=>({fxid:id,date:d,home,away,status:'AET',gh:3,ga:2,
+      ft_h:fh,ft_a:fa,updated_at:at});
+    const first=settledRow(row('2026-10-27T22:00:00Z',null,null));
+    const old=settledRow(row('2026-10-27T21:00:00Z',2,2));
+    const undated=settledRow(row(null,2,2));
+    const before=fixtureResult(L,f,{[id]:old});
+    const corrected=settledRow(row('2026-10-27T22:05:00Z',2,2));
+    const after=fixtureResult(L,f,{[id]:corrected});
+    afState.leagues={81:L};afState.leagueOrder=[81];afState.cloudFix={};
+    afState.record=[{fxid:id,date:d,home,away,pick:'1D',result:null,gh:null,ga:null}];
+    gradeFromHistory();
+    const grade={result:afState.record[0].result,gh:afState.record[0].gh,ga:afState.record[0].ga};
+    const oldUnresolved=settledRow(row('2026-10-27T22:00:00Z',null,null));
+    return {first:unsettled90(first),old:unsettled90(old),undated:unsettled90(undated),
+      before:before&&[before.gh,before.ga],corrected:[corrected.gh,corrected.ga],
+      after:after&&[after.gh,after.ga],grade,oldUnresolved:unsettled90(oldUnresolved),
+      blockedNow:unresolved90Fixture(id),afterOld:fixtureResult(L,f,{[id]:corrected})};
+  });
+  assert.equal(seen.first,true);
+  assert.equal(seen.old,true);
+  assert.equal(seen.undated,true);
+  assert.equal(seen.before,null);
+  assert.deepEqual(seen.corrected,[2,2]);
+  assert.deepEqual(seen.after,[2,2]);
+  assert.deepEqual(seen.grade,{result:'X',gh:2,ga:2},'cached 3-2 must not grade after authoritative correction');
+  assert.equal(seen.oldUnresolved,true);
+  assert.equal(seen.blockedNow,false,'old replay must not re-register stale refusal');
+  assert.deepEqual([seen.afterOld.gh,seen.afterOld.ga],[2,2]);
+});
+
+test('R7: untimestamped legacy provider correction restores a confirmed 90-minute pair', async t => {
+  if(!ready) return t.skip(skip());
+  const page=await enginePage();
+  const seen=await page.evaluate(()=>{
+    const id=990772,base={fxid:id,status:'PEN',gh:1,ga:1,ft_h:null,ft_a:null};
+    const a=settledRow(base), b=unresolved90Fixture(id);
+    const c=settledRow({...base,ft_h:1,ft_a:1});
+    return {wasUnresolved:unsettled90(a),wasBlocked:b,score:[c.gh,c.ga],
+      blockedNow:unresolved90Fixture(id)};
+  });
+  assert.equal(seen.wasUnresolved,true);
+  assert.equal(seen.wasBlocked,true);
+  assert.deepEqual(seen.score,[1,1]);
+  assert.equal(seen.blockedNow,false);
+});
+
 test('release the shared browser and server', async t => {
   if(!ready) return t.skip(skip());
   if(_b) await _b.close();

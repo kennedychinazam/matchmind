@@ -3221,6 +3221,8 @@ function fixtureResult(L,f,smap){
   if(f && unresolved90Fixture(f.fxid)) return null;
   const s = f.fxid!=null ? smap[f.fxid] : null;
   if(unsettled90(s)) return null;                       // build 357 - belt and braces on the row itself
+  const verified = verified90Fixture(f.fxid);
+  if(verified) return verified;  // supersedes stale localStorage corpus after a newer correction
   if(isFinishedScore(s)) return Object.assign({gh:s.gh, ga:s.ga}, aetOf(s));
   // recent finished results from the shared cloud collector (covers past days too)
   if(f.fxid!=null && afState.cloudFix && afState.cloudFix[f.fxid]){ const c=afState.cloudFix[f.fxid]; return Object.assign({gh:c.gh, ga:c.ga}, aetOf(c)); }
@@ -3290,7 +3292,15 @@ function settledRow(r){
   /* build 357 - the marker travels WITH the row, because `via` used to be computed and thrown
      away, which is why no consumer could distinguish a true 90-minute settlement from the
      fallback. The raw final is kept so the extra-time result stays displayable. */
-  if(s.via === 'unresolved'){ out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga; noteUnresolved90(out); }
+  /* Reconcile fresh provider fulltime corrections before any cached-history fallback.
+     Older or undated observations never override a newer timestamped refusal. */
+  const extra = EXTRA_TIME_STATUS.includes(canonStatus(r.status));
+  const blocked = extra && r.fxid != null && (s.via === 'ft' || s.via === 'unresolved')
+    ? observe90Settlement(r, s) : false;
+  if(s.via === 'unresolved' || blocked){
+    out.gh = null; out.ga = null;
+    out.settlement = 'unresolved_90'; out.raw_gh = s.fgh; out.raw_ga = s.fga;
+  }
   if(s.via === 'ft' && (s.fgh !== s.gh || s.fga !== s.ga)){ out.fgh = s.fgh; out.fga = s.fga; }
   return out;
 }
@@ -3318,11 +3328,30 @@ function unsettled90(x){ return !!(x && x.settlement === 'unresolved_90'); }
    and is read exactly as before; that is pre-existing behaviour, not something this patch changes.
    Nothing is deleted from the cache or the archive to achieve this. */
 const _unresolved90Ids = new Set();
-function noteUnresolved90(row){
-  if(row && row.fxid != null) _unresolved90Ids.add(String(row.fxid));
-  return row;
+const _settlement90Observed = new Map();
+function observe90Settlement(row, s){
+  const id = String(row.fxid);
+  const stamp = Date.parse(row.updated_at || row.updatedAt || '');
+  const at = Number.isFinite(stamp) ? stamp : null;
+  const prev = _settlement90Observed.get(id);
+  /* A newer confirmed missing score must not be overruled by an older score, or
+     an undated one. Equal-timestamp contradictions also fail closed. */
+  if(prev && prev.at != null &&
+     ((at != null && (at < prev.at || (at === prev.at && prev.unresolved && s.via === 'ft'))) ||
+      (at == null && prev.unresolved && s.via === 'ft'))) return prev.unresolved;
+  const unresolved = s.via === 'unresolved';
+  _settlement90Observed.set(id, {at:at == null && prev ? prev.at : at,
+    unresolved, gh:unresolved ? null : s.gh, ga:unresolved ? null : s.ga});
+  if(unresolved) _unresolved90Ids.add(id);
+  else _unresolved90Ids.delete(id);
+  return unresolved;
 }
 function unresolved90Fixture(fxid){ return fxid != null && _unresolved90Ids.has(String(fxid)); }
+function verified90Fixture(fxid){
+  if(fxid == null) return null;
+  const s = _settlement90Observed.get(String(fxid));
+  return s && !s.unresolved && s.gh != null && s.ga != null ? {gh:s.gh,ga:s.ga} : null;
+}
 function aetOf(x){ return (x && x.fgh != null && x.fga != null) ? { fgh: x.fgh, fga: x.fga } : {}; }
 function aetText(x){ return (x && x.fgh != null && x.fga != null) ? 'AET ' + x.fgh + '–' + x.fga : ''; }
 /* The legacy no-backend path reads the provider directly, so it settles the same way from the raw
@@ -17638,6 +17667,8 @@ function gradeFromHistory(){
   if(afState.cloudFix){
     for(const r of pend){ if(r.result) continue;
       if(unresolved90Fixture(r.fxid)) continue;   // build 357 - no 90-minute score, so no grade
+      const fixed=verified90Fixture(r.fxid);
+      if(fixed){ r.result=actualCode(fixed.gh,fixed.ga); r.gh=fixed.gh; r.ga=fixed.ga; continue; }
       const c=afState.cloudFix[r.fxid];
       if(c && !unsettled90(c)){ r.result = c.gh>c.ga?'1':c.gh===c.ga?'X':'2'; r.gh=c.gh; r.ga=c.ga; } }   // build 120 — score kept
   }
@@ -17648,6 +17679,8 @@ function gradeFromHistory(){
       /* build 357 - the cached-history leg of the same bypass. A row here carries no status, so it
          cannot be screened on its own; the id recorded by the settlement pass is the authority. */
       if(unresolved90Fixture(r.fxid)) continue;
+      const fixed=verified90Fixture(r.fxid);
+      if(fixed){ r.result=actualCode(fixed.gh,fixed.ga); r.gh=fixed.gh; r.ga=fixed.ga; continue; }
       const m=L.matches.find(x=>x.date===r.date && x.home===r.home && x.away===r.away);
       if(m){ r.result = m.hg>m.ag?'1':m.hg===m.ag?'X':'2'; r.gh=m.hg; r.ga=m.ag; }   // build 120 — score kept
     }
@@ -17680,11 +17713,10 @@ async function settleRecord(){
     for(const r of todo){
       const f = byId[r.fxid];
       if(f && isFin(f.status) && f.gh != null && f.ga != null){
-        const s = settledScore(f);
-        /* build 357 - WITHOUT THIS LINE the fail-closed null pair reaches `actualCode`, where
-           `null === null` is true and the row would be written as a DRAW. A refusal that invents
-           a result is worse than the defect it replaces. */
-        if(s.via === 'unresolved' || s.gh == null || s.ga == null) continue;
+        /* Reconcile corrected scores against the same session authority as the Scores feed.
+           Do not let a stale result write a phantom draw or overwrite a newer refusal. */
+        const s = settledRow(f);
+        if(unsettled90(s) || s.gh == null || s.ga == null) continue;
         const res = actualCode(s.gh, s.ga);
         if(r.result !== res || (r.gh != null && (r.gh !== s.gh || r.ga !== s.ga))) changed++;
         r.result = res; r.gh = s.gh; r.ga = s.ga;
