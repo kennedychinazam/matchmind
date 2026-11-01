@@ -291,7 +291,8 @@ test('R7: newer confirmed fulltime recovers while old and undated replays cannot
     return {first:unsettled90(first),old:unsettled90(old),undated:unsettled90(undated),
       before:before&&[before.gh,before.ga],corrected:[corrected.gh,corrected.ga],
       after:after&&[after.gh,after.ga],afterAet:after&&[after.fgh,after.fga],
-      grade,oldUnresolved:unsettled90(oldUnresolved),
+      grade,oldUnresolved:unsettled90(oldUnresolved),oldReplayScore:[oldUnresolved.gh,oldUnresolved.ga],
+      oldReplayFinal:[oldUnresolved.fgh,oldUnresolved.fga],oldReplayAt:oldUnresolved.updated_at,
       blockedNow:unresolved90Fixture(id),afterOld:fixtureResult(L,f,{[id]:corrected})};
   });
   assert.equal(seen.first,true);
@@ -302,7 +303,9 @@ test('R7: newer confirmed fulltime recovers while old and undated replays cannot
   assert.deepEqual(seen.after,[2,2]);
   assert.deepEqual(seen.afterAet,[3,2],'a corrected 90-minute score must preserve the AET final marker');
   assert.deepEqual(seen.grade,{result:'X',gh:2,ga:2},'cached 3-2 must not grade after authoritative correction');
-  assert.equal(seen.oldUnresolved,true);
+  assert.equal(seen.oldUnresolved,false,'rejected old input projects the newer confirmed authority');
+  assert.deepEqual(seen.oldReplayScore,[2,2]);assert.deepEqual(seen.oldReplayFinal,[3,2]);
+  assert.equal(seen.oldReplayAt,'2026-10-27T22:05:00Z');
   assert.equal(seen.blockedNow,false,'old replay must not re-register stale refusal');
   assert.deepEqual([seen.afterOld.gh,seen.afterOld.ga],[2,2]);
 });
@@ -323,6 +326,111 @@ test('R7: untimestamped legacy provider correction restores a confirmed 90-minut
   assert.equal(seen.blockedNow,false);
 });
 
+
+for(const kind of ['older timestamped','undated']) test('confirmed predecessor rejects '+kind+' score in direct grading and history consumers',async t=>{
+  if(!ready)return t.skip(skip());
+  const page=await enginePage();
+  const seen=await page.evaluate(kind=>{
+    return ['AET','PEN'].map((status,i)=>{
+      const id=991000+(kind==='undated'?10:0)+i;
+      const row={fxid:id,status,date:'2026-10-27',home:'Ordering H',away:'Ordering A',gh:3,ga:2,
+        ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+      const incoming={...row,gh:4,ft_h:3,updated_at:kind==='undated'?null:'2026-10-27T22:00:00Z'};
+      const before=JSON.stringify([row,incoming]);settledRow(row);const direct=settledRow(incoming);
+      const fixture={fxid:id,date:row.date,home:row.home,away:row.away,status};
+      const L={matches:[{date:row.date,home:row.home,away:row.away,hg:3,ag:2}]};
+      const result=fixtureResult(L,fixture,{[id]:direct});
+      afState.leagues={81:L};afState.leagueOrder=[81];afState.cloudFix={};
+      afState.record=[{...fixture,pick:'1D',result:null,gh:null,ga:null}];gradeFromHistory();
+      return {direct:[direct.gh,direct.ga],raw:[direct.fgh,direct.fga],at:direct.updated_at,
+        ft:[direct.ft_h,direct.ft_a],registry:verified90Fixture(id),result:result&&[result.gh,result.ga],
+        directGrade:gradePick('1D',actualCode(direct.gh,direct.ga),direct.gh,direct.ga),
+        history:afState.record[0].result,unchanged:before===JSON.stringify([row,incoming])};
+    });
+  },kind);
+  for(const x of seen){assert.deepEqual(x.direct,[2,2]);assert.deepEqual(x.raw,[3,2]);
+    assert.deepEqual(x.ft,[2,2]);assert.equal(x.at,'2026-10-27T22:05:00Z');
+    assert.deepEqual([x.registry.gh,x.registry.ga],[2,2]);assert.deepEqual(x.result,[2,2]);
+    assert.equal(x.directGrade,'void');assert.equal(x.history,'X');assert.equal(x.unchanged,true);}
+});
+
+test('observation decision explicitly distinguishes accepted/rejected and authoritative prior',async t=>{
+  if(!ready)return t.skip(skip());const page=await enginePage();
+  const x=await page.evaluate(()=>{
+    const row={fxid:991100,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+    const a=observe90Settlement(row,settledScore(row));
+    const old={...row,ft_h:3,updated_at:'2026-10-27T22:00:00Z'},b=observe90Settlement(old,settledScore(old));
+    return {a:{accepted:a.accepted,prior:a.prior,score:a.authoritative&&[a.authoritative.gh,a.authoritative.ga]},
+      b:{accepted:b.accepted,score:b.authoritative&&[b.authoritative.gh,b.authoritative.ga],prior:b.prior&&[b.prior.gh,b.prior.ga]}};
+  });
+  assert.equal(x.a.accepted,true);assert.equal(x.a.prior,null);assert.deepEqual(x.a.score,[2,2]);
+  assert.equal(x.b.accepted,false);assert.deepEqual(x.b.score,[2,2]);assert.deepEqual(x.b.prior,[2,2]);
+});
+
+test('equal-time confirmed contradictions fail closed and require a newer correction',async t=>{
+  if(!ready)return t.skip(skip());const page=await enginePage();
+  const x=await page.evaluate(()=>{
+    const row={fxid:991101,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+    settledRow(row);const same=settledRow({...row});const conflict=settledRow({...row,ft_h:3});
+    const repeatedConflict=settledRow({...conflict});
+    const replay=settledRow(row),blocked=unresolved90Fixture(row.fxid);
+    const newer=settledRow({...row,ft_h:1,updated_at:'2026-10-27T22:06:00Z'});
+    const other={...row,fxid:991103};settledRow(other);const rawConflict=settledRow({...other,gh:4});
+    return {rawConflict:unsettled90(rawConflict),repeatedConflict:unsettled90(repeatedConflict),same:[same.gh,same.ga],conflict:unsettled90(conflict),replay:unsettled90(replay),blocked,
+      newer:[newer.gh,newer.ga],recovered:!unresolved90Fixture(row.fxid)};
+  });
+  assert.equal(x.rawConflict,true);assert.equal(x.repeatedConflict,true);assert.deepEqual(x.same,[2,2]);assert.equal(x.conflict,true);assert.equal(x.replay,true);assert.equal(x.blocked,true);
+  assert.deepEqual(x.newer,[1,2]);assert.equal(x.recovered,true);
+});
+
+test('rejected missing scores retain dated authority and repeated projections retain raw final',async t=>{
+  if(!ready)return t.skip(skip());const page=await enginePage();
+  const x=await page.evaluate(()=>{
+    const row={fxid:991102,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+    const first=settledRow(row),again=settledRow({...first});
+    const missing=settledRow({...row,ft_h:null,ft_a:null,updated_at:null});
+    const oldMissing=settledRow({...row,ft_h:null,ft_a:null,updated_at:'2026-10-27T22:00:00Z'});
+    const alias={...row,fxid:991104};delete alias.updated_at;alias.updatedAt='2026-10-27T22:05:00Z';settledRow(alias);
+    const rejected=settledRow({...alias,gh:1,ga:0,ft_h:1,ft_a:0,updated_at:'2026-10-27T22:00:00Z'});
+    return {first,again,missing,oldMissing,registry:verified90Fixture(row.fxid),
+      alias:{score:[rejected.gh,rejected.ga],final:[rejected.fgh,rejected.fga],at:rejected.updatedAt,
+        staleAtPresent:Object.prototype.hasOwnProperty.call(rejected,'updated_at')}};
+  });
+  assert.deepEqual(x.alias,{score:[2,2],final:[3,2],at:'2026-10-27T22:05:00Z',staleAtPresent:false});
+  for(const r of [x.first,x.again,x.missing,x.oldMissing,x.registry]){
+    assert.deepEqual([r.gh,r.ga],[2,2]);assert.deepEqual([r.fgh,r.fga],[3,2]);
+  }
+});
+
+
+test('a finished-status spelling cannot bypass a tracked fixture dated authority',async t=>{
+  if(!ready)return t.skip(skip());const page=await enginePage();
+  const seen=await page.evaluate(()=>{
+    return ['FT','FINISHED'].flatMap((status,i)=>[null,'2026-10-27T22:00:00Z'].map((at,j)=>{
+      const id=991200+i*10+j,prior={fxid:id,status:i?'PEN':'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+      settledRow(prior);const stale=settledRow({...prior,status,gh:4,ft_h:3,updated_at:at});
+      return {score:[stale.gh,stale.ga],final:[stale.fgh,stale.fga],at:stale.updated_at,
+        registry:verified90Fixture(id),grade:gradePick('1D',actualCode(stale.gh,stale.ga),stale.gh,stale.ga)};
+    }));
+  });
+  for(const x of seen){assert.deepEqual(x.score,[2,2]);assert.deepEqual(x.final,[3,2]);assert.equal(x.at,'2026-10-27T22:05:00Z');assert.equal(x.grade,'void');assert.deepEqual([x.registry.gh,x.registry.ga],[2,2]);}
+});
+test('newer tracked FT corrections use unchanged FT fallback and keep consumers coherent',async t=>{
+  if(!ready)return t.skip(skip());const page=await enginePage();
+  const x=await page.evaluate(()=>{
+    const base={fxid:991250,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:05:00Z'};
+    settledRow(base);
+    const sameTime=settledRow({...base,status:'FT',ft_h:3});const blocked=unresolved90Fixture(base.fxid);
+    const corrected=settledRow({...base,status:'FT',gh:1,ga:0,ft_h:null,ft_a:null,updated_at:'2026-10-27T22:06:00Z'});
+    const registry=verified90Fixture(base.fxid),again=settledRow({...corrected});
+    const missing=settledRow({...base,status:'FINISHED',gh:null,ga:null,ft_h:null,ft_a:null,updated_at:'2026-10-27T22:07:00Z'});
+    const missingAgain=settledRow({...missing});
+    return {missingAgain:unsettled90(missingAgain),sameTime:unsettled90(sameTime),blocked,corrected:[corrected.gh,corrected.ga],
+      registry:[registry.gh,registry.ga],again:[again.gh,again.ga],missing:unsettled90(missing),
+      blockedAfterMissing:unresolved90Fixture(base.fxid)};
+  });
+  assert.equal(x.missingAgain,true);assert.equal(x.sameTime,true);assert.equal(x.blocked,true);assert.deepEqual(x.corrected,[1,0]);assert.deepEqual(x.registry,[1,0]);assert.deepEqual(x.again,[1,0]);assert.equal(x.missing,true);assert.equal(x.blockedAfterMissing,true);
+});
 test('release the shared browser and server', async t => {
   if(!ready) return t.skip(skip());
   if(_b) await _b.close();

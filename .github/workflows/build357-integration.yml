@@ -5,6 +5,7 @@ on:
     branches:
       - integration/build357-safe-release-20261101
       - codex/build357-takeover-20261101
+      - codex/settlement-ordering-20261101
     paths:
       - 'index.html'
       - 'sw.js'
