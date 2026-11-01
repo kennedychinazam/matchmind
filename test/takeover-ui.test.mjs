@@ -81,14 +81,29 @@ test('accordion heads focus and toggle by keyboard with expanded state',async t=
 });
 test('320px topbar and five tabs fit without page sideways scrolling',async t=>{
   const page=await open(t,{width:320,height:844});
-  for(const theme of ['dark','light']){
-    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
-    for(const view of ['scores','predict','tips','favs','data']){
-      await page.locator('.nav-btn[data-view="'+view+'"]').click();
-      const size=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,search:$('searchOpen').getBoundingClientRect().right}));
-      assert.ok(size.scroll<=size.width,`${theme}/${view}: ${size.scroll}>${size.width}`);
-      assert.ok(size.search<=size.width,'Search stays on screen');
+  // CDN fonts are deliberately blocked. Wider fallback metrics must not clip the header.
+  for(const font of ['', 'system-ui', 'DejaVu Sans', 'sans-serif']){
+    await page.evaluate(font=>document.body.style.fontFamily=font,font);
+    for(const theme of ['dark','light']){
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+      for(const view of ['scores','predict','tips','favs','data']){
+        await page.locator('.nav-btn[data-view="'+view+'"]').click();
+        const size=await page.evaluate(()=>{
+          const search=$('searchOpen').getBoundingClientRect();
+          return {width:innerWidth,scroll:document.documentElement.scrollWidth,search:search.right,
+            targetWidth:search.width,targetHeight:search.height,
+            brand:document.querySelector('.brand').getBoundingClientRect().right,
+            status:$('dataChip').getBoundingClientRect().right};
+        });
+        assert.ok(size.scroll<=size.width,`${font||'default'}/${theme}/${view}: ${size.scroll}>${size.width}`);
+        assert.ok(size.search<=size.width,'Search stays on screen');
+        assert.ok(size.targetWidth>=44 && size.targetHeight>=44,'Search retains its 44px target');
+        assert.ok(size.brand<=size.width && size.status<=size.width,'Brand and status stay on screen');
+      }
     }
+    assert.match(await page.locator('.brand').innerText(),/MatchMind.*PRO/s);
+    assert.match(await page.locator('#dataChip').innerText(),/Sample data/);
+    assert.equal(await page.getByRole('button',{name:'Search',exact:true}).isVisible(),true);
   }
 });
 test('non-AI fixture transitions clear the preceding provider heading',async t=>{

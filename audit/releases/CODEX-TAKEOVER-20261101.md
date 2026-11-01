@@ -12,7 +12,7 @@ PR #10 already contains loading-state, statistical descriptor, hero DNB, saved-k
 - DNB share images identify the headline as a win share excluding draws and show the displayed outright win/draw-refund/loss breakdown. Missing or visibly inconsistent vectors disable export with an explanation. Values are copied rather than recalculated later. Agreement at displayed precision is a consistency check, **not evidence of common source provenance**; legacy board/local on-screen probability linkage remains unresolved.
 - Empty injury lists mean no injuries reported in available data, not a verified clean bill of health.
 - Accordion controls support keyboard focus, Enter/Space and expanded/controlled-panel state, including programmatic opening.
-- Narrow-screen styling keeps the320px top bar within the viewport.
+- Narrow-screen styling keeps the320px top bar within the viewport. The first remote run exposed a2px fallback-font overflow missed locally; a DejaVu Sans reproduction showed that the unwrappable row was fragile. Narrow wrapping/right alignment preserves labels and the44px Search target; font variants are included in regression coverage. Exact final results remain in the draft PR checks.
 - The isolated takeover branch runs the full offline suite through the existing Node20/24 integration workflow, including eight new synthetic UI regressions.
 
 No prediction formula, coefficient, settlement function, source collector, frozen forecast, research financial control, archive, robot, manifest or service-worker file changes in this patch. Build/cache stay357 because this is an unpublished continuation of the same candidate; no new deployment is performed. Original HTML CRLF endings are preserved.
