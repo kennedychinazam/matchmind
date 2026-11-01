@@ -290,7 +290,8 @@ test('R7: newer confirmed fulltime recovers while old and undated replays cannot
     const oldUnresolved=settledRow(row('2026-10-27T22:00:00Z',null,null));
     return {first:unsettled90(first),old:unsettled90(old),undated:unsettled90(undated),
       before:before&&[before.gh,before.ga],corrected:[corrected.gh,corrected.ga],
-      after:after&&[after.gh,after.ga],grade,oldUnresolved:unsettled90(oldUnresolved),
+      after:after&&[after.gh,after.ga],afterAet:after&&[after.fgh,after.fga],
+      grade,oldUnresolved:unsettled90(oldUnresolved),
       blockedNow:unresolved90Fixture(id),afterOld:fixtureResult(L,f,{[id]:corrected})};
   });
   assert.equal(seen.first,true);
@@ -299,6 +300,7 @@ test('R7: newer confirmed fulltime recovers while old and undated replays cannot
   assert.equal(seen.before,null);
   assert.deepEqual(seen.corrected,[2,2]);
   assert.deepEqual(seen.after,[2,2]);
+  assert.deepEqual(seen.afterAet,[3,2],'a corrected 90-minute score must preserve the AET final marker');
   assert.deepEqual(seen.grade,{result:'X',gh:2,ga:2},'cached 3-2 must not grade after authoritative correction');
   assert.equal(seen.oldUnresolved,true);
   assert.equal(seen.blockedNow,false,'old replay must not re-register stale refusal');
