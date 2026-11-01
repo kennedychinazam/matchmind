@@ -963,6 +963,9 @@ const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase 
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
 const APP_BUILD = 357;   // bump every release; shown in More → About and matches the service-worker version
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
+let _authAttempt = 0, _cloudAccountEpoch = 0, _cloudPushVersion = 0, _analysisGeneration = 0;
+let _cloudSync = {owner:null,status:'idle'};
+let _cloudPushFlight=Promise.resolve();
 
 /* ================================================================
    MatchMind PRO v0.8
@@ -2285,7 +2288,35 @@ function erf(x){
    PART 2 — AI ANALYSIS WRITER
    ================================================================ */
 
-function pct(x){ return (100*x).toFixed(1)+'%'; }
+function validProbability(x){ return typeof x==='number' && Number.isFinite(x) && x>=0 && x<=1; }
+function probabilityPercent(x,digits=1){ return validProbability(x) ? (100*x).toFixed(digits)+'%' : 'probability unavailable'; }
+// Also used for signed differences and returns; probability fields use the stricter helper.
+function pct(x){ return typeof x==='number' && Number.isFinite(x) ? (100*x).toFixed(1)+'%' : 'probability unavailable'; }
+function probabilityVector(pW,pD,pL){
+  // Board serialization rounds each component to four decimals: at most 3 * .00005 error.
+  return [pW,pD,pL].every(validProbability) && Math.abs(pW+pD+pL-1)<=.000150000001 ? {pW,pD,pL} : null;
+}
+function heroProbabilityView(board,played,stored,pred){
+  if(board) return {vector:board.kind==='passed' ? board.vector : null,
+    label:board.vector ? 'Published board model probabilities; headline may include a market-specific adjustment.' : 'Published selection retained; its complete probability vector is unavailable.'};
+  const vector=played ? stored && probabilityVector(stored.pW,stored.pD,stored.pL) : probabilityVector(pred.pW,pred.pD,pred.pL);
+  return {vector,label:played ? 'Stored pre-match probabilities; missing values are not recalculated.' : 'Current local statistical model probabilities.'};
+}
+function providerPercentVector(pc){
+  const values=[],errors=[];
+  for(const k of ['home','draw','away']){
+    const raw=pc && pc[k];
+    if(typeof raw!=='string' && typeof raw!=='number') throw Error('provider_probability_contract');
+    const match=String(raw).match(/^(\d{1,3})(?:\.(\d{1,6}))?%?$/);
+    if(!match) throw Error('provider_probability_contract');
+    const value=Number(match[1]+(match[2]?'.'+match[2]:''));
+    if(!Number.isFinite(value)||value<0||value>100) throw Error('provider_probability_contract');
+    values.push(value);errors.push(.5/Math.pow(10,(match[2]||'').length));
+  }
+  const total=values.reduce((a,b)=>a+b,0);
+  if(total<=0||Math.abs(total-100)>errors.reduce((a,b)=>a+b,0)+1e-9) throw Error('provider_probability_contract');
+  return {pW:values[0]/total,pD:values[1]/total,pL:values[2]/total};
+}
 function formString(form){ return form.map(f=>f.res).join('') || '—'; }
 function formPoints(form){ return form.reduce((s,f)=>s+(f.res==='W'?3:f.res==='D'?1:0),0); }
 // build 150 — no matches is not the same as no points, and the panel has to say which
@@ -3201,6 +3232,8 @@ function liveRowFor(fxid){
      here states the invariant once, in the single reader every surface goes through, instead of
      repairing it per surface. */
   if(_sharedResFinal.has(String(fxid))) return null;
+  const observed=_settlement90Observed.get(String(fxid));
+  if(observed&&observed.unresolved&&isFin(observed.row.status))return null;
   const lv = _liveByFx[String(fxid)];
   if(lv) return lv;
   return scoreMap()[fxid] || null;
@@ -4678,7 +4711,13 @@ function setHeroDnb(code, shown){
   const el = $('heroDnb');
   if(!el) return;
   const published = !!(($('heroConf').textContent)||'').trim();
-  const note = published ? dnbNote(code, shown) : '';
+  let note = published ? dnbNote(code, shown) : '';
+  if(published&&(code==='1D'||code==='2D')){
+    const expected=shown&&validProbability(shown.pW)&&validProbability(shown.pD)&&validProbability(shown.pL)&&shown.pW+shown.pL>0
+      ? pct((code==='1D'?shown.pW:shown.pL)/(shown.pW+shown.pL)) : null;
+    const headline=($('heroConf').textContent.match(/^\d+(?:\.\d+)?%/)||[])[0];
+    if(!expected||expected!==headline)note='Published DNB percentage excludes draws; an attributable outright breakdown is unavailable for this selection.';
+  }
   el.textContent = note;
   el.classList.toggle('hidden', !note);
 }
@@ -4743,7 +4782,7 @@ function fxCells(L,f,smap){
                    && pickPlayState({ kickoff: _arch.kickoff, ktime: _arch.ktime }, null, null) === 'void');
   const chip = _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
              : _void  ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`
-             : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${(100*f.prob).toFixed(0)}%</span>`
+             : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${probabilityPercent(f.prob,0)}</span>`
              : '';
   return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
@@ -7125,58 +7164,83 @@ const SLIP_HISTORY_DAYS = 120;
 const SHARED_RES_TTL_MS = 3 * 60 * 1000;
 let _slipHist = { rows: [], loaded: false, capped: false, error: null };
 const _sharedResByKey = {};             // 'date|home|away' -> { hg, ag, hth, hta }: the key `dailyLogGrade` reads
-const _sharedResFinal = new Set();      // fxids already settled, never asked for again
+const _sharedResFinal = new Set();      // last confirmed final: suppresses live chips, not revalidation
+const _sharedResReads = new Map(), _sharedResAliases = new Map();
+let _sharedResRequest = 0;
 let _sharedResAt = 0;
 
+function observeResultRow(raw){
+  if(isFin(raw.status)){
+    // Enroll this refreshed result consumer, including ordinary FT withdrawals.
+    // The original settledRow fallback elsewhere and its ordering rules are unchanged.
+    if(raw.fxid!=null&&!_settlement90Observed.has(String(raw.fxid)))
+      observe90Settlement(raw,settledScore(raw));
+    const s=settledRow(raw);
+    return unsettled90(s)||s.gh==null||s.ga==null ? null : s;
+  }
+  // A newer explicit withdrawal/non-finished revision is not a usable result.
+  const id=String(raw.fxid);
+  if(_settlement90Observed.has(id)){
+    const d=observe90Settlement(raw,{via:'unresolved',gh:null,ga:null,fgh:raw.gh,fga:raw.ga});
+    if(!d.authoritative.unresolved)return Object.assign({},d.authoritative.row,verified90Fixture(raw.fxid));
+  }
+  return null;
+}
+function sharedResultFor(leg,res){
+  const id=String(leg.fxid),read=_sharedResReads.get(id);
+  if(!read||read.observedAt==null||Date.now()-read.observedAt>=SHARED_RES_TTL_MS||!read.available)return null;
+  if(unresolved90Fixture(leg.fxid))return null;
+  const cached=res[leg.d+'|'+leg.h+'|'+leg.a];if(!cached)return null;
+  const known=verified90Fixture(leg.fxid),state=_settlement90Observed.get(id);
+  return known ? {hg:known.gh,ag:known.ga,hth:state.row.ht_h,hta:state.row.ht_a} : cached;
+}
 async function sharedResultsLoad(rows){
-  if(!cloudEnabled() || !supa) return 0;
-  const want = {};
-  for(const r of (rows || []))
-    for(const l of (r && Array.isArray(r.legs) ? r.legs : []))
-      if(l && l.fxid != null && l.fxid !== '' && !_sharedResFinal.has(String(l.fxid)))
-        (want[String(l.fxid)] = want[String(l.fxid)] || []).push(l);
-  const ids = Object.keys(want);
-  let added = 0;
-  for(let i = 0; i < ids.length; i += 200){
-    const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,ht_h,ht_a,status').in('fxid', ids.slice(i, i + 200));
-    if(q.error) throw q.error;
-    for(const raw of (q.data || [])){
-      if(!isFin(raw.status) || raw.gh == null || raw.ga == null) continue;
-      const f = settledRow(raw);                                   // build 320 - the 90-minute score
-      if(unsettled90(f)) continue;   // build 357 - extra time with no 90-minute pair settles nothing
-      _sharedResFinal.add(String(f.fxid));
-      /* ══ 🔑 BUILD 355 (WO-61, Amendment 1 item 11) — THE CHIP DIES WHERE THE LEG SETTLES ════════
-         Ken photographed his Banker card showing the live chip **53' 0-0** beside **"Result — Won
-         2–0"**: the same card asserting the match was in its 53rd minute and that it finished 2-0.
-
-         THE CAUSE, FOUND RATHER THAN GUESSED, AND DESCRIBED RATHER THAN QUOTED (a block comment
-         that looks like code is read as code by the lock's own line scanner). The live read skips
-         any fixture already in the settled set, and the only place that removes a fixture's live row
-         is the else-branch of that same read. So the removal depends on the read, and the read
-         excludes exactly the fixtures that need removing: a match's last live state sticks for ever
-         the moment it settles. Build 350's own note - *"a row is
-         written only while it is in play, and deleted the moment it is not"* - was true only while
-         the fixture was still being asked about, and **nobody tested the transition**, which is why
-         this shipped.
-
-         SO THE DELETE MOVES TO THE POINT OF SETTLING. One line, here, where a fixture enters the
-         settled cache: settling and un-chipping become the same event and cannot drift apart. No
-         settled fixture is re-read to undo a bug, which is what the order forbids.
-
-         🚨 IT IS A DELETE, NOT A READ, AND THE SAFETY RULE IS UNCHANGED. WO-53's guarantee is that
-         no live score can reach a grade: `_liveByFx` is display-only, `liveRowFor` is its only
-         reader and `liveChip` is `liveRowFor`'s only caller. This function still never READS the
-         live store, and removing a row from it cannot put a score anywhere. The lock asserts the
-         narrower rule now - sharedResultsLoad may delete from the store and may not read it - and
-         asserts the TRANSITION itself, which is the check that never existed. */
-      delete _liveByFx[String(f.fxid)];
-      for(const l of (want[String(f.fxid)] || [])){
-        _sharedResByKey[l.d + '|' + l.h + '|' + l.a] = { hg: f.gh, ag: f.ga, hth: f.ht_h, hta: f.ht_a };
-        added++;
-      }
+  if(!cloudEnabled()||!supa)return 0;
+  const want={},now=Date.now();
+  for(const r of rows||[])for(const l of r&&Array.isArray(r.legs)?r.legs:[]){
+    if(!l||l.fxid==null||l.fxid==='')continue;
+    const id=String(l.fxid),key=l.d+'|'+l.h+'|'+l.a;
+    if(!_sharedResAliases.has(id))_sharedResAliases.set(id,new Set());
+    _sharedResAliases.get(id).add(key);
+    const read=_sharedResReads.get(id);
+    if(!read||now-read.attemptAt>=SHARED_RES_TTL_MS)(want[id]=want[id]||[]).push(l);
+    else if(read.available&&_sharedResFinal.has(id)){
+      const oldKey=[..._sharedResAliases.get(id)].find(k=>_sharedResByKey[k]);
+      if(oldKey)_sharedResByKey[key]=_sharedResByKey[oldKey];
     }
   }
-  return added;
+  const ids=Object.keys(want);let changed=0;
+  for(let i=0;i<ids.length;i+=200){
+    const chunk=ids.slice(i,i+200),request=++_sharedResRequest;
+    for(const id of chunk)_sharedResReads.set(id,{..._sharedResReads.get(id),attemptAt:Date.now(),request});
+    try{
+      const q=await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,ht_h,ht_a,status,updated_at').in('fxid',chunk);
+      if(q.error||!Array.isArray(q.data))throw q.error||Error('result response unavailable');
+      const seen=new Set();
+      for(const raw of q.data){
+        const id=String(raw.fxid),read=_sharedResReads.get(id);
+        if(!want[id]||!chunk.includes(id)||read.request!==request)continue;
+        seen.add(id);const f=observeResultRow(raw);
+        _sharedResReads.set(id,{attemptAt:read.attemptAt,observedAt:Date.now(),request,available:!!f});
+        delete _liveByFx[id]; // display only; no live goals enter a grade
+        if(f){
+          _sharedResFinal.add(id);
+          for(const key of _sharedResAliases.get(id)||[])_sharedResByKey[key]={hg:f.gh,ag:f.ga,hth:f.ht_h,hta:f.ht_a};
+        }else{
+          _sharedResFinal.delete(id);
+          for(const key of _sharedResAliases.get(id)||[])delete _sharedResByKey[key];
+        }
+        changed++; // includes withdrawals, allowing the caller to repaint unavailable status
+      }
+      // Omission is not a withdrawal and is not a newly observed last-good score.
+      for(const id of chunk)if(!seen.has(id)&&_sharedResReads.get(id).request===request)
+        _sharedResReads.get(id).attemptAt=Date.now()-SHARED_RES_TTL_MS+30000;
+    }catch(e){
+      for(const id of chunk){const read=_sharedResReads.get(id);if(read.request===request)read.attemptAt=Date.now()-SHARED_RES_TTL_MS+30000;}
+      throw e; // preserve last-good bytes; readers refuse expired data
+    }
+  }
+  return changed;
 }
 /* Results fill in as matches finish (Ken, build 297), at most one read per three minutes, and only for
    legs not yet settled. A failed read is retried after thirty seconds rather than on every paint. */
@@ -7185,7 +7249,7 @@ function sharedResultsTick(rerender){
   _sharedResAt = Date.now();
   sharedResultsLoad((_sharedSlips.rows || []).concat(_slipHist.rows || []))
     .then(n => { if(n && rerender){ try{ rerender(); }catch(e){} } })
-    .catch(() => { _sharedResAt = Date.now() - SHARED_RES_TTL_MS + 30000; });
+    .catch(() => { _sharedResAt = Date.now() - SHARED_RES_TTL_MS + 30000; if(rerender){try{rerender();}catch(e){}} });
 }
 
 /* ══ BUILD 350 — A LEG BEING PLAYED SAYS SO, AND NO GRADER EVER SEES IT (WO-53) ════════════════
@@ -7411,7 +7475,8 @@ function tipsGradeLegs(legs){
   try{
     const g = (dailyLogGrade([{ odds: 1, legs: legs }]) || [])[0];
     return legs.map((l, i) => ({ leg: l, grade: g && g.legGrades ? g.legGrades[i] : null,
-                                 score: g && g.legScores ? g.legScores[i] : null }));
+                                 score: g && g.legScores ? g.legScores[i] : null,
+                                 availability: g && g.legAvailability ? g.legAvailability[i] : null }));
   }catch(e){ return legs.map(l => ({ leg: l, grade: null, score: null })); }
 }
 
@@ -7692,8 +7757,9 @@ function dailyLogGrade(rows){
        This is `met` again in miniature: a value computed, used once, and never surfaced. Nothing is
        re-fetched and no new source is consulted; the number simply stops being thrown away. */
     const legScores = r.legs.map(()=>null);
+    const legAvailability=r.legs.map(l=>{const read=_sharedResReads.get(String(l.fxid));return unresolved90Fixture(l.fxid)||read&&read.available===false?'unavailable':read&&read.observedAt!=null&&Date.now()-read.observedAt>=SHARED_RES_TTL_MS?'stale':'current-or-pending';});
     for(const l of r.legs){
-      const m = res[l.d + '|' + l.h + '|' + l.a];
+      const m = sharedResultFor(l,res);
       if(!m) continue;
       const li = r.legs.indexOf(l);
       /* Guarded on null rather than falsiness — a 0-0 draw is a real score and `0` is falsy. */
@@ -7735,7 +7801,7 @@ function dailyLogGrade(rows){
     return Object.assign({}, r, { complete: complete, lost: lost, allVoid: allVoid,
                                   hit: complete && !lost && won === r.legs.length,
                                   realisedOdds: realised, hadVoid: voidOdds !== 1,
-                                  legGrades: legGrades, legScores: legScores, settledLegs: settled,
+                                  legGrades: legGrades, legScores: legScores, legAvailability:legAvailability, settledLegs: settled,
                                   ungradedLegs: legGrades.filter((x, i) => legNotGraded(x, legScores[i])).length });
   });
 }
@@ -8738,7 +8804,7 @@ function renderBankerFrozen(row, label, box){
                : g.grade === 'miss' ? '<span style="color:var(--red)">Lost</span>'
                : g.grade === 'void' ? '<span style="color:var(--gold)">Void</span>'
                : legNotGraded(g.grade, g.score) ? '<span class="muted">Not graded</span>'
-               : '<span class="muted">Not settled</span>';
+               : '<span class="muted">'+(g.availability==='stale'?'Result unavailable — refresh pending':g.availability==='unavailable'?'90-minute result unavailable':'Not settled')+'</span>';
   box.innerHTML = '<div class="card" style="border:1px solid var(--gold)">'
     + '<h2>&#9889; ' + escapeHtml(String(label)) + ' — strongest read</h2>'
     + '<div class="frow"><span class="muted">' + (r ? escapeHtml(leagueTitle(r.L)) : '') + '</span>'
@@ -8761,7 +8827,7 @@ function renderBankerFrozen(row, label, box){
     + ' v ' + crest(l.a) + escapeHtml(String(l.a)) + '</div>'
     + '<div class="frow"><span>' + escapeHtml(String(l.market || 'Winner')) + ': '
     + '<b style="color:var(--gold)">' + escapeHtml(String(chipCode(l.code))) + '</b></span>'
-    + '<span><span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span> '   // build 342 - a gap, as the live card has
+    + '<span><span class="predchip sm">' + probabilityPercent(l.p,0) + '</span> '   // build 342 - a gap, as the live card has
     /* 🔑 BUILD 351 (WO-44) - the stored price is shown only if it IS a bookmaker's price
        (`storedLegPrice`); otherwise the live chip, which is a real price or nothing. A pre-351 row
        whose `o` is 1/p shows no price at all rather than a fair one dressed as a market quote. */
@@ -9093,7 +9159,7 @@ function renderTipListFrozen(market, legs, box, footer){
     const l = g.leg, i = refs.length; refs.push(tipsResolveFixture(l.d, l.h, l.a));
     /* build 329 - the percentage always, and a price only when a bookmaker actually quoted one. */
     const live = liveChip(refs[i] && refs[i].f ? refs[i].f.fxid : l.fxid);   // build 342 - under the kick-off time
-    const val = '<span class="predchip sm">' + (100*(l.p||0)).toFixed(0) + '%</span>'
+    const val = '<span class="predchip sm">' + probabilityPercent(l.p,0) + '</span>'
               + realOddsChip(refs[i] && refs[i].f ? refs[i].f.fxid : l.fxid, l.code);   // build 342 - the leg's own id if unresolved
     const mark = g.grade === 'hit'  ? '<span style="color:var(--green2)">&#10003;</span>'
                : g.grade === 'miss' ? '<span style="color:var(--red)">&#10007;</span>'
@@ -9251,6 +9317,7 @@ function slipMarketMatch(mKey,sel){
 let pendingFrozenPred = null;
 
 async function analyze(){
+  const analysisTurn=++_analysisGeneration;
   const sport = currentSport;
   const home = $('homeTeam').value, away = $('awayTeam').value;
   if(home===away){ alert('Pick two different teams.'); return; }
@@ -9323,7 +9390,7 @@ async function analyze(){
     pendingMetaComp = meta ? (meta.comp||'') : ''; pendingMetaDate = meta ? (meta.date||'') : '';
     pendingMetaFxid = meta ? (meta.fxid||null) : null;
     pendingMetaStarted = meta ? kickoffPassed({ date: meta.date, time: meta.time }) : false;   // build 345
-    pendingMetaPick = meta ? (meta.pick||null) : null; pendingMetaProb = meta ? (meta.prob||null) : null;
+    pendingMetaPick = meta ? (meta.pick||null) : null; pendingMetaProb = meta ? (meta.prob??null) : null;
     pendingMetaPW = meta ? (meta.pW??null) : null; pendingMetaPD = meta ? (meta.pD??null) : null; pendingMetaPL = meta ? (meta.pL??null) : null;
     pendingMetaPlayed = false;
     if(meta){ const Lm = meta.lid!=null?afState.leagues[meta.lid]:null;
@@ -9350,8 +9417,9 @@ async function analyze(){
      trains on data that now contains this very match — hindsight — and it made the detail page
      contradict the feed (Santos v Chapecoense: feed said '1 ✗', detail said 'Santos or DRAW 71.5%').
      The stored pick is the one the feed graded, so the two now always agree. */
+  let boardProbabilitySource = null;
   let hp = (pendingMetaPlayed && pendingMetaPick)   // `let` — build 119 re-points it at the ladder rung
-    ? { code: pendingMetaPick, prob: pendingMetaProb || 0,
+    ? { code: pendingMetaPick, prob: pendingMetaProb,
         label: pickLabel(pendingMetaPick, home, away).replace(' to win',' WIN').toUpperCase()
                  .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or '),
         solo: !String(pendingMetaPick).includes('X') || pendingMetaPick === 'X' }
@@ -9405,7 +9473,7 @@ async function analyze(){
            `gr`  — the fixture is gated, so no pick was published to share.
            a played fixture with no pre-match snapshot — those numbers were recalculated today with
            the result already in the data, and posting one as a forecast would be a hindsight claim. */
-      setShareCard(!gr && (!pendingMetaPlayed || pendingMetaPick != null), {
+      setShareCard(!gr && validProbability(hp.prob) && (!pendingMetaPlayed || pendingMetaPick != null), {
         home, away,
         pick: hp.label,
         conf: pct(hp.prob),
@@ -9417,6 +9485,7 @@ async function analyze(){
          The phone's own pick and gate above still serve a played or live fixture and a matchup typed in by hand, and they
          are left exactly as build 343 wrote them (its tests run that block). */
       const bv = heroBoardVerdict(pendingMetaFxid, home, away, !pendingMetaPlayed && !pendingMetaStarted && sport==='football');
+      boardProbabilitySource = bv;
       _heroBoardGold = !bv || bv.kind === 'passed';
       if(bv){
         if(bv.kind === 'passed'){
@@ -9441,23 +9510,25 @@ async function analyze(){
 
     /* Show the numbers that were on offer at the time. Recomputing them for a finished match is
        hindsight, and it is what made the bars contradict the headline above them (build 62). */
-    const shown = (pendingMetaPlayed && pendingMetaPW!=null)
-      ? { pW:pendingMetaPW, pD:pendingMetaPD, pL:pendingMetaPL } : pred;
+    const probabilityView = heroProbabilityView(boardProbabilitySource, pendingMetaPlayed,
+      {pW:pendingMetaPW,pD:pendingMetaPD,pL:pendingMetaPL}, pred);
+    const shown = probabilityView.vector;
     /* build 356 - placed HERE and nowhere else: `hp` is only final once the ladder (119), the gate
        (118) and the robot board (345) have each had their say, and `shown` is the one source the
        bars below use. Earlier would read a pick that is about to change; later would be a second copy. */
     setHeroDnb(hp.code, shown);
     $('outcomeRows').innerHTML =
-      probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) +
+      (shown ? probRow(home, shown.pW) + probRow('Draw', shown.pD) + probRow(away, shown.pL) : '') +
+      `<div class="subnote">${escapeHtml(probabilityView.label)}</div>` +
       (pred.unknownTeams
         ? `<div class="subnote">${noHistoryNote(afState.leagues[afState.activeLeagueId] || null, pred)}</div>`   // build 343
         : '') +
       (pendingMetaPlayed
-        ? `<div class="subnote">${pendingMetaPW!=null
-             ? 'These are the probabilities the app published before kick-off, not a re-estimate.'
-             : 'No pre-match snapshot exists for this fixture, so these were recalculated today — with the result already in the data. Treat them as illustrative, not as what was predicted.'}</div>`
+        ? `<div class="subnote">${shown
+             ? 'These are the stored pre-match probabilities, not a re-estimate.'
+             : 'A complete stored pre-match probability vector is unavailable. No replacement probabilities are shown.'}</div>`
         : '');
-    $('xgInfo').textContent = `Expected goals — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
+    $('xgInfo').textContent = `${boardProbabilitySource ? 'Separate local model expected goals' : 'Expected goals'} — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
 
     /* BUILD 141 — the form line, on the page where someone actually decides.
        It says what was measured and STOPS THERE. No adjusted percentage, because §58's holdout
@@ -9651,12 +9722,14 @@ async function analyze(){
   // AI write-up: via the server proxy when signed in, or a personal key if one is saved (build 39)
   const _prov = aiProviderById(aiProvider), _key = aiKeys[aiProvider];
   const _session = supa ? await proxySession() : null;
+  if(analysisTurn!==_analysisGeneration)return;
   if(_key || _session){
     $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_prov.name+'…';
     $('aiStatus').classList.remove('hidden');
     const payload = enginePayloadStr(ctx);
     try{
       const r = await runAIWriter(aiProvider, payload);
+      if(analysisTurn!==_analysisGeneration) return;
       $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label;
       $('analysisText').textContent = deLatex(r.text);
       $('verdictBox').textContent = `✨ Written by ${r.label} from the engine output above.` + quotaNote(r.via);
@@ -9666,15 +9739,18 @@ async function analyze(){
         $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_p2.name+' too…';
         try{
           const r2 = await runAIWriter(aiCompare, payload);
+          if(analysisTurn!==_analysisGeneration) return;
           $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label + ' vs ' + r2.label;
           $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${r.label}</div>${escapeHtml(deLatex(r.text))}</div><div class="cmp"><div class="cmp-h">${r2.label}</div>${escapeHtml(deLatex(r2.text))}</div>`;
           $('verdictBox').textContent = `✨ ${r.label} vs ${r2.label} — compare their takes above.` + quotaNote(r2.via);
-        }catch(e2){ $('verdictBox').textContent += `  (${_p2.name} compare unavailable: ${e2.message})`; }
+        }catch(e2){ if(analysisTurn!==_analysisGeneration) return; $('verdictBox').textContent += `  (${_p2.name} compare unavailable: ${e2.message})`; }
       }
     }catch(e){
+      if(analysisTurn!==_analysisGeneration) return;
       // The engine's numbers never depended on the AI, so say so rather than looking broken.
       $('verdictBox').textContent += `  (${e.message} Showing the built-in analysis — the predictions above are unaffected.)`;
     }finally{
+      if(analysisTurn!==_analysisGeneration)return;
       $('aiStatus').classList.add('hidden');
       renderAISettings();
     }
@@ -10622,7 +10698,7 @@ async function renderLedger(){
                      from a pending pick without hovering anything. */
                   + (x.vrd.voidLate ? ' <span class="muted" style="font-size:.68rem">' + escapeHtml(VOID_WORDS) + '</span>' : '');
       html += `<div class="frow"><span class="muted" style="flex:1">${x.r.kickoff.slice(5)} · ${escapeHtml(x.r.lname||'')} · ${escapeHtml(x.r.home)} v ${escapeHtml(x.r.away)}<br>`
-            + `<span style="font-size:.72rem">${escapeHtml(pickLabel(x.r.pick, x.r.home, x.r.away))} · ${(100*x.r.pick_prob).toFixed(0)}%${flags}</span></span>${mark}</div>`;
+            + `<span style="font-size:.72rem">${escapeHtml(pickLabel(x.r.pick, x.r.home, x.r.away))} · ${probabilityPercent(x.r.pick_prob,0)}${flags}</span></span>${mark}</div>`;
     }
 
     html += `<div class="subnote" style="margin-top:12px"><b>No profit figure is shown, and that is deliberate.</b> `
@@ -13266,7 +13342,7 @@ function renderM15Audit(){
       const implied = 100 * mean(edgeRows, r => r.mktP);
       const over = claimed - A.pct, mktErr = Math.abs(implied - A.pct);
       html += '<div class="subnote" style="margin-top:10px">Where the model reads higher than the market we claimed <b>'
-        + claimed.toFixed(1) + '%</b>, the market implied <b>' + implied.toFixed(1) + '%</b>, and <b>'
+        + claimed.toFixed(1) + '%</b>, the margin-adjusted market probability was <b>' + implied.toFixed(1) + '%</b>, and <b>'
         + A.pct.toFixed(1) + '%</b> landed. '
         + (over > 2 * A.se
             ? 'The overclaim of ' + over.toFixed(1) + ' points is more than two standard errors, and the market is out by only '
@@ -16496,6 +16572,8 @@ function heroSide(name, label){
 
 // fallback analysis via API-Football's own prediction model (works on all plans)
 async function apiAnalyze(f, L){
+  const analysisTurn=++_analysisGeneration;
+  setShareCard(false,null); setHeroDnb(null,null);
   $('analysisHeading').textContent = 'API-Football analysis';
   showAnalysis();
   $('heroHome').innerHTML = heroSide(f.home,'Home');
@@ -16512,11 +16590,10 @@ async function apiAnalyze(f, L){
   $('results').scrollIntoView({behavior:'smooth', block:'start'});
   try{
     const resp = await afAuto(`/predictions?fixture=${f.fxid}`);
+    if(analysisTurn!==_analysisGeneration) return;
     const P = resp[0]; if(!P) throw new Error('no prediction returned');
     const pc = (P.predictions && P.predictions.percent) || {};
-    const num = s => parseFloat(String(s||'').replace('%',''))||0;
-    let pW=num(pc.home), pD=num(pc.draw), pL=num(pc.away);
-    const tot=(pW+pD+pL)||1; pW/=tot; pD/=tot; pL/=tot;
+    const {pW,pD,pL}=providerPercentVector(pc);
     $('outcomeRows').innerHTML = probRow(f.home,pW)+probRow('Draw',pD)+probRow(f.away,pL);
     const arr=[[pW,f.home+' WIN','1'],[pD,'DRAW','X'],[pL,f.away+' WIN','2']].sort((a,b)=>b[0]-a[0]);
     $('heroPick').textContent = arr[0][1];
@@ -16527,24 +16604,24 @@ async function apiAnalyze(f, L){
     const formH = ((P.teams||{}).home||{}).league && P.teams.home.league.form ? P.teams.home.league.form.slice(-5) : '';
     const formA = ((P.teams||{}).away||{}).league && P.teams.away.league.form ? P.teams.away.league.form.slice(-5) : '';
     if(formH || formA) $('formBox').innerHTML =
-      `<div class="frow"><b>${f.home}</b><span>${[...formH].map(pill).join('')}</span></div>` +
-      `<div class="frow"><b>${f.away}</b><span>${[...formA].map(pill).join('')}</span></div>`;
-    $('h2hBox').innerHTML = (P.h2h||[]).slice(0,5).map(m=>
-      `${m.fixture.date.slice(0,10)}: ${m.teams.home.name} ${m.goals.home}–${m.goals.away} ${m.teams.away.name}`).join('<br>')
+      `<div class="frow"><b>${escapeHtml(f.home)}</b><span>${[...formH].map(pill).join('')}</span></div>` +
+      `<div class="frow"><b>${escapeHtml(f.away)}</b><span>${[...formA].map(pill).join('')}</span></div>`;
+    $('h2hBox').textContent = (P.h2h||[]).slice(0,5).map(m=>
+      `${m.fixture.date.slice(0,10)}: ${m.teams.home.name} ${m.goals.home}–${m.goals.away} ${m.teams.away.name}`).join('\n')
       || 'No head-to-head data.';
     const advice = (P.predictions && P.predictions.advice) || '';
     const comment = (P.predictions && P.predictions.winner && P.predictions.winner.comment) || '';
     $('analysisText').textContent =
 `${f.home} vs ${f.away} — ${L.name}${L.country?' ('+L.country+')':''}.
 
-Match history for this competition isn't available on your current API plan, so the MatchMind engine can't run its own model here. The probabilities above come from API-Football's prediction service instead.` + (comment ? `
+Match history for this competition isn't available on your current API plan, so the MatchMind engine can't run its own model here. The probabilities above come from API-Football's prediction service instead. This is a view-only provider estimate, not a MatchMind forecast; it is not recorded in the engine history.` + (comment ? `
 
 Model note: ${comment}.` : '');
     $('verdictBox').textContent = advice ? `Verdict (API-Football): ${advice}` : `Verdict: ${arr[0][1]} (${pct(arr[0][0])}).`;
-    f.pick = arr[0][2]; f.prob = +arr[0][0].toFixed(3);   // chip appears on the feed
-    recordPick(L.name, f);
-    saveState(); renderFixtures();
+    // Provider estimates are view-only. Never mutate a fixture or append an untyped engine record.
   }catch(e){
+    if(analysisTurn!==_analysisGeneration) return;
+    $('outcomeRows').innerHTML='';$('xgInfo').textContent='';$('resultSide').textContent='';
     /* Say the true reason (build 63). This message used to blame API-Football extras being off,
        which is nonsense to anyone on the Football-Data backend — the real cause is almost always a
        competition whose past results have never been collected, so the engine has nothing to learn
@@ -16559,7 +16636,7 @@ Model note: ${comment}.` : '');
         `<div class="subnote">This competition's history hasn't been collected yet. Once it has, predictions appear here automatically — nothing to switch on.</div>`;
       $('analysisText').textContent = '';
     } else {
-      $('analysisText').textContent = 'No prediction available for this fixture: '+e.message;
+      $('analysisText').textContent = 'Provider estimate unavailable. Please try again.';
     }
   }
 }
@@ -16684,6 +16761,7 @@ function showAnalysis(){
    showing this page without clearing them would leave the previous fixture's form, scorers and
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
+  ++_analysisGeneration;
   $('analysisHeading').textContent = 'Statistical analysis';
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
   /* BUILD 157 — TWO panels were missing from this list, and the second one was found by the check
@@ -17874,10 +17952,10 @@ async function loadCloudResults(){
     const from = new Date(Date.now()-RESULTS_BACK_DAYS*86400000).toISOString().slice(0,10);
     const upto = new Date(Date.now()+RESULTS_AHEAD_DAYS*86400000).toISOString().slice(0,10);
     const { data, error } = await fetchAllRows('fixtures','fxid,gh,ga,ft_h,ft_a,status,updated_at',
-      q => q.gte('date', from).lte('date', upto).not('gh','is',null));
+      q => q.gte('date', from).lte('date', upto));
     if(error || !data) return;
     const m = {};
-    for(const r0 of freshRows(data)){ if(r0.gh!=null && r0.ga!=null && isFin(r0.status)){ const s = settledRow(r0); if(!unsettled90(s)) m[r0.fxid]=Object.assign({gh:s.gh, ga:s.ga}, aetOf(s)); } }   // build 160; build 320 — settled; build 357 - unresolved withheld
+    for(const r0 of freshRows(data)){ const result=observeResultRow(r0); if(result) m[r0.fxid]=Object.assign({gh:result.gh,ga:result.ga},aetOf(result)); }   // build 160; build 320 — settled; build 357 - unresolved withheld
     afState.cloudFix = m;
     gradeFromHistory();
     settleRecord().catch(() => {});   // build 320 — once per entry, then never again
@@ -19838,7 +19916,8 @@ function heroBoardVerdict(fxid, home, away, applies){
   return { kind: 'passed', code: code, prob: v.row.q,
            label: pickLabel(code, home, away).replace(' to win',' WIN').toUpperCase()
                     .replace(' OR DRAW',' or DRAW').replace('DRAW OR ','DRAW or ').replace('(DRAW NO BET)','(DNB)'),
-           solo: ['1X', 'X2', '1D', '2D'].indexOf(code) < 0 };
+           solo: ['1X', 'X2', '1D', '2D'].indexOf(code) < 0,
+           vector: probabilityVector(v.row.pw,v.row.pd,v.row.pq) };
 }
 /* 🚩 `f.calc` IS WHY THIS DOES NOT EAT ITSELF. `boardBuild` reads the device's OWN answer to make
    the next board. If the overlay wrote over `f.pick` with no copy kept, the publisher would publish
@@ -19876,7 +19955,8 @@ function boardTakeOver(f){
   if(row){
     f.pick = row.p || null; f.prob = (row.q != null ? row.q : null);
     f.market = row.m || null; f.gated = row.g || null; f.frozen = !!row.z;
-    if(row.pw != null){ f.pW = row.pw; f.pD = row.pd; f.pL = row.pq; }
+    const boardVector=probabilityVector(row.pw,row.pd,row.pq);
+    f.pW=boardVector?boardVector.pW:null; f.pD=boardVector?boardVector.pD:null; f.pL=boardVector?boardVector.pL:null;
     f.fromBoard = true;
     return;
   }
@@ -21686,7 +21766,7 @@ async function showPredictDate(d){
         ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
         : v.voidLate
         ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${p.pick} void</span>`   // build 349
-        : `<span class="predchip">${p.pick} · ${(100*p.pick_prob).toFixed(0)}%</span>`;
+        : `<span class="predchip">${p.pick} · ${probabilityPercent(p.pick_prob,0)}</span>`;
       html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(d, p.ktime)}</span>
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
@@ -22174,13 +22254,22 @@ function initSupabase(){
   if(!cloudEnabled()){ renderAccount(); return; }
   try{
     supa = window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:true, autoRefreshToken:true}});
-    supa.auth.getSession().then(({data})=> onAuth(data && data.session ? data.session.user : null));
+    const client=supa,epoch=_cloudAccountEpoch;
+    supa.auth.getSession().then(({data,error})=>{
+      if(error)throw error;
+      if(supa===client&&epoch===_cloudAccountEpoch)onAuth(data&&data.session?data.session.user:null);
+    }).catch(()=>{const node=$('acctStatus');if(supa===client&&epoch===_cloudAccountEpoch&&node)node.textContent='Could not restore session. Please try signing in.';});
     supa.auth.onAuthStateChange((_e, session)=>{ onAuth(session ? session.user : null); refreshServerProviders(); });
   }catch(e){ supa = null; }
   renderAccount();
 }
 function onAuth(user){
-  const was = authUser; authUser = user || null;
+  const was = authUser;
+  if((was&&was.id)!==(user&&user.id)){
+    ++_cloudAccountEpoch; ++_cloudPushVersion; clearTimeout(_cloudPushT);
+    _cloudSync={owner:user&&user.id,status:'idle'};
+  }
+  authUser = user || null;
   renderAccount();
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
   if(isPublisher() && _leaguesLoadedAt){ try{ refreshSkills(); }catch(e){} }   // build 324 — the publisher measures once signed in
@@ -22189,35 +22278,43 @@ async function authSignup(){
   if(!supa) return;
   const name=($('acctName')&&$('acctName').value||'').trim();
   const email=($('acctEmail').value||'').trim(), pw=$('acctPass').value||'';
-  if(!email || !pw){ toast('Enter email and password'); return; }
-  if(!name){ toast('Enter your name'); return; }
-  $('acctStatus').textContent='Creating account…';
-  const {data, error}=await supa.auth.signUp({email, password:pw, options:{data:{display_name:name}}});
-  /* Build 86. This said "✓ Welcome, you're signed in" on ANY success — which was true only while
-     "Confirm email" was switched OFF for testing. With it on (as it now is, correctly, before real
-     users), signUp succeeds but returns NO SESSION: the account exists and is waiting on the
-     confirmation link. The app was telling people they were signed in when they were not, and they
-     would have found out by watching their favourites silently fail to sync.
-     `session` is the only honest test of "am I actually logged in". */
-  if(error){ $('acctStatus').textContent = '✗ '+error.message; return; }
-  $('acctStatus').innerHTML = data && data.session
-    ? `✓ Welcome, ${escapeHtml(name)}! You’re signed in.`
-    : `✉️ Almost there, ${escapeHtml(name)} — we’ve emailed <b>${escapeHtml(email)}</b> a confirmation link.`
-      + `<div class="subnote">Open it, then come back here and press <b>Log in</b>. You are <b>not</b> signed in yet, so your favourites won’t sync across devices until you do. Check spam if it hasn’t arrived in a minute.</div>`;
+  if(!email||!pw){toast('Enter email and password');return;}if(!name){toast('Enter your name');return;}
+  const node=$('acctStatus'),button=$('acctPrimary'),attempt=++_authAttempt;
+  const current=()=>attempt===_authAttempt && $('acctStatus')===node;
+  if(node)node.textContent='Creating account…';if(button)button.disabled=true;
+  try{
+    const {data,error}=await supa.auth.signUp({email,password:pw,options:{data:{display_name:name}}});
+    if(!current())return;
+    if(error){node.textContent='✗ '+error.message;return;}
+    node.innerHTML=data&&data.session ? `✓ Welcome, ${escapeHtml(name)}! You’re signed in.`
+      : `Confirmation required for ${escapeHtml(email)}. You are not signed in yet; open the confirmation link, then log in.`;
+  }catch{if(current())node.textContent='Could not create account. Please try again.';}
+  finally{if(button)button.disabled=false;}
 }
 async function authLogin(){
-  if(!supa) return;
-  const email=($('acctEmail').value||'').trim(), pw=$('acctPass').value||'';
-  if(!email || !pw){ toast('Enter email and password'); return; }
-  $('acctStatus').textContent='Signing in…';
-  const {error}=await supa.auth.signInWithPassword({email, password:pw});
-  $('acctStatus').textContent = error ? '✗ '+error.message : '✓ Signed in.';
+  if(!supa)return;
+  const email=($('acctEmail').value||'').trim(),pw=$('acctPass').value||'';
+  if(!email||!pw){toast('Enter email and password');return;}
+  const node=$('acctStatus'),button=$('acctPrimary'),attempt=++_authAttempt;
+  const current=()=>attempt===_authAttempt && $('acctStatus')===node;
+  if(node)node.textContent='Signing in…';if(button)button.disabled=true;
+  try{const {error}=await supa.auth.signInWithPassword({email,password:pw});
+    if(current())node.textContent=error?'✗ '+error.message:'✓ Signed in.';
+  }catch{if(current())node.textContent='Could not sign in. Please try again.';}
+  finally{if(button)button.disabled=false;}
 }
-async function authLogout(){ if(supa){ try{ await supa.auth.signOut(); }catch(e){} } authUser=null; renderAccount(); toast('Logged out'); }
+async function authLogout(){
+  if(!supa)return;
+  try{const result=await supa.auth.signOut();if(result&&result.error)throw result.error;}
+  catch{toast('Could not sign out. Please try again.');return;}
+  onAuth(null);toast('Logged out');
+}
 async function cloudPullMerge(){
   if(!supa || !authUser) return;
+  const owner=authUser.id,epoch=_cloudAccountEpoch;
   try{
-    const {data, error}=await supa.from('app_state').select('*').eq('user_id', authUser.id).maybeSingle();
+    const {data, error}=await supa.from('app_state').select('*').eq('user_id', owner).maybeSingle();
+    if(epoch!==_cloudAccountEpoch||!authUser||authUser.id!==owner)return;
     if(error) throw error;
     if(data){
       const uniq=(a,b)=>[...new Set([...(a||[]), ...(b||[])])];
@@ -22237,28 +22334,38 @@ async function cloudPullMerge(){
     }
     saveState();   // persists locally + pushes the merged result back up
     if(lastTab==='favs') renderFavs(); else if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
-  }catch(e){ const s=$('acctStatus'); if(s) s.textContent='Sync issue: '+(e.message||e); }
+  }catch{if(epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner){_cloudSync={owner,status:'failed'};renderSyncBadge();const node=$('acctStatus');if(node)node.textContent='Sync failed. Local data is retained; try again.';}}
+}
+function renderSyncBadge(){
+  const node=$('acctSynced');if(!node)return;
+  const status=authUser&&_cloudSync.owner===authUser.id?_cloudSync.status:'idle';
+  node.textContent=cloudEnabled()&&authUser ? (status==='confirmed'?'synced':status==='pending'?'sync pending':status==='failed'?'sync failed':'sync not verified') : '';
 }
 function cloudPush(){
-  if(!supa || !authUser) return;
-  clearTimeout(_cloudPushT);
-  _cloudPushT=setTimeout(async ()=>{
+  if(!supa||!authUser)return;
+  const owner=authUser.id,epoch=_cloudAccountEpoch,revision=++_cloudPushVersion,client=supa;
+  _cloudSync={owner,status:'pending'};renderSyncBadge();clearTimeout(_cloudPushT);
+  const current=()=>client===supa&&epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner&&revision===_cloudPushVersion;
+  _cloudPushT=setTimeout(async()=>{
+    const previous=_cloudPushFlight;let release;
+    _cloudPushFlight=new Promise(resolve=>release=resolve);
     try{
-      await supa.from('app_state').upsert({ user_id:authUser.id,
-        fav_leagues:afState.favL, fav_teams:afState.favT, fav_matches:afState.favM,
-        record:afState.record,
-        /* Build 275 -- the tombstones travel in the existing jsonb column, so removals reach the
-           other devices with no schema change and no SQL for anyone to run. */
-        prefs:{theme:themeMode, aiProvider, favAt:afState.favAt, favDel:afState.favDel},
-        updated_at:new Date().toISOString() });
-    }catch(e){ /* offline/transient — retries on the next saveState */ }
-  }, 1200);
+      await previous;if(!current())return;
+      const payload=JSON.parse(JSON.stringify({user_id:owner,fav_leagues:afState.favL,fav_teams:afState.favT,
+        fav_matches:afState.favM,record:afState.record,
+        prefs:{theme:themeMode,aiProvider,favAt:afState.favAt,favDel:afState.favDel},updated_at:new Date().toISOString()}));
+      const result=await client.from('app_state').upsert(payload);
+      if(!result||!Object.prototype.hasOwnProperty.call(result,'error')||result.error)throw Error('sync not acknowledged');
+      if(current()){_cloudSync={owner,status:'confirmed'};renderSyncBadge();}
+    }catch{if(current()){_cloudSync={owner,status:'failed'};renderSyncBadge();}}
+    finally{release();}
+  },1200);
 }
 function renderAccount(){
   try{ aiShadowGate().catch(()=>{}); }catch(e){}   // build 339 - the owner card follows the account
   const fillBtn = $('archFillBtn'); if(fillBtn) fillBtn.classList.toggle('hidden', !isPublisher());   // build 340
   const box=$('acctBox'); if(!box) return;
-  const sb=$('acctSynced'); if(sb) sb.innerHTML = (cloudEnabled() && authUser) ? '<span class="syncbadge"><span class="dot"></span>synced</span>' : '';
+  renderSyncBadge();
   if(!cloudEnabled()){
     box.innerHTML='<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
     return;
