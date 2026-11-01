@@ -3341,7 +3341,8 @@ function observe90Settlement(row, s){
       (at == null && prev.unresolved && s.via === 'ft'))) return prev.unresolved;
   const unresolved = s.via === 'unresolved';
   _settlement90Observed.set(id, {at:at == null && prev ? prev.at : at,
-    unresolved, gh:unresolved ? null : s.gh, ga:unresolved ? null : s.ga});
+    unresolved, gh:unresolved ? null : s.gh, ga:unresolved ? null : s.ga,
+    fgh:unresolved ? null : s.fgh, fga:unresolved ? null : s.fga});
   if(unresolved) _unresolved90Ids.add(id);
   else _unresolved90Ids.delete(id);
   return unresolved;
@@ -3350,7 +3351,12 @@ function unresolved90Fixture(fxid){ return fxid != null && _unresolved90Ids.has(
 function verified90Fixture(fxid){
   if(fxid == null) return null;
   const s = _settlement90Observed.get(String(fxid));
-  return s && !s.unresolved && s.gh != null && s.ga != null ? {gh:s.gh,ga:s.ga} : null;
+  if(!s || s.unresolved || s.gh == null || s.ga == null) return null;
+  const out={gh:s.gh,ga:s.ga};
+  if(s.fgh != null && s.fga != null && (s.fgh !== s.gh || s.fga !== s.ga)){
+    out.fgh=s.fgh; out.fga=s.fga;
+  }
+  return out;
 }
 function aetOf(x){ return (x && x.fgh != null && x.fga != null) ? { fgh: x.fgh, fga: x.fga } : {}; }
 function aetText(x){ return (x && x.fgh != null && x.fga != null) ? 'AET ' + x.fgh + '–' + x.fga : ''; }
