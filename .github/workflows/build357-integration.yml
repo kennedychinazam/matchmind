@@ -32,5 +32,5 @@ jobs:
           chromium_path=$(command -v google-chrome || command -v chromium)
           test -n "$chromium_path"
           echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
-      - name: Run all 35 offline launch, settlement and integration tests
+      - name: Run all 36 offline launch, settlement and integration tests
         run: node --test test/launch-readiness.test.mjs test/settlement-provenance.test.mjs test/settlement-consumers.test.mjs test/integration-build357.test.mjs
