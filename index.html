@@ -5567,7 +5567,7 @@ function renderSearch(q){
       html+=`<div class="sres" role="button" tabindex="0" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
   if(comps.length){ html+='<div class="sres-grp">Competitions</div>';
     for(const L of comps){ const i=crefs.length; crefs.push(L);
-      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${competitionBadge(L)} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
   if(teams.length){ html+='<div class="sres-grp">Teams</div>';
     for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" role="button" tabindex="0" data-t="${i}">${crest(t)}${t}</div>`; } }
   box.innerHTML=html;
@@ -16695,17 +16695,25 @@ async function renderArchiveDay(){
 }
 
 /* ---------- crests & hero helpers ---------- */
+/* Release default: provider correspondence does not clear third-party visual rights.
+   This source-only option has no URL/localStorage override. Keep logo metadata for
+   numeric team-id model inputs; never pass its cached URLs to a rendering sink. */
+const THIRD_PARTY_BRANDING_ENABLED = false;
 function regLogo(t){ if(t && t.name && t.logo) afState.logos[t.name] = t.logo; }
-function crest(name){
-  const u = afState.logos && afState.logos[name];
-  return u ? `<img class="crest" src="${u}" loading="lazy" onerror="this.style.visibility='hidden'">`
-           : `<span class="crest mono">${(name||'?').slice(0,2).toUpperCase()}</span>`;
+function crest(name, big=false){
+  const cls = 'crest' + (big ? ' big' : '');
+  const u = THIRD_PARTY_BRANDING_ENABLED && afState.logos && afState.logos[name];
+  return u ? `<img class="${cls}" src="${escapeHtml(String(u))}" loading="lazy" onerror="this.style.visibility='hidden'">`
+           : `<span class="${cls} mono">${escapeHtml(String(name||'?').slice(0,2).toUpperCase())}</span>`;
+}
+function competitionBadge(L){
+  if(!THIRD_PARTY_BRANDING_ENABLED) return '🏆';
+  if(L.flag) return escapeHtml(String(L.flag));
+  const u = L.logo || L.llogo;
+  return u ? `<img src="${escapeHtml(String(u))}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆';
 }
 function heroSide(name, label){
-  const u = afState.logos && afState.logos[name];
-  const big = u ? `<img class="crest big" src="${u}" loading="lazy" onerror="this.style.visibility='hidden'">`
-               : `<span class="crest big mono">${(name||'?').slice(0,2).toUpperCase()}</span>`;
-  return `${big}<div>${name}</div><div class="venue">${label}</div>`;
+  return `${crest(name,true)}<div>${escapeHtml(String(name||''))}</div><div class="venue">${escapeHtml(String(label||''))}</div>`;
 }
 
 // fallback analysis via API-Football's own prediction model (works on all plans)
@@ -21041,7 +21049,7 @@ function renderScores(){
   const rowRefs = [];
   for(const g of ordered){
     const s0 = g[0];
-    const badge = s0.llogo ? `<img src="${s0.llogo}" style="width:16px;height:16px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆';
+    const badge = competitionBadge(s0);
     html += `<div class="lghead">${badge} ${s0.lname} <span class="muted" style="font-size:.7rem;font-weight:600">${s0.lcountry}</span></div>`;
     for(const s of g){
       const isLive = LIVE_CODES.includes(s.status);
@@ -21598,7 +21606,7 @@ function buildCompsDrop(boxId){
   let html = item('all','🌍 All competitions', cnt(all));
   if(fb.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">⚽ Football</div>` + item('football','All football', cnt(fb))
-          + fb.map(l=>item(l.id, lgLabel(l, l.flag||'🏆'), predicted(l))).join('');
+          + fb.map(l=>item(l.id, lgLabel(l, competitionBadge(l)), predicted(l))).join('');
   }
   if(bk.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
@@ -21744,7 +21752,7 @@ function renderFixtures(){
       noPickPlayed++; return true;                   // played: it stays, and says so
     });
     if(!todays.length) continue;
-    const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
+    const badge = competitionBadge(L);
     html += `<div class="lghead">${badge} ${L.name || ''} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
