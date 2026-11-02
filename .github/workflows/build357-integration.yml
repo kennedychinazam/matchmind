@@ -1,0 +1,39 @@
+# Offline draft-only release integration, with no network-backed application data requests.
+name: Build 357 integration
+on:
+  push:
+    branches:
+      - integration/build357-safe-release-20261101
+      - codex/build357-takeover-20261101
+      - codex/settlement-ordering-20261101
+      - codex/release-remediation-20261101
+    paths:
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - 'test/**'
+      - '.github/workflows/build357-integration.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  combined:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        node: ['20.20.2','24.19.0']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install browser driver
+        run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Select installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Run offline launch, settlement, integration and takeover UI tests
+        run: node --test test/*.test.mjs
