@@ -488,9 +488,9 @@
   </div>
 
   <!-- ================= SEARCH OVERLAY ================= -->
-  <div class="searchOverlay hidden" id="searchOverlay">
+  <div class="searchOverlay hidden" id="searchOverlay" role="dialog" aria-modal="true" aria-label="Search" tabindex="-1">
     <div class="searchBar">
-      <input id="searchInput" type="search" placeholder="Search teams, competitions, matches…" autocomplete="off">
+      <input id="searchInput" aria-label="Search loaded content" type="search" placeholder="Search teams, competitions, matches…" autocomplete="off">
       <button class="iconbtn" id="searchClose" aria-label="Close">✕</button>
     </div>
     <div id="searchResults"><div class="subnote">Type to search everything loaded on your device — instant, no data used.</div></div>
@@ -2600,7 +2600,7 @@ function aiSave(){
   $('keyStatus').textContent = has
     ? `✓ ${p.name} set — analyses written by ${p.name}${aiCompare?` (comparing with ${aiProviderById(aiCompare).name})`:''}.`
     : `${p.name} key cleared — using the built-in local writer.`;
-  renderAISettings();
+  renderAISettings(); saveState();
 }
 function loadAISettings(){
   try{ const a=JSON.parse(localStorage.getItem('mm_ai')||'null');
@@ -2690,6 +2690,7 @@ async function afFetch(path, base){
 }
 
 async function afLoadAll(){
+  const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   afState.key = $('afKey').value.trim();
   afState.season = $('afSeason').value;
   if(!afState.key){ alert('Enter your API-Football key first.'); return; }
@@ -2724,7 +2725,7 @@ async function afLoadAll(){
         if(p){
           const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]);
           fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3);
-          recordPick(L.name, fx);
+          if(personalToken(personalOwner,personalEpoch)) recordPick(L.name, fx);
         }
       }
       afState.leagues[L.id] = {id:L.id, name:L.name, country:L.country, flag:L.flag, logo:'', matches, teamIds, upcoming, scorerText:'', season:afState.season};
@@ -5383,7 +5384,7 @@ let themeMode='dark';
 function themeEffective(){ if(themeMode==='auto') return (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark'; return themeMode; }
 function applyTheme(){ const eff=themeEffective(); document.documentElement.setAttribute('data-theme',eff);
   const meta=$('themeColorMeta'); if(meta) meta.setAttribute('content', eff==='light'?'#eef1f8':'#070c18'); renderThemeChips(); }
-function setTheme(m){ themeMode=m; try{ localStorage.setItem('mm_theme',m); }catch(e){} applyTheme(); }
+function setTheme(m){ themeMode=m; try{ localStorage.setItem('mm_theme',m); }catch(e){} applyTheme(); saveState(); }
 function renderThemeChips(){ const box=$('themeChips'); if(!box) return;
   box.innerHTML=[['dark','🌙 Dark'],['light','☀️ Light'],['auto','🅰 Auto']].map(([v,l])=>`<button class="sfchip${themeMode===v?' active':''}" data-th="${v}">${l}</button>`).join('');
   box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.th))); }
@@ -5403,8 +5404,61 @@ function onBack(){
 }
 
 /* ---------- on-device search (#12) ---------- */
-function openSearch(){ $('searchOverlay').classList.remove('hidden'); const i=$('searchInput'); i.value=''; renderSearch(''); setTimeout(()=>i.focus(),50); }
-function closeSearch(){ $('searchOverlay').classList.add('hidden'); }
+let searchOpener=null, searchFocusTimer=null, searchBackground=[];
+function openSearch(){
+  const overlay=$('searchOverlay');
+  if(overlay.classList.contains('hidden')){
+    searchOpener=document.activeElement instanceof HTMLElement && document.activeElement!==document.body && !overlay.contains(document.activeElement)
+      ? document.activeElement : $('searchOpen');
+    // Isolate siblings at each ancestor level without making the dialog itself inert.
+    searchBackground=[];
+    for(let branch=overlay; branch.parentElement && branch!==document.body; branch=branch.parentElement){
+      for(const sibling of branch.parentElement.children){
+        if(sibling!==branch && sibling instanceof HTMLElement){ searchBackground.push([sibling,sibling.inert]); sibling.inert=true; }
+      }
+    }
+  }
+  overlay.classList.remove('hidden');
+  const input=$('searchInput'); input.value=''; renderSearch('');
+  clearTimeout(searchFocusTimer);
+  searchFocusTimer=setTimeout(()=>{ searchFocusTimer=null; if(!overlay.classList.contains('hidden')) input.focus(); },50);
+}
+// A query can reveal the previous account's interests even when Search only indexes public data.
+function clearSearchForIdentity(){
+  const overlay=$('searchOverlay'), input=$('searchInput'), results=$('searchResults');
+  const moveFocus=!overlay.classList.contains('hidden') && results.contains(document.activeElement);
+  input.value=''; renderSearch('');
+  if(moveFocus) input.focus();
+}
+function closeSearch(){
+  clearTimeout(searchFocusTimer); searchFocusTimer=null;
+  const overlay=$('searchOverlay'); if(overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  for(const [element,inert] of searchBackground) element.inert=inert;
+  searchBackground=[];
+  const opener=searchOpener; searchOpener=null;
+  for(const target of [opener,$('searchOpen')]){
+    if(target && target.isConnected && !target.matches(':disabled') && !target.closest('[inert]') && target.getClientRects().length){ target.focus(); break; }
+  }
+}
+function searchKeydown(event){
+  const overlay=$('searchOverlay');
+  if(event.key==='Escape'){ event.preventDefault(); event.stopPropagation(); closeSearch(); return; }
+  if(event.key==='Tab'){
+    // Read the current DOM: search results are replaced as the query changes.
+    const controls=[...overlay.querySelectorAll('button,input,select,textarea,a[href],[tabindex]')]
+      .filter(el=>el.tabIndex>=0 && !el.matches(':disabled') && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility!=='hidden');
+    const first=controls[0], last=controls[controls.length-1], active=document.activeElement;
+    if(!first){ event.preventDefault(); overlay.focus(); }
+    else if(!controls.includes(active) || (event.shiftKey ? active===first : active===last)){
+      event.preventDefault(); (event.shiftKey?last:first).focus();
+    }
+  }
+  if(event.key==='Enter' || event.key===' '){
+    const result=event.target.closest('.sres[role="button"]');
+    if(result && $('searchResults').contains(result)){ event.preventDefault(); result.click(); }
+  }
+}
 function searchData(q){
   q=(q||'').trim().toLowerCase(); const comps=[], teamSet=new Set(), matches=[], seen=new Set();
   if(!q) return {comps,teams:[],matches:[]};
@@ -5433,12 +5487,12 @@ function renderSearch(q){
   if(matches.length){ html+='<div class="sres-grp">Matches</div>';
     for(const m of matches){ const i=mrefs.length; mrefs.push(m);
       const h=m.type==='up'?m.f.home:m.s.home, a=m.type==='up'?m.f.away:m.s.away, ln=m.type==='up'?m.L.name:(m.s.lname||'');
-      html+=`<div class="sres" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
   if(comps.length){ html+='<div class="sres-grp">Competitions</div>';
     for(const L of comps){ const i=crefs.length; crefs.push(L);
-      html+=`<div class="sres" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
   if(teams.length){ html+='<div class="sres-grp">Teams</div>';
-    for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" data-t="${i}">${crest(t)}${t}</div>`; } }
+    for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" role="button" tabindex="0" data-t="${i}">${crest(t)}${t}</div>`; } }
   box.innerHTML=html;
   box.querySelectorAll('[data-m]').forEach(el=>el.addEventListener('click',()=>{ const m=mrefs[+el.dataset.m]; closeSearch();
     if(m.type==='up') openFixture(m.L.id,m.f);
@@ -17881,6 +17935,7 @@ function gradeFromHistory(){
 const RECORD_SETTLE_V = 1;
 let _settlingRecord = false, _recordSettled = 0;
 async function settleRecord(){
+  const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(!supa || _settlingRecord) return 0;
   const todo = (afState.record || []).filter(r => r && r.result && r.fxid != null && r.sv !== RECORD_SETTLE_V);
   if(!todo.length) return 0;
@@ -17890,7 +17945,7 @@ async function settleRecord(){
     const ids = [...new Set(todo.map(r => r.fxid))], byId = {};
     for(let i = 0; i < ids.length; i += 150){
       const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 150));
-      if(q.error) return 0;                  // nothing stamped; the next results read tries again
+      if(q.error || !personalToken(personalOwner,personalEpoch)) return 0; // stale owner cannot mutate or save
       for(const f of (q.data || [])) byId[f.fxid] = f;
     }
     for(const r of todo){
@@ -18962,6 +19017,7 @@ const HIST_BACKFILL_GAP_MS = 400;
 const TIPS_SEED_WAIT_MS = 900000;
 let _histBackfillRunning = false;
 async function backfillSettledHistory(ids){
+  const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(_histBackfillRunning || !supa || !ids || !ids.length) return;
   _histBackfillRunning = true;
   const from = cacheCutoff(), settleAt = historySettleCutoff();
@@ -19041,7 +19097,7 @@ async function backfillSettledHistory(ids){
       if(_gateThin.has(String(id)) && L.matches.length >= 15){
         _gateThin.delete(String(id));
         let _ran = false;
-        try{ _ran = applyGatePass(L, L.upcoming || []); }catch(e){}
+        try{ _ran = applyGatePass(L, L.upcoming || [], personalOwner, personalEpoch); }catch(e){}
         if(_ran) for(const _f of (L.upcoming || [])) delete _f._fin;
       }
       await new Promise(r => setTimeout(r, HIST_BACKFILL_GAP_MS));
@@ -19120,7 +19176,7 @@ const _gateThin = new Set();
 /* BUILD 322 — ids whose OWN backfill joined this session. A competition queued for backfill is priced only
    once its history has landed; one whose backfill failed is withheld until the next load (Ken, D1). */
 const _histLanded = new Set();
-function applyGatePass(L, display){
+function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch){
   if(!L || !display || !display.length) return false;
   /* BUILD 327 - a competition MatchMind does not predict gets no pick, no archive write, no drift and no
      withhold. A pick already published for one of its fixtures is still shown as published (Ken: "they
@@ -19249,7 +19305,7 @@ function applyGatePass(L, display){
            `archivePrediction` can still only ever INSERT and nothing here removes a row. Build
            142's rule, unchanged. */
         if(!f._fin && !f.gated && !f.provisional){
-          recordPick(L.name,f);
+          if(personalToken(personalOwner,personalEpoch)) recordPick(L.name,f);
           /* Two mutually exclusive writes. An unpublished fixture is INSERTED once and never
              again; a published one can only ever have its `final_*` columns moved, and only
              when they actually changed. */
@@ -19277,6 +19333,7 @@ function applyGatePass(L, display){
      the decision that reads it. */
 }
 async function loadCloudLeagues(force){
+  const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(!supa) return;
   /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
      `await loadArchive()`, so a call that was about to decline still paid for three or four
@@ -19659,7 +19716,7 @@ async function loadCloudLeagues(force){
         if(!_L || (_L.sport||'football') !== 'football') continue;
         if(_awaitHist.has(String(_id)) && (_L.upcoming || []).length){ _gateThin.add(String(_id)); continue; }   // build 322
         let _ran = false;
-        try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
+        try{ _ran = applyGatePass(_L, _L.upcoming || [], personalOwner, personalEpoch); }catch(e){}
         if(_ran){ _gateThin.delete(String(_id));
                   for(const _f of (_L.upcoming || [])) delete _f._fin; }
         else if((_L.upcoming || []).length) _gateThin.add(String(_id));
@@ -19733,7 +19790,7 @@ async function loadCloudLeagues(force){
             if(_awaitHist.has(String(_id)) && !_histLanded.has(String(_id))) continue;   // build 322 — D1: its backfill failed; withhold, next load prices it
             _gateThin.delete(_id);
             let _ran = false;
-            try{ _ran = applyGatePass(_L, _L.upcoming || []); }catch(e){}
+            try{ _ran = applyGatePass(_L, _L.upcoming || [], personalOwner, personalEpoch); }catch(e){}
             if(_ran){ filled++; for(const _f of (_L.upcoming || [])) delete _f._fin; }
           }
           if(filled){
@@ -20986,6 +21043,7 @@ function setTeamSelect(id, name){
 }
 
 async function openFixture(leagueId, f, btn){
+  const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   resetMatchPanels();
   const L = afState.leagues[leagueId]; if(!L) return;
   if((L.sport||'football')!=='football') return;
@@ -21006,7 +21064,7 @@ async function openFixture(leagueId, f, btn){
         for(const fx of L.upcoming){
           const p = tmp.predict(fx.home, fx.away);
           if(p){ const arr=[[p.pW,'1'],[p.pD,'X'],[p.pL,'2']].sort((a,b)=>b[0]-a[0]);
-                 fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3); recordPick(L.name, fx); }
+                 fx.pick = arr[0][1]; fx.prob = +arr[0][0].toFixed(3); if(personalToken(personalOwner,personalEpoch)) recordPick(L.name, fx); }
         }
       }
     }catch(e){ /* plan-blocked — API prediction fallback below */ }
@@ -22221,29 +22279,84 @@ function storageReport(){
            pct: Math.round(100 * (chars * 2 / 1024) / 5120) };
 }
 
+// Personal data is never assigned to an identity merely because that identity signs in.
+let _personalOwner = null, _personalReady = true, _personalCloudReady = false, _personalHasPartition = false;
+const _personalMemory = new Map();
+const PERSONAL_PREFIX = 'mm_personal_v1:';
+function personalKey(owner){ return PERSONAL_PREFIX + (owner == null ? 'UNASSIGNED' : 'owner:' + encodeURIComponent(owner)); }
+function personalToken(owner,epoch){ return _personalReady && _personalOwner===owner && epoch===_cloudAccountEpoch && (owner===null ? !authUser : !!authUser && authUser.id===owner); }
+function personalSnapshot(owner,epoch){ if(!personalToken(owner,epoch)) throw Error('Personal owner changed'); return {record:afState.record,favL:afState.favL,favT:afState.favT,favM:afState.favM,
+  favTab:afState.favTab,favAt:afState.favAt,favDel:afState.favDel,
+  prefs:{...prefs},notif:{...notif},theme:themeMode,aiProvider,aiCompare}; }
+function personalApply(p){
+  if(p!==null && (typeof p!=='object' || Array.isArray(p) ||
+    ['record','favL','favT','favM'].some(k=>p[k]!=null && !Array.isArray(p[k])) ||
+    ['prefs','notif','favAt','favDel'].some(k=>p[k]!=null && (typeof p[k]!=='object' || Array.isArray(p[k]))))) throw Error('Invalid personal partition');
+  p=p||{}; afState.record=p.record||[]; afState.favL=p.favL||[]; afState.favT=p.favT||[];
+  afState.favM=p.favM||[]; afState.favTab=p.favTab||'matches';
+  afState.favAt=favStamps(p.favAt); afState.favDel=favStamps(p.favDel);
+  Object.assign(prefs,{tz:'',edgeOnly:false,lang:''},p.prefs||{});
+  Object.assign(notif,{kickoff:false,result:false,digest:false},p.notif||{});
+  themeMode=p.theme||'dark'; aiProvider=p.aiProvider||'gemini'; aiCompare=p.aiCompare||'';
+  try{applyTheme();renderAISettings();renderNotif();}catch(e){}
+}
+function personalCurrent(owner,epoch){ return _personalReady && _personalOwner===owner && authUser && authUser.id===owner && epoch===_cloudAccountEpoch; }
+function personalStore(owner,epoch){
+  if(!personalToken(owner,epoch))return false;
+  try{const raw=JSON.stringify(personalSnapshot(owner,epoch)); _personalMemory.set(personalKey(_personalOwner),raw); localStorage.setItem(personalKey(_personalOwner),raw);_personalHasPartition=true;return true;}
+  catch(e){try{toast('Personal data could not be saved on this device');}catch(_){} return false;}
+}
+function personalSelect(owner){
+  _personalOwner=owner; _personalReady=false; personalApply(null);
+  try{preserveLegacy(); const key=personalKey(owner); const stored=localStorage.getItem(key); const raw=_personalMemory.has(key)?_personalMemory.get(key):stored; _personalHasPartition=raw!==null; if(raw!==null){const parsed=JSON.parse(raw); if(parsed===null)throw Error('Invalid personal partition'); personalApply(parsed);} _personalReady=true;}
+  catch(e){try{toast('Personal data could not be read; sync is paused');}catch(_){} }
+}
+function personalRefresh(){
+  // Redraw all surfaces that can show favourites or personal record immediately on transition.
+  for(const fn of [renderFavs,renderFixtures,renderScores,renderTips,renderMoreRecord,renderTzSetting,applyStaticI18n]) try{fn();}catch(e){}
+  try{if(LANGUAGES_ON) renderLangSetting();}catch(e){}
+  try{if(curFavHome || curFavAway) setFavRow(curFavHome,curFavAway);}catch(e){}
+}
+function preserveLegacy(){
+  const raw=localStorage.getItem('mm_state');
+  if(raw!==null){
+    let state; try{state=JSON.parse(raw);}catch(e){state=null;}
+    const ambiguous=state && (Object.prototype.hasOwnProperty.call(state,'prefs') || Object.prototype.hasOwnProperty.call(state,'notif') || (state.af && ['record','favL','favT','favM','favTab','favAt','favDel'].some(k=>Object.prototype.hasOwnProperty.call(state.af,k))));
+    if(!state || state.personalPartitionVersion!==1 || ambiguous){
+      const saved=localStorage.getItem('mm_state_UNASSIGNED');
+      if(saved===null) localStorage.setItem('mm_state_UNASSIGNED',raw);
+      else if(saved!==raw) throw Error('Unassigned legacy backup already exists');
+    }
+  }
+}
+
 function saveState(){
   favPrune();   // build 275 -- keep the favourite stamp maps bounded before they are written
   try{
+    preserveLegacy();
+    if(!personalStore(_personalOwner,_cloudAccountEpoch)) throw Error('Personal data could not be saved');
     localStorage.setItem('mm_state', JSON.stringify({
+      personalPartitionVersion:1,
       fb: footballEngine.matches, bb: basketballEngine.matches,
       scorerText: $('scorerData').value,
       afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      prefs, notif,
-      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores, record: afState.record, favL: afState.favL, favT: afState.favT, favM: afState.favM, favTab: afState.favTab, favAt: afState.favAt, favDel: afState.favDel}
+      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores}
     }, dropExtras));
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
        this stays caught — but it is now RECORDED and shown, instead of vanishing. */
     const first = !saveFailed;
     saveFailed = { at: new Date().toISOString(), name: String(e && e.name || e) };
+    _personalReady=false;
+    _cloudSync={owner:authUser&&authUser.id,status:'failed'}; try{renderAccount();}catch(_){}
     if(first){
       try{ console.warn('MatchMind: saveState failed —', saveFailed.name,
                         '— favourites, record and the scores cache will not persist.'); }catch(_){}
       try{ toast('Storage full — favourites and results may not be saved'); }catch(_){}
     }
   }
-  cloudPush();   // if logged in, also sync favourites + record to the cloud (debounced)
+  if(_personalReady) cloudPush();   // only after successful local preservation
 }
 
 /* ================================================================
@@ -22266,11 +22379,16 @@ function initSupabase(){
 function onAuth(user){
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
+    clearSearchForIdentity();
+    personalStore(_personalOwner,_cloudAccountEpoch);
     ++_cloudAccountEpoch; ++_cloudPushVersion; clearTimeout(_cloudPushT);
+    _personalCloudReady=false;
+    personalSelect(user ? user.id : null);
     _cloudSync={owner:user&&user.id,status:'idle'};
   }
   authUser = user || null;
   renderAccount();
+  if((was&&was.id)!==(user&&user.id)) personalRefresh();
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
   if(isPublisher() && _leaguesLoadedAt){ try{ refreshSkills(); }catch(e){} }   // build 324 — the publisher measures once signed in
 }
@@ -22305,23 +22423,38 @@ async function authLogin(){
 }
 async function authLogout(){
   if(!supa)return;
+  const previous=authUser; onAuth(null); const epoch=_cloudAccountEpoch;
   try{const result=await supa.auth.signOut();if(result&&result.error)throw result.error;}
-  catch{toast('Could not sign out. Please try again.');return;}
-  onAuth(null);toast('Logged out');
+  catch{if(epoch===_cloudAccountEpoch && !authUser && previous) onAuth(previous);toast('Could not sign out. Please try again.');return;}
+  toast('Logged out');
 }
 async function cloudPullMerge(){
-  if(!supa || !authUser) return;
-  const owner=authUser.id,epoch=_cloudAccountEpoch;
+  if(!supa || !authUser || !personalCurrent(authUser.id,_cloudAccountEpoch)) return;
+  const owner=authUser.id,epoch=_cloudAccountEpoch, hadPartition=_personalHasPartition;
+  const preferenceBefore=JSON.stringify({theme:themeMode,aiProvider,aiCompare,prefs,notif});
+  _personalCloudReady=false; ++_cloudPushVersion; clearTimeout(_cloudPushT);
   try{
     const {data, error}=await supa.from('app_state').select('*').eq('user_id', owner).maybeSingle();
-    if(epoch!==_cloudAccountEpoch||!authUser||authUser.id!==owner)return;
+    if(!personalCurrent(owner,epoch))return;
     if(error) throw error;
+    if(data!==null && (typeof data!=='object' || Array.isArray(data) || data.user_id!==owner ||
+      ['fav_leagues','fav_teams','fav_matches','record'].some(k=>data[k]!=null && !Array.isArray(data[k])) ||
+      (data.prefs!=null && (typeof data.prefs!=='object' || Array.isArray(data.prefs))))) throw Error('Invalid account state');
     if(data){
       const uniq=(a,b)=>[...new Set([...(a||[]), ...(b||[])])];
       /* Build 275. The stamps merge FIRST (newest event wins per key), and only then do they filter
          the unioned arrays -- so a removal made on EITHER device survives the round trip instead of
          being quietly unioned away and then pushed back up as a resurrection. See favMark/favKeep. */
       const cprefs = data.prefs || {};
+      if(!hadPartition && preferenceBefore===JSON.stringify({theme:themeMode,aiProvider,aiCompare,prefs,notif})){
+        if(['dark','light','auto'].includes(cprefs.theme)) themeMode=cprefs.theme;
+        if(AI_PROVIDERS.some(p=>p.id===cprefs.aiProvider)) aiProvider=cprefs.aiProvider;
+        if(typeof cprefs.aiCompare==='string' && (!cprefs.aiCompare || AI_PROVIDERS.some(p=>p.id===cprefs.aiCompare))) aiCompare=cprefs.aiCompare;
+        const settings=cprefs.settings && typeof cprefs.settings==='object' && !Array.isArray(cprefs.settings) ? cprefs.settings : cprefs;
+        if(typeof settings.tz==='string') prefs.tz=settings.tz; if(typeof settings.lang==='string') prefs.lang=settings.lang; if(typeof settings.edgeOnly==='boolean') prefs.edgeOnly=settings.edgeOnly;
+        if(cprefs.notif && typeof cprefs.notif==='object' && !Array.isArray(cprefs.notif)) for(const k of ['kickoff','result','digest']) if(typeof cprefs.notif[k]==='boolean') notif[k]=cprefs.notif[k];
+        try{applyTheme();renderAISettings();renderNotif();renderTzSetting();if(LANGUAGES_ON) renderLangSetting();applyStaticI18n();}catch(e){}
+      }
       const favAt  = favMergeStamps(afState.favAt,  cprefs.favAt);
       const favDel = favMergeStamps(afState.favDel, cprefs.favDel);
       afState.favAt = favAt; afState.favDel = favDel;
@@ -22332,20 +22465,21 @@ async function cloudPullMerge(){
       afState.favM = mergeById(afState.favM, data.fav_matches, 'fxid').filter(m => favKeep('M', m.fxid, favAt, favDel));
       afState.record = mergeById(afState.record, data.record, 'fxid');
     }
+    _personalCloudReady=true;
     saveState();   // persists locally + pushes the merged result back up
     if(lastTab==='favs') renderFavs(); else if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
-  }catch{if(epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner){_cloudSync={owner,status:'failed'};renderSyncBadge();const node=$('acctStatus');if(node)node.textContent='Sync failed. Local data is retained; try again.';}}
+  }catch{if(epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner){_personalCloudReady=false;_cloudSync={owner,status:'failed'};renderSyncBadge();const node=$('acctStatus');if(node)node.textContent='Sync failed. Local data is retained; try again.';}}
 }
 function renderSyncBadge(){
   const node=$('acctSynced');if(!node)return;
-  const status=authUser&&_cloudSync.owner===authUser.id?_cloudSync.status:'idle';
-  node.textContent=cloudEnabled()&&authUser ? (status==='confirmed'?'synced':status==='pending'?'sync pending':status==='failed'?'sync failed':'sync not verified') : '';
+  const status=!_personalReady?'storage unavailable':authUser&&_cloudSync.owner===authUser.id?_cloudSync.status:'idle';
+  node.textContent=cloudEnabled()&&authUser ? (status==='confirmed'?'synced':status==='pending'?'sync pending':status==='failed'?'sync failed':status==='storage unavailable'?'storage unavailable · sync paused':'sync not verified') : '';
 }
 function cloudPush(){
-  if(!supa||!authUser)return;
+  if(!supa||!authUser||!_personalCloudReady||!personalCurrent(authUser.id,_cloudAccountEpoch))return;
   const owner=authUser.id,epoch=_cloudAccountEpoch,revision=++_cloudPushVersion,client=supa;
   _cloudSync={owner,status:'pending'};renderSyncBadge();clearTimeout(_cloudPushT);
-  const current=()=>client===supa&&epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner&&revision===_cloudPushVersion;
+  const current=()=>client===supa&&_personalCloudReady&&personalCurrent(owner,epoch)&&revision===_cloudPushVersion;
   _cloudPushT=setTimeout(async()=>{
     const previous=_cloudPushFlight;let release;
     _cloudPushFlight=new Promise(resolve=>release=resolve);
@@ -22353,7 +22487,7 @@ function cloudPush(){
       await previous;if(!current())return;
       const payload=JSON.parse(JSON.stringify({user_id:owner,fav_leagues:afState.favL,fav_teams:afState.favT,
         fav_matches:afState.favM,record:afState.record,
-        prefs:{theme:themeMode,aiProvider,favAt:afState.favAt,favDel:afState.favDel},updated_at:new Date().toISOString()}));
+        prefs:{theme:themeMode,aiProvider,aiCompare,settings:{...prefs},notif:{...notif},favAt:afState.favAt,favDel:afState.favDel},updated_at:new Date().toISOString()}));
       const result=await client.from('app_state').upsert(payload);
       if(!result||!Object.prototype.hasOwnProperty.call(result,'error')||result.error)throw Error('sync not acknowledged');
       if(current()){_cloudSync={owner,status:'confirmed'};renderSyncBadge();}
@@ -22365,13 +22499,15 @@ function renderAccount(){
   try{ aiShadowGate().catch(()=>{}); }catch(e){}   // build 339 - the owner card follows the account
   const fillBtn = $('archFillBtn'); if(fillBtn) fillBtn.classList.toggle('hidden', !isPublisher());   // build 340
   const box=$('acctBox'); if(!box) return;
+  let quarantineNotice='';
+  try{if(localStorage.getItem('mm_state_UNASSIGNED')!==null) quarantineNotice='<div class="notice">Existing local personal data retained unassigned; not imported into this account.</div>';}catch(e){}
   renderSyncBadge();
   if(!cloudEnabled()){
-    box.innerHTML='<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
+    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
     return;
   }
   if(authUser){
-    box.innerHTML=`<div class="acctrow">
+    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Sync is paused; data may not be saved on this device.</div>':'')+`<div class="acctrow">
       <div class="avatar">${escapeHtml(accountInitials())}</div>
       <div style="flex:1; min-width:0">
         <div class="sl">Hi, ${escapeHtml(accountName())} 👋</div>
@@ -22380,7 +22516,7 @@ function renderAccount(){
     $('acctLogout').addEventListener('click', authLogout);
   } else {
     const isLogin = authMode !== 'signup';
-    box.innerHTML = `<div class="notice">${isLogin
+    box.innerHTML = quarantineNotice + (!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'') + `<div class="notice">${isLogin
         ? 'Log in to sync your favourites and prediction record across your devices.'
         : 'Create an account to sync your favourites and record across devices. Your data stays private to you.'}</div>`
       + (isLogin ? '' : `<div class="field"><input id="acctName" type="text" placeholder="your name" autocomplete="name"></div>`)
@@ -22421,8 +22557,6 @@ function restoreState(){
     footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
-    if(s.prefs){ prefs.tz = s.prefs.tz || ''; prefs.edgeOnly = !!s.prefs.edgeOnly; prefs.lang = s.prefs.lang || ''; }
-    if(s.notif){ notif.kickoff=!!s.notif.kickoff; notif.result=!!s.notif.result; notif.digest=!!s.notif.digest; }
     if(s.af){
       afState.season = s.af.season || afState.season;
       /* Build 196 — `lv` marks the packed shape. Absent means a cache from build 194 or earlier,
@@ -22434,16 +22568,9 @@ function restoreState(){
       afState.filter = s.af.filter || 'all';
       afState.logos = s.af.logos || {};
       afState.scores = s.af.scores || null;
-      afState.record = s.af.record || [];
       afState.skill  = {};   // build 324 — never restored: skill comes only from the shared record (was build 65's saved copy)
       afState.gate   = {};   // build 324 — never restored: every bar comes only from the shared record (was build 128's saved copy)
       afState.archiveDate = null;   // always open on today, never on a date left over from last time
-      afState.favL = s.af.favL || [];
-      afState.favT = s.af.favT || [];
-      afState.favM = s.af.favM || [];
-      afState.favTab = s.af.favTab || 'matches';
-      afState.favAt  = favStamps(s.af.favAt);    // build 275 -- add/remove stamps drive the cloud merge
-      afState.favDel = favStamps(s.af.favDel);
       if(afState.activeLeagueId && afState.leagues[afState.activeLeagueId])
         afState.teamIds = afState.leagues[afState.activeLeagueId].teamIds || {};
     }
@@ -22470,6 +22597,7 @@ $('legalDraftNote').textContent = 'Version ' + LEGAL_VERSION + ' \u00b7 ' + LEGA
 /* v0.8 — search, tips fair-odds, settings */
 $('searchOpen').addEventListener('click', openSearch);
 $('searchClose').addEventListener('click', closeSearch);
+$('searchOverlay').addEventListener('keydown', searchKeydown);
 $('searchInput').addEventListener('input', e=>renderSearch(e.target.value));
 $('goFavs').addEventListener('click', ()=>navTo('favs'));
 
@@ -22530,11 +22658,13 @@ function pushSupport(){
   return {ok:true};
 }
 
-async function saveSubscription(sub){
-  if(!supa || !authUser) return false;
+async function saveSubscription(sub, owner=authUser&&authUser.id, epoch=_cloudAccountEpoch, client=supa){
+  const current=()=>!!owner && client===supa && personalToken(owner,epoch);
+  if(!client || !current()) return false;
   const j = sub.toJSON();
-  const { error } = await supa.from('push_subscriptions').upsert({
-    user_id: authUser.id,
+  if(!current()) return false;
+  const { error } = await client.from('push_subscriptions').upsert({
+    user_id: owner,
     endpoint: j.endpoint,
     p256dh: j.keys && j.keys.p256dh,
     auth:   j.keys && j.keys.auth,
@@ -22542,6 +22672,7 @@ async function saveSubscription(sub){
     tz: prefs.tz || (function(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone; }catch(e){ return ''; } })(),
     updated_at: new Date().toISOString()
   }, { onConflict:'endpoint' });
+  if(!current()) return false;
   if(error){ console.error('push save', error.message); return false; }
   return true;
 }
@@ -22549,8 +22680,11 @@ async function enablePush(){
   const sup = pushSupport();
   if(!sup.ok){ $('notifNote').textContent = sup.why; $('notifTypes').classList.remove('hidden'); return; }
   if(!supa || !authUser){ toast('Sign in first — notifications are tied to your account'); return; }
-
+  const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>client===supa && personalToken(owner,epoch);
+  if(!current()) return;
   const perm = await Notification.requestPermission();
+  if(!current()) return;
   if(perm !== 'granted'){
     $('notifNote').textContent = perm === 'denied'
       ? 'Notifications are blocked for MatchMind in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
@@ -22560,26 +22694,39 @@ async function enablePush(){
   }
   try{
     const reg = await navigator.serviceWorker.ready;
+    if(!current()) return;
     let sub = await reg.pushManager.getSubscription();
+    if(!current()) return;
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64ToUint8(VAPID_PUBLIC) });
+    if(!current()) return;
     if(!notif.kickoff && !notif.result && !notif.digest) notif.kickoff = true;   // a sensible default
-    const ok = await saveSubscription(sub);
+    const ok = await saveSubscription(sub,owner,epoch,client);
+    if(!current()) return;
     savePrefs(); renderNotif();
     toast(ok ? 'Notifications on' : 'Could not save your subscription — try again');
   }catch(e){
+    if(!current()) return;
     $('notifNote').textContent = 'Could not turn on notifications: ' + e.message;
     renderNotif();
   }
 }
 async function disablePush(){
+  if(!supa || !authUser) return;
+  const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>client===supa && personalToken(owner,epoch);
+  if(!current()) return;
   try{
     const reg = await navigator.serviceWorker.ready;
+    if(!current()) return;
     const sub = await reg.pushManager.getSubscription();
+    if(!current()) return;
     if(sub){
-      if(supa && authUser) await supa.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await client.from('push_subscriptions').delete().eq('endpoint', sub.endpoint).eq('user_id',owner);
+      if(!current()) return;
       await sub.unsubscribe();
+      if(!current()) return;
     }
-  }catch(e){}
+  }catch(e){if(!current()) return;}
   notif.kickoff = notif.result = notif.digest = false;
   savePrefs(); renderNotif(); toast('Notifications off');
 }
@@ -22588,11 +22735,15 @@ async function disablePush(){
 async function ensurePushFresh(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if(!supa || !authUser) return;
-  if(Notification.permission !== 'granted') return;
+  const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>client===supa && personalToken(owner,epoch);
+  if(!current() || Notification.permission !== 'granted') return;
   try{
     const reg = await navigator.serviceWorker.ready;
+    if(!current()) return;
     const sub = await reg.pushManager.getSubscription();
-    if(sub && (notif.kickoff || notif.result || notif.digest)) await saveSubscription(sub);
+    if(!current()) return;
+    if(sub && (notif.kickoff || notif.result || notif.digest)) await saveSubscription(sub,owner,epoch,client);
   }catch(e){}
 }
 function renderNotif(){
@@ -22668,11 +22819,15 @@ $('notifMainBtn').addEventListener('click', ()=>{
   on ? disablePush() : enablePush();
 });
 document.querySelectorAll('[data-nt]').forEach(b=>b.addEventListener('click', async ()=>{
+  const owner=_personalOwner, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>client===supa && personalToken(owner,epoch);
+  if(!current()) return;
   const k = b.dataset.nt; notif[k] = !notif[k];
   if(!notif.kickoff && !notif.result && !notif.digest){ await disablePush(); return; }
   savePrefs(); renderNotif();
-  try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription();
-       if(sub) await saveSubscription(sub); }catch(e){}
+  try{ const reg=await navigator.serviceWorker.ready; if(!current()) return;
+       const sub=await reg.pushManager.getSubscription(); if(!current()) return;
+       if(sub) await saveSubscription(sub,owner,epoch,client); }catch(e){}
 }));
 /* The service worker asks the app to open a match when a notification is tapped while it is running. */
 if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev=>{
@@ -23522,7 +23677,7 @@ if(window.matchMedia){
   mq.addEventListener ? mq.addEventListener('change', onmq) : mq.addListener(onmq);
 }
 setupBackHandler();
-loadAISettings(); renderAISettings();   // AI writer provider selection (#20)
+loadAISettings(); personalSelect(null); renderAISettings();   // keys remain device-local; personal choices are partitioned
 loadAFExtras();                         // API-Football extras opt-in (build 40)
 if(supa) refreshServerProviders();      // ask the proxy which writers it has keys for (build 39)
 initSupabase();                          // accounts + sync (guest mode until configured)

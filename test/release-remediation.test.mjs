@@ -36,7 +36,7 @@ test('auth completion tolerates account DOM replacement and failed logout preser
 });
 test('sync badge requires confirmed write, handles returned/rejected errors and retains local data',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
-  cloudEnabled=()=>true;aiShadowGate=async()=>{};authUser={id:'user-a'};let mode='error',callback;
+  cloudEnabled=()=>true;aiShadowGate=async()=>{};onAuth({id:'user-a'});_personalCloudReady=true;let mode='error',callback;
   const old=setTimeout;setTimeout=(fn,ms)=>ms===1200?(callback=fn,123):old(fn,ms);clearTimeout=()=>{};
   supa={from:()=>({upsert:async()=>{if(mode==='reject')throw Error('synthetic failure');return{error:mode==='error'?{message:'denied'}:null};}})};
   const local=JSON.stringify(afState.record);renderAccount();const idle=$('acctSynced').textContent;
@@ -50,8 +50,8 @@ test('delayed account pull/push cannot merge or acknowledge across account owner
   cloudEnabled=()=>true;aiShadowGate=async()=>{};refreshSkills=async()=>{};let resolveRead,writes=0,callback;
   const old=setTimeout;setTimeout=(fn,ms)=>ms===1200?(callback=fn,321):old(fn,ms);clearTimeout=()=>{};
   supa={from:()=>({select:()=>({eq:()=>({maybeSingle:()=>new Promise(resolve=>resolveRead=resolve)})}),upsert:async()=>{writes++;return{error:null};}})};
-  authUser={id:'user-a'};afState.record=[];const pull=cloudPullMerge();cloudPush();onAuth(null);
-  authUser={id:'user-b'};resolveRead({error:null,data:{record:[{fxid:123,pick:'1'}],fav_leagues:[135]}});await pull;await callback();
+  onAuth({id:'user-a'});afState.record=[];const pull=cloudPullMerge();const resolveOld=resolveRead;_personalCloudReady=true;cloudPush();onAuth(null);
+  onAuth({id:'user-b'});resolveOld({error:null,data:{record:[{fxid:123,pick:'1'}],fav_leagues:[135]}});await pull;await callback();
   return{writes,records:afState.record.length,badge:$('acctSynced').textContent};
  });assert.equal(r.writes,0);assert.equal(r.records,0);assert.notEqual(r.badge,'synced');
 });
@@ -125,7 +125,7 @@ test('provider probability contract preserves zeros and rejects malformed/missin
 });
 test('new writes wait for old write completion; malformed acknowledgement never says synced',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
-  cloudEnabled=()=>true;aiShadowGate=async()=>{};authUser={id:'user-a'};let callback,resolveOld;const requests=[];
+  cloudEnabled=()=>true;aiShadowGate=async()=>{};onAuth({id:'user-a'});_personalCloudReady=true;let callback,resolveOld;const requests=[];
   const old=setTimeout;setTimeout=(fn,ms)=>ms===1200?(callback=fn,777):old(fn,ms);clearTimeout=()=>{};
   supa={from:()=>({upsert:payload=>{requests.push(payload);if(requests.length===1)return new Promise(resolve=>resolveOld=resolve);return Promise.resolve({error:null});}})};
   afState.favL=[1];cloudPush();const first=callback();await Promise.resolve();

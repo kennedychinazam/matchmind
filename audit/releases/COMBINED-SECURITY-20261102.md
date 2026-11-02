@@ -1,0 +1,13 @@
+# Combined account/Search review candidate
+
+Director-authorized isolated integration of Search commit `0dfec61197a274d12208e4384619f0b5d2c30866` and ownership commit `fcbe30c702f57389836ed5b6d96923a7c9e03741`, based on consolidated candidate `8acf62144c8a5df759ab95c98d813d7de4e171e5`. Original PR19/20 branches remain draft/unmerged and unchanged. Source commits were cherry-picked with provenance; only their workflow branch-filter additions conflicted, resolved by retaining both and enabling this integration branch. index.html merged automatically and was reviewed as a combined artifact.
+
+One integration defect was reproduced before correction: account changes retained the previous Search query/no-match text. Search indexes the public football corpus rather than personal favourites/history, so the fix clears the query/results on actual identity transitions and restores input focus when removal disconnects a focused result. It retains the public corpus, existing modal/inert behavior, closing/reopening and private ownership boundaries. Seven interaction cases cover switching, public/private source distinction, signout focus, quarantine, delayed reads and queued writes. The visible account-opener fixture was strengthened after independent review found an incorrect view identifier; its partial full-suite run is not counted as a pass.
+
+Complete combined Node20/24 and exact-head CI results belong to this integration PR's checks and Director checkpoint. The two predecessor matrices alone do not certify this artifact. Independent frontend and security review target the actual combined source. No Build355 math, canonical forecasts, archives, finances, source collection or credential-handling changes are introduced by integration.
+
+Credential storage/use and separate account-deletion lifecycle findings are a proposal-only security decision. Device-wide keys remain unisolated; no encryption, whole-profile privacy, credential erasure, live RLS or actual-device acceptance is claimed. Current acceptance must use keyless synthetic actors and disabled/intercepted provider-generation routes.
+
+Keep this PR draft/unmerged; publication NO-GO. No production, hosted operation, provider request, paid AI, merge or deployment. API-Football remains primary; rights/entitlement, nonproduction backend, physical-device/PWA and credential/lifecycle gates remain outstanding. No provider replacement work is included.
+
+Rollback before deployment: leave candidate unapplied. Any later rollback needs a separately approved reviewed containment/revert and exact-head/cache/device acceptance. Preserve all owner, guest, legacy quarantine, frozen/archival and financial data; do not clear origin storage or restore ambiguous bytes into active state as rollback.
