@@ -8,6 +8,7 @@ on:
       - codex/settlement-ordering-20261101
       - codex/release-remediation-20261101
       - codex/search-accessibility-20261102
+      - codex/account-ownership-20261102
     paths:
       - 'index.html'
       - 'sw.js'
