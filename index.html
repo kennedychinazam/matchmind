@@ -5423,6 +5423,13 @@ function openSearch(){
   clearTimeout(searchFocusTimer);
   searchFocusTimer=setTimeout(()=>{ searchFocusTimer=null; if(!overlay.classList.contains('hidden')) input.focus(); },50);
 }
+// A query can reveal the previous account's interests even when Search only indexes public data.
+function clearSearchForIdentity(){
+  const overlay=$('searchOverlay'), input=$('searchInput'), results=$('searchResults');
+  const moveFocus=!overlay.classList.contains('hidden') && results.contains(document.activeElement);
+  input.value=''; renderSearch('');
+  if(moveFocus) input.focus();
+}
 function closeSearch(){
   clearTimeout(searchFocusTimer); searchFocusTimer=null;
   const overlay=$('searchOverlay'); if(overlay.classList.contains('hidden')) return;
@@ -22372,6 +22379,7 @@ function initSupabase(){
 function onAuth(user){
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
+    clearSearchForIdentity();
     personalStore(_personalOwner,_cloudAccountEpoch);
     ++_cloudAccountEpoch; ++_cloudPushVersion; clearTimeout(_cloudPushT);
     _personalCloudReady=false;
