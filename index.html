@@ -870,7 +870,7 @@
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Erases your account, favourites and prediction record. Cannot be undone.</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Requests account deletion. Device copies are retained; completed erasure is not independently verified.</div></div></div>
         <button class="btn" id="delAcctBtn" style="border-color:var(--red); color:var(--red)">Delete</button>
       </div>
       <div class="subnote" id="delAcctNote"></div>
@@ -21378,7 +21378,7 @@ const LEGAL_PAGES = {
 <p>The app’s own published record is the only representation we make about accuracy, and it includes the shortfall. Across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed, an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. We give no other representation or warranty about accuracy, availability, continuity or results, and none is to be implied, except where one cannot lawfully be excluded.</p>
 <h3>6. Your account</h3>
 <p>An account is an email address and a password. It exists so that your favourites and your copy of the record reach your other devices. Keep your password confidential: you are responsible for what is done through your account. Accounts are personal, and you may not share or transfer one.</p>
-<p>You can delete your account at any time, yourself, in More → Your data → Delete my account. It takes effect immediately and removes the data described in the Privacy notice.</p>
+<p>You can request account deletion in More → Your data → Delete my account. The app reports the server’s acknowledgement; it does not independently verify completed server-side erasure or device sign-out. Device copies and backups are retained for separate review.</p>
 <h3>7. Acceptable use</h3>
 <p>MatchMind is for your own personal, non-commercial use. You must not:</p>
 <ul>
@@ -21417,10 +21417,10 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <p>Nothing about you is sent anywhere. The app loads public football data and stores it on your device. No account, no personal data, nothing transmitted.</p>
 <h3>3. What is held if you do have an account, and why</h3>
 <ul>
-<li><b>Your email address and password</b>, to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Supabase operates authentication. The app sends your password to that service and does not store it. <b>Retained</b> until you delete your account.</li>
-<li><b>Your favourites and your own copy of the prediction record</b>, so that they appear on your other devices. Basis: performance of our contract with you. <b>Retained</b> until you delete your account, and removed automatically when you do.</li>
-<li><b>Your notification registration</b>, only if you switch notifications on. That is the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you can withdraw at any time. <b>Retained</b> until you switch notifications off or delete your account. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
-<li><b>A count of AI write-ups you have requested</b>, only if you use that feature, to apply the shared allowance. Basis: your consent. <b>Retained</b> until you delete your account.</li>
+<li><b>Your email address and password</b>, to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Supabase operates authentication. The app sends your password to that service and does not store it. <b>Account-deletion requests</b> and their verification limits are described in clause 8.</li>
+<li><b>Your favourites and your own copy of the prediction record</b>, so that they appear on your other devices. Basis: performance of our contract with you. <b>Account-deletion requests</b> and their verification limits are described in clause 8; device copies are retained.</li>
+<li><b>Your notification registration</b>, only if you switch notifications on. That is the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you can withdraw at any time. <b>Retained</b> until you switch notifications off; account-deletion requests have the verification limits described in clause 8. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
+<li><b>A count of AI write-ups you have requested</b>, only if you use that feature, to apply the shared allowance. Basis: your consent. <b>Account-deletion requests</b> and their verification limits are described in clause 8.</li>
 </ul>
 <h3>4. What is held on your device only</h3>
 <p>Whether or not you have an account, the app stores four things on your device:</p>
@@ -21447,11 +21447,11 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <p>The app is served from, and account data is stored on, infrastructure outside Nigeria, the European Union and the United Kingdom. That means Supabase and GitHub, principally. Supabase’s data processing addendum incorporates the European Commission’s Standard Contractual Clauses and the United Kingdom’s International Data Transfer Addendum. The transfer is also necessary to perform our contract with you, because the service cannot be provided without it.</p>
 <h3>8. Your rights, and how to exercise each one here</h3>
 <ul>
-<li><b>Erasure.</b> More → Your data → Delete my account. It runs the app’s delete-account function, which removes your account, your favourites, your copy of the record, every notification registration and your AI count. It takes effect immediately, and you don’t have to ask anyone.</li>
+<li><b>Erasure.</b> More → Your data → Delete my account sends an account-deletion request to the server. A success response acknowledges that request; this app does not independently verify completed server-side erasure or device sign-out. Local personal data, credentials, quarantine copies and backups are retained for separate review.</li>
 <li><b>Rectification.</b> Your favourites, settings and notification choices are editable in the app at any time. For your email address, use the contact route in clause 1.</li>
 <li><b>Withdrawing consent, and objecting.</b> Go to More → Settings → Notifications and switch them off; the registration is then deleted. The AI feature stays off unless you switch it on in More → Data.</li>
 <li><b>Access, and a copy to take elsewhere.</b> Most of what is held is on your own screen. For the remainder, including your account record, use the contact route in clause 1.</li>
-<li><b>Restriction.</b> Use the contact route in clause 1, or delete your account, which removes the data outright.</li>
+<li><b>Restriction.</b> Use the contact route in clause 1. You can also request account deletion, subject to the erasure verification limits above.</li>
 <li><b>Complaining.</b> To the Nigeria Data Protection Commission. In the European Union, to the supervisory authority of your country (GDPR Article 77). In the United Kingdom, to the Information Commissioner’s Office. You can complain to them without going through us first.</li>
 </ul>
 <p>Exercising any of these rights is free.</p>
@@ -21514,7 +21514,7 @@ ${legalRecordLine()}
 ${legalGap('A contact email on the project’s own domain. The domain does not exist yet, so there is nothing to print. A personal address is deliberately not used in its place.')}
 <h3>What you can do right now, without anyone’s help</h3>
 <ul>
-<li><b>Delete your account and the data tied to it</b>: More → Your data → Delete my account. It takes effect immediately.</li>
+<li><b>Request account deletion</b>: More → Your data → Delete my account. The app reports the server’s acknowledgement; completed erasure and device sign-out are not independently verified. Device copies and backups are retained.</li>
 <li><b>Switch notifications off</b>: More → Settings → Notifications.</li>
 <li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
 </ul>
@@ -22995,13 +22995,10 @@ $('delAcctBtn').addEventListener('click', async ()=>{
 
   const user=authUser, owner=user.id, epoch=_cloudAccountEpoch, client=supa;
   const current=()=>supa===client && authUser===user && authUser.id===owner && epoch===_cloudAccountEpoch && $('delAcctNote')===note;
-  const warn = 'This permanently deletes:\n\n'
-    + '  • your account and sign-in\n'
-    + '  • your starred matches, teams and leagues\n'
-    + '  • your prediction record\n'
-    + '  • notifications on every device\n\n'
-    + 'Device copies and backups are retained for separate review.\n'
-    + 'It cannot be undone. To confirm, type DELETE below.';
+  const warn = 'This requests permanent deletion of your account and associated server data.\n\n'
+    + 'A success response acknowledges the request; completed erasure and device sign-out are not independently verified by this app.\n'
+    + 'Device copies and backups are retained for separate review.\n\n'
+    + 'Deletion may be irreversible. To confirm, type DELETE below.';
   const typed = prompt(warn, '');
   if(!current()) return;
   if(typed === null) return;                      // they backed out
@@ -23031,12 +23028,28 @@ $('delAcctBtn').addEventListener('click', async ()=>{
     if(!current()) return;
     const j = await res.json().catch(()=>({}));
     if(!current()) return;
-    const latest=await ownedSession();
-    if(!current() || !latest || latest.access_token!==sessionToken) return;
     if(!res.ok || !j || j.ok!==true){
       note.textContent='Account deletion was not confirmed. Local data is retained; retry or contact support.';
       return;
     }
+    const acknowledged='The server acknowledged the account-deletion request. Completed server-side erasure and device sign-out are not independently verified. Local copies, credentials and backups are retained for separate review.';
+    let latest=null, sessionAbsent=false;
+    try{
+      const {data,error}=await client.auth.getSession();
+      if(!error){
+        const candidate=data && data.session;
+        sessionAbsent=candidate===null;
+        if(candidate && candidate.user && candidate.user.id===owner) latest=candidate;
+      }
+    }catch(_){}
+    if(!current()) return;
+    if(!sessionAbsent && (!latest || latest.access_token!==sessionToken)){
+      note.textContent=acknowledged+' Session verification is unavailable or changed; this app context has not been detached.';
+      return;
+    }
+    // A successful deletion may revoke the SDK session before its reply arrives.
+    // An absent session still permits detaching only the captured, current A app
+    // context; no SDK signout or other session mutation is involved.
     // Retain local copies; normal detachment snapshots only this owner’s personal
     // state. Credentials, guest/other-owner records and unknown backups are untouched.
     // The server implementation is unavailable here; its ok response confirms only its
@@ -23044,14 +23057,10 @@ $('delAcctBtn').addEventListener('click', async ()=>{
     const deleted=_deletedAccountOwners.get(client) || new Set();
     deleted.add(owner); _deletedAccountOwners.set(client,deleted);
     onAuth(null);
-    note.textContent='The server confirmed account deletion. This app session is detached; device sign-out is not verified. Local copies, credentials and backups are retained for separate review.';
+    note.textContent=acknowledged+' This app session is detached.';
   }catch(e){
     if(!current()) return;
-    // Recheck the session before publishing an error; do not echo untrusted details.
-    try{
-      const latest=await ownedSession();
-      if(!current() || !latest || (sessionToken && latest.access_token!==sessionToken)) return;
-    }catch(_){ return; }
+    // Report uncertainty only in the captured app context; never echo SDK/server details.
     note.textContent='Could not confirm account deletion. Local data is retained; check your connection and retry.';
   }
 });

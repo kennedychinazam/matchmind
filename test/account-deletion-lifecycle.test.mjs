@@ -139,7 +139,7 @@ test('confirmed current deletion preserves device copies and the existing server
     if(key==='mm_personal_v1:owner:A')assert.deepEqual(JSON.parse(h.storage.get(key)).favT,['A private']);
     else assert.equal(h.storage.get(key),raw,`retains ${key}`);
   }
-  assert.match(h.$('delAcctNote').textContent,/server.*confirm/i);assert.match(h.$('delAcctNote').textContent,/local.*retain|device.*retain/i);
+  assert.match(h.$('delAcctNote').textContent,/server.*acknowledg/i);assert.match(h.$('delAcctNote').textContent,/local.*retain|device.*retain/i);
   assert.doesNotMatch(h.$('delAcctNote').textContent,/all.*data.*deleted|all.*data.*erased/i);
 });
 test('a future SDK event for the deleted owner cannot reattach A while B remains usable',async()=>{
@@ -152,3 +152,28 @@ test('current deletion error retains data and does not echo untrusted server det
   assert.doesNotMatch(h.$('delAcctNote').textContent,/invented-sensitive-upstream-echo/);
   assert.match(h.$('delAcctNote').textContent,/could not|not confirmed/i);
 });
+for(const finalLookup of ['absent session','SDK error','SDK rejection','different owner','different token']){
+  test(`server acknowledgement with ${finalLookup} produces a truthful terminal result`,async()=>{
+    const h=harness();let reads=0;
+    h.setGetSession(async()=>{
+      if(++reads===1)return {data:{session:{user:{id:'A'},access_token:'invented-session-A'}},error:null};
+      if(finalLookup==='absent session')return {data:{session:null},error:null};
+      if(finalLookup==='SDK error')return {data:{session:null},error:{message:'invented-sensitive-SDK-error'}};
+      if(finalLookup==='SDK rejection')throw Error('invented-sensitive-SDK-rejection');
+      return {data:{session:{user:{id:finalLookup==='different owner'?'B':'A'},access_token:'invented-replacement-token'}},error:null};
+    });
+    const before=new Map(h.snapshot());await h.click();
+    assert.doesNotMatch(h.$('delAcctNote').textContent,/Deleting|invented-sensitive/);
+    assert.match(h.$('delAcctNote').textContent,/server.*acknowledg/i);
+    assert.match(h.$('delAcctNote').textContent,/not.*verif|unverified/i);
+    assert.match(h.$('delAcctNote').textContent,/local.*retain|device.*retain/i);
+    if(finalLookup==='absent session'){
+      assert.equal(h.context.authUser,null);h.run("onAuth({id:'A'})");assert.equal(h.context.authUser,null);
+    }else assert.equal(h.context.authUser?.id,'A');
+    for(const [key,raw] of before){
+      if(key==='mm_personal_v1:owner:A')assert.deepEqual(JSON.parse(h.storage.get(key)).favT,['A private']);
+      else assert.equal(h.storage.get(key),raw,`retains ${key}`);
+    }
+    assert.deepEqual(h.counters(),{signouts:0,reloads:0,alerts:0});
+  });
+}
