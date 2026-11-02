@@ -851,6 +851,17 @@
       </div>
     </div>
 
+    <div class="sec-label">Personal provider keys</div>
+    <div class="card">
+      <p>Keys saved for an account stay on this device. Guest keys last only for this session. Existing unassigned keys are retained and are not used.</p>
+      <label for="afKey">API-Football key</label><input id="afKey" type="password" autocomplete="off">
+      <button class="btn" id="afSaveKey">Save key for this account / use for this guest session</button><div id="afKeyStatus" role="status"></div>
+      <label><input type="checkbox" id="afKeyUse"> Allow API-Football requests this session</label>
+      <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiServerStatus"></div>
+      <label id="aiKeyLabel" for="aiKeyInput">AI API key</label><input id="aiKeyInput" type="password" autocomplete="off">
+      <button class="btn" id="aiSaveBtn">Save key for this account / use for this guest session</button><div id="keyStatus" role="status"></div>
+      <label><input type="checkbox" id="aiKeyUse"> Allow personal AI key fallback this session</label>
+    </div>
     <div class="sec-label" data-i18n="Your data">Your data</div>
     <div class="card">
       <h2>🔒 Your data</h2>
@@ -859,7 +870,7 @@
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Erases your account, favourites and prediction record. Cannot be undone.</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Requests account deletion. Device copies are retained; completed erasure is not independently verified.</div></div></div>
         <button class="btn" id="delAcctBtn" style="border-color:var(--red); color:var(--red)">Delete</button>
       </div>
       <div class="subnote" id="delAcctNote"></div>
@@ -895,12 +906,12 @@
         <div id="devStub" hidden aria-hidden="true">
       <span id="compCount"></span>
       <select id="homeTeam"></select><select id="awayTeam"></select>
-      <textarea id="scorerData"></textarea><input id="afKey" value="">
+      <textarea id="scorerData"></textarea>
       <input type="checkbox" id="afExtrasChk"><select id="afSeason"></select>
       <select id="uploadSport"></select><select id="btLeague"></select>
-      <input id="aiKeyInput" value=""><input type="date" id="archDate">
+      <input type="date" id="archDate">
       <input type="file" id="csvFile">
-      <button id="afLoadBtn"></button><button id="aiSaveBtn"></button>
+      <button id="afLoadBtn"></button>
       <button id="analyzeBtn"></button><button id="backtestBtn"></button>
       <button id="loadCsvBtn"></button><button id="motStudyBtn"></button>
       <button id="resetBtn"></button><button id="saveScorersBtn"></button>
@@ -925,9 +936,9 @@
       <button id="recBtn"></button><div id="recOut"></div>
       <button id="newBtn"></button><div id="newOut"></div>
       <button id="ncSweepBtn"></button><div id="ncSweepOut"></div>
-      <div id="afExtrasNote"></div><div id="afStatus"></div><div id="keyStatus"></div>
-      <div id="aiCompareChips"></div><div id="aiKeyLabel"></div><div id="aiProviderChips"></div>
-      <div id="aiServerStatus"></div><div id="btResults"></div><div id="dataStats"></div>
+      <div id="afExtrasNote"></div><div id="afStatus"></div>
+
+      <div id="btResults"></div><div id="dataStats"></div>
     </div>
     <div id="devStubAuto" hidden aria-hidden="true">
       <div id="m15Btn"></div>
@@ -2444,7 +2455,8 @@ function deLatex(s){
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
-async function callClaude(payload, key){
+async function callClaude(payload, key, credential){
+  credentialCheck(credential);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
@@ -2456,7 +2468,8 @@ async function callClaude(payload, key){
 }
 // OpenAI-compatible chat/completions (DeepSeek, Kimi/Moonshot, etc.)
 function openAICompat(url, model){
-  return async (payload, key)=>{
+  return async (payload, key, credential)=>{
+    credentialCheck(credential);
     const res = await fetch(url, {
       method:'POST',
       headers:{ 'content-type':'application/json', 'authorization':'Bearer '+key },
@@ -2505,17 +2518,23 @@ async function proxySession(){
   try{ const { data } = await supa.auth.getSession(); return data && data.session; }catch(e){ return null; }
 }
 // Calls the proxy. Throws an Error carrying flags the caller uses to decide whether to fall back.
-async function callProxy(payload, providerId){
+async function callProxy(payload, providerId, credential=credentialContext()){
+  credentialCheck(credential);
   const session = await proxySession();
-  if(!session){ const e = new Error('Sign in to use AI analysis.'); e.needsLogin = true; throw e; }
-  const res = await aiQueued(()=> fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+  credentialCheck(credential);
+  if(session && (!session.user || session.user.id!==credential.owner || !credential.owner)) throw Error("Credential session changed; retry.");
+  const accessToken=session && session.access_token;
+  if(typeof accessToken!=='string' || !accessToken){ const e = new Error('Sign in to use AI analysis.'); e.needsLogin = true; throw e; }
+  const res = await aiQueued(()=> { credentialCheck(credential); return fetch(SUPA_URL + '/functions/v1/ai-analyze', {
     method:'POST',
-    headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+    headers:{ 'content-type':'application/json', 'authorization':'Bearer '+accessToken, 'apikey': SUPA_KEY },
     body: JSON.stringify(payload===null ? {} : { prompt: AI_PROMPT + payload, provider: providerId, fxid: pendingMetaFxid || null })
-  }));
+  }); });
+  credentialCheck(credential);
   let j = {}; try{ j = await res.json(); }catch(_){}
+  credentialCheck(credential);
   if(!res.ok || !j.ok){
-    const e = new Error(j.error || ('HTTP '+res.status));
+    const e = new Error('AI service unavailable (HTTP '+res.status+').');
     e.quotaExceeded = !!j.quotaExceeded;
     e.needsLogin    = res.status===401;
     e.notConfigured = res.status===503;
@@ -2539,25 +2558,30 @@ function mergeQuota(j){
 }
 // Ask the server which providers it has keys for (used to label the Settings chips).
 async function refreshServerProviders(){
-  try{ const j = await callProxy(null, null); aiServerProviders = (j.providers||[]).map(p=>p.id); mergeQuota(j); }
-  catch(e){ aiServerProviders = e.needsLogin ? null : []; }
-  renderAISettings();
+  const credential=credentialContext();
+  try{ const j = await callProxy(null, null, credential); credentialCheck(credential); aiServerProviders = (j.providers||[]).map(p=>p.id); mergeQuota(j); }
+  catch(e){ if(!credentialStillCurrent(credential))return; aiServerProviders = e.needsLogin ? null : []; }
+  if(credentialStillCurrent(credential))renderAISettings();
 }
 /* Decides how a given analysis gets written: server first, personal key as fallback.
    Returns {text, via} or throws with a message already fit to show the user. */
-async function runAIWriter(providerId, payload){
+async function runAIWriter(providerId, payload, credential=credentialContext()){
+  credentialCheck(credential);
   const p = aiProviderById(providerId), ownKey = aiKeys[providerId];
   let serverErr = null;
   if(supa){
-    try{ const j = await callProxy(payload, providerId); return { text:j.text, via:'server', label:j.providerLabel || p.name }; }
+    try{ const j = await callProxy(payload, providerId, credential); return { text:j.text, via:'server', label:j.providerLabel || p.name }; }
     catch(e){
+      credentialCheck(credential);
       serverErr = e;
       // Out of quota is a deliberate stop, not a failure to route around — unless the user has
       // their own key, in which case they're paying and shouldn't be limited.
       if(e.quotaExceeded && !ownKey) throw e;
     }
   }
-  if(ownKey && p.run) return { text: await p.run(payload, ownKey), via:'own', label:p.name };
+  credentialCheck(credential);
+  if(ownKey && p.run && $('aiKeyUse') && $('aiKeyUse').checked){ const text=await p.run(payload, ownKey, credential); credentialCheck(credential); return { text, via:'own', label:p.name }; }
+  if(ownKey && p.run) throw new Error('Enable personal AI key fallback for this session to use the saved key.');
   if(serverErr) throw serverErr;
   throw new Error(p.run ? 'Add a '+p.name+' key in More → Settings, or sign in to use the shared allowance.'
                         : p.name+' needs the server — sign in to use it.');
@@ -2565,7 +2589,7 @@ async function runAIWriter(providerId, payload){
 function syncAIKeyField(){
   const p = aiProviderById(aiProvider);
   if($('aiKeyLabel')) $('aiKeyLabel').textContent = p.name + ' API key';
-  if($('aiKeyInput')){ $('aiKeyInput').placeholder = p.hint + '  ·  ' + p.where; $('aiKeyInput').value = aiKeys[aiProvider] || ''; }
+  if($('aiKeyInput')){ $('aiKeyInput').placeholder = p.hint + '  ·  ' + p.where; $('aiKeyInput').value = ''; $('aiKeyInput').placeholder += aiKeys[aiProvider] ? ' · saved' : ''; }
 }
 // "· 2 of 5 today" — only meaningful for analyses that used the shared server allowance
 function quotaNote(via){
@@ -2578,7 +2602,7 @@ function renderAISettings(){
   // ● marks a provider the server can write with — no personal key needed
   const onServer = (id)=> aiServerProviders && aiServerProviders.includes(id);
   pc.innerHTML = AI_PROVIDERS.map(p=>`<button class="sfchip${aiProvider===p.id?' active':''}" data-aip="${p.id}">${p.name}${onServer(p.id)?' ●':(p.browser?'':' *')}</button>`).join('');
-  pc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ aiProvider=b.dataset.aip; if(aiCompare===aiProvider) aiCompare=''; renderAISettings(); }));
+  pc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ if(aiProvider!==b.dataset.aip)++_credentialRevision; aiProvider=b.dataset.aip; if(aiCompare===aiProvider) aiCompare=''; renderAISettings(); }));
   const st = $('aiServerStatus');
   if(st){
     if(aiServerProviders===null) st.textContent = 'Sign in to use the shared AI allowance — no API key needed.';
@@ -2590,21 +2614,14 @@ function renderAISettings(){
   const cc = $('aiCompareChips');
   cc.innerHTML = `<button class="sfchip${!aiCompare?' active':''}" data-aic="">None</button>` +
     AI_PROVIDERS.filter(p=>p.id!==aiProvider).map(p=>`<button class="sfchip${aiCompare===p.id?' active':''}" data-aic="${p.id}">${p.name}</button>`).join('');
-  cc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ aiCompare=b.dataset.aic; renderAISettings(); }));
+  cc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ if(aiCompare!==b.dataset.aic)++_credentialRevision; aiCompare=b.dataset.aic; renderAISettings(); }));
   syncAIKeyField();
 }
 function aiSave(){
-  aiKeys[aiProvider] = ($('aiKeyInput').value||'').trim();
-  try{ localStorage.setItem('mm_ai', JSON.stringify({provider:aiProvider, compare:aiCompare, keys:aiKeys})); }catch(e){}
-  const p = aiProviderById(aiProvider), has = !!aiKeys[aiProvider];
-  $('keyStatus').textContent = has
-    ? `✓ ${p.name} set — analyses written by ${p.name}${aiCompare?` (comparing with ${aiProviderById(aiCompare).name})`:''}.`
-    : `${p.name} key cleared — using the built-in local writer.`;
-  renderAISettings(); saveState();
+  credentialSave('ai:'+aiProvider, ($('aiKeyInput').value||'').trim());
 }
 function loadAISettings(){
-  try{ const a=JSON.parse(localStorage.getItem('mm_ai')||'null');
-    if(a){ aiProvider=a.provider||'gemini'; aiCompare=a.compare||''; Object.assign(aiKeys, a.keys||{}); } }catch(e){}
+  // Legacy mm_ai is ownerless and remains untouched.
 }
 
 /* ---- the API-Football extras toggle (build 40) ---- */
@@ -2658,14 +2675,19 @@ const afRate = [];   // timestamps of recent requests — free plan allows 10/mi
      • Manual buttons (Load leagues, Discover) are untouched; they only run when pressed. */
 let afExtras = false;
 function afCloudOwnsFixtures(){ return !!supa; }
-function afExtrasOn(){ return !!afState.key && (afExtras || !supa); }
+function afExtrasOn(){ return !!afState.key && !!($('afKeyUse') && $('afKeyUse').checked) && (afExtras || !supa); }
 const AF_OFF_MSG = 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).';
-async function afAuto(path, base){
+async function afAuto(path, base, credential=credentialContext()){
+  credentialCheck(credential);
   if(!afExtrasOn()) throw new Error(AF_OFF_MSG);
-  return afFetch(path, base);
+  return afFetch(path, base, credential);
 }
 
-async function afFetch(path, base){
+async function afFetch(path, base, credential=credentialContext()){
+  credentialCheck(credential);
+  const key=afState.key;
+  if(!key || !$('afKeyUse') || !$('afKeyUse').checked) throw Error('Enable API-Football requests for this session first.');
+  if((base && base!==AF_BASE && base!==BK_BASE) || typeof path!=='string' || !path.startsWith('/') || path.startsWith('//')) throw Error('Invalid provider destination.');
   // self-throttle: never fire more than 9 requests in any 60s window
   for(;;){
     const now = Date.now();
@@ -2673,25 +2695,30 @@ async function afFetch(path, base){
     if(afRate.length < 9) break;
     await new Promise(r=>setTimeout(r, Math.max(600, 61500 - (now - afRate[0]))));
   }
+  credentialCheck(credential);
+  if(!$('afKeyUse') || !$('afKeyUse').checked)throw Error('API-Football permission changed; retry.');
   afRate.push(Date.now());
   afState.requests++;
   let res;
   try{
-    res = await fetch((base||AF_BASE) + path, { headers:{ 'x-apisports-key': afState.key } });
+    res = await fetch((base||AF_BASE) + path, { headers:{ 'x-apisports-key': key } });
   }catch(e){
     throw new Error('request blocked — this is usually the 10-requests-per-minute limit on free plans. Wait a minute and try again.');
   }
+  credentialCheck(credential);
   if(res.status === 429) throw new Error('rate limit reached (10/min on free plans) — wait a minute and try again.');
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
+  credentialCheck(credential);
   const errs = data.errors && (Array.isArray(data.errors) ? data.errors : Object.values(data.errors));
-  if(errs && errs.length) throw new Error(errs.join(' '));
+  if(errs && errs.length) throw new Error('The provider reported an error.');
   return data.response || [];
 }
 
 async function afLoadAll(){
+  const credential=credentialContext();
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
-  afState.key = $('afKey').value.trim();
+  /* credentials are activated only by the explicit save action */
   afState.season = $('afSeason').value;
   if(!afState.key){ alert('Enter your API-Football key first.'); return; }
   const btn = $('afLoadBtn'); btn.disabled = true;
@@ -2700,7 +2727,7 @@ async function afLoadAll(){
     $('afStatus').textContent = `Loading ${L.name}…`;
     try{
       // finished results (1 request)
-      const ft = await afFetch(`/fixtures?league=${L.id}&season=${afState.season}&status=FT`);
+      const ft = await afFetch(`/fixtures?league=${L.id}&season=${afState.season}&status=FT`, undefined, credential);
       if(!ft.length){ lastErr = L.name+': no results for this season'; continue; }
       const teamIds = {};
       const matches = ft.map(f=>{
@@ -2709,9 +2736,9 @@ async function afLoadAll(){
         return {date:f.fixture.date.slice(0,10), home:f.teams.home.name, away:f.teams.away.name, hg:+f.goals.home, ag:+f.goals.away};
       }).sort((a,b)=> a.date<b.date?-1:1);
       // upcoming fixtures — this season, else next (1–2 requests)
-      let ns = await afFetch(`/fixtures?league=${L.id}&season=${afState.season}&status=NS`);
+      let ns = await afFetch(`/fixtures?league=${L.id}&season=${afState.season}&status=NS`, undefined, credential);
       if(!ns.length){
-        try{ ns = await afFetch(`/fixtures?league=${L.id}&season=${+afState.season+1}&status=NS`); }catch(e){ ns=[]; }
+        try{ ns = await afFetch(`/fixtures?league=${L.id}&season=${+afState.season+1}&status=NS`, undefined, credential); }catch(e){ ns=[]; }
       }
       const upcoming = ns.slice(0,60).map(f=>{
         teamIds[f.teams.home.name]=f.teams.home.id; teamIds[f.teams.away.name]=f.teams.away.id;
@@ -2734,6 +2761,7 @@ async function afLoadAll(){
       loaded++;
     }catch(e){ lastErr = L.name+': '+e.message; }
   }
+  if(!credentialStillCurrent(credential)){btn.disabled=false;return;}
   if(loaded){
     const first = LEAGUES.find(L=>afState.leagues[L.id]);
     activateLeague(first.id);
@@ -2749,7 +2777,8 @@ async function afLoadAll(){
 
 // scan the whole football world for live competitions (≈13 requests)
 async function afDiscover(){
-  afState.key = afState.key || $('afKey').value.trim();
+  const credential=credentialContext();
+  /* use only the currently assigned credential */
   if(!afState.key){ alert('Add your API-Football key in the Data tab first.'); return; }
   const btn = $('discoverBtn'); btn.disabled = true;
   const st = $('discoverStatus');
@@ -2761,7 +2790,7 @@ async function afDiscover(){
       st.textContent = `Scanning ${day} for fixtures worldwide…`;
       try{
         const isBk = currentSport==='basketball';
-        const raw = await afFetch(isBk ? `/games?date=${day}` : `/fixtures?date=${day}`, isBk ? BK_BASE : undefined);
+        const raw = await afFetch(isBk ? `/games?date=${day}` : `/fixtures?date=${day}`, isBk ? BK_BASE : undefined, credential);
         scannedDays++;
         for(const r of raw){
           const norm = isBk
@@ -2773,6 +2802,7 @@ async function afDiscover(){
         }
       }catch(e){ dateErr = e.message; /* free plans only allow a narrow date window — keep what we can */ }
     }
+    if(!credentialStillCurrent(credential)){btn.disabled=false;return;}
     if(!scannedDays){ st.textContent = '✗ ' + dateErr; btn.disabled = false; return; }
     const windowNote = scannedDays<5 ? ` (free plan limited the scan to ${scannedDays} day${scannedDays>1?'s':''})` : '';
     const cands = Object.values(byLeague)
@@ -2818,11 +2848,12 @@ function activateLeague(id){
 }
 
 // top scorers per league, fetched once on first analysis (1 request)
-async function afEnsureScorers(id){
+async function afEnsureScorers(id, credential=credentialContext()){
+  credentialCheck(credential);
   const L = afState.leagues[id];
   if(!L || L.scorerText || !afExtrasOn()) return;
   try{
-    const ts = await afAuto(`/players/topscorers?league=${id}&season=${L.season||afState.season}`);
+    const ts = await afAuto(`/players/topscorers?league=${id}&season=${L.season||afState.season}`, undefined, credential);
     const lines = ts.map(p=>{ const st=p.statistics[0];
       return `${p.player.name},${st.team.name},${st.goals.total||0},${st.games.appearences||0}`; });
     if(lines.length){ L.scorerText = lines.join('\n'); $('scorerData').value = L.scorerText; loadScorers(L.scorerText, false); saveState(); }
@@ -2830,10 +2861,11 @@ async function afEnsureScorers(id){
 }
 
 // latest injury news for a team (1 request)
-async function afInjuries(team){
+async function afInjuries(team, credential=credentialContext()){
+  credentialCheck(credential);
   const id = afState.teamIds[team];
   if(!id || !afState.key || !afExtrasOn()) return null;
-  const list = await afAuto(`/injuries?team=${id}&season=${afState.season}`);
+  const list = await afAuto(`/injuries?team=${id}&season=${afState.season}`, undefined, credential);
   if(!list.length) return [];
   const latest = {};
   for(const item of list){
@@ -2856,6 +2888,51 @@ let currentSport = 'football';
 let aiProvider = 'gemini';   // default writer; the server picks another if it has no Gemini key
 let aiCompare = '';                    // '' = off, else a provider id to compare against
 const aiKeys = { gemini:'', claude:'', deepseek:'', kimi:'' };
+// Personal credentials are isolated from ordinary personal data and never read from legacy stores.
+let _credentialOwner=null, _credentialRevision=0, _credentialReady=true, _credentialStoredRaw=null, _credentialGuest=Symbol('guest session');
+const CREDENTIAL_PREFIX='mm_credentials_v1:';
+function credentialStorageKey(owner){return CREDENTIAL_PREFIX+encodeURIComponent(owner);}
+function credentialDetach(){
+  ++_credentialRevision; _credentialGuest=Symbol('guest session'); afState.key=''; for(const id of Object.keys(aiKeys)) aiKeys[id]='';
+  if($('afKey')) $('afKey').value=''; if($('aiKeyInput')) $('aiKeyInput').value='';
+  if($('afKeyUse')) $('afKeyUse').checked=false; if($('aiKeyUse')) $('aiKeyUse').checked=false;
+  if($('afKeyStatus')) $('afKeyStatus').textContent=''; if($('keyStatus')) $('keyStatus').textContent='';
+}
+function credentialSelect(owner){
+  credentialDetach(); _credentialOwner=owner; _credentialReady=true; _credentialStoredRaw=null;
+  if(!_personalReady){_credentialReady=false;if($('afKeyStatus'))$('afKeyStatus').textContent='Credentials unavailable while local data needs attention.';return;}
+  if(owner===null)return;
+  if(typeof owner!=='string' || !owner){_credentialReady=false;return;}
+  try{
+    const raw=localStorage.getItem(credentialStorageKey(owner)); if(raw===null)return;
+    const v=JSON.parse(raw);
+    if(!v || v.version!==1 || v.owner!==owner || !v.slots || typeof v.slots!=='object' || Array.isArray(v.slots) ||
+       Object.keys(v.slots).some(k=>!['af','ai:gemini','ai:claude','ai:deepseek','ai:kimi'].includes(k) || typeof v.slots[k]!=='string')) throw Error('Invalid credential store');
+    _credentialStoredRaw=raw;
+    afState.key=v.slots.af||''; for(const id of Object.keys(aiKeys))aiKeys[id]=v.slots['ai:'+id]||'';
+    if($('afKeyStatus')) $('afKeyStatus').textContent=afState.key?'Saved for this account.':'';
+  }catch(e){_credentialReady=false; if($('afKeyStatus')) $('afKeyStatus').textContent='Credentials could not be read; use is paused.';}
+}
+function credentialSave(slot,value){
+  const owner=authUser&&authUser.id||null, status=$(slot==='af'?'afKeyStatus':'keyStatus');
+  if(!['af','ai:gemini','ai:claude','ai:deepseek','ai:kimi'].includes(slot) || typeof value!=='string'){if(status)status.textContent='Invalid key selection.';return false;}
+  if(!_credentialReady || !_personalReady || owner!==_credentialOwner || _personalOwner!==owner){if(status)status.textContent='Credentials unavailable; retry after signing in.';return false;}
+  const slots={af:afState.key}; for(const id of Object.keys(aiKeys))slots['ai:'+id]=aiKeys[id]; slots[slot]=value;
+  if(owner!==null){
+    try{ const key=credentialStorageKey(owner), old=localStorage.getItem(key); if(old!==_credentialStoredRaw)throw Error('Credential store changed'); const raw=JSON.stringify({version:1,owner,slots}); localStorage.setItem(key,raw); _credentialStoredRaw=raw; }
+    catch(e){credentialDetach();_credentialReady=false;if(status)status.textContent='Could not save; credential use is paused.';return false;}
+  }
+  ++_credentialRevision; if(slot==='af')afState.key=value;else aiKeys[slot.slice(3)]=value;
+  if(slot==='af' && $('afKey'))$('afKey').value=''; if(slot!=='af' && $('aiKeyInput'))$('aiKeyInput').value='';
+  if(status)status.textContent=value?(owner?'Saved for this account.':'Enabled for this guest session.'):'Key disconnected.';
+  return true;
+}
+function credentialContext(){return {owner:_credentialOwner, epoch:_cloudAccountEpoch, revision:_credentialRevision, generation:_analysisGeneration, client:supa, provider:aiProvider, compare:aiCompare, guest:_credentialOwner===null?_credentialGuest:null};}
+function credentialStillCurrent(c){try{credentialCheck(c);return true;}catch(e){return false;}}
+function credentialCheck(c){
+  if(!c || !_credentialReady || !_personalReady || c.owner!==_credentialOwner || c.owner!==_personalOwner || c.epoch!==_cloudAccountEpoch || c.revision!==_credentialRevision || c.generation!==_analysisGeneration || c.client!==supa || c.provider!==aiProvider || c.compare!==aiCompare || (c.owner===null && c.guest!==_credentialGuest) || (authUser&&authUser.id||null)!==c.owner) throw Error('Credential session changed; retry.');
+}
+
 let discoverPinned = false;   // keep Discover card visible while a dropdown-triggered scan runs (#15)
 let pendingMeta = null;       // {comp,country,date,time,fxid,lid,home,away} threaded openFixture→analyze for the detail header (#16)
 
@@ -5490,7 +5567,7 @@ function renderSearch(q){
       html+=`<div class="sres" role="button" tabindex="0" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
   if(comps.length){ html+='<div class="sres-grp">Competitions</div>';
     for(const L of comps){ const i=crefs.length; crefs.push(L);
-      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${competitionBadge(L)} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
   if(teams.length){ html+='<div class="sres-grp">Teams</div>';
     for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" role="button" tabindex="0" data-t="${i}">${crest(t)}${t}</div>`; } }
   box.innerHTML=html;
@@ -9372,6 +9449,7 @@ let pendingFrozenPred = null;
 
 async function analyze(){
   const analysisTurn=++_analysisGeneration;
+  const credential=credentialContext();
   const sport = currentSport;
   const home = $('homeTeam').value, away = $('awayTeam').value;
   if(home===away){ alert('Pick two different teams.'); return; }
@@ -9738,12 +9816,12 @@ async function analyze(){
   // injuries (API-Football, football only)
   let injuries = null;
   $('acc-injuries').classList.add('hidden'); $('injuryBox').innerHTML = '';
-  afState.key = afState.key || $('afKey').value.trim();
+  /* use only the currently assigned credential */
   if(sport==='football' && afState.key && afState.teamIds[home] && afState.teamIds[away]){
     $('acc-injuries').classList.remove('hidden');
     $('injuryBox').textContent = 'Loading injury news…';
     try{
-      const [injH, injA] = await Promise.all([afInjuries(home), afInjuries(away)]);
+      const [injH, injA] = await Promise.all([afInjuries(home,credential), afInjuries(away,credential)]);
       injuries = {[home]: injH||[], [away]: injA||[]};
       const fmt = (team,list)=> `<b style="color:var(--text)">${team}:</b> ` + (list.length
         ? list.map(i=>`${i.name} (${i.reason||i.type||'unavailable'})`).join(', ')
@@ -9776,13 +9854,13 @@ async function analyze(){
   // AI write-up: via the server proxy when signed in, or a personal key if one is saved (build 39)
   const _prov = aiProviderById(aiProvider), _key = aiKeys[aiProvider];
   const _session = supa ? await proxySession() : null;
-  if(analysisTurn!==_analysisGeneration)return;
+  if(analysisTurn!==_analysisGeneration || !credentialStillCurrent(credential))return;
   if(_key || _session){
     $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_prov.name+'…';
     $('aiStatus').classList.remove('hidden');
     const payload = enginePayloadStr(ctx);
     try{
-      const r = await runAIWriter(aiProvider, payload);
+      const r = await runAIWriter(aiProvider, payload, credential);
       if(analysisTurn!==_analysisGeneration) return;
       $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label;
       $('analysisText').textContent = deLatex(r.text);
@@ -9792,7 +9870,7 @@ async function analyze(){
         const _p2 = aiProviderById(aiCompare);
         $('aiStatus').innerHTML = '<span class="spinner"></span>Asking '+_p2.name+' too…';
         try{
-          const r2 = await runAIWriter(aiCompare, payload);
+          const r2 = await runAIWriter(aiCompare, payload, credential);
           if(analysisTurn!==_analysisGeneration) return;
           $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label + ' vs ' + r2.label;
           $('analysisText').innerHTML = `<div class="cmp"><div class="cmp-h">${r.label}</div>${escapeHtml(deLatex(r.text))}</div><div class="cmp"><div class="cmp-h">${r2.label}</div>${escapeHtml(deLatex(r2.text))}</div>`;
@@ -10077,6 +10155,7 @@ const ctxSeen = new Map();   // fxid -> rendered HTML, so re-opening a match cos
 const AI_CONTEXT_ON = false;
 
 async function fetchMatchContext(){
+  const credential=credentialContext();
   const box = $('ctxOut'); if(!box || !ctxFixture) return;
   if(!AI_CONTEXT_ON){
     box.innerHTML = '<div class="subnote">Live team news is switched off. It needs Google\'s web-search grounding, which is <b>not available on the free tier</b> — every request was being refused, which is what produced the rate-limit message you used to see here. The engine\'s odds above are unaffected: they are results-based and never included team news.</div>';
@@ -10093,14 +10172,18 @@ async function fetchMatchContext(){
   const ask = `Fixture: ${f.home} vs ${f.away}` + (f.comp?` in the ${f.comp}`:'') + (f.date?` on ${f.date}`:'') + '.';
   try{
     const session = await proxySession();
-    if(!session){ box.innerHTML = '<div class="subnote">Sign in to include live team news in the odds.</div>'; return; }
-    const res = await aiQueued(()=> fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+    credentialCheck(credential);
+    const accessToken=session && session.access_token;
+    if(!session || !session.user || session.user.id!==credential.owner || typeof accessToken!=='string' || !accessToken){ box.innerHTML = '<div class="subnote">Sign in to include live team news in the odds.</div>'; return; }
+    const res = await aiQueued(()=> { credentialCheck(credential); return fetch(SUPA_URL + '/functions/v1/ai-analyze', {
       method:'POST',
-      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+accessToken, 'apikey': SUPA_KEY },
       body: JSON.stringify({ prompt: ask, mode:'context', fxid: f.fxid || null })
-    }));
+    }); });
+    credentialCheck(credential);
     let j = {}; try{ j = await res.json(); }catch(_){}
-    if(!res.ok || !j.ok){ box.innerHTML = `<div class="subnote">${escapeHtml(j.error||'Team news unavailable — the odds above are the engine\'s own.')}</div>`; return; }
+    credentialCheck(credential);
+    if(!res.ok || !j.ok){ box.innerHTML = '<div class="subnote">Team news unavailable — the odds above are the engine’s own.</div>'; return; }
     mergeQuota(j);
     const C = j.context || {}, srcs = j.sources || [];
     const hM = Number(C.homeMult)||1, aM = Number(C.awayMult)||1;
@@ -10136,6 +10219,7 @@ async function fetchMatchContext(){
       (j.cached ? '<div class="subnote">From cache — team news is refreshed every 6 hours.</div>' : '');
     if(f.fxid) ctxSeen.set(f.fxid, box.innerHTML);
   }catch(e){
+    if(!credentialStillCurrent(credential))return;
     box.innerHTML = `<div class="subnote">Team news unavailable: ${escapeHtml(e.message||String(e))}</div>`;
   }
 }
@@ -16611,17 +16695,25 @@ async function renderArchiveDay(){
 }
 
 /* ---------- crests & hero helpers ---------- */
+/* Release default: provider correspondence does not clear third-party visual rights.
+   This source-only option has no URL/localStorage override. Keep logo metadata for
+   numeric team-id model inputs; never pass its cached URLs to a rendering sink. */
+const THIRD_PARTY_BRANDING_ENABLED = false;
 function regLogo(t){ if(t && t.name && t.logo) afState.logos[t.name] = t.logo; }
-function crest(name){
-  const u = afState.logos && afState.logos[name];
-  return u ? `<img class="crest" src="${u}" loading="lazy" onerror="this.style.visibility='hidden'">`
-           : `<span class="crest mono">${(name||'?').slice(0,2).toUpperCase()}</span>`;
+function crest(name, big=false){
+  const cls = 'crest' + (big ? ' big' : '');
+  const u = THIRD_PARTY_BRANDING_ENABLED && afState.logos && afState.logos[name];
+  return u ? `<img class="${cls}" src="${escapeHtml(String(u))}" loading="lazy" onerror="this.style.visibility='hidden'">`
+           : `<span class="${cls} mono">${escapeHtml(String(name||'?').slice(0,2).toUpperCase())}</span>`;
+}
+function competitionBadge(L){
+  if(!THIRD_PARTY_BRANDING_ENABLED) return '🏆';
+  if(L.flag) return escapeHtml(String(L.flag));
+  const u = L.logo || L.llogo;
+  return u ? `<img src="${escapeHtml(String(u))}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆';
 }
 function heroSide(name, label){
-  const u = afState.logos && afState.logos[name];
-  const big = u ? `<img class="crest big" src="${u}" loading="lazy" onerror="this.style.visibility='hidden'">`
-               : `<span class="crest big mono">${(name||'?').slice(0,2).toUpperCase()}</span>`;
-  return `${big}<div>${name}</div><div class="venue">${label}</div>`;
+  return `${crest(name,true)}<div>${escapeHtml(String(name||''))}</div><div class="venue">${escapeHtml(String(label||''))}</div>`;
 }
 
 // fallback analysis via API-Football's own prediction model (works on all plans)
@@ -17010,6 +17102,7 @@ function renderFavLeagues(){
    ================================================================ */
 let curDetail = null;
 async function matchDetail(s){
+  const credential=credentialContext();
   curDetail = s;
   resetMatchPanels();
   navTo('detail');
@@ -17046,22 +17139,22 @@ async function matchDetail(s){
   $('luBox').innerHTML = '<div class="subnote">Tap to load lineups (1 request).</div>';
   $('luBox').dataset.loaded = '';
   try{
-    const ev = await afAuto(`/fixtures/events?fixture=${s.fxid}`);
+    const ev = await afAuto(`/fixtures/events?fixture=${s.fxid}`, undefined, credential);
     $('tlBox').innerHTML = ev.length ? ev.map(e=>{
       const ic = e.type==='Goal' ? '⚽' : e.type==='Card' ? ((e.detail||'').includes('Red')?'🟥':'🟨') : (String(e.type).toLowerCase()==='subst' ? '🔁' : '▪️');
       const extra = e.assist && e.assist.name ? ` <span class="muted">— ${String(e.type).toLowerCase()==='subst'?'for':'assist'} ${e.assist.name}</span>` : '';
       return `<div class="frow"><span class="muted" style="width:44px">${e.time.elapsed}${e.time.extra?'+'+e.time.extra:''}'</span><span style="flex:1">${ic} ${e.player&&e.player.name||''} <span class="muted">(${e.team&&e.team.name||''})</span>${extra}</span></div>`;
     }).join('') : '<div class="subnote">No events yet.</div>';
-  }catch(e){ $('tlBox').innerHTML = '<div class="subnote">Timeline unavailable: '+e.message+'</div>'; }
+  }catch(e){ if(!credentialStillCurrent(credential))return; $('tlBox').innerHTML = '<div class="subnote">Timeline unavailable: '+e.message+'</div>'; }
   try{
-    const st = await afAuto(`/fixtures/statistics?fixture=${s.fxid}`);
+    const st = await afAuto(`/fixtures/statistics?fixture=${s.fxid}`, undefined, credential);
     if(st.length>=2){
       const H=st[0].statistics, A=st[1].statistics;
       const get=(arr,t)=>{ const x=(arr||[]).find(v=>v.type===t); return x&&x.value!=null?x.value:'–'; };
       const rows=[['Ball Possession','Possession'],['Total Shots','Total shots'],['Shots on Goal','Shots on target'],['Corner Kicks','Corners'],['Fouls','Fouls'],['Yellow Cards','Yellow cards'],['expected_goals','Expected goals (xG)']];
       $('msBox').innerHTML = rows.map(([t,lbl])=>`<div class="frow"><b style="width:58px">${get(H,t)}</b><span class="muted" style="flex:1;text-align:center">${lbl}</span><b style="width:58px;text-align:right">${get(A,t)}</b></div>`).join('');
     } else $('msBox').innerHTML = '<div class="subnote">Stats not available for this match.</div>';
-  }catch(e){ $('msBox').innerHTML = '<div class="subnote">Stats unavailable.</div>'; }
+  }catch(e){ if(!credentialStillCurrent(credential))return; $('msBox').innerHTML = '<div class="subnote">Stats unavailable.</div>'; }
 }
 
 /* ================================================================
@@ -20224,6 +20317,7 @@ function aiShadowA1(L, f, P, hm, am){
            pW: +adj.pW.toFixed(4), pD: +adj.pD.toFixed(4), pL: +adj.pL.toFixed(4) };
 }
 async function aiShadowRun(){
+  const credential=credentialContext();
   if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher runs the AI shadow test' };
   /* build 347 (WO-45) - paused: nothing below runs, so no table read, no call to the function, no row */
   if(AI_SHADOW_PAUSED) return { ok: true, paused: true, candidates: 0, attempted: 0, written: 0 };
@@ -20231,6 +20325,7 @@ async function aiShadowRun(){
   const have = new Set();
   const ids = cands.map(c => +c.f.fxid);
   for(let i = 0; i < ids.length; i += 150){
+    credentialCheck(credential);
     const q = await supa.from(AI_SHADOW_TABLE).select('fxid').in('fxid', ids.slice(i, i + 150));
     if(q.error) return { ok: false, error: 'could not read ai_shadow: ' + q.error.message };
     for(const r of (q.data || [])) have.add(+r.fxid);
@@ -20239,6 +20334,7 @@ async function aiShadowRun(){
   let written = 0, aiErrors = 0, writeFailed = 0, grounded = 0;
   const errs = [];
   for(const c of todo){
+    credentialCheck(credential);
     const L = c.L, f = c.f;
     const P = fxPredict(L, f);
     if(!P) continue;
@@ -20252,16 +20348,18 @@ async function aiShadowRun(){
       if(attempt) await new Promise(r => setTimeout(r, 20000));
       try{
         const session = await proxySession();
-        if(!session) break;
+        credentialCheck(credential);
+        const accessToken=session && session.access_token;
+        if(!session || !session.user || session.user.id!==credential.owner || typeof accessToken!=='string' || !accessToken) break;
         const res = await fetch(SUPA_URL + '/functions/v1/ai-shadow', { method: 'POST',
-          headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_KEY },
+          headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + accessToken, 'apikey': SUPA_KEY },
           body: JSON.stringify({ mode: 'fixture', fx: fx }) });
         status = res.status;
         try{ j = await res.json(); }catch(_){ j = null; }
       }catch(err){ j = null; }
     }
     const scout = (j && j.scout) || null, judge = (j && j.judge) || null;
-    const errText = !(j && j.ok) ? ('HTTP ' + status + ((j && j.error) ? ': ' + j.error : ''))
+    const errText = !(j && j.ok) ? ('HTTP ' + status)
       : ([scout && !scout.ok ? 'scout: ' + (scout.err || 'failed') : null,
           judge && !judge.ok ? 'decider: ' + (judge.err || 'failed') : null].filter(Boolean).join('; ') || null);
     const row = {
@@ -20276,6 +20374,7 @@ async function aiShadowRun(){
       models: j ? { fn: j.fn || null, model: j.model || null, http: j.http || null, ms: j.ms || null } : null,
       err: errText
     };
+    credentialCheck(credential);
     const ins = await supa.from(AI_SHADOW_TABLE).insert(row);
     if(ins.error){ writeFailed++; errs.push(String(ins.error.message || ins.error).slice(0, 120)); }
     else {
@@ -20690,6 +20789,7 @@ function clearLegacyRecord(){
    into league history so the feeds, the detail header (#16) and the accuracy record update. */
 let _reconciling = false;
 async function reconcilePastScores(){
+  const credential=credentialContext();
   // superseded by loadCloudResults() when the backend is on (build 40)
   if(_reconciling || !afState.key || afCloudOwnsFixtures()) return;
   const today = todayStrLocal(), smap = scoreMap(), need = [];
@@ -20703,7 +20803,7 @@ async function reconcilePastScores(){
   try{
     for(const L of need.slice(0,3)){   // budget cap: at most 3 leagues per run
       try{
-        const ft = await afFetch(`/fixtures?league=${L.id}&season=${L.season||afState.season}&status=FT`);
+        const ft = await afFetch(`/fixtures?league=${L.id}&season=${L.season||afState.season}&status=FT`, undefined, credential);
         L.resultsAt = Date.now();
         if(ft.length){
           const seen = new Set((L.matches||[]).map(m=>m.date+m.home+m.away));
@@ -20717,6 +20817,7 @@ async function reconcilePastScores(){
         }
       }catch(e){ /* plan/budget blocked — skip this league */ }
     }
+    if(!credentialStillCurrent(credential))return;
     gradeFromHistory(); saveState();
     if(lastTab==='predict') renderFixtures();
     else if(lastTab==='favs') renderFavs();
@@ -20851,7 +20952,7 @@ async function afScores(silent){
   // when the backend is connected, the cloud is authoritative — never fall back to stale device data
   if(supa){ await afScoresFromCloud(); return; }
   // legacy path: direct API-Football call (only when no backend is configured)
-  afState.key = afState.key || $('afKey').value.trim();
+  /* use only the currently assigned credential */
   if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab.'; return; }
   try{
     const day = new Date().toISOString().slice(0,10);
@@ -20948,7 +21049,7 @@ function renderScores(){
   const rowRefs = [];
   for(const g of ordered){
     const s0 = g[0];
-    const badge = s0.llogo ? `<img src="${s0.llogo}" style="width:16px;height:16px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆';
+    const badge = competitionBadge(s0);
     html += `<div class="lghead">${badge} ${s0.lname} <span class="muted" style="font-size:.7rem;font-weight:600">${s0.lcountry}</span></div>`;
     for(const s of g){
       const isLive = LIVE_CODES.includes(s.status);
@@ -21043,6 +21144,7 @@ function setTeamSelect(id, name){
 }
 
 async function openFixture(leagueId, f, btn){
+  const credential=credentialContext();
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   resetMatchPanels();
   const L = afState.leagues[leagueId]; if(!L) return;
@@ -21052,7 +21154,7 @@ async function openFixture(leagueId, f, btn){
   if(L.matches.length < 15 && !L.histTried && !afCloudOwnsFixtures()){
     L.histTried = true;
     try{
-      const ft = await afFetch(`/fixtures?league=${leagueId}&season=${L.season||afState.season}&status=FT`);
+      const ft = await afFetch(`/fixtures?league=${leagueId}&season=${L.season||afState.season}&status=FT`, undefined, credential);
       if(ft.length){
         L.matches = ft.map(x=>{
           L.teamIds[x.teams.home.name]=x.teams.home.id; L.teamIds[x.teams.away.name]=x.teams.away.id;
@@ -21068,8 +21170,10 @@ async function openFixture(leagueId, f, btn){
         }
       }
     }catch(e){ /* plan-blocked — API prediction fallback below */ }
+    if(!credentialStillCurrent(credential)){if(btn)btn.disabled=false;return;}
     saveState();
   }
+  if(!credentialStillCurrent(credential)){if(btn)btn.disabled=false;return;}
   activateLeague(leagueId);
   if(btn) btn.disabled = false;
   pendingMeta = {comp:L.name, country:L.country||'', date:f.date, time:f.time, fxid:f.fxid, lid:L.id, home:f.home, away:f.away, pick:f.pick||null, prob:f.prob||null, status:(f.status||null), pW:f.pW??null, pD:f.pD??null, pL:f.pL??null};   // for detail header (#16)
@@ -21085,7 +21189,8 @@ async function openFixture(leagueId, f, btn){
   if(!predictsComp(L)){
     showNoAnalysis(f.home, f.away, {outOfScope:true, comp:L.name});   // build 327
   } else if(L.matches.length>=15){
-    await afEnsureScorers(leagueId);
+    await afEnsureScorers(leagueId, credential);
+    if(!credentialStillCurrent(credential))return;
     setTeamSelect('homeTeam', f.home); setTeamSelect('awayTeam', f.away);   // build 111 — see below
     await analyze();
     renderFixtures();
@@ -21281,7 +21386,7 @@ const LEGAL_PAGES = {
 <p>The app’s own published record is the only representation we make about accuracy, and it includes the shortfall. Across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed, an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. We give no other representation or warranty about accuracy, availability, continuity or results, and none is to be implied, except where one cannot lawfully be excluded.</p>
 <h3>6. Your account</h3>
 <p>An account is an email address and a password. It exists so that your favourites and your copy of the record reach your other devices. Keep your password confidential: you are responsible for what is done through your account. Accounts are personal, and you may not share or transfer one.</p>
-<p>You can delete your account at any time, yourself, in More → Your data → Delete my account. It takes effect immediately and removes the data described in the Privacy notice.</p>
+<p>You can request account deletion in More → Your data → Delete my account. The app reports the server’s acknowledgement; it does not independently verify completed server-side erasure or device sign-out. Device copies and backups are retained for separate review.</p>
 <h3>7. Acceptable use</h3>
 <p>MatchMind is for your own personal, non-commercial use. You must not:</p>
 <ul>
@@ -21320,10 +21425,10 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <p>Nothing about you is sent anywhere. The app loads public football data and stores it on your device. No account, no personal data, nothing transmitted.</p>
 <h3>3. What is held if you do have an account, and why</h3>
 <ul>
-<li><b>Your email address and password</b>, to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Supabase operates authentication. The app sends your password to that service and does not store it. <b>Retained</b> until you delete your account.</li>
-<li><b>Your favourites and your own copy of the prediction record</b>, so that they appear on your other devices. Basis: performance of our contract with you. <b>Retained</b> until you delete your account, and removed automatically when you do.</li>
-<li><b>Your notification registration</b>, only if you switch notifications on. That is the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you can withdraw at any time. <b>Retained</b> until you switch notifications off or delete your account. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
-<li><b>A count of AI write-ups you have requested</b>, only if you use that feature, to apply the shared allowance. Basis: your consent. <b>Retained</b> until you delete your account.</li>
+<li><b>Your email address and password</b>, to create your account and sign you in. Basis: performance of our contract with you (GDPR and UK GDPR Article 6(1)(b), and the equivalent basis under the Nigeria Data Protection Act 2023). Supabase operates authentication. The app sends your password to that service and does not store it. <b>Account-deletion requests</b> and their verification limits are described in clause 8.</li>
+<li><b>Your favourites and your own copy of the prediction record</b>, so that they appear on your other devices. Basis: performance of our contract with you. <b>Account-deletion requests</b> and their verification limits are described in clause 8; device copies are retained.</li>
+<li><b>Your notification registration</b>, only if you switch notifications on. That is the push address your browser issues, its two encryption keys, which of the three alert types you chose, and your time zone. Basis: your consent (Article 6(1)(a)), which you can withdraw at any time. <b>Retained</b> until you switch notifications off; account-deletion requests have the verification limits described in clause 8. A record of which alerts have already been sent is kept for 7 days to prevent a repeat, then deleted.</li>
+<li><b>A count of AI write-ups you have requested</b>, only if you use that feature, to apply the shared allowance. Basis: your consent. <b>Account-deletion requests</b> and their verification limits are described in clause 8.</li>
 </ul>
 <h3>4. What is held on your device only</h3>
 <p>Whether or not you have an account, the app stores four things on your device:</p>
@@ -21350,11 +21455,11 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <p>The app is served from, and account data is stored on, infrastructure outside Nigeria, the European Union and the United Kingdom. That means Supabase and GitHub, principally. Supabase’s data processing addendum incorporates the European Commission’s Standard Contractual Clauses and the United Kingdom’s International Data Transfer Addendum. The transfer is also necessary to perform our contract with you, because the service cannot be provided without it.</p>
 <h3>8. Your rights, and how to exercise each one here</h3>
 <ul>
-<li><b>Erasure.</b> More → Your data → Delete my account. It runs the app’s delete-account function, which removes your account, your favourites, your copy of the record, every notification registration and your AI count. It takes effect immediately, and you don’t have to ask anyone.</li>
+<li><b>Erasure.</b> More → Your data → Delete my account sends an account-deletion request to the server. A success response acknowledges that request; this app does not independently verify completed server-side erasure or device sign-out. Local personal data, credentials, quarantine copies and backups are retained for separate review.</li>
 <li><b>Rectification.</b> Your favourites, settings and notification choices are editable in the app at any time. For your email address, use the contact route in clause 1.</li>
 <li><b>Withdrawing consent, and objecting.</b> Go to More → Settings → Notifications and switch them off; the registration is then deleted. The AI feature stays off unless you switch it on in More → Data.</li>
 <li><b>Access, and a copy to take elsewhere.</b> Most of what is held is on your own screen. For the remainder, including your account record, use the contact route in clause 1.</li>
-<li><b>Restriction.</b> Use the contact route in clause 1, or delete your account, which removes the data outright.</li>
+<li><b>Restriction.</b> Use the contact route in clause 1. You can also request account deletion, subject to the erasure verification limits above.</li>
 <li><b>Complaining.</b> To the Nigeria Data Protection Commission. In the European Union, to the supervisory authority of your country (GDPR Article 77). In the United Kingdom, to the Information Commissioner’s Office. You can complain to them without going through us first.</li>
 </ul>
 <p>Exercising any of these rights is free.</p>
@@ -21417,7 +21522,7 @@ ${legalRecordLine()}
 ${legalGap('A contact email on the project’s own domain. The domain does not exist yet, so there is nothing to print. A personal address is deliberately not used in its place.')}
 <h3>What you can do right now, without anyone’s help</h3>
 <ul>
-<li><b>Delete your account and the data tied to it</b>: More → Your data → Delete my account. It takes effect immediately.</li>
+<li><b>Request account deletion</b>: More → Your data → Delete my account. The app reports the server’s acknowledgement; completed erasure and device sign-out are not independently verified. Device copies and backups are retained.</li>
 <li><b>Switch notifications off</b>: More → Settings → Notifications.</li>
 <li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
 </ul>
@@ -21501,7 +21606,7 @@ function buildCompsDrop(boxId){
   let html = item('all','🌍 All competitions', cnt(all));
   if(fb.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">⚽ Football</div>` + item('football','All football', cnt(fb))
-          + fb.map(l=>item(l.id, lgLabel(l, l.flag||'🏆'), predicted(l))).join('');
+          + fb.map(l=>item(l.id, lgLabel(l, competitionBadge(l)), predicted(l))).join('');
   }
   if(bk.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
@@ -21647,7 +21752,7 @@ function renderFixtures(){
       noPickPlayed++; return true;                   // played: it stays, and says so
     });
     if(!todays.length) continue;
-    const badge = L.flag ? L.flag : (L.logo ? `<img src="${L.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:contain" onerror="this.remove()">` : '🏆');
+    const badge = competitionBadge(L);
     html += `<div class="lghead">${badge} ${L.name || ''} <span class="muted" style="font-size:.7rem;font-weight:600">${L.country||''}</span>${skillBadge(L)}<span class="favstar" data-lid="${L.id}">${afState.favL.includes(L.id)?'★':'☆'}</span></div>`;
     for(const f of todays) html += rowHtml(L,f);
   }
@@ -22330,16 +22435,29 @@ function preserveLegacy(){
   }
 }
 
+function cacheStateKey(){
+  if(localStorage.getItem('mm_state_cache_v2')!==null)return 'mm_state_cache_v2';
+  const legacy=localStorage.getItem('mm_state');
+  if(legacy!==null){
+    try{
+      const v=JSON.parse(legacy);
+      const ambiguous=!v || v.personalPartitionVersion!==1 || Object.prototype.hasOwnProperty.call(v,'afKey') ||
+        Object.prototype.hasOwnProperty.call(v,'prefs') || Object.prototype.hasOwnProperty.call(v,'notif') ||
+        (v.af && ['record','favL','favT','favM','favTab','favAt','favDel'].some(k=>Object.prototype.hasOwnProperty.call(v.af,k)));
+      if(ambiguous)return 'mm_state_cache_v2';
+    }catch(e){return 'mm_state_cache_v2';}
+  }
+  return 'mm_state';
+}
 function saveState(){
   favPrune();   // build 275 -- keep the favourite stamp maps bounded before they are written
   try{
     preserveLegacy();
     if(!personalStore(_personalOwner,_cloudAccountEpoch)) throw Error('Personal data could not be saved');
-    localStorage.setItem('mm_state', JSON.stringify({
+    localStorage.setItem(cacheStateKey(), JSON.stringify({
       personalPartitionVersion:1,
       fb: footballEngine.matches, bb: basketballEngine.matches,
       scorerText: $('scorerData').value,
-      afKey: $('afKey').value,
       chip: $('dataChip').textContent.replace('● ',''),
       af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores}
     }, dropExtras));
@@ -22376,7 +22494,10 @@ function initSupabase(){
   }catch(e){ supa = null; }
   renderAccount();
 }
+// Only a verified deletion completion adds a UID; SDK refresh events cannot reattach it.
+const _deletedAccountOwners = new WeakMap();
 function onAuth(user){
+  if(user && supa && _deletedAccountOwners.get(supa)?.has(user.id)) return;
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
     clearSearchForIdentity();
@@ -22387,6 +22508,7 @@ function onAuth(user){
     _cloudSync={owner:user&&user.id,status:'idle'};
   }
   authUser = user || null;
+  if((was&&was.id)!==(user&&user.id)){ credentialSelect(authUser ? authUser.id : null); renderAISettings(); }
   renderAccount();
   if((was&&was.id)!==(user&&user.id)) personalRefresh();
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
@@ -22540,7 +22662,7 @@ function accountInitials(){
 }
 function restoreState(){
   try{
-    const s = JSON.parse(localStorage.getItem('mm_state')||'null');
+    const s = JSON.parse(localStorage.getItem(cacheStateKey())||localStorage.getItem('mm_state')||'null');
     if(!s) return false;
     /* BUILD 356 - THE SAVED KEY IS RESTORED BEFORE THE CORPUS CHECK, NOT AFTER IT.
        `saveState` writes `afKey` and the match corpus into one blob, and this function used to
@@ -22552,7 +22674,7 @@ function restoreState(){
        This moves ONE line above ONE guard. It stores nothing new, sends nothing anywhere and
        widens no credential: the key was already being persisted by `saveState` and already being
        restored whenever a corpus happened to exist. It only makes that restoration consistent. */
-    if(s.afKey) $('afKey').value = s.afKey;
+    // Legacy ownerless keys are retained in storage but never activated.
     if(!s.fb || !s.fb.length) return false;
     footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
@@ -22879,42 +23001,75 @@ $('delAcctBtn').addEventListener('click', async ()=>{
   const note = $('delAcctNote');
   if(!supa || !authUser){ note.textContent = 'You are not signed in, so there is no account to delete.'; return; }
 
-  const warn = 'This permanently deletes:\n\n'
-    + '  • your account and sign-in\n'
-    + '  • your starred matches, teams and leagues\n'
-    + '  • your prediction record\n'
-    + '  • notifications on every device\n\n'
-    + 'It cannot be undone. To confirm, type DELETE below.';
+  const user=authUser, owner=user.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>supa===client && authUser===user && authUser.id===owner && epoch===_cloudAccountEpoch && $('delAcctNote')===note;
+  const warn = 'This requests permanent deletion of your account and associated server data.\n\n'
+    + 'A success response acknowledges the request; completed erasure and device sign-out are not independently verified by this app.\n'
+    + 'Device copies and backups are retained for separate review.\n\n'
+    + 'Deletion may be irreversible. To confirm, type DELETE below.';
   const typed = prompt(warn, '');
+  if(!current()) return;
   if(typed === null) return;                      // they backed out
   if(typed.trim().toUpperCase() !== 'DELETE'){
     note.textContent = 'Not deleted — you did not type DELETE.';
     return;
   }
   note.textContent = 'Deleting…';
+  // Bind SDK lookups to the initiating client. Never sign out through a mutable shared
+  // client: an asynchronous SDK signOut could select a later user's session internally.
+  const ownedSession=async()=>{
+    const {data,error}=await client.auth.getSession();
+    const session=data && data.session;
+    return !error && session && session.user && session.user.id===owner && typeof session.access_token==='string' && session.access_token ? session : null;
+  };
+  let session=null, sessionToken=null;
   try{
-    const session = await proxySession();
-    if(!session){ note.textContent = 'Your session expired. Sign in again and retry.'; return; }
+    session=await ownedSession();
+    if(!current()) return;
+    if(!session){ note.textContent='Your session could not be verified. Sign in again and retry; local data is retained.'; return; }
+    sessionToken=session.access_token;
     const res = await fetch(SUPA_URL + '/functions/v1/delete-account', {
       method:'POST',
-      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+sessionToken, 'apikey': SUPA_KEY },
       body: JSON.stringify({ confirm:'DELETE' })
     });
+    if(!current()) return;
     const j = await res.json().catch(()=>({}));
-    if(!res.ok || !j.ok){
-      note.textContent = 'Could not delete: ' + ((j && j.error) || ('HTTP '+res.status));
+    if(!current()) return;
+    if(!res.ok || !j || j.ok!==true){
+      note.textContent='Account deletion was not confirmed. Local data is retained; retry or contact support.';
       return;
     }
-    /* Wipe this device too. Leaving the old favourites in localStorage would let a deleted account's
-       data reappear the moment someone signs up again on the same phone. */
-    try{ localStorage.clear(); }catch(e){}
-    try{ await supa.auth.signOut(); }catch(e){}
-    alert('Your account and all its data have been deleted. Thank you for trying MatchMind.');
-    location.reload();
+    const acknowledged='The server acknowledged the account-deletion request. Completed server-side erasure and device sign-out are not independently verified. Local copies, credentials and backups are retained for separate review.';
+    let latest=null, sessionAbsent=false;
+    try{
+      const {data,error}=await client.auth.getSession();
+      if(!error){
+        const candidate=data && data.session;
+        sessionAbsent=candidate===null;
+        if(candidate && candidate.user && candidate.user.id===owner) latest=candidate;
+      }
+    }catch(_){}
+    if(!current()) return;
+    if(!sessionAbsent && (!latest || latest.access_token!==sessionToken)){
+      note.textContent=acknowledged+' Session verification is unavailable or changed; this app context has not been detached.';
+      return;
+    }
+    // A successful deletion may revoke the SDK session before its reply arrives.
+    // An absent session still permits detaching only the captured, current A app
+    // context; no SDK signout or other session mutation is involved.
+    // Retain local copies; normal detachment snapshots only this owner’s personal
+    // state. Credentials, guest/other-owner records and unknown backups are untouched.
+    // The server implementation is unavailable here; its ok response confirms only its
+    // existing contract. Detach this app context without SDK signout or a page reload.
+    const deleted=_deletedAccountOwners.get(client) || new Set();
+    deleted.add(owner); _deletedAccountOwners.set(client,deleted);
+    onAuth(null);
+    note.textContent=acknowledged+' This app session is detached.';
   }catch(e){
-    note.textContent = /failed to fetch/i.test(e.message||'')
-      ? 'Could not reach the server. The delete-account function may not be deployed yet.'
-      : 'Could not delete: ' + e.message;
+    if(!current()) return;
+    // Report uncertainty only in the captured app context; never echo SDK/server details.
+    note.textContent='Could not confirm account deletion. Local data is retained; check your connection and retry.';
   }
 });
 /* ================================================================
@@ -23640,7 +23795,7 @@ $('loadCsvBtn').addEventListener('click', ()=>{
   reader.readAsText(f);
 });
 $('resetBtn').addEventListener('click', ()=>{
-  try{ localStorage.removeItem('mm_state'); }catch(e){}
+  try{ localStorage.removeItem(cacheStateKey()); }catch(e){}
   footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
   basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
   loadScorers(SAMPLE_SCORERS, true);
@@ -23666,6 +23821,8 @@ if($('archDate')) $('archDate').value = new Date(Date.now()-86400000).toISOStrin
 $('motStudyBtn').addEventListener('click', runMotivationStudy);   // pooled across leagues (build 53)
 renderBacktestLeagues();   // populate the backtest competition picker (build 42)
 $('aiSaveBtn').addEventListener('click', aiSave);
+$('afSaveKey').addEventListener('click', ()=>credentialSave('af',($('afKey').value||'').trim()));
+for(const id of ['afKeyUse','aiKeyUse']) $(id).addEventListener('change',()=>{++_credentialRevision;});
 
 /* ---------- boot ---------- */
 /* theme first, to avoid a flash of the wrong palette (#10) */
@@ -23712,7 +23869,7 @@ try{ const m = (location.hash||'').match(/match=(\d+)/);
 // stay on the tab you were on before a refresh (#refresh keeps page)
 try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
 setTimeout(()=>{
-  const k = ($('afKey').value||'').trim();
+  const k = afState.key;
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
   // force one refresh when the cache was written by an older build (different list shape / fence)
   const _thinCache = afState.scores && afState.scores.v !== SCORES_CACHE_V;

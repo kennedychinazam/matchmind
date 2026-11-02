@@ -123,30 +123,20 @@ test('the SDK loading but failing to give a client is reported as configuration,
   }
 });
 
-test('a saved API-Football key still takes the legacy path, not the no-source branch', async t => {
+test('owned API-Football key works after explicit session consent with a cached corpus', async t => {
   if(!ready) return t.skip(skip());
   const {port} = await host();
-  {
-    // The fix must only fire when BOTH sources are absent. With a key present the app keeps
-    // its own behaviour, so the new branch must not have swallowed it.
-    /* The key lives inside the `mm_state` blob under `afKey`, which is what `saveState` writes.
-       `restoreState` bails on `!s.fb.length`, so the blob needs one match row for the key to be
-       restored at all: two synthetic fixtures in the shape the CSV loader produces. */
-    const {ctx, page} = await open({port, seed:{mm_state: JSON.stringify({
-      afKey:'synthetic-launch-test-key',
-      fb:[{date:'2026-01-10', home:'Synthetic A', away:'Synthetic B', hg:1, ag:0},
-          {date:'2026-01-17', home:'Synthetic B', away:'Synthetic A', hg:2, ag:2}]
-    })}});
-    const seen = await page.evaluate(()=>({
-      key: typeof afState !== 'undefined' ? afState.key : null,
-      field: (document.getElementById('afKey')||{}).value,
-      meta: document.getElementById('scoresMeta').textContent
-    }));
-    assert.equal(seen.field, 'synthetic-launch-test-key', 'the seeded key must have been restored');
-    assert.doesNotMatch(seen.meta, /cannot reach the server/i,
-      'a user with a key must not be told the server is unreachable by the no-source branch');
-    await ctx.close();
-  }
+  // Approved compatibility change: ownerless saved keys are preserved but never activated.
+  // A newly owned key remains usable with or without cached matches after explicit consent.
+  const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({fb:[{date:'2026-01-10',home:'Synthetic A',away:'Synthetic B',hg:1,ag:0}]}),
+    'mm_credentials_v1:A':JSON.stringify({version:1,owner:'A',slots:{af:'synthetic-owned-key'}})}});
+  const seen=await page.evaluate(async()=>{
+    let calls=0;window.fetch=async()=>{calls++;return {ok:true,status:200,json:async()=>({response:[]})};};
+    onAuth({id:'A'});const restored=!!afState.key,blank=!$('afKey').value;
+    const before=calls;$('afKeyUse').checked=true;await afScores();return {restored,blank,before,calls};
+  });
+  assert.ok(seen.restored && seen.blank);assert.equal(seen.before,0);assert.equal(seen.calls,1);
+  await ctx.close();
 });
 
 test('the app boots as the release build on a phone viewport with no errors and no sideways scroll', async t => {
@@ -348,25 +338,20 @@ test('the DNB line is shown only when a pick is actually published', async t => 
   }
 });
 
-test('a saved API-Football key is restored even with no cached matches', async t => {
+test('owned API-Football key works after explicit session consent with no cached matches', async t => {
   if(!ready) return t.skip(skip());
   const {port} = await host();
-  {
-    // The regression for the restoreState guard: a key with an EMPTY corpus, which is what a
-    // cleared cache or a quota-dropped corpus leaves behind.
-    const {ctx, page} = await open({port, seed:{mm_state: JSON.stringify({
-      afKey:'synthetic-launch-test-key', fb:[]
-    })}});
-    const seen = await page.evaluate(()=>({
-      field: (document.getElementById('afKey')||{}).value,
-      meta: document.getElementById('scoresMeta').textContent
-    }));
-    assert.equal(seen.field, 'synthetic-launch-test-key',
-      'the key must come back without a cached corpus');
-    assert.doesNotMatch(seen.meta, /cannot reach the server/i,
-      'with a key restored the app must not report itself sourceless');
-    await ctx.close();
-  }
+  // Approved compatibility change: ownerless saved keys are preserved but never activated.
+  // A newly owned key remains usable with or without cached matches after explicit consent.
+  const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({fb:[]}),
+    'mm_credentials_v1:A':JSON.stringify({version:1,owner:'A',slots:{af:'synthetic-owned-key'}})}});
+  const seen=await page.evaluate(async()=>{
+    let calls=0;window.fetch=async()=>{calls++;return {ok:true,status:200,json:async()=>({response:[]})};};
+    onAuth({id:'A'});const restored=!!afState.key,blank=!$('afKey').value;
+    const before=calls;$('afKeyUse').checked=true;await afScores();return {restored,blank,before,calls};
+  });
+  assert.ok(seen.restored && seen.blank);assert.equal(seen.before,0);assert.equal(seen.calls,1);
+  await ctx.close();
 });
 
 test('the existing prediction and grading behaviour is unchanged', async t => {
