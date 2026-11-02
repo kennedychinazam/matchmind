@@ -37,7 +37,7 @@ function harness(){
   const context=vm.createContext({$,supa:client,authUser:null,_cloudAccountEpoch:0,_cloudPushVersion:0,_cloudPushT:null,
     _cloudSync:{},_leaguesLoadedAt:0,prefs:{},notif:{},themeMode:'dark',aiProvider:'gemini',aiCompare:'',
     afState:{record:[],favL:[],favT:[],favM:[],favAt:{},favDel:{}},favStamps:x=>x||{},
-    applyTheme:no,renderAISettings:no,renderNotif:no,renderAccount:no,renderFavs:no,renderFixtures:no,
+    applyTheme:no,credentialSelect:no,renderAISettings:no,renderNotif:no,renderAccount:no,renderFavs:no,renderFixtures:no,
     renderScores:no,renderTips:no,renderMoreRecord:no,renderTzSetting:no,applyStaticI18n:no,
     LANGUAGES_ON:false,curFavHome:null,curFavAway:null,clearSearchForIdentity:no,isPublisher:()=>false,cloudPullMerge:no,toast:no,clearTimeout:no,
     localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k),clear:()=>storage.clear()},

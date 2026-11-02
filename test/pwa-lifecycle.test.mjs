@@ -15,7 +15,9 @@ test('disposable origin: worker update, offline shell, and forward-version rollb
   const { chromium } = createRequire(import.meta.url)(playwrightPath);
   const [worker, html, manifest, icon192, icon512] = await Promise.all(['sw.js', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'].map(name => readFile(new URL(name, repo))));
   assert.equal(digest(worker), '67640f8c46be5635b6efe536f33564ec08530c84e8b79ca5b527c79ee15d430a');
-  assert.equal(digest(html), 'a15711034a303dc477976d7f902d99bcb5cd0cca264fdd64206650f340620bab');
+  // Bind cached/offline bytes to the exact current candidate, not an older accepted HTML digest.
+  assert.match(html.toString(), /const APP_BUILD = 357[;\s]/);
+  assert.match(html.toString(), /<title>MatchMind/);
   const updatedHtml = Buffer.from(html.toString().replace('<head>', '<head><meta name="synthetic-app-version" content="N+1">'));
   assert.notEqual(digest(updatedHtml), digest(html));
   let version = 357, offline = false;

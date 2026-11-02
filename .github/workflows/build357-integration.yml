@@ -10,6 +10,7 @@ on:
       - codex/search-accessibility-20261102
       - codex/account-ownership-20261102
       - codex/combined-security-20261102
+      - codex/release-final-20261102
     paths:
       - 'index.html'
       - 'sw.js'
@@ -39,4 +40,4 @@ jobs:
           test -n "$chromium_path"
           echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
       - name: Run offline launch, settlement, integration and takeover UI tests
-        run: node --test test/*.test.mjs
+        run: PWA_PLAYWRIGHT=playwright-core PWA_CHROMIUM="$MM_TEST_CHROMIUM" node --test test/*.test.mjs
