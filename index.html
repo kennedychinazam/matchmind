@@ -22486,7 +22486,10 @@ function initSupabase(){
   }catch(e){ supa = null; }
   renderAccount();
 }
+// Only a verified deletion completion adds a UID; SDK refresh events cannot reattach it.
+const _deletedAccountOwners = new WeakMap();
 function onAuth(user){
+  if(user && supa && _deletedAccountOwners.get(supa)?.has(user.id)) return;
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
     clearSearchForIdentity();
@@ -22990,42 +22993,66 @@ $('delAcctBtn').addEventListener('click', async ()=>{
   const note = $('delAcctNote');
   if(!supa || !authUser){ note.textContent = 'You are not signed in, so there is no account to delete.'; return; }
 
+  const user=authUser, owner=user.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>supa===client && authUser===user && authUser.id===owner && epoch===_cloudAccountEpoch && $('delAcctNote')===note;
   const warn = 'This permanently deletes:\n\n'
     + '  • your account and sign-in\n'
     + '  • your starred matches, teams and leagues\n'
     + '  • your prediction record\n'
     + '  • notifications on every device\n\n'
+    + 'Device copies and backups are retained for separate review.\n'
     + 'It cannot be undone. To confirm, type DELETE below.';
   const typed = prompt(warn, '');
+  if(!current()) return;
   if(typed === null) return;                      // they backed out
   if(typed.trim().toUpperCase() !== 'DELETE'){
     note.textContent = 'Not deleted — you did not type DELETE.';
     return;
   }
   note.textContent = 'Deleting…';
+  // Bind SDK lookups to the initiating client. Never sign out through a mutable shared
+  // client: an asynchronous SDK signOut could select a later user's session internally.
+  const ownedSession=async()=>{
+    const {data,error}=await client.auth.getSession();
+    const session=data && data.session;
+    return !error && session && session.user && session.user.id===owner && typeof session.access_token==='string' && session.access_token ? session : null;
+  };
+  let session=null, sessionToken=null;
   try{
-    const session = await proxySession();
-    if(!session){ note.textContent = 'Your session expired. Sign in again and retry.'; return; }
+    session=await ownedSession();
+    if(!current()) return;
+    if(!session){ note.textContent='Your session could not be verified. Sign in again and retry; local data is retained.'; return; }
+    sessionToken=session.access_token;
     const res = await fetch(SUPA_URL + '/functions/v1/delete-account', {
       method:'POST',
-      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+session.access_token, 'apikey': SUPA_KEY },
+      headers:{ 'content-type':'application/json', 'authorization':'Bearer '+sessionToken, 'apikey': SUPA_KEY },
       body: JSON.stringify({ confirm:'DELETE' })
     });
+    if(!current()) return;
     const j = await res.json().catch(()=>({}));
-    if(!res.ok || !j.ok){
-      note.textContent = 'Could not delete: ' + ((j && j.error) || ('HTTP '+res.status));
+    if(!current()) return;
+    const latest=await ownedSession();
+    if(!current() || !latest || latest.access_token!==sessionToken) return;
+    if(!res.ok || !j || j.ok!==true){
+      note.textContent='Account deletion was not confirmed. Local data is retained; retry or contact support.';
       return;
     }
-    /* Wipe this device too. Leaving the old favourites in localStorage would let a deleted account's
-       data reappear the moment someone signs up again on the same phone. */
-    try{ localStorage.clear(); }catch(e){}
-    try{ await supa.auth.signOut(); }catch(e){}
-    alert('Your account and all its data have been deleted. Thank you for trying MatchMind.');
-    location.reload();
+    // Retain local copies; normal detachment snapshots only this owner’s personal
+    // state. Credentials, guest/other-owner records and unknown backups are untouched.
+    // The server implementation is unavailable here; its ok response confirms only its
+    // existing contract. Detach this app context without SDK signout or a page reload.
+    const deleted=_deletedAccountOwners.get(client) || new Set();
+    deleted.add(owner); _deletedAccountOwners.set(client,deleted);
+    onAuth(null);
+    note.textContent='The server confirmed account deletion. This app session is detached; device sign-out is not verified. Local copies, credentials and backups are retained for separate review.';
   }catch(e){
-    note.textContent = /failed to fetch/i.test(e.message||'')
-      ? 'Could not reach the server. The delete-account function may not be deployed yet.'
-      : 'Could not delete: ' + e.message;
+    if(!current()) return;
+    // Recheck the session before publishing an error; do not echo untrusted details.
+    try{
+      const latest=await ownedSession();
+      if(!current() || !latest || (sessionToken && latest.access_token!==sessionToken)) return;
+    }catch(_){ return; }
+    note.textContent='Could not confirm account deletion. Local data is retained; check your connection and retry.';
   }
 });
 /* ================================================================
