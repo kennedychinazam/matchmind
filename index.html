@@ -488,9 +488,9 @@
   </div>
 
   <!-- ================= SEARCH OVERLAY ================= -->
-  <div class="searchOverlay hidden" id="searchOverlay">
+  <div class="searchOverlay hidden" id="searchOverlay" role="dialog" aria-modal="true" aria-label="Search" tabindex="-1">
     <div class="searchBar">
-      <input id="searchInput" type="search" placeholder="Search teams, competitions, matches…" autocomplete="off">
+      <input id="searchInput" aria-label="Search loaded content" type="search" placeholder="Search teams, competitions, matches…" autocomplete="off">
       <button class="iconbtn" id="searchClose" aria-label="Close">✕</button>
     </div>
     <div id="searchResults"><div class="subnote">Type to search everything loaded on your device — instant, no data used.</div></div>
@@ -5403,8 +5403,54 @@ function onBack(){
 }
 
 /* ---------- on-device search (#12) ---------- */
-function openSearch(){ $('searchOverlay').classList.remove('hidden'); const i=$('searchInput'); i.value=''; renderSearch(''); setTimeout(()=>i.focus(),50); }
-function closeSearch(){ $('searchOverlay').classList.add('hidden'); }
+let searchOpener=null, searchFocusTimer=null, searchBackground=[];
+function openSearch(){
+  const overlay=$('searchOverlay');
+  if(overlay.classList.contains('hidden')){
+    searchOpener=document.activeElement instanceof HTMLElement && document.activeElement!==document.body && !overlay.contains(document.activeElement)
+      ? document.activeElement : $('searchOpen');
+    // Isolate siblings at each ancestor level without making the dialog itself inert.
+    searchBackground=[];
+    for(let branch=overlay; branch.parentElement && branch!==document.body; branch=branch.parentElement){
+      for(const sibling of branch.parentElement.children){
+        if(sibling!==branch && sibling instanceof HTMLElement){ searchBackground.push([sibling,sibling.inert]); sibling.inert=true; }
+      }
+    }
+  }
+  overlay.classList.remove('hidden');
+  const input=$('searchInput'); input.value=''; renderSearch('');
+  clearTimeout(searchFocusTimer);
+  searchFocusTimer=setTimeout(()=>{ searchFocusTimer=null; if(!overlay.classList.contains('hidden')) input.focus(); },50);
+}
+function closeSearch(){
+  clearTimeout(searchFocusTimer); searchFocusTimer=null;
+  const overlay=$('searchOverlay'); if(overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  for(const [element,inert] of searchBackground) element.inert=inert;
+  searchBackground=[];
+  const opener=searchOpener; searchOpener=null;
+  for(const target of [opener,$('searchOpen')]){
+    if(target && target.isConnected && !target.matches(':disabled') && !target.closest('[inert]') && target.getClientRects().length){ target.focus(); break; }
+  }
+}
+function searchKeydown(event){
+  const overlay=$('searchOverlay');
+  if(event.key==='Escape'){ event.preventDefault(); event.stopPropagation(); closeSearch(); return; }
+  if(event.key==='Tab'){
+    // Read the current DOM: search results are replaced as the query changes.
+    const controls=[...overlay.querySelectorAll('button,input,select,textarea,a[href],[tabindex]')]
+      .filter(el=>el.tabIndex>=0 && !el.matches(':disabled') && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility!=='hidden');
+    const first=controls[0], last=controls[controls.length-1], active=document.activeElement;
+    if(!first){ event.preventDefault(); overlay.focus(); }
+    else if(!controls.includes(active) || (event.shiftKey ? active===first : active===last)){
+      event.preventDefault(); (event.shiftKey?last:first).focus();
+    }
+  }
+  if(event.key==='Enter' || event.key===' '){
+    const result=event.target.closest('.sres[role="button"]');
+    if(result && $('searchResults').contains(result)){ event.preventDefault(); result.click(); }
+  }
+}
 function searchData(q){
   q=(q||'').trim().toLowerCase(); const comps=[], teamSet=new Set(), matches=[], seen=new Set();
   if(!q) return {comps,teams:[],matches:[]};
@@ -5433,12 +5479,12 @@ function renderSearch(q){
   if(matches.length){ html+='<div class="sres-grp">Matches</div>';
     for(const m of matches){ const i=mrefs.length; mrefs.push(m);
       const h=m.type==='up'?m.f.home:m.s.home, a=m.type==='up'?m.f.away:m.s.away, ln=m.type==='up'?m.L.name:(m.s.lname||'');
-      html+=`<div class="sres" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-m="${i}">${crest(h)}${h} <span class="sub">v</span> ${crest(a)}${a}<span class="sub" style="margin-left:auto">${ln}</span></div>`; } }
   if(comps.length){ html+='<div class="sres-grp">Competitions</div>';
     for(const L of comps){ const i=crefs.length; crefs.push(L);
-      html+=`<div class="sres" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
+      html+=`<div class="sres" role="button" tabindex="0" data-c="${i}">${(L.flag||'🏆')} ${L.name}<span class="sub" style="margin-left:auto">${L.country||''} · ${L.upcoming.length}</span></div>`; } }
   if(teams.length){ html+='<div class="sres-grp">Teams</div>';
-    for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" data-t="${i}">${crest(t)}${t}</div>`; } }
+    for(const t of teams){ const i=trefs.length; trefs.push(t); html+=`<div class="sres" role="button" tabindex="0" data-t="${i}">${crest(t)}${t}</div>`; } }
   box.innerHTML=html;
   box.querySelectorAll('[data-m]').forEach(el=>el.addEventListener('click',()=>{ const m=mrefs[+el.dataset.m]; closeSearch();
     if(m.type==='up') openFixture(m.L.id,m.f);
@@ -22470,6 +22516,7 @@ $('legalDraftNote').textContent = 'Version ' + LEGAL_VERSION + ' \u00b7 ' + LEGA
 /* v0.8 — search, tips fair-odds, settings */
 $('searchOpen').addEventListener('click', openSearch);
 $('searchClose').addEventListener('click', closeSearch);
+$('searchOverlay').addEventListener('keydown', searchKeydown);
 $('searchInput').addEventListener('input', e=>renderSearch(e.target.value));
 $('goFavs').addEventListener('click', ()=>navTo('favs'));
 
