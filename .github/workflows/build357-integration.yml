@@ -11,11 +11,14 @@ on:
       - codex/account-ownership-20261102
       - codex/combined-security-20261102
       - codex/release-final-20261102
+      - codex/public-fixture-remediation-20261102
     paths:
       - 'index.html'
       - 'sw.js'
       - 'manifest.webmanifest'
       - 'test/**'
+      - 'backend/fixture-delivery/**'
+      - 'robot/**'
       - '.github/workflows/build357-integration.yml'
   workflow_dispatch: {}
 permissions:

@@ -1,0 +1,39 @@
+--- a/index.ts
++++ b/index.ts
+@@ -1,3 +1,4 @@
++import { refreshBoundedDisplay } from "./refresh-presentation.mjs";
+ /* MatchMind collector v2 — API-Football (Phase 1)
+    Deploy as a NEW Edge Function named `refresh-af`. Verify JWT OFF (cron calls it).
+ 
+@@ -1885,6 +1886,7 @@
+     }
+     return json({
+       ok: true, history: true, season: wantSeason,
++      displayRefresh: await refreshBoundedDisplay(supa),
+       /* af-32 — what was ASKED FOR, what was REACHED, and why it stopped. The old field said how
+          many leagues exist, which tells the caller nothing about whether the job finished. */
+       leaguesRequested: histWant.length, leaguesDone: histDone.length,
+@@ -2050,6 +2052,7 @@
+     const res: any = await supa.from("fixtures").upsert([row], { onConflict: "fxid" });
+     return json({
+       ok: !res?.error, step: "one-upsert",
++      displayRefresh: res?.error ? {status:"unavailable"} : await refreshBoundedDisplay(supa),
+       resultWasUndefined: res === undefined || res === null,
+       status: res?.status ?? null, statusText: res?.statusText ?? null,
+       error: res?.error ? { message: res.error.message, details: res.error.details,
+@@ -2115,6 +2118,7 @@
+      detail loop is the only remaining suspect and we have separated the two in one invocation. */
+   if (body?.nodetail) {
+     return json({ ok: true, step: "nodetail", fixtures: rows.length,
++                  displayRefresh: upsertError ? {status:"unavailable"} : await refreshBoundedDisplay(supa),
+                   quotaRemaining: remaining === Infinity ? null : remaining,
+                   issues, ms: Date.now() - t0 }, 200);
+   }
+@@ -2965,6 +2969,7 @@
+     : (upsertWarn || null);
+ 
+   return json({
++    displayRefresh: upsertError ? {status:"unavailable"} : await refreshBoundedDisplay(supa),
+     WARNING,
+     ok: true,
+     provider: "api-football",

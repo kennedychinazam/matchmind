@@ -2833,6 +2833,7 @@ async function afDiscover(){
 }
 
 function activateLeague(id){
+  if(afState.leagues[id]&&afState.leagues[id]._presentation){footballEngine.matches=[];_fixtureInputSource='presentation';}
   const L = afState.leagues[id]; if(!L) return;
   afState.activeLeagueId = id;
   afState.season = L.season || afState.season;
@@ -2845,6 +2846,202 @@ function activateLeague(id){
   }
   currentSport = bk ? 'basketball' : 'football'; syncSportChips(); refreshTeams();
   setDataChip('Live · '+L.name);
+}
+
+/* Bounded provider presentation, version 1. Raw source access is a server decision,
+   never a query-string, a local cache, a stored role or the fact of being signed in. */
+const FIXTURE_PRIVATE_TABLES = new Set(['fixtures','fixtures_lean','competitions','predictions','daily_slips','odds_snapshots','odds_latest','shared_records','predictions_retired']);
+let _fixtureDelivery={client:null,owner:null,epoch:-1,rawAllowed:false,checked:false,expiresAt:0,timer:null,renewTimer:null,promise:null,screens:new Map()};
+let _fixtureInputSource='sample';
+function fixtureDeliveryCurrent(c){return c.client===supa && c.owner===(authUser&&authUser.id||null) && c.epoch===_cloudAccountEpoch;}
+function fixtureDetachRaw(c){
+ if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))return;
+ c.rawAllowed=false;c.expiresAt=0;clearTimeout(c.timer);clearTimeout(c.renewTimer);
+ if(Object.values(afState.leagues||{}).some(L=>!L._presentation)){
+  afState.leagues={};afState.leagueOrder=[];afState.activeLeagueId=null;afState.teamIds={};afState.scores=null;afState.cloudFix={};
+  if(_fixtureInputSource!=='custom-csv')footballEngine.matches=[];
+  for(const fn of [renderFixtures,renderScores,renderFavs])try{fn();}catch(e){}
+ }
+}
+function fixtureRawCurrent(){const c=_fixtureDelivery;return !!(c.rawAllowed&&fixtureDeliveryCurrent(c)&&c.expiresAt>Date.now());}
+function fixtureDeliveryReset(){clearTimeout(_fixtureDelivery.timer);clearTimeout(_fixtureDelivery.renewTimer);_fixtureDelivery={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch,rawAllowed:false,checked:false,expiresAt:0,timer:null,renewTimer:null,promise:null,screens:new Map()};}
+async function fixtureAccess(){
+ if(!supa)return false;
+ if(!fixtureDeliveryCurrent(_fixtureDelivery))fixtureDeliveryReset();
+ const c=_fixtureDelivery;
+ if(!c.promise)c.promise=(async()=>{try{
+   const r=await c.client.rpc('matchmind_fixture_access_v1',{});
+   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))return false;
+   const expires=Date.parse(r.data&&r.data.expires_at||'');
+   c.rawAllowed=!!(!r.error&&r.data&&r.data.version==='matchmind-fixture-access/1'&&r.data.raw_allowed===true&&c.owner&&Number.isFinite(expires)&&expires>Date.now()&&expires<=Date.now()+61000);
+   clearTimeout(c.timer);clearTimeout(c.renewTimer);c.expiresAt=c.rawAllowed?expires:0;
+   if(c.rawAllowed){
+    c.timer=setTimeout(()=>fixtureDetachRaw(c),Math.max(0,expires-Date.now()));
+    c.renewTimer=setTimeout(()=>{if(fixtureDeliveryCurrent(c)&&c.rawAllowed)return fixtureAccess();},Math.max(0,expires-Date.now()-15000));
+   }else fixtureDetachRaw(c);
+ }catch(e){fixtureDetachRaw(c);}c.checked=c===_fixtureDelivery&&fixtureDeliveryCurrent(c);return c===_fixtureDelivery&&fixtureRawCurrent();})();
+ try{return await c.promise;}finally{c.promise=null;}
+}
+function fixtureText(v,max=160){return typeof v==='string'&&v.length<=max&&!/[<>\u0000-\u001f\u007f]/.test(v);}
+function fixtureTimestamp(value){
+ if(typeof value!=='string'||value.length>40||!/^\d{4}-\d{2}-\d{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,9})?(?:Z|[+-](?:0[0-9]|1[0-5]):[0-5][0-9])$/.test(value)||+value.slice(0,4)===0||!Number.isFinite(Date.parse(value)))return false;
+ const date=value.slice(0,10),parsed=new Date(date+'T00:00:00.000Z');
+ return Number.isFinite(+parsed)&&parsed.toISOString().slice(0,10)===date;
+}
+const FIXTURE_DISPLAY_SCHEMA={"type":"object","properties":{"cards":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"lcountry":{"type":"string","max":100,"nullable":false},"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"time":{"type":"string","max":12,"nullable":true},"status":{"type":"string","max":24,"nullable":false},"elapsed":{"type":"number","min":0,"max":200,"nullable":true,"integer":true},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"updated_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"provider":{"type":"string","max":80,"nullable":true},"prediction":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"pick":{"type":"string","max":160,"nullable":true},"pick_prob":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"market":{"type":"string","max":160,"nullable":true},"p_home":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xg_home":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"kickoff":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"ktime":{"type":"string","max":12,"nullable":true},"made_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"withheld_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"final_pick":{"type":"string","max":160,"nullable":true},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true}},"required":["lid","lname","home","away","pick","pick_prob","market","p_home","p_draw","p_away","xg_home","xg_away","kickoff","ktime","made_at","withheld_at","final_pick","build"],"nullable":true}},"required":["fxid","lid","lname","lcountry","date","time","status","elapsed","home","away","gh","ga","ft_h","ft_a","ht_h","ht_a","updated_at","provider","prediction"],"nullable":false},"max":1000},"board":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"ahead":{"type":"number","min":7,"max":7,"nullable":false,"integer":true},"builtAt":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"notPassed":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"noBars":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"f":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"l":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"n":{"type":"string","max":160,"nullable":false},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"p":{"type":"string","max":160,"nullable":true},"q":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"m":{"type":"string","max":160,"nullable":true},"g":{"type":"string","max":160,"nullable":true},"z":{"type":"boolean"},"pw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pd":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pq":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xh":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xa":{"type":"number","min":0,"max":100,"nullable":true,"integer":false}},"required":["f","l","n","d","t","h","a","p","q","m","g","z","pw","pd","pq","xh","xa"],"nullable":false},"max":1000}},"required":["v","ahead","builtAt","n","notPassed","noBars","rows"],"nullable":true},"records":{"type":"object","properties":{"engine":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"days":{"type":"map","max":5000,"key":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","values":{"type":"map","max":32,"key":"^[A-Za-z0-9 /.+_-]{1,60}$","values":{"type":"array","items":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"min":3,"max":3}}},"total":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"graded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"withheld":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"excluded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"pending":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"orphan":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"off":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ungradeable":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"voidLate":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["v","days","total","graded","withheld","excluded","pending","orphan","off","ungradeable","voidLate"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true},"clv":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"raw":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"devig":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"beat":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"tie":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"from":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"}},"required":["v","raw","devig","beat","tie","lost","from","to"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true}},"required":["engine","clv"],"nullable":false},"slips":{"type":"array","items":{"type":"object","properties":{"day":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"tier":{"type":"string","max":40,"nullable":false},"odds":{"type":"number","min":0,"max":1000000000000,"nullable":false,"integer":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"step":{"type":"string","max":80,"nullable":false},"legs":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":true,"integer":true},"code":{"type":"string","max":40,"nullable":false},"market":{"type":"string","max":60,"nullable":false},"p":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"o":{"type":"number","min":1,"max":1000000,"nullable":true,"integer":false},"tab":{"type":"string","max":30,"nullable":false},"rank":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"sel":{"type":"string","max":240,"nullable":false}},"required":["fxid","d","h","a","code","p"],"nullable":false},"max":40}},"required":["day","tier","odds","build","step","legs"],"nullable":false},"max":128}},"required":["cards","board","records","slips"],"nullable":false};
+function fixtureProjection(value,s,path='display',depth=0){
+ if(depth>12)throw Error('Display nesting exceeds limit');
+ if(value===null){if(s.nullable)return;throw Error(path+': null not permitted');}
+ if(s.type==='string'){if(!fixtureText(value,s.max)||(s.pattern&&!new RegExp(s.pattern).test(value)))throw Error(path+': invalid text');if(s.format==='date'&&(!Number.isFinite(Date.parse(value+'T00:00:00.000Z'))||new Date(value+'T00:00:00.000Z').toISOString().slice(0,10)!==value))throw Error(path+': invalid date');if(s.format==='timestamp'&&!fixtureTimestamp(value))throw Error(path+': invalid timestamp');return;}
+ if(s.type==='number'){if(typeof value!=='number'||!Number.isFinite(value)||value<s.min||value>s.max||(s.integer&&!Number.isSafeInteger(value)))throw Error(path+': invalid number');return;}
+ if(s.type==='boolean'){if(typeof value!=='boolean')throw Error(path+': invalid boolean');return;}
+ if(s.type==='array'){if(!Array.isArray(value)||value.length>(s.max??1000)||value.length<(s.min??0))throw Error(path+': invalid array');for(let i=0;i<value.length;i++)fixtureProjection(value[i],s.items,path+'['+i+']',depth+1);return;}
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw Error(path+': invalid object');
+ const keys=Object.keys(value);
+ if(s.type==='map'){if(keys.length>s.max)throw Error(path+': too many keys');for(const k of keys){if(!new RegExp(s.key).test(k))throw Error(path+': invalid map key');fixtureProjection(value[k],s.values,path+'.'+k,depth+1);}return;}
+ if(keys.some(k=>!Object.hasOwn(s.properties,k))||s.required.some(k=>!Object.hasOwn(value,k)))throw Error(path+': unsupported or missing field');
+ for(const k of keys)fixtureProjection(value[k],s.properties[k],path+'.'+k,depth+1);
+}
+function fixtureEnvelope(value,screen){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='as_of,board,cards,edition_id,expires_at,records,screen,slips,version')throw Error('Invalid display envelope');
+ const from=Date.parse(value.as_of),until=Date.parse(value.expires_at),now=Date.now();
+ if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000||new Date(from).toISOString().slice(0,10)!==new Date(now).toISOString().slice(0,10))throw Error('Display edition expired or unavailable');
+ if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>524288)throw Error('Display inventory exceeds limit');
+ fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
+ const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
+ const seen=new Set();
+ for(const r of value.cards){
+  if(!r||typeof r!=='object'||Object.keys(r).sort().join(',')!==allowed.slice().sort().join(',')||!Number.isSafeInteger(r.fxid)||r.fxid<=0||!Number.isSafeInteger(r.lid)||r.lid<=0||seen.has(r.fxid))throw Error('Invalid display fixture');
+  seen.add(r.fxid);
+  for(const k of ['home','away','lname','lcountry','date','status'])if(!fixtureText(r[k],k==='lcountry'?100:160))throw Error('Invalid fixture identity');
+  for(const k of ['gh','ga','ft_h','ft_a','ht_h','ht_a'])if(r[k]!==null&&(!Number.isInteger(r[k])||r[k]<0||r[k]>100))throw Error('Invalid display score');
+  if(r.prediction){const p=r.prediction,v=[p.p_home,p.p_draw,p.p_away];if(v.some(x=>x===null)&&v.some(x=>x!==null)||v.some(x=>x!==null&&(typeof x!=='number'||!Number.isFinite(x)||x<0||x>1))||v.every(x=>x!==null)&&Math.abs(v.reduce((a,b)=>a+b,0)-1)>.0002)throw Error('Invalid issued probability vector');}
+ }
+ if(!value.records||Object.keys(value.records).sort().join(',')!=='clv,engine')throw Error('Invalid display records');
+ if(value.board){
+  if(!Array.isArray(value.board.rows)||value.board.rows.length>1000||value.board.n!==value.board.rows.length)throw Error('Invalid display board');
+  const boardSeen=new Set();
+  for(const row of value.board.rows){
+   if(boardSeen.has(row.f))throw Error('Duplicate board fixture');boardSeen.add(row.f);
+   const r=value.cards.find(c=>c.fxid===row.f),v=[row.pw,row.pd,row.pq];
+   if(!r||r.lid!==row.l||r.home!==row.h||r.away!==row.a||r.date!==row.d||r.time!==row.t)throw Error('Board fixture identity mismatch');
+   if(v.some(x=>x===null)&&v.some(x=>x!==null)||v.every(x=>x!==null)&&Math.abs(v.reduce((a,b)=>a+b,0)-1)>.0002)throw Error('Invalid board probability vector');
+  }
+ }
+ if(value.records.engine&&value.records.engine.key!=='engine'||value.records.clv&&value.records.clv.key!=='clv')throw Error('Display record identity mismatch');
+ return value;
+}
+async function fixtureDisplayLoad(screen){
+ if(!['scores','predictions','history','records','slips'].includes(screen))throw Error('Unsupported display screen');
+ if(!supa)throw Error('Display server unavailable');
+ if(!fixtureDeliveryCurrent(_fixtureDelivery))fixtureDeliveryReset();
+ const c=_fixtureDelivery;
+ // Revalidate each screen operation. Edition expiry is an outer admission bound,
+ // not permission to hide newer collector updates until that expiry.
+ if(!c.screenPending)c.screenPending=new Map();
+ if(c.screenPending.has(screen))return c.screenPending.get(screen);
+ const pending=(async()=>{
+  const r=await c.client.rpc('matchmind_display_v1',{screen});
+  if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during display read');
+  if(r.error)throw Error('Bounded display unavailable');
+  const payload=fixtureEnvelope(r.data,screen),prior=c.screens.values().next().value;
+  if(prior&&(prior.edition_id!==payload.edition_id||prior.as_of!==payload.as_of)){
+   if(Date.parse(payload.as_of)<Date.parse(prior.as_of))throw Error('Obsolete display edition');
+   c.screens.clear();
+  }
+  c.screens.set(screen,payload);return payload;
+ })();
+ c.screenPending.set(screen,pending);
+ try{return await pending;}finally{if(c.screenPending.get(screen)===pending)c.screenPending.delete(screen);}
+}
+function fixturePublicRows(table,payload){
+ if(table==='fixtures'||table==='fixtures_lean')return payload.cards.map(r=>({...r}));
+ if(table==='competitions'){const byId=new Map();for(const r of payload.cards)byId.set(r.lid,{lid:r.lid,lname:r.lname,lcountry:r.lcountry,llogo:''});return [...byId.values()];}
+ if(table==='predictions')return payload.cards.filter(r=>r.prediction).map(r=>({fxid:r.fxid,lid:r.lid,lname:r.lname,lcountry:r.lcountry,home:r.home,away:r.away,...r.prediction}));
+ if(table==='daily_slips')return payload.slips;
+ if(table==='shared_records'){const rows=Object.values(payload.records).filter(Boolean);if(payload.board)rows.push({key:'board',payload:payload.board,build:null,computed_at:payload.as_of});return rows;}
+ throw Error('Private source data is not a public presentation');
+}
+function fixtureTable(table){
+ if(!FIXTURE_PRIVATE_TABLES.has(table))return supa.from(table);
+ const ops=[];
+ const query={then:(ok,bad)=>run().then(ok,bad)};
+ for(const name of ['select','eq','neq','in','gte','gt','lte','lt','order','range','limit','is','not','single','maybeSingle','insert','upsert','update','delete'])query[name]=(...args)=>{ops.push([name,args]);return query;};
+ async function run(){try{
+  const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+  if(await fixtureAccess()){
+   if(!fixtureDeliveryCurrent(c))throw Error('Account changed during source read');
+   let original=c.client.from(table);for(const [name,args]of ops)original=original[name](...args);return await original;
+  }
+  if(ops.some(([n])=>['insert','upsert','update','delete'].includes(n)))throw Error('Private source writes require publisher authority');
+  if(table==='odds_latest'||table==='odds_snapshots'||table==='predictions_retired')throw Error('Private odds captures are unavailable');
+  const screen=table==='daily_slips'?'slips':table==='shared_records'?(ops.some(([n,a])=>n==='eq'&&a[0]==='key'&&a[1]==='board')?'predictions':'records'):table==='predictions'?'history':'scores';
+  const payload=await fixtureDisplayLoad(screen);if(!fixtureDeliveryCurrent(c))throw Error('Account changed during display read');
+  let publicRows=fixturePublicRows(table,payload);
+  if((table==='fixtures'||table==='fixtures_lean')&&ops.some(([name,args])=>(name==='eq'||name==='in')&&args[0]==='fxid')){
+   const history=await fixtureDisplayLoad('history');
+   if(!fixtureDeliveryCurrent(c)||history.edition_id!==payload.edition_id||history.as_of!==payload.as_of)throw Error('Display edition changed during result lookup');
+   const merged=new Map();for(const row of [...history.cards,...payload.cards])merged.set(row.fxid,row);publicRows=[...merged.values()];
+  }
+  let rows=publicRows,columns='*',head=false,count=null,single=false;
+  for(const[name,a]of ops){const[k,v]=a;
+   if(name==='select'){columns=k||'*';head=!!(v&&v.head);continue;}
+   if(['eq','neq','in','gte','gt','lte','lt','is'].includes(name))rows=rows.filter(r=>name==='eq'?r[k]===v:name==='neq'?r[k]!==v:name==='in'?Array.isArray(v)&&v.includes(r[k]):name==='gte'?r[k]>=v:name==='gt'?r[k]>v:name==='lte'?r[k]<=v:name==='lt'?r[k]<v:r[k]===v);
+   else if(name==='not'){if(a[1]!=='is')throw Error('Unsupported local display filter');rows=rows.filter(r=>r[k]!==a[2]);}
+   else if(name==='order')rows=rows.slice().sort((x,y)=>(x[k]<y[k]?-1:x[k]>y[k]?1:0)*(v&&v.ascending===false?-1:1));
+   else if(name==='limit')rows=rows.slice(0,Math.max(0,Math.min(1000,k)));
+   else if(name==='range')rows=rows.slice(Math.max(0,k),Math.min(1000,v+1));
+   else if(name==='single'||name==='maybeSingle')single=true;
+  }
+  count=rows.length;
+  if(columns!=='*'){const keys=columns.split(',');if(keys.some(k=>!/^\w+$/.test(k)))throw Error('Unsupported display field selector');rows=rows.map(r=>Object.fromEntries(keys.filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]])));}
+  return {data:head?null:single?(rows[0]||null):rows,error:null,count};
+ }catch(e){return{data:null,error:{message:'Bounded fixture display unavailable',code:'MM_DISPLAY_UNAVAILABLE'},count:null};}}
+ return query;
+}
+function fixturePresentationRow(r,board){
+ const p=r.prediction,b=board&&board.rows.find(x=>x.f===r.fxid),v=p?probabilityVector(p.p_home,p.p_draw,p.p_away):b?probabilityVector(b.pw,b.pd,b.pq):null;
+ return {fxid:r.fxid,date:p?p.kickoff:r.date,time:p?p.ktime:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
+   _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
+   frozen:!!p,pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
+}
+async function loadFixturePresentation(){
+ try{
+  const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+  const [p,h]=await Promise.all([fixtureDisplayLoad('predictions'),fixtureDisplayLoad('history')]);
+  if(!fixtureDeliveryCurrent(c))return;
+  if(p.edition_id!==h.edition_id||p.as_of!==h.as_of)throw Error('Display edition changed during publication read');
+  const cards=new Map();for(const r of [...h.cards,...p.cards])cards.set(r.fxid,r);
+  const leagues={},archive={},cloudFix={};
+  for(const r of cards.values()){
+   const lid=r.prediction?r.prediction.lid:r.lid,lname=r.prediction?r.prediction.lname:r.lname;
+   const L=leagues[lid]||(leagues[lid]={id:lid,name:lname,country:r.lcountry,logo:'',flag:'',sport:'football',matches:[],upcoming:[],teamIds:{},scorerText:'',histTried:true,_presentation:true});
+   L.upcoming.push(fixturePresentationRow(r,p.board));if(r.prediction)archive[r.fxid]=archiveRow(r.prediction);
+   const settled=settledRow({...r});if(unsettled90(settled)||(isFinishedScore(settled)&&Number.isInteger(settled.gh)&&Number.isInteger(settled.ga)))cloudFix[r.fxid]=settled;
+  }
+  afState.leagues=leagues;afState.leagueOrder=Object.keys(leagues).map(Number);afState.archive=archive;afState.cloudFix=cloudFix;
+  _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
+  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;
+  renderFixtures();renderFavs();renderTips();refreshDataChip();
+ }catch(e){afState.leagues={};afState.leagueOrder=[];_boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};renderFixtures();const el=$('fixturesMeta')||$('discoverStatus');if(el)el.textContent='Published fixtures unavailable. Please try again.';}
+}
+function showPublishedFixture(L,f){
+ showNoAnalysis(f.home,f.away);
+ $('analysisHeading').textContent='Published statistical prediction';
+ $('heroHome').innerHTML=heroSide(f.home,'Home');$('heroAway').innerHTML=heroSide(f.away,'Away');setFavRow(f.home,f.away);
+ setHeroMeta({comp:L.name,country:L.country,date:f.date,time:f.time,fxid:f.fxid,home:f.home,away:f.away,status:f.status});
+ const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(f.pick&&f.prob!=null),available=issued&&!f.gated;
+ $('heroPick').textContent=issued?pickLabel(f.pick,f.home,f.away):'Statistical prediction unavailable';
+ $('heroConf').textContent=issued?pct(f.prob)+' published probability':'';
+ $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
+ setHeroDnb(available?f.pick:null,v);
+ $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. MatchMind is no longer backing it; it is not a current recommendation.</p>')+'<p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
+ const result=fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
+ const resultLine=document.createElement('div');resultLine.className='hm-dt';
+ const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
+ resultLine.textContent=complete?'90-minute score '+result.gh+'–'+result.ga:pending?'90-minute result pending':'90-minute result unavailable';
+ $('heroMeta').appendChild(resultLine);
+ setShareCard(false,null);navTo('detail');
 }
 
 // top scorers per league, fetched once on first analysis (1 request)
@@ -6808,7 +7005,7 @@ async function dailyOddsLoad(day, fxids){
   for(let i = 0; i < fxids.length; i += 150){
     let q = null;
     try{
-      q = await supa.from(ODDS_LATEST_VIEW)
+      q = await fixtureTable(ODDS_LATEST_VIEW)
             /* BUILD 333 - `o15`,`u15` for everyone (+12% on this request, measured); `htft` ONLY
                where a card is actually built. Measured on 150 fixtures: 30,546 -> 34,067 bytes with
                o15/u15, -> 60,140 with htft, so htft nearly DOUBLES it - nine prices per fixture as
@@ -6893,7 +7090,7 @@ async function slipOddsMerge(fxids){
     for(let i = 0; i < want.length; i += 150){
       let q = null;
       try{
-        q = await supa.from(ODDS_LATEST_VIEW)
+        q = await fixtureTable(ODDS_LATEST_VIEW)
               .select('fxid,mins_to_kick,h,d,a,o15,u15,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba'
                       + (isPublisher() ? ',htft' : ''))
               .in('fxid', want.slice(i, i + 150));
@@ -7230,7 +7427,7 @@ let _sharedSlips = { day: null, rows: [], loaded: false, error: null };
 
 async function dailySharedFetch(day){
   if(!cloudEnabled() || !supa) return { rows: [], error: 'offline' };
-  const q = await supa.from('daily_slips').select('day,tier,odds,build,step,legs')
+  const q = await fixtureTable('daily_slips').select('day,tier,odds,build,step,legs')
                       .eq('day', day).gte('build', DAILY_SHARED_MIN_BUILD);
   if(q.error) return { rows: [], error: q.error.message };
   return { rows: q.data || [], error: null };
@@ -7246,7 +7443,7 @@ async function dailySharedSeed(day, tier, legs, reached, step){
                                        code: l.code, market: l.market, p: +l.prob.toFixed(4),
                                        lid: l.L ? +l.L.id : null,   // build 329
                                        o: +dailyLegOdds(l).toFixed(4) })) };
-  const q = await supa.from('daily_slips').insert(row);
+  const q = await fixtureTable('daily_slips').insert(row);
   return !q.error;
 }
 
@@ -7268,7 +7465,7 @@ async function dailySharedSeedRow(day, tier, row){
   if(!cloudEnabled() || !supa || !authUser || !isPublisher()) return false;
   if(!row || !Array.isArray(row.legs) || !row.legs.length) return false;
   if(!(row.build >= DAILY_SHARED_MIN_BUILD)) return false;
-  const q = await supa.from('daily_slips').insert(
+  const q = await fixtureTable('daily_slips').insert(
     { day: day, tier: tier.key, odds: +(+row.odds).toFixed(4), build: row.build,
       step: row.step || 'primary', legs: row.legs });
   return !q.error;
@@ -7345,7 +7542,7 @@ async function sharedResultsLoad(rows){
     const chunk=ids.slice(i,i+200),request=++_sharedResRequest;
     for(const id of chunk)_sharedResReads.set(id,{..._sharedResReads.get(id),attemptAt:Date.now(),request});
     try{
-      const q=await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,ht_h,ht_a,status,updated_at').in('fxid',chunk);
+      const q=await fixtureTable('fixtures').select('fxid,gh,ga,ft_h,ft_a,ht_h,ht_a,status,updated_at').in('fxid',chunk);
       if(q.error||!Array.isArray(q.data))throw q.error||Error('result response unavailable');
       const seen=new Set();
       for(const raw of q.data){
@@ -7449,7 +7646,7 @@ async function liveResultsLoad(rows){
     }
   if(!ids.length) return liveSig();     // every leg settled — no read at all
   for(let i = 0; i < ids.length; i += 200){
-    const q = await supa.from('fixtures').select('fxid,status,elapsed,gh,ga').in('fxid', ids.slice(i, i + 200));
+    const q = await fixtureTable('fixtures').select('fxid,status,elapsed,gh,ga').in('fxid', ids.slice(i, i + 200));
     if(q.error) throw q.error;
     for(const raw of (q.data || [])){
       const k = String(raw.fxid), st = canonStatus(raw.status);
@@ -7486,11 +7683,11 @@ async function slipHistoryLoad(){
     const d0 = new Date(); d0.setDate(d0.getDate() - SLIP_HISTORY_DAYS);
     const from = d0.toISOString().slice(0, 10);
     const tiers = DAILY_TIERS.map(t => t.key);
-    const q = await supa.from('daily_slips').select('day,tier,odds,build,step,legs')
+    const q = await fixtureTable('daily_slips').select('day,tier,odds,build,step,legs')
                         .gte('build', DAILY_SHARED_MIN_BUILD).in('tier', tiers).gte('day', from)
                         .order('day', { ascending: false }).limit(5000);
     if(q.error) throw q.error;
-    const older = await supa.from('daily_slips').select('day', { count: 'exact', head: true })
+    const older = await fixtureTable('daily_slips').select('day', { count: 'exact', head: true })
                             .gte('build', DAILY_SHARED_MIN_BUILD).in('tier', tiers).lt('day', from);
     const rows = q.data || [];
     await sharedResultsLoad(rows);
@@ -7645,7 +7842,7 @@ async function tipsFrozenSeed(day){
       const sc = f.fxid != null ? smap[f.fxid] : null; if(isFinishedScore(sc)) played++;
     }
   }
-  const q = await supa.from('daily_slips').insert(
+  const q = await fixtureTable('daily_slips').insert(
     { day: day, tier: 'tips', odds: 0, build: APP_BUILD,
       step: played ? ('tips-partial-' + played) : 'tips', legs: legs });
   return !q.error;
@@ -7671,7 +7868,7 @@ async function bankerFrozenSeed(day){
   if(!b || b.prob == null || !b.pick || !b.f) return false;
   const px = dailyRealPrice(b.f.fxid, b.pick);
   if(px == null || !(px > 1)) return false;        // no real price -> no Banker card today
-  const q = await supa.from('daily_slips').insert(
+  const q = await fixtureTable('daily_slips').insert(
     { day: day, tier: 'banker', odds: +(+px).toFixed(4), build: APP_BUILD, step: 'banker',
       legs: [{ fxid: b.f.fxid, d: b.f.date, t: b.f.time || '', h: b.f.home, a: b.f.away,
                code: b.pick, market: b.market || 'Winner', p: +b.prob.toFixed(4),
@@ -9448,6 +9645,7 @@ function slipMarketMatch(mKey,sel){
 let pendingFrozenPred = null;
 
 async function analyze(){
+  if(currentSport==='football'&&pendingMeta){const L=afState.leagues[pendingMeta.lid];if(L&&L._presentation){const f=L.upcoming.find(x=>x.fxid===pendingMeta.fxid);pendingMeta=null;if(f)showPublishedFixture(L,f);return;}}
   const analysisTurn=++_analysisGeneration;
   const credential=credentialContext();
   const sport = currentSport;
@@ -10672,7 +10870,7 @@ async function retiredCount(day){
   if(Object.prototype.hasOwnProperty.call(_retiredCounts, key)) return _retiredCounts[key];
   if(!supa) return null;
   try{
-    let q = supa.from(RETIRED_TABLE).select('fxid', { count: 'exact', head: true });
+    let q = fixtureTable(RETIRED_TABLE).select('fxid', { count: 'exact', head: true });
     if(day) q = q.eq('kickoff', day);
     const r = await q;
     if(r.error) throw r.error;
@@ -10730,7 +10928,7 @@ async function renderLedger(){
     const ids = preds.map(r=>r.fxid);
     const res = {};
     for(let i=0;i<ids.length;i+=200){
-      const { data: fx } = await supa.from('fixtures')
+      const { data: fx } = await fixtureTable('fixtures')
         .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));   // build 349 - date and time, for the late test
       /* build 357 - an unresolved row is OMITTED rather than stored null, so every reader that
          already treats a missing entry as "not settled yet" refuses it without a new branch. */
@@ -10904,7 +11102,7 @@ function withholdWrite(fxid, at, undo){
     for(const wq of q){ if(archiveWritable()) withholdWrite(wq.fxid, wq.at, wq.undo); else wq.undo(); }
   };
   try{
-    supa.from('predictions').update({ withheld_at: at }).eq('fxid', fxid)
+    fixtureTable('predictions').update({ withheld_at: at }).eq('fxid', fxid)
       .then(r => { if(r && r.error && archiveFailure('withhold', r.error)) undo(); settle(); },
             e => { archiveFailure('withhold', e); undo(); settle(); });
   }catch(e){ archiveFailure('withhold', e); undo(); settle(); }
@@ -10959,7 +11157,7 @@ async function stampPublicationPrices(rows){
      anyway. At a 4-day freeze the collector's cadence is one capture a day, so a 40-fixture first
      load is well inside it. */
   const since = new Date(Date.now() - PUB_PRICE_LOOKBACK_H * 3600000).toISOString();
-  const q = await supa.from('odds_snapshots')
+  const q = await fixtureTable('odds_snapshots')
     .select('id,fxid,captured_at,mins_to_kick,h,d,a,o25,u25,o35,u35,bttsy,bttsn,dc1x,dc12,dcx2,dnbh,dnba')
     .in('fxid', rows.map(r => r.fxid))
     .gte('captured_at', since)
@@ -11004,7 +11202,7 @@ async function flushPredictionArchive(){
       /* ignoreDuplicates is the whole mechanism. Two devices racing on the same fixture both send
          an insert; the first lands, the second is discarded by the primary key rather than
          overwriting it. `onConflict` names the key that decides. */
-      const ins = await supa.from('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
+      const ins = await fixtureTable('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
       /* THE LINE WHOSE ABSENCE COST EIGHT DAYS. A denied insert comes back as `{ error }`, not as a
          throw, so without this the batch vanishes and the app carries on looking healthy. Nothing is
          re-queued: `archivePrediction` re-queues on the next load anyway, because the fixture still
@@ -11013,7 +11211,7 @@ async function flushPredictionArchive(){
       /* READ BACK, because the row that won may not be the row this device sent. Optimistically
          trusting our own payload is how two phones end up showing different "frozen" picks, which
          is the exact incoherence this build exists to remove. */
-      const { data, error: readErr } = await supa.from('predictions')
+      const { data, error: readErr } = await fixtureTable('predictions')
         .select('fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build')
         .in('fxid', fresh.map(r => r.fxid));
       if(readErr) archiveFailure('read back', readErr);
@@ -11050,7 +11248,7 @@ async function flushPredictionArchive(){
         }
         break;
       }
-      const up = await supa.from('predictions')
+      const up = await fixtureTable('predictions')
         .update({ final_pick:r.final_pick, final_prob:r.final_prob, final_at:r.final_at })
         .eq('fxid', r.fxid);
       if(up && up.error && archiveFailure('drift', up.error)){
@@ -13248,10 +13446,11 @@ function m15Fair(snap, code){
    caps a select at 1000 rows and the archive is larger than that - build 123, and the trap this
    very measurement fell into on its first reconnaissance run. */
 async function m15Fetch(){
+  if(!(await fixtureAccess()))throw Error('Private source review requires authorization');
   const page = async (table, cols) => {
     let out = [], from = 0;
     for(;;){
-      const q = await supa.from(table).select(cols).order('fxid', { ascending: true }).range(from, from + 999);
+      const q = await fixtureTable(table).select(cols).order('fxid', { ascending: true }).range(from, from + 999);
       if(q.error) throw new Error(table + ': ' + q.error.message);
       out = out.concat(q.data);
       if(q.data.length < 1000) break;
@@ -13272,7 +13471,7 @@ async function m15Fetch(){
   for(const p of preds) if(ids.indexOf(p.fxid) < 0) ids.push(p.fxid);
   const fx = [];
   for(let i = 0; i < ids.length; i += 150){
-    const q = await supa.from('fixtures').select('fxid,date,time,status,gh,ga,ft_h,ft_a,provider').in('fxid', ids.slice(i, i + 150));   // build 349
+    const q = await fixtureTable('fixtures').select('fxid,date,time,status,gh,ga,ft_h,ft_a,provider').in('fxid', ids.slice(i, i + 150));   // build 349
     if(q.error) throw new Error('fixtures: ' + q.error.message);
     for(const r of q.data){ const s = settledRow(r); if(!unsettled90(s)) fx.push(s); }   // build 320 — the grader reads the 90-minute score; build 357 - unresolved rows are withheld
   }
@@ -16548,7 +16747,7 @@ async function backfillPredictions(){
     }
     // ignoreDuplicates: a real pre-match prediction always outranks a rebuilt one
     for(let i=0;i<rows.length;i+=200){
-      const { error: upErr } = await supa.from('predictions')
+      const { error: upErr } = await fixtureTable('predictions')
         .upsert(rows.slice(i,i+200), { onConflict:'fxid', ignoreDuplicates:true });
       if(upErr) throw upErr;
     }
@@ -16570,7 +16769,7 @@ async function renderArchiveDay(){
   if(!supa){ out.innerHTML = '<div class="subnote">This needs the cloud backend, which isn\'t configured on this device.</div>'; return; }
   out.innerHTML = '<div class="subnote"><span class="spinner"></span>Reading what the app predicted that day…</div>';
   try{
-    const { data: preds, error } = await supa.from('predictions')
+    const { data: preds, error } = await fixtureTable('predictions')
       /* build 212 — `made_at` joins the select so the panel can say how far ahead of kick-off each
          pick was frozen. Nothing new is stored: the distance is `kickoff` minus `made_at`, both of
          which were already here, which is the same "derive it, do not store it" call as builds 168
@@ -16590,7 +16789,7 @@ async function renderArchiveDay(){
        'Serie A' and this panel grouped by NAME, so Brazil and Italy were pooled under one
        heading. It costs no extra round trip and it is the same collision that had the engine
        pricing Brasileirão with Italy's constant. */
-    const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    const { data: fx } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
 
     let graded=0, hits=0, stale=0;
@@ -18037,7 +18236,7 @@ async function settleRecord(){
   try{
     const ids = [...new Set(todo.map(r => r.fxid))], byId = {};
     for(let i = 0; i < ids.length; i += 150){
-      const q = await supa.from('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 150));
+      const q = await fixtureTable('fixtures').select('fxid,gh,ga,ft_h,ft_a,status').in('fxid', ids.slice(i, i + 150));
       if(q.error || !personalToken(personalOwner,personalEpoch)) return 0; // stale owner cannot mutate or save
       for(const f of (q.data || [])) byId[f.fxid] = f;
     }
@@ -18604,7 +18803,7 @@ let _leanFtProbe = null;
 function leanHasFt(){
   if(_leanFt !== null) return Promise.resolve(_leanFt);
   if(!_leanFtProbe) _leanFtProbe = (async () => {
-    try{ const q = await supa.from(LEAN_VIEW).select('ft_h,ft_a').limit(1); _leanFt = !q.error; }
+    try{ const q = await fixtureTable(LEAN_VIEW).select('ft_h,ft_a').limit(1); _leanFt = !q.error; }
     catch(e){ _leanFt = false; }
     return _leanFt;
   })();
@@ -18635,9 +18834,10 @@ let COMP_META = {};                    // lid -> { lname, lcountry, llogo }, fet
 const COMP_META_FALLBACK_BATCH = 8;
 let _compMetaFallback = 0;   // build 323 — how many ids the per-competition fallback was asked for this session
 async function loadCompMeta(){
+  if(supa && !(await fixtureAccess())){const p=await fixtureDisplayLoad('predictions');COMP_META={};for(const r of p.cards)COMP_META[r.lid]={lid:r.lid,lname:r.lname,lcountry:r.lcountry,llogo:''};return COMP_META;}
   if(!supa || Object.keys(COMP_META).length) return COMP_META;
   try{
-    const q = await supa.from('competitions').select('lid,lname,lcountry,llogo');
+    const q = await fixtureTable('competitions').select('lid,lname,lcountry,llogo');
     if(!q.error) for(const c of (q.data || [])) COMP_META[c.lid] = c;
   }catch(e){ /* a failed view falls through to the per-competition read below */ }
   const missing = COMP_IDS.filter(id => !(COMP_META[id] && COMP_META[id].lname));
@@ -18645,7 +18845,7 @@ async function loadCompMeta(){
   for(let i = 0; i < missing.length; i += COMP_META_FALLBACK_BATCH){
     await Promise.all(missing.slice(i, i + COMP_META_FALLBACK_BATCH).map(async id => {
       try{
-        const r = await supa.from('fixtures').select('lid,lname,lcountry,llogo')
+        const r = await fixtureTable('fixtures').select('lid,lname,lcountry,llogo')
                             .eq('lid', id).order('updated_at', { ascending: false, nullsFirst: false }).limit(1);
         const c = !r.error && r.data && r.data[0];
         if(c && c.lname) COMP_META[id] = c;
@@ -18972,6 +19172,8 @@ async function histSave(map){
      the lever that would actually work is the server's 1,000-row page cap - a project setting, not
      a code change. */
 async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
+  if(supa && !(await fixtureAccess()))return {data:null,error:{message:'Private fixture history requires source authorization'},pages:0};
+  const source={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
   let out = [], from = 0, pages = 0;
   const ftCols = (!LEAGUE_BLOBS && await leanHasFt()) ? ',ft_h,ft_a' : '';   // build 320 — only when the view has them
   for(;;){
@@ -19016,8 +19218,8 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
        it measurably HELPED there (archive 1.8s ordered vs 3.3s unordered). */
     /* build 262 — lean columns and a date bound on the shipped path; `?blobs=1` lifts BOTH so a
        research run still sees every column and every season. */
-    let q = LEAGUE_BLOBS ? supa.from('fixtures').select('*').eq('lid', id)
-                         : supa.from(LEAN_VIEW).select(LEAGUE_COLS_SLIM + ftCols).eq('lid', id);
+    let q = LEAGUE_BLOBS ? fixtureTable('fixtures').select('*').eq('lid', id)
+                         : fixtureTable(LEAN_VIEW).select(LEAGUE_COLS_SLIM + ftCols).eq('lid', id);
     /* build 279 — when this competition's settled history is already cached locally, the read
        starts at the settle cutoff instead of 24 months back. `_histSince` is set by
        loadCloudLeagues from the cache it just opened; absent, this is build 278's read exactly. */
@@ -19029,6 +19231,7 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
     if(!LEAGUE_BLOBS) q = exclusiveUntil ? q.gte('date', since).lt('date', until)
                                          : q.gte('date', since).lte('date', until);
     const { data, error } = await q.order('date').order('fxid').range(from, from + PAGE - 1);
+    if(!fixtureDeliveryCurrent(source)||!fixtureRawCurrent())return {data:null,error:{message:'Private source authority changed during history read'},pages:0};
     if(error) return { data:null, error };
     out = out.concat(data || []);
     pages++;
@@ -19038,6 +19241,7 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
   }
   // more than one page means this competition WOULD have been truncated before build 123
   /* BUILD 298 — the wire carries ids; the URLs are rebuilt here so nothing downstream changes. */
+  if(!fixtureDeliveryCurrent(source)||!fixtureRawCurrent())return {data:null,error:{message:'Private source authority changed during history read'},pages:0};
   if(!LEAGUE_BLOBS) for(const r of out) hydrateLeanRow(r);
   return { data: out, error:null, pages };
 }
@@ -19056,7 +19260,7 @@ async function fetchLeagueFixtures(id, sinceOv, untilOv, exclusiveUntil){
 async function fetchAllRows(table, cols, apply, orderCol){
   let out = [], from = 0;
   for(;;){
-    let q = supa.from(table).select(cols);
+    let q = fixtureTable(table).select(cols);
     q = apply ? apply(q) : q;
     q = q.order(orderCol || 'fxid');
     const { data, error } = await q.range(from, from + PAGE - 1);
@@ -19426,6 +19630,8 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
      the decision that reads it. */
 }
 async function loadCloudLeagues(force){
+  if(supa && !(await fixtureAccess())){ await loadFixturePresentation(); return; }
+  const fixtureSource={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(!supa) return;
   /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
@@ -19507,12 +19713,16 @@ async function loadCloudLeagues(force){
       archiveReady,
       runBatched(COMP_IDS, LEAGUE_FETCH_BATCH)
     ]);
+    if(!fixtureDeliveryCurrent(fixtureSource))return;
+    if(!fixtureRawCurrent()){fixtureDetachRaw(_fixtureDelivery);await loadFixturePresentation();return;}
     const bad = (r) => !!(r.error || !r.data || !r.data.length);
     const retryIdx = results.map((r,i)=> bad(r) ? i : -1).filter(i=>i>=0);
     if(retryIdx.length){
       const retried = await Promise.all(retryIdx.map(i => fetchLeagueFixtures(COMP_IDS[i])));
       retryIdx.forEach((i,k)=>{ results[i] = retried[k]; });
     }
+    if(!fixtureDeliveryCurrent(fixtureSource))return;
+    if(!fixtureRawCurrent()){fixtureDetachRaw(_fixtureDelivery);await loadFixturePresentation();return;}
     /* build 344 — a competition whose read FAILED did not receive [cache end, settleAt), so its cache is not
        re-written with a later `to` (that would skip the gap for good). It keeps the cache it had. */
     const _readOk = {};
@@ -20125,7 +20335,7 @@ function loadBoard(){
   _boardLoading = (async () => {
     try{
       if(!supa) throw new Error('offline');
-      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at')
+      const q = await fixtureTable(RECORDS_TABLE).select('key,payload,build,computed_at')
         .eq('key', BOARD_RECORD_KEY).limit(1);
       if(q.error) throw q.error;
       const r = (q.data || [])[0] || null;
@@ -20213,11 +20423,14 @@ async function boardPublish(){
   if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher writes the board' };
   try{
     const payload = boardBuild();
-    const w = await supa.from(RECORDS_TABLE).upsert(
+    const w = await fixtureTable(RECORDS_TABLE).upsert(
       { key: BOARD_RECORD_KEY, payload: payload, build: APP_BUILD,
         computed_at: new Date().toISOString() }, { onConflict: 'key' });
     if(w.error) throw w.error;
     await loadBoard();
+    if(_boardRecord.state!=='loaded')throw Error('Published board could not be verified');
+    const edition=await supa.rpc('matchmind_publish_display_v1',{});
+    if(edition.error||!edition.data||edition.data.version!=='matchmind-display/1'||!fixtureText(edition.data.edition_id,80)||!Number.isFinite(Date.parse(edition.data.as_of)))throw Error('Bounded public display publication failed');
     return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead,
              notPassed: payload.notPassed, noBars: payload.noBars };
   }catch(e){
@@ -20483,7 +20696,7 @@ async function loadAiShadow(force){
     const results = {};
     const ids = rows.map(r => r.fxid);
     for(let i = 0; i < ids.length; i += 150){
-      const q = await supa.from('fixtures').select('fxid,status,gh,ga,ft_h,ft_a').in('fxid', ids.slice(i, i + 150));
+      const q = await fixtureTable('fixtures').select('fxid,status,gh,ga,ft_h,ft_a').in('fxid', ids.slice(i, i + 150));
       if(q.error) throw q.error;
       for(const x of (q.data || [])){
         if(!isFin(x.status)) continue;
@@ -20555,7 +20768,7 @@ function loadSharedRecords(){
   _engineRecordLoading = (async () => {
     try{
       if(!supa) throw new Error('offline');
-      const q = await supa.from(RECORDS_TABLE).select('key,payload,build,computed_at')
+      const q = await fixtureTable(RECORDS_TABLE).select('key,payload,build,computed_at')
         .in('key', [ENGINE_RECORD_KEY, CLV_RECORD_KEY]).limit(4);
       if(q.error) throw q.error;
       const byKey = k => ((q.data || []).filter(x => x.key === k)[0] || null);
@@ -20734,13 +20947,13 @@ async function sharedRecordsPublish(){
     if(error) throw error;
     const ids = (preds || []).map(r => r.fxid), res = {};
     for(let i = 0; i < ids.length; i += 200){
-      const { data: fx, error: fe } = await supa.from('fixtures')
+      const { data: fx, error: fe } = await fixtureTable('fixtures')
         .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i, i + 200));   // build 328; `time` added at 349 for the late test
       if(fe) throw fe;
       for(const f of (fx || [])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 357
     }
     const payload = engineRecordPayload(preds || [], res, todayStrLocal());
-    const w = await supa.from(RECORDS_TABLE).upsert(
+    const w = await fixtureTable(RECORDS_TABLE).upsert(
       { key: ENGINE_RECORD_KEY, payload: payload, build: APP_BUILD, computed_at: new Date().toISOString() },
       { onConflict: 'key' });
     if(w.error) throw w.error;
@@ -20762,7 +20975,7 @@ async function sharedClvPublish(){
     const data = await m15Fetch();
     const built = m15Build(data.preds, data.snaps, data.fx);
     const payload = clvSummary(built.rows);
-    const w = await supa.from(RECORDS_TABLE).upsert(
+    const w = await fixtureTable(RECORDS_TABLE).upsert(
       { key: CLV_RECORD_KEY, payload: payload, build: APP_BUILD, computed_at: new Date().toISOString() },
       { onConflict: 'key' });
     if(w.error) throw w.error;
@@ -20984,6 +21197,7 @@ function ensureLeagueFromScore(s){
     if(!afState.leagueOrder.includes(s.lid)) afState.leagueOrder.push(s.lid);
   }
   const L = afState.leagues[s.lid];
+  if(!(fixtureRawCurrent()))L._presentation=true;
   let f = L.upcoming.find(x=>x.fxid===s.fxid);
   if(!f){ f = {fxid:s.fxid, date:s.date, time:s.time, home:s.home, away:s.away}; L.upcoming.push(f); }
   return {L, f};
@@ -21144,6 +21358,7 @@ function setTeamSelect(id, name){
 }
 
 async function openFixture(leagueId, f, btn){
+  const presentationLeague=afState.leagues[leagueId];if(presentationLeague&&presentationLeague._presentation){showPublishedFixture(presentationLeague,f);return;}
   const credential=credentialContext();
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   resetMatchPanels();
@@ -21910,12 +22125,12 @@ async function showPredictDate(d){
   $('fixtureList').innerHTML = '<div class="subnote"><span class="spinner"></span>Loading that day…</div>';
   if(!supa){ $('fixtureList').innerHTML = '<div class="subnote">Needs the cloud backend.</div>'; return; }
   try{
-    const { data: preds } = await supa.from('predictions')
+    const { data: preds } = await fixtureTable('predictions')
       .select('fxid,lname,kickoff,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');   // build 349 - kickoff, for the void function
     const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
-    const { data: fx } = await supa.from('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    const { data: fx } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
@@ -22454,12 +22669,14 @@ function saveState(){
   try{
     preserveLegacy();
     if(!personalStore(_personalOwner,_cloudAccountEpoch)) throw Error('Personal data could not be saved');
-    localStorage.setItem(cacheStateKey(), JSON.stringify({
+    const privateSource=fixtureRawCurrent();
+    localStorage.setItem(privateSource?cacheStateKey():'mm_public_state_v1', JSON.stringify({
+      footballSource:_fixtureInputSource,
       personalPartitionVersion:1,
-      fb: footballEngine.matches, bb: basketballEngine.matches,
+      fb: privateSource||_fixtureInputSource==='custom-csv'?footballEngine.matches:[], bb: basketballEngine.matches,
       scorerText: $('scorerData').value,
       chip: $('dataChip').textContent.replace('● ',''),
-      af: {season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores}
+      af: privateSource?{season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores}:{}
     }, dropExtras));
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
@@ -22501,6 +22718,8 @@ function onAuth(user){
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
     clearSearchForIdentity();
+    fixtureDeliveryReset();
+    if(Object.values(afState.leagues||{}).some(L=>!L._presentation)){afState.leagues={};afState.leagueOrder=[];afState.activeLeagueId=null;afState.scores=null;afState.cloudFix={};if(_fixtureInputSource!=='custom-csv')footballEngine.matches=[];}
     personalStore(_personalOwner,_cloudAccountEpoch);
     ++_cloudAccountEpoch; ++_cloudPushVersion; clearTimeout(_cloudPushT);
     _personalCloudReady=false;
@@ -22662,7 +22881,8 @@ function accountInitials(){
 }
 function restoreState(){
   try{
-    const s = JSON.parse(localStorage.getItem(cacheStateKey())||localStorage.getItem('mm_state')||'null');
+    const s = JSON.parse(localStorage.getItem('mm_public_state_v1')||localStorage.getItem(cacheStateKey())||localStorage.getItem('mm_state')||'null');
+    if(s && !(fixtureRawCurrent()) && s.footballSource!=='custom-csv')return false;
     if(!s) return false;
     /* BUILD 356 - THE SAVED KEY IS RESTORED BEFORE THE CORPUS CHECK, NOT AFTER IT.
        `saveState` writes `afKey` and the match corpus into one blob, and this function used to
@@ -22676,6 +22896,7 @@ function restoreState(){
        restored whenever a corpus happened to exist. It only makes that restoration consistent. */
     // Legacy ownerless keys are retained in storage but never activated.
     if(!s.fb || !s.fb.length) return false;
+    _fixtureInputSource=s.footballSource==='custom-csv'?'custom-csv':'provider';
     footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
@@ -23785,6 +24006,7 @@ $('loadCsvBtn').addEventListener('click', ()=>{
     const rows = parseCSV(e.target.result);
     const eng = $('uploadSport').value==='football' ? footballEngine : basketballEngine;
     eng.load(rows);
+    if(eng===footballEngine)_fixtureInputSource='custom-csv';
     if(!eng.matches.length){ alert('No valid rows found — check the column names.'); return; }
     refreshTeams();
     _dataSourceExplicit = true;   // build 214 — a deliberate choice is never overwritten
@@ -23795,7 +24017,8 @@ $('loadCsvBtn').addEventListener('click', ()=>{
   reader.readAsText(f);
 });
 $('resetBtn').addEventListener('click', ()=>{
-  try{ localStorage.removeItem(cacheStateKey()); }catch(e){}
+  try{ localStorage.removeItem(fixtureRawCurrent()?cacheStateKey():'mm_public_state_v1'); }catch(e){}
+  _fixtureInputSource='sample';
   footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
   basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
   loadScorers(SAMPLE_SCORERS, true);
