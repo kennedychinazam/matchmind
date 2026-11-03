@@ -127,15 +127,17 @@ test('owned API-Football key works after explicit session consent with a cached 
   if(!ready) return t.skip(skip());
   const {port} = await host();
   // Approved compatibility change: ownerless saved keys are preserved but never activated.
-  // A newly owned key remains usable with or without cached matches after explicit consent.
-  const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({fb:[{date:'2026-01-10',home:'Synthetic A',away:'Synthetic B',hg:1,ag:0}]}),
+  // Explicit user-supplied CSV is restorable; unknown provider corpora remain quarantined.
+  const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({footballSource:'custom-csv',fb:[{date:'2026-01-10',home:'Synthetic A',away:'Synthetic B',hg:1,ag:0}]}),
     'mm_credentials_v1:A':JSON.stringify({version:1,owner:'A',slots:{af:'synthetic-owned-key'}})}});
   const seen=await page.evaluate(async()=>{
     let calls=0;window.fetch=async()=>{calls++;return {ok:true,status:200,json:async()=>({response:[]})};};
+    const loadedRows=footballEngine.matches.length;
     onAuth({id:'A'});const restored=!!afState.key,blank=!$('afKey').value;
-    const before=calls;$('afKeyUse').checked=true;await afScores();return {restored,blank,before,calls};
+    const before=calls;$('afKeyUse').checked=true;await afScores();return {restored,blank,before,calls,loadedRows,remainingRows:footballEngine.matches.length,source:_fixtureInputSource};
   });
   assert.ok(seen.restored && seen.blank);assert.equal(seen.before,0);assert.equal(seen.calls,1);
+  assert.equal(seen.loadedRows,1);assert.equal(seen.remainingRows,1);assert.equal(seen.source,'custom-csv');
   await ctx.close();
 });
 
