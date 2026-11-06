@@ -179,6 +179,13 @@ begin
    execute format('alter table %I.%I enable row level security',r.nspname,r.relname);
    execute format('grant select on %I.%I to authenticated',r.nspname,r.relname);
    execute format('create policy mm_source_raw_fence on %I.%I as restrictive for select to authenticated using ((select mm_fixture_delivery.raw_allowed()))',r.nspname,r.relname);
+   -- A RESTRICTIVE policy cannot return a row on its own: with RLS enabled and no PERMISSIVE
+   -- policy that applies, PostgreSQL default-denies, so the capability was inert and an
+   -- explicitly enrolled principal read zero rows while raw_allowed() returned true. Proven on
+   -- an isolated synthetic cluster; see local-fence-regression.sql. Both policies read the SAME
+   -- capability, so the net can never exceed it: an ordinary authenticated caller still reads
+   -- nothing, and revocation or expiry closes it on the next statement.
+   execute format('create policy mm_source_raw_read on %I.%I for select to authenticated using ((select mm_fixture_delivery.raw_allowed()))',r.nspname,r.relname);
   elsif r.relkind='v' then
    execute format('alter view %I.%I set(security_invoker=true)',r.nspname,r.relname);
    if auth_had_select then execute format('grant select on %I.%I to authenticated',r.nspname,r.relname);end if;

@@ -11,6 +11,7 @@ begin
   for col in select attname from pg_attribute where attrelid=r.object_oid and attnum>0 and not attisdropped loop execute format('revoke select(%I) on %s from public,anon,authenticated',col.attname,r.object_name);end loop;
   if r.object_kind='r' then
    execute format('drop policy if exists mm_source_raw_fence on %s',r.object_name);
+   execute format('drop policy if exists mm_source_raw_read on %s',r.object_name);
    execute format('drop policy if exists materializer_read on %s',r.object_name);
    if not r.original_rls then execute format('alter table %s disable row level security',r.object_name);end if;
   elsif r.object_kind='v' then
