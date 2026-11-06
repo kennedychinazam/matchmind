@@ -14,7 +14,18 @@ function rig({user='A',session='A',raw=true,switchDuringRead=false}={}){
  const fn=vm.runInNewContext(code+';publisherCounts');
  return{run:()=>fn(page,'2026-11-03'),calls};
 }
-test('robot never issues public select-star REST count requests',()=>assert.doesNotMatch(source,/\/rest\/v1\/\$\{table\}\?select=\*/));
+// BUILD 357: this forbade ONE literal spelling of one URL, so a different spelling
+// (?select=%2A, a variable in place of ${table}, string concatenation) would have passed it,
+// and it passes trivially on a file that builds no URL at all. The robot constructs no raw
+// REST URL of any kind - its counts go through the authenticated client, which the five
+// behavioural tests below prove - so assert that directly instead. The weaker form is kept
+// as the second assertion because it names the exact shape the proposal set out to remove.
+test('robot never issues raw REST requests; counts go through the authenticated client',()=>{
+ assert.doesNotMatch(source,/\/rest\/v1\//,'the robot constructs a raw REST URL');
+ assert.doesNotMatch(source,/\/rest\/v1\/\$\{table\}\?select=\*/);
+ assert.match(source,/client\.from\(table\)\.select\(col,\s*\{\s*count:\s*'exact',\s*head:\s*true\s*\}\)/,
+   'the authenticated head-count read is gone, so the negative assertions above prove nothing');
+});
 test('anonymous publisher counts return unavailable without a table read',async()=>{const r=rig({user:null,session:null});const v=await r.run();assert.equal(v.predictions,null);assert.equal(r.calls.length,0);});
 test('ordinary authenticated account cannot use publisher count diagnostics',async()=>{const r=rig({raw:false});assert.equal((await r.run()).predictions,null);assert.equal(r.calls.length,0);});
 test('wrong-session owner is rejected before count reads',async()=>{const r=rig({session:'B'});assert.equal((await r.run()).predictions,null);assert.equal(r.calls.length,0);});

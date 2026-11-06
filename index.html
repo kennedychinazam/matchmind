@@ -10928,8 +10928,14 @@ async function renderLedger(){
     const ids = preds.map(r=>r.fxid);
     const res = {};
     for(let i=0;i<ids.length;i+=200){
-      const { data: fx } = await fixtureTable('fixtures')
+      const { data: fx, error: fxErr } = await fixtureTable('fixtures')
         .select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', ids.slice(i,i+200));   // build 349 - date and time, for the late test
+      /* BUILD 357 - A FAILED RESULT READ IS A FAILURE, NOT AN ABSENT RESULT. `fixtureTable`
+         returns one uniform error envelope for a denied grant, an expired display edition or a
+         transport fault. Discarding it made every pick in the window read "no result on record",
+         which states a fact about the match when the truth is that the source could not be read.
+         The surrounding catch already says so truthfully, so this only stops the silence. */
+      if(fxErr) throw fxErr;
       /* build 357 - an unresolved row is OMITTED rather than stored null, so every reader that
          already treats a missing entry as "not settled yet" refuses it without a new branch. */
       for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320 — graded on the 90-minute score
@@ -16789,7 +16795,8 @@ async function renderArchiveDay(){
        'Serie A' and this panel grouped by NAME, so Brazil and Italy were pooled under one
        heading. It costs no extra round trip and it is the same collision that had the engine
        pricing Brasileirão with Italy's constant. */
-    const { data: fx } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    const { data: fx, error: fxErr } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,lcountry,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    if(fxErr) throw fxErr;   // build 357 - an unreadable result read is reported, not shown as an ungraded pick
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
 
     let graded=0, hits=0, stale=0;
@@ -22125,12 +22132,20 @@ async function showPredictDate(d){
   $('fixtureList').innerHTML = '<div class="subnote"><span class="spinner"></span>Loading that day…</div>';
   if(!supa){ $('fixtureList').innerHTML = '<div class="subnote">Needs the cloud backend.</div>'; return; }
   try{
-    const { data: preds } = await fixtureTable('predictions')
+    const { data: preds, error: predErr } = await fixtureTable('predictions')
       .select('fxid,lname,kickoff,home,away,ktime,pick,pick_prob').eq('kickoff', d).order('ktime');   // build 349 - kickoff, for the void function
+    /* BUILD 357 - THE ONLY SURFACE THAT ASSERTED AN EMPTY ARCHIVE ON A FAILED READ. A denied
+       grant or an unavailable display edition rendered "No predictions stored for <date>",
+       which is a claim about the record rather than about the read. `renderLedger` and
+       `renderArchiveDay` already threw on their OWN prediction read, at lines 10920 and
+       16783; this call site simply never captured it. Their RESULT reads discarded the error
+       in the same way this one did, and are corrected in the same change. */
+    if(predErr) throw predErr;
     const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
-    const { data: fx } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    const { data: fx, error: fxErr } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    if(fxErr) throw fxErr;   // build 357 - an unreadable result read is reported, not shown as an ungraded pick
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){

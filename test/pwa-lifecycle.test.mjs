@@ -45,7 +45,16 @@ test('disposable origin: worker update, offline shell, and forward-version rollb
     const page = await context.newPage();
     await page.goto(origin, { waitUntil: 'load' });
     await page.evaluate(async () => { await navigator.serviceWorker.ready; localStorage.setItem('pwa-fixture-marker', 'preserved'); });
-    await page.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return r?.active?.state === 'activated' && navigator.serviceWorker.controller === r.active; });
+    // page.waitForFunction treats a returned Promise as truthy, so an ASYNC predicate resolves
+    // at once whatever it computes - proven on the pinned playwright-core 1.63.0: a predicate
+    // `async () => false` resolves in ~30ms while the sync form times out. This wait was
+    // therefore a no-op and verified nothing. Poll from Node, which does await.
+    for (let waited = 0; ; waited += 100) {
+      const controlled = await page.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r?.active?.state === 'activated' && navigator.serviceWorker.controller === r.active); });
+      if (controlled) break;
+      assert.ok(waited < 30000, 'the service worker never took control of the page');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     async function receipt(v, label) {
       const received = await page.evaluate(async ({ v }) => {
         const registration = await navigator.serviceWorker.getRegistration();

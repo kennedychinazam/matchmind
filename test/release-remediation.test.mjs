@@ -92,7 +92,7 @@ test('shared results revalidate finals, apply explicit withdrawals and retain is
   cloudEnabled=()=>true;let now=0,calls=0;Date.now=()=>now;const id=993100;
   const rows=[{day:'2026-10-27',tier:'safe',odds:1.7,legs:[{fxid:id,d:'2026-10-27',h:'H',a:'A',code:'1D',p:.7,o:1.7}]}],original=JSON.stringify(rows);
   let response={fxid:id,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:00:00Z'};
-  supa={from:()=>({select:fields=>({in:async()=>{calls++;return{error:null,data:[Object.fromEntries(fields.split(',').map(k=>[k,response[k]]))]};}})})};
+  authUser={id:'collector'};supa={rpc:async()=>({error:null,data:{version:'matchmind-fixture-access/1',raw_allowed:true,expires_at:new Date(Date.now()+60000).toISOString()}}),from:()=>({select:fields=>({in:async()=>{calls++;return{error:null,data:[Object.fromEntries(fields.split(',').map(k=>[k,response[k]]))]};}})})};
   await sharedResultsLoad(rows);const first=dailyLogGrade(rows)[0].legScores[0];await sharedResultsLoad(rows);const immediate=calls;
   now=SHARED_RES_TTL_MS+1;response={...response,gh:null,ga:null,ft_h:null,ft_a:null,updated_at:'2026-10-27T22:05:00Z'};const changed=await sharedResultsLoad(rows);const after=dailyLogGrade(rows)[0];
   return{first,immediate,calls,changed,score:after.legScores[0],refused:unresolved90Fixture(id),final:_sharedResFinal.has(String(id)),unchanged:original===JSON.stringify(rows)};
@@ -103,7 +103,7 @@ test('registry changes and expired/error cache cannot silently grade last-good s
   cloudEnabled=()=>true;let now=1,fail=false;Date.now=()=>now;const id=993110;
   const row={fxid:id,status:'AET',gh:3,ga:2,ft_h:2,ft_a:2,updated_at:'2026-10-27T22:00:00Z'};
   const rows=[{day:'2026-10-27',tier:'safe',odds:1.7,legs:[{fxid:id,d:'2026-10-27',h:'H',a:'A',code:'1D',p:.7,o:1.7}]}];
-  supa={from:()=>({select:()=>({in:async()=>fail?{error:{message:'synthetic denied'}}:{error:null,data:[row]}})})};
+  authUser={id:'collector'};supa={rpc:async()=>({error:null,data:{version:'matchmind-fixture-access/1',raw_allowed:true,expires_at:new Date(Date.now()+60000).toISOString()}}),from:()=>({select:()=>({in:async()=>fail?{error:{message:'synthetic denied'}}:{error:null,data:[row]}})})};
   await sharedResultsLoad(rows);settledRow({...row,ft_h:1,updated_at:'2026-10-27T22:05:00Z'});const corrected=dailyLogGrade(rows)[0].legScores[0];
   settledRow({...row,ft_h:null,ft_a:null,updated_at:'2026-10-27T22:06:00Z'});const withdrawn=dailyLogGrade(rows)[0].legScores[0];
   now=SHARED_RES_TTL_MS+2;fail=true;try{await sharedResultsLoad(rows);}catch{}const stale=dailyLogGrade(rows)[0];
@@ -113,7 +113,7 @@ test('registry changes and expired/error cache cannot silently grade last-good s
 test('stored history shows missing probability as unavailable without changing stored pick',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
   const old={fxid:999,lname:'Synthetic',kickoff:'2025-01-01',home:'H',away:'A',ktime:'12:00',pick:'1',pick_prob:null};const snapshot=JSON.stringify(old);retiredCount=async()=>0;
-  supa={from:table=>({select:()=>table==='predictions'?{eq:()=>({order:async()=>({data:[old]})})}:{in:async()=>({data:[]})}})};
+  authUser={id:'collector'};supa={rpc:async()=>({error:null,data:{version:'matchmind-fixture-access/1',raw_allowed:true,expires_at:new Date(Date.now()+60000).toISOString()}}),from:table=>({select:()=>table==='predictions'?{eq:()=>({order:async()=>({data:[old],error:null})})}:{in:async()=>({data:[],error:null})}})};
   await showPredictDate('2025-01-01');return{text:$('fixtureList').textContent,same:snapshot===JSON.stringify(old)};
  });assert.match(r.text,/probability unavailable/);assert.doesNotMatch(r.text,/1 · 0%/);assert.equal(r.same,true);
 });
