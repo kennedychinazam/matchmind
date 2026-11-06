@@ -9781,10 +9781,31 @@ async function analyze(){
          no confidence, no share card. The bars and the note below stay (build 309). */
       const gr = (!pendingMetaPlayed && sport==='football')
         ? (heroNewTeam(pred, pendingMetaFxid) ? 'newteam' : gateReason(sL, {}, hp.code, hp.prob)) : null;
+      /* BUILD 357 - A PLAYED FIXTURE WITH NO SNAPSHOT MUST NOT BE GIVEN A HEADLINE CALL.
+         The comment at the top of this function already states the rule: a match already
+         played shows the pick AS IT WAS MADE, because recomputing trains on data that now
+         contains this very match. That was honoured only when an archived pick existed.
+         With no snapshot, `hp` above is a fresh `headlinePick(pred, ...)` and this block
+         then printed it as "The engine's headline call for this match" with a confidence
+         percentage - a hindsight estimate wearing the words of a forecast, directly
+         contradicting the note under the bars saying the numbers were recalculated today.
+         Worse, it is not even stable: it is recomputed from whatever corpus is loaded at
+         that instant, so the same finished match showed different headlines and different
+         expected goals minutes apart. Reproduced in test/played-no-snapshot-headline.test.mjs.
+         The bars and their existing note stay - they are labelled illustrative and are
+         useful - but nothing here claims a prediction that was never published. The share
+         card was already suppressed for exactly this case (build 156); the screen now
+         agrees with it. No probability, threshold, ladder or grading rule is touched, and
+         a played fixture that DOES have its archived pick is unaffected. */
+      const hindsightOnly = !!pendingMetaPlayed && pendingMetaPick == null;
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
         $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL), pred);
+      } else if(hindsightOnly){
+        $('heroPick').textContent = 'No prediction was published for this match';
+        $('heroConf').textContent = '';
+        $('heroStrong').textContent = 'This match was already played and no pre-match forecast was stored for it. The figures below were worked out today, with the result already in the data, so they are illustrative rather than what the engine said beforehand.';
       } else {
         const baseLine = hp.solo
           ? "The engine's headline call for this match"
@@ -9793,7 +9814,7 @@ async function analyze(){
           ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
           : baseLine;
       }
-      $('resultSide').textContent = gr ? '—' : hp.label.replace(' WIN','');
+      $('resultSide').textContent = (gr || hindsightOnly) ? '—' : hp.label.replace(' WIN','');
 
       /* BUILD 156 — SHARE CARD. Filled in here and nowhere else, because `hp` is only final at this
          point: the ladder has re-pointed it (119) and the gate has had its say (118). Anything that
@@ -17025,8 +17046,22 @@ function visibleLeagues(){
      Cup was sitting at the top of the list with 20 fixtures and nothing to say about any of them.
      Filtering on history rather than on a list of IDs means it fixes itself if we ever train it
      (build 81). Scores still shows everything; that tab only needs results. */
+  /* BUILD 357 - THE HISTORY MINIMUM IS A FITTING RULE, AND IT WAS HIDING PUBLISHED WORK.
+     The 15-match floor exists because THIS DEVICE cannot fit a model on a thinner corpus.
+     A presentation league carries no corpus at all by design: `loadFixturePresentation`
+     builds it with `matches: []` because the prediction was already made and published by
+     the collector, and the device must never refit it. Applying a fitting precondition to
+     rows that are never fitted meant an ordinary caller - anyone without raw provider
+     access, which after the bounded-delivery change is every ordinary user - got an EMPTY
+     Analysis feed while the data sat correctly in afState. Verified by a rendered test, not
+     by reading the arrays: the two existing bounded-delivery suites both passed throughout,
+     because neither opened the tab.
+     The floor is PRESERVED unchanged for every league the device fits locally. Nothing is
+     fabricated to satisfy it, and no raw access is relaxed to get a corpus. */
+  const fittedLocally = l => !l._presentation;
   let Ls = order.map(id=>afState.leagues[id])
-    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football'
+      && (!fittedLocally(l) || (l.matches||[]).length >= 15) && predictsComp(l));   // build 327; build 357
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));
