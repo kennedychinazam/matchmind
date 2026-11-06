@@ -29,6 +29,7 @@ Commits, oldest first:
 | `59e2a18` | emulated mobile and PWA acceptance, and a wait that verified nothing |
 | `2a2e9b4` | acceptance configuration, verified cost and the outstanding authorizations |
 | `2078d63` | two corrections from the independent security review |
+| `c3b2d38` | four corrections from the independent QA review; the SQL fence now runs in CI |
 
 ---
 
@@ -246,6 +247,11 @@ request aborted. Before this branch, at the verified head: **211 tests, 205 pass
 | [`42252948985`](https://github.com/kennedychinazam/matchmind/actions/runs/42252948985) `59e2a18` | 24.19.0 | 217 | 217 | 0 | 0 | 0 |
 | [`42254673896`](https://github.com/kennedychinazam/matchmind/actions/runs/42254673896) `2078d63` | 20.20.2 | 217 | 217 | 0 | 0 | 0 |
 | [`42254673896`](https://github.com/kennedychinazam/matchmind/actions/runs/42254673896) `2078d63` | 24.19.0 | 217 | 217 | 0 | 0 | 0 |
+| [`42256776958`](https://github.com/kennedychinazam/matchmind/actions/runs/42256776958) `c3b2d38` | 20.20.2 | 217 | 217 | 0 | 0 | 0 |
+| [`42256776958`](https://github.com/kennedychinazam/matchmind/actions/runs/42256776958) `c3b2d38` | 24.19.0 | 217 | 217 | 0 | 0 | 0 |
+
+Run `42256776958` is the one to read: it is the first run on this branch with all three jobs
+green, `combined (20.20.2)`, `combined (24.19.0)` and `fence`.
 
 Both matrix jobs now run to completion and report separately. **No test is skipped and none
 is conditionally skipped in practice**: the two files carrying a conditional skip,
@@ -270,11 +276,155 @@ reports `skipped 0`.
 | `fixture-delivery-refresh` | 3 | | `takeover-ui` | 8 |
 | `fixture-delivery-robot` | 6 | | | |
 
-### Database, outside `node --test`
+### Database, in CI
 
-`backend/fixture-delivery/local-fence-regression.sql`, PostgreSQL 16.15, a throwaway
-cluster created for this check: 8 probes, 8 pass. Against the uncorrected proposal, probe 3
-fails. Invented rows only; no hosted database contacted.
+`backend/fixture-delivery/local-fence-regression.sql` now runs as its own CI job, `fence`,
+against a throwaway `postgres:16` service container. It was operator-attested until the
+independent QA review pointed out that no workflow referenced any `.sql` file; that is
+closed.
+
+Run [`42256776958`](https://github.com/kennedychinazam/matchmind/actions/runs/42256776958),
+job `fence`, conclusion **success**, engine `16.15 (Debian 16.15-1.pgdg13+2)`:
+
+```
+PASS 1: anonymous generic raw read refused
+PASS 2: ordinary authenticated caller reads no raw rows
+PASS 3: enrolled capability delivers its rows
+PASS 4: revocation closes the capability immediately
+PASS 5: expiry closes the capability
+PASS 6: unrestricted select/paging extracts nothing
+PASS 7: principal registry is not readable by an ordinary caller
+PASS 8: a security invoker function cannot bypass the fence
+ALL 8 FENCE PROBES PASSED
+```
+
+Then the **negative control** in the same job, on a second fresh database with distinct role
+names and the permissive policy removed:
+
+```
+ERROR:  FAIL 3: enrolled capability delivered 0 of 2 rows (inert fence)
+Negative control held: probe 3 fails without the policy; protections 1 and 2 still pass.
+```
+
+A regression that can only ever pass proves nothing, so the control is the point: it shows
+the probes detect the defect, and that removing the correction does **not** reopen
+protections 1 or 2. The same two phases were rehearsed locally on PostgreSQL 16.15 before
+the job was pushed. Invented rows only; no hosted database contacted.
+
+---
+
+## 5. Independent review conclusions
+
+Two independent reviewers ran against this branch, each told to be adversarial, given the
+verified base to diff against, and told to verify by execution rather than reading. Both
+were read-only with respect to the branch. Their findings are summarised with what was done
+about each; every correction they prompted is in commit `c3b2d38` or `2078d63`.
+
+### Security review
+
+**Verdict: no ERROR-class finding.** It read all four `index.html` throw sites, the whole
+of `PROPOSAL-up.sql` and `PROPOSAL-revert.sql`, the shipped browser files and the workflow.
+
+Confirmed clean, with evidence: no information leak at the new throws (the message on that
+path is a compile-time constant, and all three catch handlers HTML-escape into a text-node
+position); no security check skipped — the change is **strictly more conservative**, because
+the account/epoch and display-edition revalidations inside `fixtureTable` were previously
+collapsed into the envelope and then silently dropped by the call sites, and now abort the
+render; no cross-account UI exposure; no RLS widening to any unintended principal, traced
+through pre-existing permissive policies, column grants, `anon`, role inheritance,
+`security_invoker` views, the materializer and `service_role`; no secret in any shipped
+file; no workflow regression; no deliberately weakened security assertion.
+
+Two observations were acted on, in commit `2078d63`:
+
+1. A build note of mine said `renderLedger` and `renderArchiveDay` "already threw on this
+   error", which reads as false. Reworded: they already threw on their **own prediction**
+   read; their result reads discarded the error exactly as `showPredictDate`'s did.
+2. `principals.scope` is recorded but never read, so `publisher` and `research` receive the
+   same full raw read. Recorded in the SQL rather than changed, and raised in part 6 as an
+   open question, because narrowing it is a decision about intent.
+
+One observation accepted as a deliberate trade-off, not changed: a transient transport
+fault now blanks the ledger, archive or day view instead of showing picks as ungraded. That
+is the intent of ERROR 1's fix and the safer failure mode.
+
+### QA review
+
+**Verdict: all four app fixes pinned 1:1 by a test; suite green on both Node versions.** Its
+method is worth recording, because it is stronger than mine: it reverted each of the four
+`index.html` hunks individually on HEAD and re-ran the new file.
+
+| Reverted hunk | Result |
+|---|---|
+| `showPredictDate` `if(predErr) throw predErr` | only test 1 fails |
+| `showPredictDate` `if(fxErr) throw fxErr` | only test 4 fails |
+| `renderArchiveDay` `if(fxErr) throw fxErr` | only test 3 fails |
+| `renderLedger` `if(fxErr) throw fxErr` | only test 5 fails |
+
+A clean 1:1 mapping, no cross-coverage, nothing passing for the wrong reason. It also
+mutated `sw.js` and `index.html` five ways to confirm the offline-shell assertions bite —
+removing `'./'` from `SHELL`, desynchronising `APP_BUILD`, dropping the `fetch` handler's
+cache fallback, neutering the worker registration, and serving a different offline document.
+All five fail the test. The cache-fallback mutation is the decisive one: with the origin
+destroying sockets and the worker unable to answer from cache, the reload cannot complete,
+which proves the bytes under test come from Cache Storage through the worker and not from the
+live origin or the HTTP cache.
+
+It independently reproduced the `waitForFunction` no-op on the pinned driver (33 ms versus
+3008 ms) and confirmed the `pwa-lifecycle` repair is real and that no test in the suite
+still relies on that pattern.
+
+It judged all four changed premises **faithful repairs of genuinely stale premises, not
+weakenings**, and proved it by stripping each change on HEAD and watching the same tests
+fail again. It separately proved the tightened assertion in `combined-security` is
+load-bearing: with `_presentation` removed **and** the new `.sres` count assertion deleted,
+the test passes on an empty corpus.
+
+Four findings were acted on, in commit `c3b2d38`:
+
+1. **My test 2 proved nothing about the fix.** It passes against the pre-change
+   `index.html`, because a fully denied client fails `renderArchiveDay`'s prediction read
+   first and the function never reaches the changed result read; that prediction read
+   already threw at the verified head. Kept as a regression guard and **renamed
+   `[guard, pre-existing]`** so it is not counted as evidence. The failing-first proof is
+   the other four.
+2. **`mobile-pwa-acceptance` could vanish from a green run.** It read `PWA_PLAYWRIGHT` with
+   no fallback and turned its absence into a skip: `env -u PWA_PLAYWRIGHT node --test`
+   reported 1 skipped and exited 0. It now resolves the driver and browser itself and
+   hard-asserts; verified to run with no environment variables set.
+3. **The tap-target floor asserted 24 px while every device measures 44.** A regression from
+   44 to 24 would have passed. The floor is now 44, with the WCAG minimum recorded in the
+   comment.
+4. **Page errors were asserted before the offline reload and never again**, so a script
+   error in the offline shell went unreported. Now re-asserted after the reload.
+
+Two further notes it made, with what was done:
+
+- It could not run the SQL regression itself — `initdb` refuses to run as root and creating
+  an unprivileged user was denied — so it marked that evidence operator-attested only. It
+  also observed that no workflow referenced any `.sql` file. **Both are now closed:** a
+  `fence` CI job runs the 8 probes against a throwaway `postgres:16` service and then a
+  **negative control** that removes the permissive policy and requires probe 3 to fail while
+  protections 1 and 2 still pass.
+- A pre-existing weakness it flagged in `branding-rights`, unchanged by this branch:
+  `logoMetadataKept` compares `afState.logos` to a snapshot taken *after* `restoreState`, so
+  it would hold even if the restore produced `{}`. The `/Synthetic League/` assertions on all
+  six surfaces are what establish non-vacuity. Left as found and recorded here rather than
+  changed, because it is outside this branch's scope.
+
+### One class of defect I then swept for myself
+
+Both reviews pointed at the same shape: an assertion that cannot fail. Sweeping the suite
+for it found one more, in `fixture-delivery-robot`: a test forbidding **one literal
+spelling** of a REST URL, which also passes trivially on a file that builds no URL at all.
+It now asserts that no raw REST URL of any kind appears, and carries a canary requiring the
+authenticated head-count read to still exist, so the negative assertions cannot become
+vacuous. The file's other five tests were already strong behavioural checks and are
+unchanged.
+
+Also recorded for precision: 3 of the 217 tests are teardown steps named "release the shared
+browser and server" and carry no assertions. They are a deliberate pattern in three suites,
+not coverage.
 
 ---
 
@@ -284,7 +434,7 @@ fails. Invented rows only; no hosted database contacted.
 
 | Requirement | Result |
 |---|---|
-| Ordinary anonymous users cannot retrieve unrestricted raw fixture tables | **HELD.** Table and every column SELECT revoked from `public, anon, authenticated` (`PROPOSAL-up.sql:176-177`); the install **aborts** if any inherited anonymous SELECT survives (`:194`) and if `anon`/`authenticated` carry `rolsuper` or `rolbypassrls` (`:159`). Probe 1: refused outright, not merely emptied |
+| Ordinary anonymous users cannot retrieve unrestricted raw fixture tables | **HELD, now CI-verified.** Table and every column SELECT revoked from `public, anon, authenticated` (`PROPOSAL-up.sql:176-177`); the install **aborts** if any inherited anonymous SELECT survives (`:194`) and if `anon`/`authenticated` carry `rolsuper` or `rolbypassrls` (`:159`). Probe 1: refused outright, not merely emptied |
 | Authenticated ordinary users cannot bypass the restrictions | **HELD.** Probe 2: 0 rows. Probe 8: a `SECURITY INVOKER` function returns 0 rows. Probe 7: the principal registry is unreadable |
 | Generic queries, unrestricted pagination and bulk extraction are prevented | **HELD.** Probe 6: `select *` with no predicate, `offset 0 limit 1000`, as an ordinary authenticated caller, returns 0 rows. The RPC surface accepts only the five fixed screens and no caller-supplied fixture, date, field list, offset, cursor, table or history range |
 | Approved fixture and prediction screens still function | **HELD in the browser.** 217 tests include `fixture-delivery-ui` (19), `fixture-delivery-consumers` (11), `fixture-delivery-backend` (15), `fixture-delivery-cache` (10), `fixture-delivery-refresh` (3), `fixture-delivery-robot` (6). Not yet proven against PostgREST |
@@ -406,3 +556,81 @@ projects, `MatchMind Project` (`toqfdrcjzwnlydqekude`, ACTIVE_HEALTHY, PostgreSQ
 and `EduVanta` (`kbkzwcaffyjxnsbvtsnw`, INACTIVE). The free plan allows two active projects,
 so a third should remain free, but that depends on how a paused project is counted at
 creation. I will stop and report rather than incur a charge.
+
+---
+
+## 10. Final release GO / NO-GO recommendation
+
+### NO-GO for production merge, deployment and public release
+
+Four things block it, and none of them is a calendar problem.
+
+1. **Publication rights are unresolved.** A bounded edition is still a finite, inspectable
+   projection of provider facts served to the public. Bounding fields and denying generic
+   SQL reduce extractability; neither confers a publication right. Until the rights review
+   closes, external invitations and public release stay blocked. **This is the hard
+   blocker:** no amount of engineering closes it.
+2. **The `service_role` grant question is unanswered.** `PROPOSAL-up.sql` runs
+   `revoke select on <table> from public,anon,authenticated`. If the collector's SELECT is
+   inherited via `PUBLIC`, installing the proposal stops the refresh pipeline. Installing
+   before the secret-free grants export is a bet on the production catalogue's shape.
+3. **Backend acceptance is incomplete.** The RLS fence is proven, in CI, with a negative
+   control. PostgREST is not: request shaping, `?select=` projection, Range pagination, the
+   JWT role switch and the `/rpc/` surface have no evidence. That needs a Docker-capable
+   runner or staging.
+4. **No physical-device acceptance.** iOS Safari/WebKit, the install prompt and standalone
+   launch, real touch, the real notification permission and a delivered push, network
+   transitions and storage pressure are all unproven. Emulation does not substitute.
+
+### GO on this branch as an independently verified release candidate
+
+The code is in the best verified state it has been in during this assignment, and the
+specific gap the assignment named is closed:
+
+- The exact-head CI gap is shut. The verified head had a Node 20 failure and **no Node 24
+  result**; both versions now run to completion and report separately, and the SQL fence has
+  its own job with a negative control.
+- 217 tests, 217 pass, 0 fail, **0 skipped, 0 cancelled**, on Node 20.20.0, 22.22.0 and
+  24.19.0 locally and on Node 20.20.2 and 24.19.0 in CI. No test was weakened, skipped,
+  quarantined or excluded; four were strengthened and one was honestly relabelled after
+  independent QA showed it proved less than it claimed.
+- One real user-facing defect is fixed and each of its four call sites is pinned 1:1 by a
+  test, verified by an independent reviewer reverting each hunk in turn.
+- One real defect in the backend proposal is fixed and proven by eight probes plus a
+  negative control, without weakening any of the three public-protection claims, which were
+  separately re-verified.
+- Two silent-evidence defects are fixed: a wait that verified nothing, and an acceptance
+  test that could vanish from a green run.
+- The `index.html` change is 6 lines of code in 23,000. No formula, market table, grading
+  rule, settlement rule, threshold, frozen forecast or financial control was touched;
+  `sw.js`, `manifest.webmanifest` and `robot/publish.mjs` are byte-identical to the verified
+  head.
+
+### What would move this to GO for release
+
+In the order that gives the most confidence per unit of work:
+
+1. **Authorization 8**, the secret-free grants export. It is free, needs no infrastructure,
+   and answers the one question that could break production on install. I will add the
+   missing `service_role` preflight check as soon as it shows the intended shape.
+2. **Authorization 1**, a Docker-capable runner. Free, no hosted resource, no external
+   network, and it unlocks the repository's own PostgREST proof.
+3. **Authorizations 2 to 7**, staging. Expected 0.00 USD, worst case 10 USD/month, on
+   PostgreSQL 17 to match production.
+4. **Authorization 9**, an operator with one iOS and one Android device, running the seven
+   items in part 7.
+5. **The rights review** on publication, imagery, issued bookmaker prices, share images and
+   retention. Independent of all of the above, and the one that decides public release.
+
+### What I did not do, deliberately
+
+No production write, merge, deployment, payment, provider contact, paid inference,
+historical regrading or destructive operation. No SQL applied anywhere but a throwaway local
+cluster and a CI service container. No Codex branch modified or force-pushed. PR #6 and
+PR #23 untouched and still draft. No Director public key installed, no real credential
+configured, no live dispatch enabled. The OpenRouter lifetime ceiling, retained
+reservations, consumed latches and global halt are as they were.
+
+The primary objective was one independently verified release candidate. That exists, on
+`claude/release-acceptance-20261106`, in draft PR #24, with its evidence attached and its
+remaining gaps named rather than papered over.
