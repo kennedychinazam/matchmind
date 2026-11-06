@@ -27,7 +27,16 @@ async function open(t){
 }
 test('cached club and competition images never enter rendered surfaces; raw model inputs survive',async t=>{
   const page=await open(t);
-  const result=await page.evaluate(()=>{
+  const result=await page.evaluate(async()=>{
+    /* BUILD 357 - `restoreState` no longer admits a raw legacy cache unless raw source access
+       is currently granted, which is the point of the bounded presentation contract. The
+       authorized collector path is exactly where a cached provider logo could still reach a
+       rendered surface, so the grant is taken through the real `fixtureAccess` gate rather
+       than by relaxing the fence. */
+    cloudEnabled=()=>true;authUser={id:'collector'};
+    supa={rpc:async()=>({error:null,data:{version:'matchmind-fixture-access/1',raw_allowed:true,
+      expires_at:new Date(Date.now()+60000).toISOString()}}),from:()=>{throw Error('no raw table read in this test');}};
+    if(!await fixtureAccess()) throw new Error('synthetic raw grant was refused');
     const home='Synthetic Home',away='Synthetic Away',day=todayStrLocal();
     const media='https://synthetic-media.invalid/';
     const fixture={fxid:990011,date:day,time:'12:00',home,away,pick:'1',pW:.6,pD:.2,pL:.2};

@@ -17,14 +17,14 @@ async function open(t,legacy){
 async function seed(page){await page.evaluate(async()=>{
  cloudEnabled=()=>true;aiShadowGate=async()=>{};window.writes=[];
  supa={auth:{signOut:async()=>({error:null})},from:()=>({select:()=>({eq:(_k,id)=>({maybeSingle:async()=>({error:null,data:id==='B'?{user_id:'B',fav_teams:['B owned'],record:[{fxid:22,pick:'B owned'}]}:null})})}),upsert:async x=>(window.writes.push(x),{error:null})})};
- afState.leagueOrder=[990001];afState.leagues={990001:{id:990001,name:'Public League',country:'Public',teamIds:{'Public Shared':1,'Public Other':2},upcoming:[{fxid:990011,date:'2026-11-03',time:'12:00',home:'Public Shared',away:'Public Other'}],matches:[]}};afState.scores={list:[]};
+ afState.leagueOrder=[990001];afState.leagues={990001:{id:990001,name:'Public League',country:'Public',_presentation:true,teamIds:{'Public Shared':1,'Public Other':2},upcoming:[{fxid:990011,date:'2026-11-03',time:'12:00',home:'Public Shared',away:'Public Other'}],matches:[]}};afState.scores={list:[]};
  onAuth({id:'A'});await new Promise(r=>setTimeout(r,0));afState.favT=['Private Favourite Only','Public Shared'];afState.record=[{fxid:11,pick:'Private History Only'}];saveState();
  });}
 test('switch while Search is open clears previous query and restores input focus',async t=>{
  const p=await open(t);await seed(p);await p.locator('#searchOpen').click();await p.locator('#searchInput').fill('Private Favourite Only');
  const before=await p.locator('#searchResults').textContent();assert.match(before,/Private Favourite Only/);
  await p.evaluate(()=>onAuth({id:'B'}));assert.equal(await p.locator('#searchInput').inputValue(),'');assert.doesNotMatch(await p.locator('#searchResults').textContent(),/Private Favourite Only/);assert.equal(await p.evaluate(()=>document.activeElement.id),'searchInput');
- await p.locator('#searchInput').fill('Public Shared');assert.match(await p.locator('#searchResults').textContent(),/Public Shared/);
+ await p.locator('#searchInput').fill('Public Shared');assert.ok(await p.locator('#searchResults .sres').count()>0,'public corpus produced no result row');assert.match(await p.locator('#searchResults').textContent(),/Public Shared/);
  await p.keyboard.press('Escape');assert.equal(await p.evaluate(()=>document.activeElement.id),'searchOpen');await p.locator('#searchOpen').click();assert.equal(await p.locator('#searchInput').inputValue(),'');
 });
 test('Search indexes public corpus, never private-only favourites or history',async t=>{

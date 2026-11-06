@@ -12,6 +12,7 @@ on:
       - codex/combined-security-20261102
       - codex/release-final-20261102
       - codex/public-fixture-remediation-20261102
+      - claude/release-acceptance-20261106
     paths:
       - 'index.html'
       - 'sw.js'
@@ -28,6 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
+      # BUILD 357 - fail-fast CANCELLED Node 24 the moment Node 20 failed, which is why the
+      # verified head of PR #23 carries a Node 20 failure and NO Node 24 result at all. A
+      # cancelled job is not a passing job and must never be read as one, so both versions
+      # now always run to completion and each reports its own verdict.
+      fail-fast: false
       matrix:
         node: ['20.20.2','24.19.0']
     steps:
