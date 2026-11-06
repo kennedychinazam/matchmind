@@ -160,12 +160,36 @@ grant execute on function mm_fixture_delivery.schema_valid(jsonb,jsonb,integer),
 -- The reader is a dedicated NONLOGIN NONBYPASSRLS role. It has NO raw-table grants or role memberships.
 -- service_role continues to use its existing collector/publisher privileges; this proposal changes no source rows or write policies.
 do $$
-declare r record;obj regclass;n text;col record;auth_had_select boolean;
+declare r record;obj regclass;n text;col record;auth_had_select boolean;svc_direct boolean;svc_effective boolean;
 begin
  if exists(select 1 from pg_roles where rolname in ('anon','authenticated') and (rolsuper or rolbypassrls)) then raise exception 'Public caller role bypasses RLS';end if;
  foreach n in array array['fixtures','predictions','daily_slips','shared_records','odds_snapshots','injuries','match_context','predictions_retired','match_analysis','venues'] loop
   obj=to_regclass('public.'||quote_ident(n));if obj is null then raise exception 'Required source object missing: %',n;end if;
   if (select relkind from pg_class where oid=obj)<>'r' then raise exception 'Expected base table: %',n;end if;
+  -- BUILD 357 PREFLIGHT: PROVE THE COLLECTOR SURVIVES THIS MIGRATION, BEFORE ANYTHING IS REVOKED.
+  -- Below, this script runs `revoke select on <table> from public,anon,authenticated`. If the
+  -- collector's read came to it THROUGH `PUBLIC` rather than through a grant of its own, that
+  -- statement silently stops ingestion. Nothing in the catalogue makes that obvious afterwards,
+  -- which is why it is checked here and not assumed.
+  --
+  -- This verifies the PROPERTY the migration depends on - an explicit direct SELECT grant to the
+  -- collector role, so that removing PUBLIC cannot remove its access - rather than asserting any
+  -- particular installation's observed configuration. An owner inspection on 6 November 2026
+  -- reported that property holds for all ten tables in the current production database; this
+  -- check exists so the migration does not depend on that report still being true when it runs.
+  if not exists(select 1 from pg_roles where rolname='service_role') then
+   raise exception 'Collector role service_role does not exist; review the collector identity before installing';
+  end if;
+  svc_effective = has_table_privilege('service_role',obj,'SELECT');
+  svc_direct = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+                      where c.oid=obj and a.privilege_type='SELECT'
+                        and a.grantee=(select oid from pg_roles where rolname='service_role'));
+  if not svc_effective then
+   raise exception 'Collector cannot read %: service_role has no effective SELECT. Installing would stop ingestion',n;
+  end if;
+  if not svc_direct then
+   raise exception 'Collector read on % is not an explicit grant to service_role (it is inherited, e.g. via PUBLIC). Revoking PUBLIC would stop ingestion. Grant SELECT on public.% to service_role, then re-run',n,n;
+  end if;
  end loop;
  foreach n in array array['fixtures_lean','competitions','odds_latest'] loop
   obj=to_regclass('public.'||quote_ident(n));if obj is null then raise exception 'Required source view missing: %',n;end if;

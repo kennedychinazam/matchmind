@@ -13,6 +13,7 @@ on:
       - codex/release-final-20261102
       - codex/public-fixture-remediation-20261102
       - claude/release-acceptance-20261106
+      - claude/blocker-closure-20261106
     paths:
       - 'index.html'
       - 'sw.js'
@@ -76,11 +77,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Report the engine the probes ran on
         run: psql -d synthetic -tAc 'show server_version'
-      - name: Raw fence regression, 8 probes
+      - name: Raw fence regression, 10 probes
         run: |
           psql -d synthetic -v ON_ERROR_STOP=1 \
             -f backend/fixture-delivery/local-fence-regression.sql 2>&1 | tee fence.log
-          grep -q 'ALL 8 FENCE PROBES PASSED' fence.log
+          grep -q 'ALL 10 FENCE PROBES PASSED' fence.log
+      - name: Preflight predicate has not drifted from the migration
+        run: |
+          # Probes 9 and 10 exercise the collector preflight's predicate pair. They live in a
+          # synthetic replica, so they could drift away from the migration that actually runs.
+          # These greps fail the job if PROPOSAL-up.sql stops using the same two expressions.
+          grep -q "has_table_privilege('service_role',obj,'SELECT')" backend/fixture-delivery/PROPOSAL-up.sql
+          grep -q "a.grantee=(select oid from pg_roles where rolname='service_role')" backend/fixture-delivery/PROPOSAL-up.sql
+          grep -q "has_table_privilege('service_role','public.fixtures','SELECT')" backend/fixture-delivery/local-fence-regression.sql
+          grep -q "a.grantee=(select oid from pg_roles where rolname='service_role')" backend/fixture-delivery/local-fence-regression.sql
+          echo 'Preflight predicate matches between the migration and the regression.'
       - name: Negative control, the permissive policy removed
         run: |
           # A second FRESH database, and distinct role names, so nothing from the first run is
