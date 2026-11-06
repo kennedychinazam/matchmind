@@ -22137,7 +22137,9 @@ async function showPredictDate(d){
     /* BUILD 357 - THE ONLY SURFACE THAT ASSERTED AN EMPTY ARCHIVE ON A FAILED READ. A denied
        grant or an unavailable display edition rendered "No predictions stored for <date>",
        which is a claim about the record rather than about the read. `renderLedger` and
-       `renderArchiveDay` already threw on this error; this call site simply never captured it. */
+       `renderArchiveDay` already threw on their OWN prediction read, at lines 10920 and
+       16783; this call site simply never captured it. Their RESULT reads discarded the error
+       in the same way this one did, and are corrected in the same change. */
     if(predErr) throw predErr;
     const retiredHere = await retiredCount(d);   // build 326
     if(!preds || !preds.length){

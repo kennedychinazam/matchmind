@@ -114,6 +114,12 @@ alter table mm_fixture_delivery.editions add constraint closed_payload check(mm_
 create function mm_fixture_delivery.prediction_count(v jsonb) returns integer language sql immutable set search_path=pg_catalog as $$select count(*)::integer from jsonb_array_elements(v->'cards') c where c->'prediction'<>'null'::jsonb$$;
 alter table mm_fixture_delivery.editions add constraint complete_inventory check(expected_cards=jsonb_array_length(payload->'cards') and expected_predictions=mm_fixture_delivery.prediction_count(payload));
 -- Generated replacement below uses an immutable helper because CHECK forbids subqueries.
+-- NOTE for acceptance: `principals.scope` is recorded and constrained to publisher|research
+-- but is NOT read here, so both scopes receive the same full raw read. That matches the
+-- README's statement that enrolled publisher AND research paths retain complete history, so
+-- it is recorded rather than changed: narrowing it is a Director decision about intent, not
+-- a defect to patch silently. It matters more now than before, because the added permissive
+-- policy turns this capability from inert into live.
 create function mm_fixture_delivery.raw_allowed() returns boolean language sql stable security definer set search_path=pg_catalog as $$
  select exists(select 1 from mm_fixture_delivery.principals p where p.user_id=auth.uid() and p.enabled and p.approved_until>statement_timestamp())
 $$;
