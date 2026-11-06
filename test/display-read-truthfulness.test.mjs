@@ -50,7 +50,12 @@ test('a failed prediction read is reported as a failure, never as "no prediction
   assert.match(r,/unavailable/i);
 });
 
-test('a failed archive read is reported as a failure, never as an empty day',async t=>{
+/* GUARD, NOT A PROOF OF THIS CHANGE. `renderArchiveDay`'s PREDICTION read already threw
+   before this branch (index.html:16783), so this test passes against the pre-change file too.
+   Independent QA confirmed that. It is kept as a regression guard on behaviour that already
+   shipped, and labelled so nobody counts it as evidence for the fix. The four tests that do
+   prove the fix each pin exactly one of the four changed call sites. */
+test('[guard, pre-existing] a failed archive read is reported as a failure, never as an empty day',async t=>{
   const p=await open(t);
   const r=await p.evaluate(async d=>{
     eval(d.denied); retiredCount=async()=>0;

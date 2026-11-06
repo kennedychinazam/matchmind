@@ -8,9 +8,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {readFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {createServer} from 'node:http';
-const playwrightPath=process.env.PWA_PLAYWRIGHT;
-const executablePath=process.env.PWA_CHROMIUM||process.env.MM_TEST_CHROMIUM;
+/* NO SILENT SKIP. Reading PWA_PLAYWRIGHT and turning its absence into a skip let this whole
+   acceptance disappear from a run that still exits 0. Resolve the driver the way the rest of
+   the suite does and ASSERT, so a missing browser is loud. */
+const require_=createRequire(import.meta.url);
+let chromium_;
+for(const id of [process.env.PWA_PLAYWRIGHT,'playwright','playwright-core'])
+  if(id){try{chromium_=require_(id).chromium;break;}catch{}}
+const executablePath=[process.env.PWA_CHROMIUM,process.env.MM_TEST_CHROMIUM,
+  '/opt/pw-browsers/chromium','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&existsSync(p));
 const repo=new URL('../',import.meta.url);
 const DEVICES=['iPhone 14','iPhone SE','Pixel 7','iPad Mini'];
 
@@ -25,10 +33,11 @@ async function settle(page,fn,message,timeoutMs=30000){
 }
 
 test('emulated phones and tablets: layout, tap targets, worker control and offline shell',
- {skip:!playwrightPath||!executablePath?'set PWA_PLAYWRIGHT and PWA_CHROMIUM for browser integration':false,timeout:180000},
+ {timeout:180000},
  async t=>{
-  const require=createRequire(import.meta.url);
-  const {chromium,devices}=require(playwrightPath);
+  assert.ok(chromium_&&executablePath,'local Chromium and a playwright driver are required');
+  const {devices}=require_(process.env.PWA_PLAYWRIGHT||'playwright-core');
+  const chromium=chromium_;
   const [html,sw,manifest,i192,i512]=await Promise.all(
     ['index.html','sw.js','manifest.webmanifest','icon-192.png','icon-512.png']
     .map(n=>readFile(new URL(n,repo))));
@@ -109,9 +118,11 @@ test('emulated phones and tablets: layout, tap targets, worker control and offli
     assert.equal(seen.navs.length,5,name+': expected five navigation tabs');
     for(const b of seen.navs){
       assert.equal(b.visible,true,name+': tab '+b.view+' is not visible');
-      /* WCAG 2.5.8 minimum target size is 24x24 CSS px; 44x44 is the comfortable touch target.
-         Asserting the accessibility minimum, and recording the real size for the report. */
-      assert.ok(b.w>=24&&b.h>=24,name+': tab '+b.view+' target is '+b.w+'x'+b.h+' CSS px');
+      /* Every profile measures 44x44 today, so 44 is the regression floor. WCAG 2.5.8's
+         minimum is 24x24; asserting 24 would let a drop from 44 pass unnoticed, which is a
+         test that records one number and enforces another. If a design change means to go
+         below 44, this fails and someone decides deliberately. */
+      assert.ok(b.w>=44&&b.h>=44,name+': tab '+b.view+' target is '+b.w+'x'+b.h+' CSS px, below the 44px floor');
     }
     assert.deepEqual(errors,[],name+': page runtime errors');
 
@@ -125,6 +136,9 @@ test('emulated phones and tablets: layout, tap targets, worker control and offli
     assert.equal(offlineSeen.title,seen.title,name+': offline shell served a different document');
     assert.equal(offlineSeen.build,seen.build,name+': offline shell served a different build');
     assert.equal(offlineSeen.navs,5,name+': offline shell lost its navigation');
+    /* The first errors check ran before the reload. Re-assert, or a script error thrown while
+       running the offline shell goes unreported. */
+    assert.deepEqual(errors,[],name+': page runtime errors while running the offline shell');
 
     report.push({device:name,...seen.viewport,sideways:seen.sideways,
       smallestTab:Math.min(...seen.navs.map(b=>Math.min(b.w,b.h))),

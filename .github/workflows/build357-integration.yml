@@ -50,3 +50,51 @@ jobs:
           echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
       - name: Run offline launch, settlement, integration and takeover UI tests
         run: PWA_PLAYWRIGHT=playwright-core PWA_CHROMIUM="$MM_TEST_CHROMIUM" node --test test/*.test.mjs
+
+  # The browser suite says nothing about PROPOSAL-up.sql, so the raw fence was
+  # operator-attested only. This runs the 8 asserting probes against a throwaway
+  # PostgreSQL service, and then a NEGATIVE CONTROL: with the permissive policy removed,
+  # probe 3 must fail. A regression that only ever passes proves nothing.
+  fence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: synthetic-not-a-real-secret
+          POSTGRES_DB: synthetic
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: synthetic-not-a-real-secret
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report the engine the probes ran on
+        run: psql -d synthetic -tAc 'show server_version'
+      - name: Raw fence regression, 8 probes
+        run: |
+          psql -d synthetic -v ON_ERROR_STOP=1 \
+            -f backend/fixture-delivery/local-fence-regression.sql 2>&1 | tee fence.log
+          grep -q 'ALL 8 FENCE PROBES PASSED' fence.log
+      - name: Negative control, the permissive policy removed
+        run: |
+          # A second FRESH database, and distinct role names, so nothing from the first run is
+          # torn down. Dropping and recreating schema public strips its default USAGE grant and
+          # makes probe 2 error instead of returning zero rows, which is not the same evidence.
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database synthetic_control'
+          sed -e '/create policy mm_source_raw_read on public.fixtures for select to authenticated/,+1d' \
+              -e 's/\banon\b/anon_ctl/g' -e 's/\bauthenticated\b/authenticated_ctl/g' \
+              backend/fixture-delivery/local-fence-regression.sql > uncorrected.sql
+          ! grep -q 'create policy mm_source_raw_read on public.fixtures for select' uncorrected.sql
+          if psql -d synthetic_control -v ON_ERROR_STOP=1 -f uncorrected.sql > control.log 2>&1; then
+            echo 'NEGATIVE CONTROL FAILED: the uncorrected proposal passed probe 3'; cat control.log; exit 1
+          fi
+          grep -q 'FAIL 3: enrolled capability delivered 0 of 2 rows' control.log
+          grep -q 'PASS 1: anonymous generic raw read refused' control.log
+          grep -q 'PASS 2: ordinary' control.log
+          echo 'Negative control held: probe 3 fails without the policy; protections 1 and 2 still pass.'
