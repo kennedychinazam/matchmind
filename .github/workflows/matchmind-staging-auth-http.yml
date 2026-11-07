@@ -29,7 +29,10 @@ jobs:
           const health=await req('/auth/v1/health');
           check(health.status===200,'hosted_auth_server_health','http '+health.status);
           const history=await req('/rest/v1/rpc/matchmind_display_v1','POST',{screen:'history'});
-          check(history.status===200&&Array.isArray(history.data?.cards)&&history.data.cards.length===145,'anonymous_issued_history_145','http '+history.status);
+          const historyCards=Array.isArray(history.data?.cards)?history.data.cards:[];
+          const issuedHistory=historyCards.filter(x=>x.prediction!==null&&x.prediction!==undefined).length;
+          console.log('STAGING_HISTORY_COUNTS cards='+historyCards.length+' issued='+issuedHistory);
+          check(history.status===200&&issuedHistory===145,'anonymous_issued_history_145','http '+history.status);
           const hText=JSON.stringify(history.data);
           check(!hText.includes('RAW-PRIVATE')&&!hText.includes('private_raw_marker')&&!hText.includes('provider_blob'),'published_history_excludes_raw_provider_blob');
           const scores=await req('/rest/v1/rpc/matchmind_display_v1','POST',{screen:'scores'});
