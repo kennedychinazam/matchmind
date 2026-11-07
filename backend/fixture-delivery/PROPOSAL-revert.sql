@@ -59,11 +59,17 @@ begin
    execute format('revoke %I from %I granted by %I',rolename,current_user,current_user);
   end if;
  end loop;
+ -- The guard must name the edge THIS script could have created: granted by the installer
+ -- AND held by the installer. Without the member test it also fires on an unrelated
+ -- membership the installer granted to someone else - say an audit role - and then
+ -- accuses this script of leaking a membership it never made. Reproduced in review:
+ -- `grant mm_display_reader to <other>` by the installer aborted the revert.
  if exists(select 1 from pg_catalog.pg_auth_members a
            join pg_catalog.pg_roles r on r.oid=a.roleid
            join pg_catalog.pg_roles g on g.oid=a.grantor
+           join pg_catalog.pg_roles m on m.oid=a.member
            where r.rolname in ('mm_display_reader','mm_display_materializer')
-             and g.rolname=current_user) then
+             and g.rolname=current_user and m.rolname=current_user) then
   raise exception 'A membership borrowed by this revert was left behind';
  end if;
 end $$;

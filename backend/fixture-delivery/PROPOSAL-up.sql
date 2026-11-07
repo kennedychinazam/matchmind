@@ -21,6 +21,17 @@ do $$begin
   end;
   perform set_config('mm_fixture_delivery.set_reader','1',true);
  end if;
+ -- SET ROLE alone is not enough. Transferring ownership checks SET-role ability, but every
+ -- later GRANT and REVOKE on an object checks OWNERSHIP privileges, which means INHERIT.
+ -- A NOINHERIT installer passes the test above, then every one of those statements emits
+ -- `WARNING: no privileges could be revoked` and does nothing, and the migration COMMITS
+ -- with the private functions still EXECUTE to PUBLIC. Measured: 10 warnings, a clean
+ -- commit, and EXECUTE to PUBLIC left on raw_allowed, raw_expiry, display,
+ -- publisher_allowed and materialize. Found by independent review; it is the same
+ -- warning-not-error class as S2, on the revoke side.
+ if not pg_catalog.pg_has_role(current_user,'mm_display_reader','USAGE') then
+  raise exception 'Installer % cannot act as % because it is NOINHERIT. Ownership transfers would succeed and the grants that follow would silently do nothing. Run this migration as a role that inherits, or grant % to % with inherit true first',current_user,'mm_display_reader','mm_display_reader',current_user;
+ end if;
 end $$;
 grant create on schema mm_fixture_delivery to mm_display_reader;
 grant usage on schema mm_fixture_delivery to anon, authenticated, service_role, mm_display_reader;
@@ -154,6 +165,19 @@ alter table mm_fixture_delivery.editions add constraint complete_inventory check
 --   SECURITY INVOKER, so it adds no definer surface of its own;
 --   a malformed request.jwt.claims JSON returns NULL instead of raising inside a capability check;
 --   a value that is not a UUID returns NULL instead of raising 22P02.
+-- A FOURTH difference, narrowing and worth naming because the list above used to say three:
+-- PostgreSQL's uuid input also accepts braced {…} and hyphenless forms, and this regex does
+-- not, so such a subject is refused where auth.uid() would have accepted it. GoTrue always
+-- emits the canonical form, so nothing in this product is affected; a non-GoTrue issuer that
+-- minted a hyphenless sub would lose access silently. The strict form is kept deliberately.
+--
+-- WHAT THIS CANNOT DEFEND, and neither can auth.uid(): these are session GUCs. If any code
+-- path sets them with plain SET rather than SET LOCAL, a pooled connection carries the
+-- previous caller's subject into the next request, and SET ROLE does not clear it. PostgREST
+-- sets them transaction-locally from a verified JWT, which is why hosted Supabase is safe
+-- today; session-mode pooling of a shared credential, or any helper that omits LOCAL, is not.
+-- There is no SQL-level way for this function to tell the two apart, so the mitigation lives
+-- in the request path: SET LOCAL per transaction and DISCARD ALL on release.
 -- NULL is the safe answer: every caller compares it with = against principals.user_id, which
 -- yields NULL and therefore no row, so an absent or malformed subject is refused, never admitted.
 -- It takes no argument, so no caller can name a user_id.
@@ -166,10 +190,10 @@ begin
   exception when others then v := null; end;
  end if;
  if v is null or v !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then return null; end if;
- return v::uuid;
+ return v::pg_catalog.uuid;   -- qualified: pg_temp is searched first for type names, so a caller can shadow `uuid`
 end $$;
 revoke all on function mm_fixture_delivery.request_uid() from public, anon, authenticated;
-grant execute on function mm_fixture_delivery.request_uid() to mm_display_reader;   -- the materializer is granted after it is created, below
+grant execute on function mm_fixture_delivery.request_uid() to mm_display_reader;
 create function mm_fixture_delivery.raw_allowed() returns boolean language sql stable security definer set search_path=pg_catalog as $$
  select exists(select 1 from mm_fixture_delivery.principals p where p.user_id=mm_fixture_delivery.request_uid() and p.enabled and p.approved_until>statement_timestamp())
 $$;
@@ -329,9 +353,22 @@ do $$begin
   end;
   perform set_config('mm_fixture_delivery.set_materializer','1',true);
  end if;
+ -- SET ROLE alone is not enough. Transferring ownership checks SET-role ability, but every
+ -- later GRANT and REVOKE on an object checks OWNERSHIP privileges, which means INHERIT.
+ -- A NOINHERIT installer passes the test above, then every one of those statements emits
+ -- `WARNING: no privileges could be revoked` and does nothing, and the migration COMMITS
+ -- with the private functions still EXECUTE to PUBLIC. Measured: 10 warnings, a clean
+ -- commit, and EXECUTE to PUBLIC left on raw_allowed, raw_expiry, display,
+ -- publisher_allowed and materialize. Found by independent review; it is the same
+ -- warning-not-error class as S2, on the revoke side.
+ if not pg_catalog.pg_has_role(current_user,'mm_display_materializer','USAGE') then
+  raise exception 'Installer % cannot act as % because it is NOINHERIT. Ownership transfers would succeed and the grants that follow would silently do nothing. Run this migration as a role that inherits, or grant % to % with inherit true first',current_user,'mm_display_materializer','mm_display_materializer',current_user;
+ end if;
 end $$;
 grant create on schema mm_fixture_delivery to mm_display_materializer;
-grant execute on function mm_fixture_delivery.request_uid() to mm_display_materializer;
+-- No grant to mm_display_materializer: request_uid() is only ever reached through
+-- publisher_allowed(), which is SECURITY DEFINER owned by mm_display_reader, so current_user
+-- inside that chain is always the reader. Verified by revoking it and publishing successfully.
 grant usage on schema public,mm_fixture_delivery to mm_display_materializer;
 grant select,insert on mm_fixture_delivery.editions to mm_display_materializer;
 create policy materializer_editions on mm_fixture_delivery.editions for all to mm_display_materializer using(true) with check(true);
@@ -401,12 +438,28 @@ do $$begin
  if current_setting('mm_fixture_delivery.set_materializer',true)='1' then
   execute format('revoke mm_display_materializer from %I granted by %I',current_user,current_user);
  end if;
+ -- The guard must name the edge THIS script could have created: granted by the installer
+ -- AND held by the installer. Without the member test it also fires on an unrelated
+ -- membership the installer granted to someone else - say an audit role - and then
+ -- accuses this script of leaking a membership it never made. Reproduced in review:
+ -- `grant mm_display_reader to <other>` by the installer aborted the revert.
  if exists(select 1 from pg_catalog.pg_auth_members a
            join pg_catalog.pg_roles r on r.oid=a.roleid
            join pg_catalog.pg_roles g on g.oid=a.grantor
+           join pg_catalog.pg_roles m on m.oid=a.member
            where r.rolname in ('mm_display_reader','mm_display_materializer')
-             and g.rolname=current_user) then
+             and g.rolname=current_user and m.rolname=current_user) then
   raise exception 'An installer-created membership on an owner role was left behind';
+ end if;
+ -- POSTCONDITION, not a precondition: whatever the installer's privilege shape, no function in
+ -- the private schema may be left EXECUTE to PUBLIC. This kills the whole silent-no-op class
+ -- rather than the one cause above, because a GRANT or REVOKE that is refused for lack of
+ -- privilege is a WARNING, which ON_ERROR_STOP does not catch.
+ if exists(select 1 from pg_catalog.pg_proc p
+           join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+           cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+           where n.nspname='mm_fixture_delivery' and a.grantee=0 and a.privilege_type='EXECUTE') then
+  raise exception 'A private function is still EXECUTE to PUBLIC: a grant or revoke in this migration silently did nothing';
  end if;
  if pg_catalog.has_schema_privilege('mm_display_reader','mm_fixture_delivery','CREATE')
   or pg_catalog.has_schema_privilege('mm_display_materializer','mm_fixture_delivery','CREATE') then

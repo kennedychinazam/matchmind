@@ -57,7 +57,10 @@ const results = [];
 let failures = 0;
 const check = (name, fn) => {
   try { fn(); results.push('PASS  ' + name); }
-  catch (e) { failures++; results.push('FAIL  ' + name + '\n        ' + String(e.message).split('\n').slice(0, 3).join('\n        ')); }
+  /* psql prints its ERROR last, so show the TAIL. An earlier version showed the first three
+     lines and reported "BEGIN / CREATE SCHEMA / REVOKE" as the diagnosis. */
+  catch (e) { failures++; const lines = String(e.message).split('\n').filter(Boolean);
+    results.push('FAIL  ' + name + '\n        ' + lines.slice(-6).join('\n        ')); }
 };
 const eq = (got, want, what) => { if (String(got) !== String(want)) throw new Error(`${what}: got ${got}, want ${want}`); };
 
@@ -80,6 +83,11 @@ psql(SUPER, 'postgres', ['-c', 'grant anon,authenticated,service_role to authent
    refuses rather than half-installing when it cannot take what it needs. */
 psql(SUPER, 'postgres', ['-c',
   "do $$begin if not exists(select 1 from pg_roles where rolname='weak_installer') then execute 'create role weak_installer login'; end if; end$$"]);
+/* A role administrator that does NOT inherit. It passes the SET-role test and cannot change the
+   ACLs of the objects it transferred, so without a guard the migration commits with the private
+   functions still EXECUTE to PUBLIC. */
+psql(SUPER, 'postgres', ['-c',
+  "do $$begin if not exists(select 1 from pg_roles where rolname='ni_installer') then execute 'create role ni_installer login createrole createdb noinherit'; end if; end$$"]);
 // a clean slate for the two roles this migration creates
 for (const role of ['mm_display_reader', 'mm_display_materializer']) {
   const dropped = psql(SUPER, 'postgres', ['-c', `drop role if exists ${role}`], {allowFail: true});
@@ -138,6 +146,54 @@ if (NEGATIVE) {
     /mm_fixture_delivery\.request_uid\(\)/g, 'auth.uid()');
 }
 writeFileSync(join(work, 'up.sql'), up);
+/* THE REFUSAL PATHS RUN FIRST. Roles are cluster-wide, so once the main install has created
+   mm_display_reader these cases would die on `role already exists` and prove nothing. That
+   is exactly what they did when they ran last. */
+if (!NEGATIVE) {
+/* The failure path: an installer that cannot administer roles must abort transactionally and
+   leave nothing behind. Run in its own database so a partial install would be visible. */
+const WEAK = DB + '_weak';
+psql(SUPER, 'postgres', ['-c', `create database ${WEAK} owner weak_installer`]);
+psql('supabase_admin', WEAK, [], {sql: `
+  create schema auth authorization supabase_admin;
+  create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
+  grant usage on schema auth to weak_installer;`});
+psql(SUPER, WEAK, ['-c', 'grant create on database ' + WEAK + ' to weak_installer'], {allowFail: true});
+const weakRun = psql('weak_installer', WEAK, [], {sqlFile: join(work, 'up.sql'), allowFail: true});
+check('an installer without CREATEROLE is refused at the first role it must create', () => {
+  /* Named for what it actually proves. Independent review pointed out the earlier version
+     accepted three different errors, so it passed on `permission denied to create role` while
+     claiming to exercise the SET-role path, which this installer never reaches. */
+  if (!weakRun.startsWith('FAILED:')) throw new Error('the migration installed without role administration');
+  if (!/permission denied to create role/.test(weakRun))
+    throw new Error('refused, but not at role creation: ' + weakRun.slice(-400));
+});
+check('the refused install leaves no schema, and no half-made state', () => {
+  eq(lastLine(psql(SUPER, WEAK, ['-tAc', "select count(*) from pg_namespace where nspname='mm_fixture_delivery'"])), '0', 'private schema');
+});
+psql(SUPER, 'postgres', ['-c', `drop database if exists ${WEAK}`], {allowFail: true});
+
+/* A role administrator that does not inherit: the S2 failure class on the revoke side. */
+const NI = DB + '_ni';
+psql(SUPER, 'postgres', ['-c', `create database ${NI} owner ni_installer`]);
+psql('supabase_admin', NI, [], {sql: `
+  create schema auth authorization supabase_admin;
+  create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
+  grant usage on schema auth to ni_installer, anon, authenticated;`});
+psql('ni_installer', NI, [], {sqlFile: join(work, 'bootstrap.sql'), allowFail: true});
+const niRun = psql('ni_installer', NI, [], {sqlFile: join(work, 'up.sql'), allowFail: true});
+check('a NOINHERIT role administrator is refused, not committed with silent no-ops', () => {
+  if (!niRun.startsWith('FAILED:'))
+    throw new Error('the migration COMMITTED for a NOINHERIT installer:\n' + niRun.slice(0, 400));
+  if (!/NOINHERIT|still EXECUTE to PUBLIC/.test(niRun))
+    throw new Error('refused, but not for the INHERIT reason:\n' + niRun);
+});
+check('the refused NOINHERIT install leaves no schema behind', () => {
+  eq(lastLine(psql(SUPER, NI, ['-tAc', "select count(*) from pg_namespace where nspname='mm_fixture_delivery'"])), '0', 'private schema');
+});
+psql(SUPER, 'postgres', ['-c', `drop database if exists ${NI}`], {allowFail: true});
+}
+
 const installed = psql('hosted_postgres', DB, [], {sqlFile: join(work, 'up.sql'), allowFail: true});
 
 if (NEGATIVE) {
@@ -156,8 +212,31 @@ if (NEGATIVE) {
   process.exit(failures ? 1 : 0);
 }
 
+check('the installer really is a non-superuser that inherits', () => {
+  /* Probe 1 below is named for a non-superuser. Independent review showed it passes just as well
+     with a superuser installer, so the premise is asserted rather than assumed. */
+  eq(q(SUPER, "select rolsuper from pg_roles where rolname='hosted_postgres'"), 'f', 'installer rolsuper');
+  eq(q(SUPER, "select rolcreaterole from pg_roles where rolname='hosted_postgres'"), 't', 'installer rolcreaterole');
+  eq(q(SUPER, "select rolinherit from pg_roles where rolname='hosted_postgres'"), 't', 'installer rolinherit');
+});
 check('S1: the migration installs under a non-superuser role administrator', () => {
   if (installed.startsWith('FAILED:')) throw new Error(installed.slice(7, 400));
+  if (/no privileges (were granted|could be revoked)/.test(installed))
+    throw new Error('a grant or revoke silently did nothing:\n' + installed);
+});
+check('no private function is left EXECUTE to PUBLIC', () => {
+  eq(q('hosted_postgres', `select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+       where n.nspname='mm_fixture_delivery' and a.grantee=0 and a.privilege_type='EXECUTE'`), '0', 'public EXECUTE');
+});
+check('the private gate functions are unreachable by anon and by an ordinary user', () => {
+  for (const fn of ['mm_fixture_delivery.publisher_allowed()', 'mm_fixture_delivery.materialize()',
+                    'mm_fixture_delivery.request_uid()']) {
+    eq(q('hosted_postgres', `select has_function_privilege('anon','${fn}','EXECUTE')`), 'f', 'anon ' + fn);
+  }
+  for (const fn of ['mm_fixture_delivery.publisher_allowed()', 'mm_fixture_delivery.request_uid()']) {
+    eq(q('hosted_postgres', `select has_function_privilege('authenticated','${fn}','EXECUTE')`), 'f', 'authenticated ' + fn);
+  }
 });
 check('S1 cleanup: neither owner role keeps CREATE on the private schema', () => {
   eq(q('hosted_postgres', `select has_schema_privilege('mm_display_reader','mm_fixture_delivery','CREATE')`), 'f', 'reader CREATE');
@@ -210,29 +289,19 @@ check('public RPC misuse: anon cannot execute the publisher entry point', () => 
 check('default deny: anon holds no raw SELECT on the source tables', () => {
   eq(q('hosted_postgres', `select has_table_privilege('anon','public.fixtures','SELECT')`), 'f', 'anon fixtures');
 });
+check('the raw fence actually withholds ROWS, not merely privileges', () => {
+  /* Independent review deleted the RESTRICTIVE policy outright and every probe still passed,
+     because nothing here ever read from a fenced table. These do. */
+  eq(asRole('authenticated', `select count(*) from public.fixtures`), '0', 'unenrolled rows');
+  eq(asRole('authenticated', `set request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+     select count(*) from public.fixtures`), '0', 'wrong subject rows');
+  const enrolled = asRole('authenticated', `set request.jwt.claim.sub='33333333-3333-4333-8333-333333333333';
+     select count(*) from public.fixtures`);
+  if (!(Number(enrolled) > 0)) throw new Error('the enrolled principal read ' + enrolled + ' rows, want more than 0');
+});
 check('the collector keeps its read', () => {
   eq(q('hosted_postgres', `select has_table_privilege('service_role','public.fixtures','SELECT')`), 't', 'service_role');
 });
-
-/* The failure path: an installer that cannot administer roles must abort transactionally and
-   leave nothing behind. Run in its own database so a partial install would be visible. */
-const WEAK = DB + '_weak';
-psql(SUPER, 'postgres', ['-c', `create database ${WEAK} owner weak_installer`]);
-psql('supabase_admin', WEAK, [], {sql: `
-  create schema auth authorization supabase_admin;
-  create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
-  grant usage on schema auth to weak_installer;`});
-psql(SUPER, WEAK, ['-c', 'grant create on database ' + WEAK + ' to weak_installer'], {allowFail: true});
-const weakRun = psql('weak_installer', WEAK, [], {sqlFile: join(work, 'up.sql'), allowFail: true});
-check('a non-administrator installer is refused, with a message naming the problem', () => {
-  if (!weakRun.startsWith('FAILED:')) throw new Error('the migration installed without role administration');
-  if (!/cannot take SET ROLE on mm_display_reader|permission denied to create role|must be able to SET ROLE/.test(weakRun))
-    throw new Error('refused, but not for the expected reason: ' + weakRun.slice(-400));
-});
-check('the refused install leaves no schema, and no half-made state', () => {
-  eq(lastLine(psql(SUPER, WEAK, ['-tAc', "select count(*) from pg_namespace where nspname='mm_fixture_delivery'"])), '0', 'private schema');
-});
-psql(SUPER, 'postgres', ['-c', `drop database if exists ${WEAK}`], {allowFail: true});
 
 /* rollback, by the same non-superuser, and its own cleanup */
 const reverted = psql('hosted_postgres', DB, [], {sqlFile: resolve(ROOT, 'PROPOSAL-revert.sql'), allowFail: true});
