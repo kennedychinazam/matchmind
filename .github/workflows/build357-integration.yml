@@ -109,3 +109,69 @@ jobs:
           grep -q 'PASS 1: anonymous generic raw read refused' control.log
           grep -q 'PASS 2: ordinary' control.log
           echo 'Negative control held: probe 3 fails without the policy; protections 1 and 2 still pass.'
+
+  # The fence job proves the RLS layer in SQL. It says nothing about PostgREST: request shaping,
+  # ?select= projection, Range pagination, the JWT role switch or /rpc/. This container has no
+  # Docker daemon, so that whole layer was unproven. GitHub runners do have one, and the
+  # repository already carries a complete synthetic harness for it.
+  postgrest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - name: Confirm a Docker daemon is present
+        run: |
+          docker version --format 'server {{.Server.Version}}'
+          nproc && free -m | head -2 && df -h / | tail -1
+      - name: Synthetic Postgres and PostgREST acceptance
+        run: |
+          # Invented users, invented rows, containers on an internal-only network, images pinned
+          # by digest. No hosted URL, no real key, no provider call, no production database.
+          mkdir -p "$RUNNER_TEMP/fixture-evidence"
+          start=$(date +%s)
+          node backend/fixture-delivery/local-integration.mjs \
+            --run-local-synthetic "$RUNNER_TEMP/fixture-evidence"
+          echo "measured runtime: $(( $(date +%s) - start ))s"
+      - name: Report the checks the run recorded
+        run: |
+          f=$(ls "$RUNNER_TEMP/fixture-evidence"/*.json 2>/dev/null | head -20)
+          test -n "$f"
+          for j in $f; do echo "== $j"; node -e '
+            const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+            if(Array.isArray(d.checks)){
+              for(const c of d.checks) console.log(" "+c.status+"  "+c.name);
+              const bad=d.checks.filter(c=>c.status!=="PASS");
+              console.log(" total "+d.checks.length+", failures "+bad.length);
+              if(bad.length) process.exit(1);
+            } else console.log(" (no check list in this artifact)");
+          ' "$j"; done
+      - name: Negative control, the restrictive fence removed
+        run: |
+          # A suite that can only pass proves nothing. Strip the RESTRICTIVE policy out of the
+          # migration and the acceptance run must fail. Restored from git afterwards.
+          cp backend/fixture-delivery/PROPOSAL-up.sql "$RUNNER_TEMP/up.bak"
+          sed -i "/create policy mm_source_raw_fence on %I.%I as restrictive/d" \
+            backend/fixture-delivery/PROPOSAL-up.sql
+          ! grep -q "mm_source_raw_fence on %I.%I as restrictive" backend/fixture-delivery/PROPOSAL-up.sql
+          mkdir -p "$RUNNER_TEMP/control-evidence"
+          if node backend/fixture-delivery/local-integration.mjs \
+               --run-local-synthetic "$RUNNER_TEMP/control-evidence" > "$RUNNER_TEMP/control.log" 2>&1; then
+            echo 'NEGATIVE CONTROL FAILED: acceptance passed with the restrictive fence removed'
+            tail -40 "$RUNNER_TEMP/control.log"; exit 1
+          fi
+          echo 'Negative control held: removing the restrictive fence fails the acceptance run.'
+          tail -20 "$RUNNER_TEMP/control.log" || true
+          cp "$RUNNER_TEMP/up.bak" backend/fixture-delivery/PROPOSAL-up.sql
+          git diff --quiet -- backend/fixture-delivery/PROPOSAL-up.sql
+      - name: Remove synthetic containers
+        if: always()
+        run: |
+          # The harness labels its CONTAINERS but creates its network and volume unlabelled,
+          # so those are matched by the name prefix it builds them with.
+          docker ps -aq --filter label=matchmind.purpose=offline-fixture-delivery | xargs -r docker rm -f
+          docker network ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker network rm || true
+          docker volume  ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker volume  rm || true
+          echo 'remaining:'; docker ps -a --filter label=matchmind.purpose=offline-fixture-delivery
