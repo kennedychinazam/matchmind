@@ -14,6 +14,7 @@ on:
       - codex/public-fixture-remediation-20261102
       - claude/release-acceptance-20261106
       - claude/blocker-closure-20261106
+      - claude/staging-s1-s2-20261107
     paths:
       - 'index.html'
       - 'sw.js'
@@ -180,3 +181,55 @@ jobs:
           docker network ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker network rm || true
           docker volume  ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker volume  rm || true
           echo 'remaining:'; docker ps -a --filter label=matchmind.purpose=offline-fixture-delivery
+
+  # PostgreSQL 17, the version production and staging actually run. The fence job above proves the
+  # RLS layer on 16 and stays; this job does not replace it. It exists because Director staging on
+  # 17.11 found two defects that a local SUPERUSER install cannot see: ownership transfer needs
+  # SET ROLE on the new owner, and the auth schema belongs to someone else. So this installs the
+  # real migration as a NON-SUPERUSER role administrator against a foreign-owned auth schema.
+  hosted17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-not-a-real-secret
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - name: Report the engine, and refuse anything that is not 17
+        run: |
+          v=$(psql -tAc 'show server_version')
+          echo "server_version: $v"
+          case "$v" in 17.*) ;; *) echo "expected PostgreSQL 17, got $v"; exit 1;; esac
+      - name: The 10 fence probes, on PostgreSQL 17 as well as 16
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database fence17'
+          psql -d fence17 -v ON_ERROR_STOP=1 \
+            -f backend/fixture-delivery/local-fence-regression.sql 2>&1 | tee fence17.log
+          grep -q 'ALL 10 FENCE PROBES PASSED' fence17.log
+      - name: Hosted-shape compatibility, non-superuser role administrator
+        run: node backend/fixture-delivery/hosted-compat-regression.mjs
+      - name: Negative control, the S1 and S2 fixes removed
+        run: |
+          # Must FAIL, with the two errors Director staging reported. A control that can only pass
+          # proves nothing.
+          if node backend/fixture-delivery/hosted-compat-regression.mjs --negative-control > nc.log 2>&1; then
+            echo 'NEGATIVE CONTROL FAILED: the migration installed with the fixes removed'
+            tail -40 nc.log; exit 1
+          fi
+          grep -q 'must be able to SET ROLE' nc.log
+          grep -q 'no privileges were granted for "auth"' nc.log
+          grep -q 'NEGATIVE CONTROL HELD' nc.log
+          echo 'Negative control held on PostgreSQL 17.'

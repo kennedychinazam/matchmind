@@ -5,9 +5,36 @@ begin;
 create schema mm_fixture_delivery;
 revoke all on schema mm_fixture_delivery from public, anon, authenticated;
 create role mm_display_reader nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+-- S1, HOSTED POSTGRESQL 17: OWNING A FUNCTION REQUIRES BEING ABLE TO SET ROLE TO ITS OWNER.
+-- Since PostgreSQL 16 a role created by a CREATEROLE non-superuser gives its creator an
+-- ADMIN membership with SET FALSE, so `alter function ... owner to mm_display_reader` aborts
+-- with 42501 must be able to SET ROLE "mm_display_reader". A superuser install never sees it.
+-- Reproduced offline on a non-superuser role-admin before changing anything.
+-- Ownership transfer additionally requires CREATE on the schema holding the object.
+-- Both are taken as narrowly as possible and given back before commit; see the cleanup block
+-- at the end of this file. Nothing is granted to public, anon or authenticated.
+do $$begin
+ if not pg_catalog.pg_has_role(current_user,'mm_display_reader','SET') then
+  begin execute format('grant mm_display_reader to %I with set true',current_user);
+  exception when insufficient_privilege then
+   raise exception 'Installer % cannot take SET ROLE on mm_display_reader. A role administrator must run this migration',current_user;
+  end;
+  perform set_config('mm_fixture_delivery.set_reader','1',true);
+ end if;
+end $$;
+grant create on schema mm_fixture_delivery to mm_display_reader;
 grant usage on schema mm_fixture_delivery to anon, authenticated, service_role, mm_display_reader;
-grant usage on schema auth to mm_display_reader;
-grant execute on function auth.uid() to mm_display_reader;
+-- S2, HOSTED SUPABASE: THESE TWO GRANTS DID NOTHING AND ARE GONE.
+--   grant usage on schema auth to mm_display_reader;
+--   grant execute on function auth.uid() to mm_display_reader;
+-- On hosted Supabase the auth schema belongs to supabase_admin and the installing `postgres`
+-- holds USAGE without grant option, so both statements emit
+--   WARNING:  no privileges were granted for "auth"
+-- and grant nothing. Staging then failed at run time with 42501 permission denied for schema
+-- auth, inside publisher_allowed(), because a SECURITY DEFINER function runs as its owner and
+-- that owner cannot reach auth.uid(). Reproduced offline before changing anything.
+-- The fix does NOT ask for access to the auth schema. It reads the request subject from the
+-- same verified GUCs hosted auth.uid() reads, through one private helper below.
 create table mm_fixture_delivery.principals (
  user_id uuid primary key, scope text not null check(scope in ('publisher','research')),
  enabled boolean not null default false, approved_until timestamptz not null,
@@ -120,11 +147,34 @@ alter table mm_fixture_delivery.editions add constraint complete_inventory check
 -- it is recorded rather than changed: narrowing it is a Director decision about intent, not
 -- a defect to patch silently. It matters more now than before, because the added permissive
 -- policy turns this capability from inert into live.
+-- S2 FIX: THE REQUEST SUBJECT, WITHOUT TOUCHING THE AUTH SCHEMA.
+-- Reads exactly what the hosted auth.uid() reads - the GUCs PostgREST sets from the JWT it has
+-- already verified - so the trust model is the platform's own and is not widened here. Three
+-- differences from a bare copy of that expression, all of them narrowing:
+--   SECURITY INVOKER, so it adds no definer surface of its own;
+--   a malformed request.jwt.claims JSON returns NULL instead of raising inside a capability check;
+--   a value that is not a UUID returns NULL instead of raising 22P02.
+-- NULL is the safe answer: every caller compares it with = against principals.user_id, which
+-- yields NULL and therefore no row, so an absent or malformed subject is refused, never admitted.
+-- It takes no argument, so no caller can name a user_id.
+create function mm_fixture_delivery.request_uid() returns uuid language plpgsql stable security invoker set search_path=pg_catalog as $$
+declare v text;
+begin
+ v := nullif(current_setting('request.jwt.claim.sub',true),'');
+ if v is null then
+  begin v := nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub';
+  exception when others then v := null; end;
+ end if;
+ if v is null or v !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then return null; end if;
+ return v::uuid;
+end $$;
+revoke all on function mm_fixture_delivery.request_uid() from public, anon, authenticated;
+grant execute on function mm_fixture_delivery.request_uid() to mm_display_reader;   -- the materializer is granted after it is created, below
 create function mm_fixture_delivery.raw_allowed() returns boolean language sql stable security definer set search_path=pg_catalog as $$
- select exists(select 1 from mm_fixture_delivery.principals p where p.user_id=auth.uid() and p.enabled and p.approved_until>statement_timestamp())
+ select exists(select 1 from mm_fixture_delivery.principals p where p.user_id=mm_fixture_delivery.request_uid() and p.enabled and p.approved_until>statement_timestamp())
 $$;
 alter function mm_fixture_delivery.raw_allowed() owner to mm_display_reader;
-create function mm_fixture_delivery.raw_expiry() returns timestamptz language sql stable security definer set search_path=pg_catalog as $$select least(p.approved_until,statement_timestamp()+interval '60 seconds') from mm_fixture_delivery.principals p where p.user_id=auth.uid() and p.enabled and p.approved_until>statement_timestamp()$$;
+create function mm_fixture_delivery.raw_expiry() returns timestamptz language sql stable security definer set search_path=pg_catalog as $$select least(p.approved_until,statement_timestamp()+interval '60 seconds') from mm_fixture_delivery.principals p where p.user_id=mm_fixture_delivery.request_uid() and p.enabled and p.approved_until>statement_timestamp()$$;
 alter function mm_fixture_delivery.raw_expiry() owner to mm_display_reader;
 create function public.matchmind_fixture_access_v1() returns jsonb language sql stable security invoker set search_path=pg_catalog as $$
  select jsonb_build_object('version','matchmind-fixture-access/1','raw_allowed',mm_fixture_delivery.raw_allowed(),'expires_at',mm_fixture_delivery.raw_expiry())
@@ -270,6 +320,18 @@ end $$;
 -- This materializer is callable only by an explicitly enrolled current publisher.
 -- Browser supplies no payload, fixture ID, date, page, count or source-review claim.
 create role mm_display_materializer nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+-- Same S1 precondition for the second owner role.
+do $$begin
+ if not pg_catalog.pg_has_role(current_user,'mm_display_materializer','SET') then
+  begin execute format('grant mm_display_materializer to %I with set true',current_user);
+  exception when insufficient_privilege then
+   raise exception 'Installer % cannot take SET ROLE on mm_display_materializer. A role administrator must run this migration',current_user;
+  end;
+  perform set_config('mm_fixture_delivery.set_materializer','1',true);
+ end if;
+end $$;
+grant create on schema mm_fixture_delivery to mm_display_materializer;
+grant execute on function mm_fixture_delivery.request_uid() to mm_display_materializer;
 grant usage on schema public,mm_fixture_delivery to mm_display_materializer;
 grant select,insert on mm_fixture_delivery.editions to mm_display_materializer;
 create policy materializer_editions on mm_fixture_delivery.editions for all to mm_display_materializer using(true) with check(true);
@@ -282,7 +344,7 @@ create policy materializer_read on public.predictions for select to mm_display_m
 create policy materializer_read on public.shared_records for select to mm_display_materializer using(true);
 create policy materializer_read on public.daily_slips for select to mm_display_materializer using(true);
 create function mm_fixture_delivery.publisher_allowed() returns boolean language sql stable security definer set search_path=pg_catalog as $$
- select current_setting('role',true)='service_role' or exists(select 1 from mm_fixture_delivery.principals where user_id=auth.uid() and scope='publisher' and enabled and approved_until>statement_timestamp())
+ select current_setting('role',true)='service_role' or exists(select 1 from mm_fixture_delivery.principals where user_id=mm_fixture_delivery.request_uid() and scope='publisher' and enabled and approved_until>statement_timestamp())
 $$;
 alter function mm_fixture_delivery.publisher_allowed() owner to mm_display_reader;
 revoke all on function mm_fixture_delivery.publisher_allowed() from public,anon,authenticated;
@@ -318,5 +380,38 @@ create function public.matchmind_publish_display_v1() returns jsonb language sql
 revoke all on function public.matchmind_publish_display_v1(),mm_fixture_delivery.materialize() from public,anon,authenticated;
 grant execute on function public.matchmind_publish_display_v1(),mm_fixture_delivery.materialize() to authenticated,service_role;
 
+-- S1 CLEANUP. Hand back exactly what was taken, before this transaction commits.
+-- CREATE on the private schema is removed from both owner roles: they are created by this
+-- migration and had none before it, so this restores them to no-CREATE. The installer's
+-- SET-role membership is revoked ONLY when this migration added it, and only the SET option
+-- is dropped, so an administratively granted membership that was already there is untouched.
+-- Note for the reviewer, stated rather than implied: the installer keeps ADMIN on roles it
+-- created and could grant itself SET again at will. This is least-privilege hygiene, not a
+-- security boundary against whoever already holds the installing role.
+revoke create on schema mm_fixture_delivery from mm_display_reader, mm_display_materializer;
+do $$begin
+ -- Revoke the WHOLE membership this migration created, identified by its grantor, not merely
+ -- its SET option. Dropping only SET leaves an empty edge behind, and the edge also carries
+ -- an INHERIT option that would hand the installer the owner role's privileges outright.
+ -- GRANTED BY current_user names our edge exactly, so the administratively granted edge that
+ -- the platform created alongside it is left as it was.
+ if current_setting('mm_fixture_delivery.set_reader',true)='1' then
+  execute format('revoke mm_display_reader from %I granted by %I',current_user,current_user);
+ end if;
+ if current_setting('mm_fixture_delivery.set_materializer',true)='1' then
+  execute format('revoke mm_display_materializer from %I granted by %I',current_user,current_user);
+ end if;
+ if exists(select 1 from pg_catalog.pg_auth_members a
+           join pg_catalog.pg_roles r on r.oid=a.roleid
+           join pg_catalog.pg_roles g on g.oid=a.grantor
+           where r.rolname in ('mm_display_reader','mm_display_materializer')
+             and g.rolname=current_user) then
+  raise exception 'An installer-created membership on an owner role was left behind';
+ end if;
+ if pg_catalog.has_schema_privilege('mm_display_reader','mm_fixture_delivery','CREATE')
+  or pg_catalog.has_schema_privilege('mm_display_materializer','mm_fixture_delivery','CREATE') then
+  raise exception 'Temporary CREATE on the private schema was not given back';
+ end if;
+end $$;
 notify pgrst,'reload schema';
 commit;
