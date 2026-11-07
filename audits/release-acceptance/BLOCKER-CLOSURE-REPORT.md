@@ -280,7 +280,7 @@ specific claims. It did break two of them, and found a defect I had certified as
 |---|---|---|
 | F1 | refusing a stale edition empties the public feed; my test could not see it | **FIXED** — ERROR F above |
 | F2 | the preflight blamed PUBLIC for a read inherited through a group role the migration never revokes from | **FIXED** — three distinct causes, each verified |
-| F3 | the preflight checked 10 objects while the revoke loop reached 13 roots plus every dependent view | **FIXED** — both now driven from the same recursive CTE |
+| F3 | the preflight checked 10 objects while the revoke loop reached 13 roots plus every dependent view | **FIXED, then corrected** — one traversal drives both; the requirement stays on the named base tables, see below |
 | F4 | the visibility test passed with every fixture filed under the wrong competition | **FIXED** — asserts structure, not substring |
 | F5 | the hindsight tests passed against a reworded claim still carrying a moving percentage | **FIXED** — asserts the whole hero region |
 | F6 | comment and count drift | **FIXED** |
@@ -299,6 +299,20 @@ Each fix was verified by reproducing the reviewer's own mutation and watching it
   would survive the revoke but the invariant is not met, instead of blaming PUBLIC.
 - F3: the preflight loop is driven from the same CTE as the revoke loop and still completes for
   every object before the first source revoke.
+
+**And F3 corrected a second time, by the project's own acceptance run.** My first answer widened
+not only the traversal but the REQUIREMENT, to every object the traversal reaches. That was
+wrong, and CI proved it: the `postgrest` job aborted on `provider_alias` with
+*"Collector read on provider_alias comes from the PUBLIC grant this migration revokes"*. The
+reason is the point of the whole migration. In the project's own synthetic fixture the collector
+reads `fixtures_lean`, `competitions`, `odds_latest` and `provider_alias` through the PUBLIC grant
+**that this migration exists to remove**, so demanding a direct grant on them refuses to install
+on precisely the state the migration is written for. The traversal stays single, which is what
+F3 was really about; the strict requirement is back on the ten named copied-fact base tables.
+Verified against a lab built to the bootstrap's exact shape: views PUBLIC-only with tables
+explicitly granted now passes, and a base table reachable only through PUBLIC still aborts.
+Residual, stated rather than hidden: a base table reached only by the recursion and outside the
+named set is revoked without a collector check. None exists today.
 
 Writing F2's fix surfaced a defect of my own that only running it could find: the dynamic
 `relkind` expression produced `text` where `acldefault` wants `"char"`, so the whole preflight

@@ -196,15 +196,30 @@ begin
  for pre in with recursive roots as(select c.oid from pg_class c join pg_namespace ns on ns.oid=c.relnamespace where ns.nspname='public' and c.relname in ('fixtures','fixtures_lean','competitions','predictions','daily_slips','shared_records','odds_snapshots','odds_latest','injuries','match_context','predictions_retired','match_analysis','venues')),
  deps(oid) as(select oid from roots union select rw.ev_class from deps d join pg_depend pd on pd.refobjid=d.oid join pg_rewrite rw on rw.oid=pd.objid where rw.ev_class<>d.oid)
  select distinct c.oid,c.relname,c.relkind from deps d join pg_class c on c.oid=d.oid join pg_namespace ns on ns.oid=c.relnamespace where c.relkind in ('r','v','m') loop
+  -- SCOPE. The strict requirement applies to the copied-fact BASE TABLES only.
+  -- The independent review was right that one list must drive both the check and the action,
+  -- and the traversal above is now that one list. It was wrong of me to also widen the
+  -- REQUIREMENT to every object the traversal reaches. The collector reads the base tables; the
+  -- views are a public convenience, and in the project's own synthetic fixture the collector
+  -- reads fixtures_lean, competitions, odds_latest and provider_alias through the PUBLIC grant
+  -- that THIS MIGRATION EXISTS TO REMOVE. Demanding a direct grant on those would refuse to
+  -- install on precisely the state the migration is written for. Proven, not reasoned: the
+  -- wider version aborted the project's own PostgREST acceptance run on provider_alias.
+  -- Residual worth stating: a base table reached only by the recursion, outside the named set,
+  -- is revoked without a collector check. None exists today; if one appears it belongs in the
+  -- named set and in this check.
+  if not(pre.relkind='r' and pre.relname = any(array['fixtures','predictions','daily_slips','shared_records','odds_snapshots','injuries','match_context','predictions_retired','match_analysis','venues'])) then
+   continue;
+  end if;
   svc_effective = has_table_privilege('service_role',pre.oid,'SELECT');
-  svc_direct = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault((case c.relkind when 'v' then 'v' else 'r' end)::"char",c.relowner))) a
+  svc_direct = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
                       where c.oid=pre.oid and a.privilege_type='SELECT'
                         and a.grantee=(select oid from pg_roles where rolname='service_role'));
   if not svc_effective then
    raise exception 'Collector cannot read %: service_role has no effective SELECT. Installing would stop ingestion',pre.relname;
   end if;
   if not svc_direct then
-   svc_public = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault((case c.relkind when 'v' then 'v' else 'r' end)::"char",c.relowner))) a
+   svc_public = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
                        where c.oid=pre.oid and a.privilege_type='SELECT' and a.grantee=0);
    select r2 into svc_revoked_role from unnest(array['anon','authenticated']) r2
     where exists(select 1 from pg_roles g where g.rolname=r2 and pg_has_role('service_role',g.oid,'USAGE'))
