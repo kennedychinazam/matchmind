@@ -1,0 +1,100 @@
+name: MatchMind Staging Auth HTTP Acceptance
+on:
+  push:
+    branches:
+      - director/staging-auth-http-20261107
+    paths:
+      - .github/workflows/matchmind-staging-auth-http.yml
+permissions:
+  contents: read
+concurrency:
+  group: matchmind-staging-auth-validation
+  cancel-in-progress: false
+jobs:
+  staging-auth-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Real GoTrue signup, JWT sign-in, RLS, publisher-deny, published history
+        shell: bash
+        run: |
+          node --input-type=module <<'MATCHMIND_STAGE_JS'
+          import {randomBytes,randomUUID} from 'node:crypto';
+          const root = 'https://rdcbnvfnxenrpnnwxszs.supabase.co';
+          const pub = "sb_publishable_WKB88h4KAPtLVphsfNF9fg_W90ym80y";
+          const expected = 'director/staging-auth-http-20261107';
+          if(process.env.GITHUB_REF_NAME !== expected || !pub.startsWith('sb_publishable_') || root.includes('toqfdrcjzwnlydqekude')) throw Error('WRONG_TEST_TARGET');
+          const id = process.env.GITHUB_RUN_ID;
+          const a = {email:'matchmind-stage-http-a-'+id+'@example.invalid',pass:randomBytes(30).toString('base64url')};
+          const b = {email:'matchmind-stage-http-b-'+id+'@example.invalid',pass:randomBytes(30).toString('base64url')};
+          const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
+          const check=(condition,name)=>{if(!condition)throw Error('FAILED '+name);console.log('PASS '+name)};
+          async function req(path,method='GET',payload=undefined,token=undefined,extra={}) {
+           const headers = {'apikey':pub,'Content-Type':'application/json',...extra};
+           if(token)headers['Authorization']='Bearer '+token;
+           const resp=await fetch(root+path,{method,headers,body:payload===undefined?undefined:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
+           const raw=await resp.text();
+           let data;try{data=raw?JSON.parse(raw):null}catch{data={error:raw.slice(0,150)}}
+           return {status:resp.status,data};
+          }
+          let count=0;
+          const pass=(cond,name)=>{check(cond,name);count++};
+          const sA=await req('/auth/v1/signup','POST',{email:a.email,password:a.pass});
+          pass(sA.status>=200&&sA.status<300&&!!sA.data?.user?.id,'signup_A_real_GoTrue_HTTP');
+          const sB=await req('/auth/v1/signup','POST',{email:b.email,password:b.pass});
+          pass(sB.status>=200&&sB.status<300&&!!sB.data?.user?.id,'signup_B_real_GoTrue_HTTP');
+          console.log('WAITING_CONFIRMATION_EMAILS '+a.email+' '+b.email);
+          let A,B;
+          for(let i=0;i<38;i++){
+           const aa=await req('/auth/v1/token?grant_type=password','POST',{email:a.email,password:a.pass});
+           const bb=await req('/auth/v1/token?grant_type=password','POST',{email:b.email,password:b.pass});
+           if(aa.status===200&&bb.status===200&&aa.data?.access_token&&bb.data?.access_token){A=aa.data;B=bb.data;break;}
+           if(i%4===0)console.log('WAITING_STAGING_AUTH_CONFIRMATION '+(i+1)+' statusA='+aa.status+' statusB='+bb.status);
+           await sleep(9000);
+          }
+          pass(!!A&&!!B,'real_password_signin_both_users');
+          const au=await req('/auth/v1/user','GET',undefined,A.access_token);
+          const bu=await req('/auth/v1/user','GET',undefined,B.access_token);
+          pass(au.status===200&&au.data?.id===sA.data.user.id,'A_verified_session_identity');
+          pass(bu.status===200&&bu.data?.id===sB.data.user.id,'B_verified_session_identity');
+          const rowA={user_id:au.data.id,fav_matches:['A-stage-http']};
+          const rowB={user_id:bu.data.id,fav_matches:['B-stage-http']};
+          const insA=await req('/rest/v1/app_state','POST',rowA,A.access_token,{'Prefer':'return=representation'});
+          const insB=await req('/rest/v1/app_state','POST',rowB,B.access_token,{'Prefer':'return=representation'});
+          pass(insA.status>=200&&insA.status<300,'A_own_row_insert_allowed');
+          pass(insB.status>=200&&insB.status<300,'B_own_row_insert_allowed');
+          const aRows=await req('/rest/v1/app_state?select=user_id,fav_matches','GET',undefined,A.access_token);
+          const bRows=await req('/rest/v1/app_state?select=user_id,fav_matches','GET',undefined,B.access_token);
+          pass(aRows.status===200&&aRows.data?.length===1&&aRows.data[0].user_id===au.data.id,'A_read_only_A');
+          pass(bRows.status===200&&bRows.data?.length===1&&bRows.data[0].user_id===bu.data.id,'B_read_only_B');
+          const xRead=await req('/rest/v1/app_state?select=user_id&user_id=eq.'+bu.data.id,'GET',undefined,A.access_token);
+          pass(xRead.status===200&&Array.isArray(xRead.data)&&xRead.data.length===0,'A_cannot_read_B');
+          const attack=await req('/rest/v1/app_state','POST',{user_id:randomUUID(),fav_matches:['FORBIDDEN']},A.access_token,{'Prefer':'return=representation'});
+          pass(!(attack.status>=200&&attack.status<300),'A_cannot_insert_foreign_owner');
+          const patch=await req('/rest/v1/app_state?user_id=eq.'+bu.data.id,'PATCH',{fav_matches:['OVERRIDDEN']},A.access_token,{'Prefer':'return=representation'});
+          pass(patch.status===200&&Array.isArray(patch.data)&&patch.data.length===0,'A_cannot_update_B');
+          const bAfter=await req('/rest/v1/app_state?select=fav_matches','GET',undefined,B.access_token);
+          pass(bAfter.status===200&&JSON.stringify(bAfter.data[0]?.fav_matches)===JSON.stringify(['B-stage-http']),'B_data_preserved');
+          const rawAnon=await req('/rest/v1/fixtures?select=fxid');
+          pass(rawAnon.status===401||rawAnon.status===403,'anonymous_raw_fixture_denied');
+          const rawAuth=await req('/rest/v1/fixtures?select=fxid','GET',undefined,A.access_token);
+          pass(rawAuth.status===200&&Array.isArray(rawAuth.data)&&rawAuth.data.length===0,'authenticated_raw_fixture_empty');
+          const fakeRole=await req('/rest/v1/fixtures?select=fxid','GET',undefined,A.access_token,{'role':'service_role','x-postgrest-role':'service_role'});
+          pass(!(fakeRole.status===200&&Array.isArray(fakeRole.data)&&fakeRole.data.length>0),'spoofed_service_role_header_denied');
+          const cap=await req('/rest/v1/rpc/matchmind_fixture_access_v1','POST',{},A.access_token);
+          pass(cap.status===200&&cap.data?.raw_allowed===false,'ordinary_account_no_raw_capability');
+          const pubA=await req('/rest/v1/rpc/matchmind_publish_display_v1','POST',{},A.access_token);
+          pass(pubA.status>=400,'ordinary_account_cannot_publish');
+          const pubAnon=await req('/rest/v1/rpc/matchmind_publish_display_v1','POST',{});
+          pass(pubAnon.status>=400,'anonymous_account_cannot_publish');
+          const history=await req('/rest/v1/rpc/matchmind_display_v1','POST',{screen:'history'});
+          const histJson=JSON.stringify(history.data);
+          pass(history.status===200&&Array.isArray(history.data?.cards)&&history.data.cards.length===145,'public_history_145_synthetic_issued_records');
+          pass(!histJson.includes('RAW-PRIVATE')&&!histJson.includes('private_raw_marker')&&!histJson.includes('provider_blob'),'history_hides_raw_provider_markers');
+          const badToken=A.access_token.slice(0,-4)+'AAAA';
+          const forged=await req('/rest/v1/app_state?select=user_id','GET',undefined,badToken);
+          pass(forged.status>=400,'tampered_JWT_rejected');
+          await req('/auth/v1/logout','POST',{},A.access_token);
+          await req('/auth/v1/logout','POST',{},B.access_token);
+          console.log('STAGING_AUTH_HTTP_ACCEPTANCE_PASS count='+count+' run='+id);
+          MATCHMIND_STAGE_JS
