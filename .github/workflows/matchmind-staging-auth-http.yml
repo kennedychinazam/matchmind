@@ -40,6 +40,7 @@ jobs:
           let count=0;
           const pass=(cond,name)=>{check(cond,name);count++};
           const sA=await req('/auth/v1/signup','POST',{email:a.email,password:a.pass});
+          if(!(sA.status>=200&&sA.status<300))console.log('SIGNUP_A_HTTP_ERROR',sA.status,String(sA.data?.code||''),String(sA.data?.msg||sA.data?.message||sA.data?.error||'').slice(0,240));
           pass(sA.status>=200&&sA.status<300&&!!sA.data?.user?.id,'signup_A_real_GoTrue_HTTP');
           const sB=await req('/auth/v1/signup','POST',{email:b.email,password:b.pass});
           pass(sB.status>=200&&sB.status<300&&!!sB.data?.user?.id,'signup_B_real_GoTrue_HTTP');
