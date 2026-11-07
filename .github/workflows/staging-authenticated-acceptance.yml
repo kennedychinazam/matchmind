@@ -1,0 +1,61 @@
+# GENUINE Supabase Auth acceptance against the ISOLATED STAGING project.
+#
+# MANUAL DISPATCH ONLY. There is no push trigger: this job talks to a hosted project, so it runs
+# when a person asks it to and never because a branch moved.
+#
+# It is the last piece of release evidence that cannot be produced offline. The Director's
+# anonymous run proved the unauthenticated surface 16/16; this proves the authenticated one with
+# real GoTrue sign-ins and real JWTs.
+#
+# IT NEEDS ONE REPOSITORY SECRET: MM_STAGING_SERVICE_KEY, the service_role (secret) API key of the
+# STAGING project rdcbnvfnxenrpnnwxszs ONLY. Never the production key. Add it under
+# Settings > Secrets and variables > Actions. Nothing else is required, and the value never
+# appears in this repository, in a log, or in any committed file: the script masks it before use
+# and GitHub redacts secrets from logs.
+#
+# Without that secret the job stops with a neutral status and says exactly what is missing. It
+# does not pretend to have passed.
+name: MatchMind staging authenticated acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type STAGING to confirm this runs against the staging project only'
+        required: true
+        default: ''
+permissions:
+  contents: read
+jobs:
+  authenticated-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse unless the operator confirmed the staging target
+        run: |
+          test "${{ inputs.confirm }}" = "STAGING" || {
+            echo 'Confirmation input must be exactly STAGING.'; exit 1; }
+      - name: Report whether the admin secret is present
+        id: secret
+        env:
+          KEY: ${{ secrets.MM_STAGING_SERVICE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo 'present=no' >> "$GITHUB_OUTPUT"
+            echo 'MM_STAGING_SERVICE_KEY is not configured. The authenticated acceptance cannot run.'
+          else
+            echo 'present=yes' >> "$GITHUB_OUTPUT"
+            echo 'Admin secret is configured; it is masked for the whole job.'
+          fi
+      - name: Genuine Auth sign-in, A/B isolation, denied operations, JWT integrity, cleanup
+        if: steps.secret.outputs.present == 'yes'
+        env:
+          MM_STAGING_SERVICE_KEY: ${{ secrets.MM_STAGING_SERVICE_KEY }}
+        run: node backend/fixture-delivery/staging-authenticated-acceptance.mjs
+      - name: Say plainly that the evidence is missing, rather than passing quietly
+        if: steps.secret.outputs.present != 'yes'
+        run: |
+          echo 'NOT RUN: MM_STAGING_SERVICE_KEY is absent.'
+          echo 'This job is the only source of genuine signed-in evidence; treat its absence as'
+          echo 'the Auth gate still being open, not as a pass.'
+          exit 1
