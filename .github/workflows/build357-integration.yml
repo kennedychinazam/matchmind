@@ -95,11 +95,15 @@ jobs:
       - name: Negative control, the permissive policy removed
         run: |
           # A second FRESH database, and distinct role names, so nothing from the first run is
-          # torn down. Dropping and recreating schema public strips its default USAGE grant and
+          # torn down. Roles are CLUSTER-wide, not per database, so every role the regression
+          # creates is renamed here too: without that the control aborts on
+          # 'role "service_role" already exists' and proves nothing.
+          # Dropping and recreating schema public strips its default USAGE grant and
           # makes probe 2 error instead of returning zero rows, which is not the same evidence.
           psql -d postgres -v ON_ERROR_STOP=1 -c 'create database synthetic_control'
           sed -e '/create policy mm_source_raw_read on public.fixtures for select to authenticated/,+1d' \
               -e 's/\banon\b/anon_ctl/g' -e 's/\bauthenticated\b/authenticated_ctl/g' \
+              -e 's/\bservice_role\b/service_role_ctl/g' \
               backend/fixture-delivery/local-fence-regression.sql > uncorrected.sql
           ! grep -q 'create policy mm_source_raw_read on public.fixtures for select' uncorrected.sql
           if psql -d synthetic_control -v ON_ERROR_STOP=1 -f uncorrected.sql > control.log 2>&1; then
