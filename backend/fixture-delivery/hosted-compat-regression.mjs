@@ -76,6 +76,10 @@ for (const [role, opts] of [['supabase_admin', 'login superuser'], ['hosted_post
     `do $$begin if not exists(select 1 from pg_roles where rolname='${role}') then execute 'create role ${role} ${opts}'; end if; end$$`]);
 }
 psql(SUPER, 'postgres', ['-c', 'grant anon,authenticated,service_role to authenticator']);
+/* An installer with CREATE on the database but NO role administration, to prove the migration
+   refuses rather than half-installing when it cannot take what it needs. */
+psql(SUPER, 'postgres', ['-c',
+  "do $$begin if not exists(select 1 from pg_roles where rolname='weak_installer') then execute 'create role weak_installer login'; end if; end$$"]);
 // a clean slate for the two roles this migration creates
 for (const role of ['mm_display_reader', 'mm_display_materializer']) {
   const dropped = psql(SUPER, 'postgres', ['-c', `drop role if exists ${role}`], {allowFail: true});
@@ -209,6 +213,26 @@ check('default deny: anon holds no raw SELECT on the source tables', () => {
 check('the collector keeps its read', () => {
   eq(q('hosted_postgres', `select has_table_privilege('service_role','public.fixtures','SELECT')`), 't', 'service_role');
 });
+
+/* The failure path: an installer that cannot administer roles must abort transactionally and
+   leave nothing behind. Run in its own database so a partial install would be visible. */
+const WEAK = DB + '_weak';
+psql(SUPER, 'postgres', ['-c', `create database ${WEAK} owner weak_installer`]);
+psql('supabase_admin', WEAK, [], {sql: `
+  create schema auth authorization supabase_admin;
+  create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
+  grant usage on schema auth to weak_installer;`});
+psql(SUPER, WEAK, ['-c', 'grant create on database ' + WEAK + ' to weak_installer'], {allowFail: true});
+const weakRun = psql('weak_installer', WEAK, [], {sqlFile: join(work, 'up.sql'), allowFail: true});
+check('a non-administrator installer is refused, with a message naming the problem', () => {
+  if (!weakRun.startsWith('FAILED:')) throw new Error('the migration installed without role administration');
+  if (!/cannot take SET ROLE on mm_display_reader|permission denied to create role|must be able to SET ROLE/.test(weakRun))
+    throw new Error('refused, but not for the expected reason: ' + weakRun.slice(-400));
+});
+check('the refused install leaves no schema, and no half-made state', () => {
+  eq(lastLine(psql(SUPER, WEAK, ['-tAc', "select count(*) from pg_namespace where nspname='mm_fixture_delivery'"])), '0', 'private schema');
+});
+psql(SUPER, 'postgres', ['-c', `drop database if exists ${WEAK}`], {allowFail: true});
 
 /* rollback, by the same non-superuser, and its own cleanup */
 const reverted = psql('hosted_postgres', DB, [], {sqlFile: resolve(ROOT, 'PROPOSAL-revert.sql'), allowFail: true});
