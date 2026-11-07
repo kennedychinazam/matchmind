@@ -3005,6 +3005,10 @@ function fixturePresentationRow(r,board){
    _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
    frozen:!!p,pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
 }
+/* BUILD 357 - HOW LONG THE ACCEPTED EDITION STAYS GOOD. Set from the edition this function
+   actually accepted, and read by its catch below to decide between keeping the screen and
+   clearing it. Zero means nothing has ever been accepted. */
+let _presentationUntil = 0;
 async function loadFixturePresentation(){
  try{
   const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
@@ -3021,9 +3025,34 @@ async function loadFixturePresentation(){
   }
   afState.leagues=leagues;afState.leagueOrder=Object.keys(leagues).map(Number);afState.archive=archive;afState.cloudFix=cloudFix;
   _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
-  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;
+  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;
   renderFixtures();renderFavs();renderTips();refreshDataChip();
- }catch(e){afState.leagues={};afState.leagueOrder=[];_boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};renderFixtures();const el=$('fixturesMeta')||$('discoverStatus');if(el)el.textContent='Published fixtures unavailable. Please try again.';}
+ }catch(e){
+  /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
+     This catch used to clear afState.leagues on ANY failure. One of those failures is the
+     'Obsolete display edition' refusal, which fires when a lagging replica answers with an
+     OLDER as_of than the edition already accepted - a refusal that is correct in itself. The
+     result was that refusing a stale edition blanked the public Analysis feed, and kept it
+     blank on every later refresh for as long as the replica lagged, because the newer payload
+     stays the one to beat. That is the same empty feed this build set out to fix, reached by
+     another road. It was invisible before, because the feed was hidden for ordinary callers
+     anyway; fixing visibleLeagues made it reachable. Found by independent QA review, which
+     also showed my own test could not see it: `notDeepEqual` against the stale slate is
+     satisfied by an empty one.
+     So: keep what is on screen when it is a published edition that has not itself expired, and
+     say the refresh failed. Nothing stale is adopted - the kept slate IS the newest edition
+     ever accepted. Once its own expires_at passes, the old behaviour resumes and the screen is
+     cleared rather than showing an edition past its life. */
+  const keep = _presentationUntil > Date.now()
+    && Object.values(afState.leagues||{}).some(L=>L&&L._presentation);
+  if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;
+   _boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};}
+  renderFixtures();
+  const el=$('fixturesMeta')||$('discoverStatus');
+  if(el)el.textContent=keep
+   ?'Showing the published edition already loaded; a newer one could not be read just now.'
+   :'Published fixtures unavailable. Please try again.';
+ }
 }
 function showPublishedFixture(L,f){
  showNoAnalysis(f.home,f.away);
@@ -9781,10 +9810,31 @@ async function analyze(){
          no confidence, no share card. The bars and the note below stay (build 309). */
       const gr = (!pendingMetaPlayed && sport==='football')
         ? (heroNewTeam(pred, pendingMetaFxid) ? 'newteam' : gateReason(sL, {}, hp.code, hp.prob)) : null;
+      /* BUILD 357 - A PLAYED FIXTURE WITH NO SNAPSHOT MUST NOT BE GIVEN A HEADLINE CALL.
+         The comment at the top of this function already states the rule: a match already
+         played shows the pick AS IT WAS MADE, because recomputing trains on data that now
+         contains this very match. That was honoured only when an archived pick existed.
+         With no snapshot, `hp` above is a fresh `headlinePick(pred, ...)` and this block
+         then printed it as "The engine's headline call for this match" with a confidence
+         percentage - a hindsight estimate wearing the words of a forecast, directly
+         contradicting the note under the bars saying the numbers were recalculated today.
+         Worse, it is not even stable: it is recomputed from whatever corpus is loaded at
+         that instant, so the same finished match showed different headlines and different
+         expected goals minutes apart. Reproduced in test/played-no-snapshot-headline.test.mjs.
+         The bars and their existing note stay - they are labelled illustrative and are
+         useful - but nothing here claims a prediction that was never published. The share
+         card was already suppressed for exactly this case (build 156); the screen now
+         agrees with it. No probability, threshold, ladder or grading rule is touched, and
+         a played fixture that DOES have its archived pick is unaffected. */
+      const hindsightOnly = !!pendingMetaPlayed && pendingMetaPick == null;
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
         $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL), pred);
+      } else if(hindsightOnly){
+        $('heroPick').textContent = 'No prediction was published for this match';
+        $('heroConf').textContent = '';
+        $('heroStrong').textContent = 'This match was already played and no pre-match forecast was stored for it. The figures below were worked out today, with the result already in the data, so they are illustrative rather than what the engine said beforehand.';
       } else {
         const baseLine = hp.solo
           ? "The engine's headline call for this match"
@@ -9793,7 +9843,7 @@ async function analyze(){
           ? 'In this competition the engine has no measured edge — this pick largely follows home advantage'
           : baseLine;
       }
-      $('resultSide').textContent = gr ? '—' : hp.label.replace(' WIN','');
+      $('resultSide').textContent = (gr || hindsightOnly) ? '—' : hp.label.replace(' WIN','');
 
       /* BUILD 156 — SHARE CARD. Filled in here and nowhere else, because `hp` is only final at this
          point: the ladder has re-pointed it (119) and the gate has had its say (118). Anything that
@@ -17025,8 +17075,22 @@ function visibleLeagues(){
      Cup was sitting at the top of the list with 20 fixtures and nothing to say about any of them.
      Filtering on history rather than on a list of IDs means it fixes itself if we ever train it
      (build 81). Scores still shows everything; that tab only needs results. */
+  /* BUILD 357 - THE HISTORY MINIMUM IS A FITTING RULE, AND IT WAS HIDING PUBLISHED WORK.
+     The 15-match floor exists because THIS DEVICE cannot fit a model on a thinner corpus.
+     A presentation league carries no corpus at all by design: `loadFixturePresentation`
+     builds it with `matches: []` because the prediction was already made and published by
+     the collector, and the device must never refit it. Applying a fitting precondition to
+     rows that are never fitted meant an ordinary caller - anyone without raw provider
+     access, which after the bounded-delivery change is every ordinary user - got an EMPTY
+     Analysis feed while the data sat correctly in afState. Verified by a rendered test, not
+     by reading the arrays: the two existing bounded-delivery suites both passed throughout,
+     because neither opened the tab.
+     The floor is PRESERVED unchanged for every league the device fits locally. Nothing is
+     fabricated to satisfy it, and no raw access is relaxed to get a corpus. */
+  const fittedLocally = l => !l._presentation;
   let Ls = order.map(id=>afState.leagues[id])
-    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football'
+      && (!fittedLocally(l) || (l.matches||[]).length >= 15) && predictsComp(l));   // build 327; build 357
   const f = afState.filter;
   if(f==='football' || f==='basketball') Ls = Ls.filter(l=>(l.sport||'football')===f);
   else if(f !== 'all') Ls = Ls.filter(l=>String(l.id)===String(f));

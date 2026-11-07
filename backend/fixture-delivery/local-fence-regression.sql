@@ -26,6 +26,7 @@ create function auth.uid() returns uuid language sql stable as
   $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create role anon nologin;
 create role authenticated nologin;
+create role service_role nologin bypassrls;   -- the collector, as Supabase configures it
 grant usage on schema auth to anon, authenticated;
 grant execute on function auth.uid() to anon, authenticated;
 
@@ -47,6 +48,7 @@ grant execute on function mm_fixture_delivery.raw_allowed() to anon,authenticate
 create table public.fixtures(fxid bigint primary key, home text, away text, gh int, ga int);
 insert into public.fixtures values (1,'Synthetic H','Synthetic A',2,1),(2,'Synthetic C','Synthetic D',0,0);
 grant select on public.fixtures to anon, authenticated;
+grant select on public.fixtures to service_role;   -- the EXPLICIT collector grant the preflight requires
 
 -- ===== exactly what PROPOSAL-up.sql executes for a base table =====
 revoke select on public.fixtures from public,anon,authenticated;
@@ -144,5 +146,33 @@ begin
  if n<>0 then raise exception 'FAIL 8: a security invoker function returned % rows',n;end if;
  raise notice 'PASS 8: a security invoker function cannot bypass the fence';
 
- raise notice 'ALL 8 FENCE PROBES PASSED';
+ -- 9 and 10. THE COLLECTOR PREFLIGHT. PROPOSAL-up.sql refuses to install unless the collector
+ --    holds an EXPLICIT direct SELECT grant, because the migration revokes SELECT from PUBLIC and
+ --    an inherited read would be stripped with it. These two probes exercise the exact predicate
+ --    pair that preflight uses. The CI job separately greps PROPOSAL-up.sql for that same text, so
+ --    the predicate here cannot drift away from the one the migration actually runs.
+ if not has_table_privilege('service_role','public.fixtures','SELECT') then
+  raise exception 'FAIL 9: the collector has no effective SELECT to begin with';end if;
+ if not exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+               where c.oid='public.fixtures'::regclass and a.privilege_type='SELECT'
+                 and a.grantee=(select oid from pg_roles where rolname='service_role')) then
+  raise exception 'FAIL 9: an explicit collector grant was not detected when one exists';end if;
+ raise notice 'PASS 9: an explicit collector grant is detected';
+
+ -- 10. The negative half: with the explicit grant removed and only PUBLIC left, the collector
+ --     still READS (so a naive has_table_privilege check would wave the migration through) but the
+ --     direct-grant test must now be FALSE. That difference is the whole point of the preflight.
+ revoke select on public.fixtures from service_role;
+ grant select on public.fixtures to public;
+ if not has_table_privilege('service_role','public.fixtures','SELECT') then
+  raise exception 'FAIL 10: the inherited-read case was not set up; nothing was proven';end if;
+ if exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+           where c.oid='public.fixtures'::regclass and a.privilege_type='SELECT'
+             and a.grantee=(select oid from pg_roles where rolname='service_role')) then
+  raise exception 'FAIL 10: an inherited-only read was reported as an explicit grant';end if;
+ raise notice 'PASS 10: an inherited-only collector read is correctly refused by the preflight';
+ revoke select on public.fixtures from public;
+ grant select on public.fixtures to service_role;
+
+ raise notice 'ALL 10 FENCE PROBES PASSED';
 end$$;
