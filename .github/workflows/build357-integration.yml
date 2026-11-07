@@ -223,13 +223,16 @@ jobs:
         run: node backend/fixture-delivery/hosted-compat-regression.mjs
       - name: Negative control, the S1 and S2 fixes removed
         run: |
-          # Must FAIL, with the two errors Director staging reported. A control that can only pass
-          # proves nothing.
-          if node backend/fixture-delivery/hosted-compat-regression.mjs --negative-control > nc.log 2>&1; then
-            echo 'NEGATIVE CONTROL FAILED: the migration installed with the fixes removed'
+          # The harness in --negative-control mode puts both fixes back out and asserts the
+          # migration then FAILS with the two errors Director staging reported. It exits 0 when
+          # that holds, so success here is exit 0 PLUS the marker PLUS both error strings; an
+          # earlier version of this step read the exit code backwards and reported a held control
+          # as a failure.
+          node backend/fixture-delivery/hosted-compat-regression.mjs --negative-control > nc.log 2>&1 || {
+            echo 'NEGATIVE CONTROL DID NOT HOLD: the migration installed with the fixes removed'
             tail -40 nc.log; exit 1
-          fi
+          }
+          grep -q 'NEGATIVE CONTROL HELD' nc.log
           grep -q 'must be able to SET ROLE' nc.log
           grep -q 'no privileges were granted for "auth"' nc.log
-          grep -q 'NEGATIVE CONTROL HELD' nc.log
           echo 'Negative control held on PostgreSQL 17.'
