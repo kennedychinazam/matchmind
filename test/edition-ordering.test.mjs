@@ -117,9 +117,20 @@ test('a stale edition cannot replace a newer accepted one',async t=>{
     window.currentEdition=makeEdition('66666666-6666-4666-8666-666666666666',60000,['Alpha Cup']);
     await loadFixturePresentation();
     const afterStale=visibleLeagues().map(L=>L.name).sort();
-    return {fresh,afterStale};
+    const hiddenAfterStale=$('fixturesWrap').classList.contains('hidden');
+    /* A lagging replica keeps answering. The feed must not stay dark across refreshes. */
+    await loadFixturePresentation();
+    const afterStaleAgain=visibleLeagues().map(L=>L.name).sort();
+    return {fresh,afterStale,afterStaleAgain,hiddenAfterStale};
   },RIG);
   assert.deepEqual(seen.fresh,['Alpha Cup','Beta League','Gamma Series']);
-  assert.notDeepEqual(seen.afterStale,['Alpha Cup'],
-    'a stale edition replaced a newer accepted one');
+  /* `notDeepEqual` against the stale slate was the wrong assertion: an EMPTY feed also satisfies
+     it, so a total blanking read as correct behaviour. Independent QA caught that. The accepted
+     edition must still be on screen, and still visible. */
+  assert.deepEqual(seen.afterStale,seen.fresh,
+    'the accepted edition was lost when a stale one arrived');
+  assert.equal(seen.hiddenAfterStale,false,
+    'the feed was hidden after a stale edition arrived');
+  assert.deepEqual(seen.afterStaleAgain,seen.fresh,
+    'the feed did not recover while the replica kept lagging');
 });

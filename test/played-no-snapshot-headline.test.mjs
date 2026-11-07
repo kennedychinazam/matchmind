@@ -84,12 +84,21 @@ test('a played fixture with no snapshot is not given a headline call or a confid
   const page=await open(t);
   const seen=await page.evaluate(async setup=>{eval(setup);return await renderPlayed(0);},SETUP);
   /* The page itself says these numbers were recalculated with the result in the data. It must not
-     then assert them as the engine's call, nor attach a confidence percentage to them. */
-  assert.doesNotMatch(seen.strong,/headline call for this match/i,
-    'a hindsight recalculation was presented as the engine headline call');
-  assert.doesNotMatch(seen.conf,/\d\s*%/,
-    'a confidence percentage was attached to a hindsight recalculation: '+seen.conf);
-  assert.match(seen.pick,/no (published )?prediction|not published|unavailable/i,
+     then assert them as the engine's call, nor attach a confidence percentage to them.
+     These assertions cover the WHOLE hero region, not three fields checked separately.
+     Independent QA showed the earlier field-by-field version passed while the screen still made a
+     hindsight claim carrying a moving percentage, simply by rewording it and moving it one
+     element across. */
+  const hero=[seen.pick,seen.conf,seen.strong].join(' | ');
+  assert.doesNotMatch(hero,/\d+(\.\d+)?\s*%/,
+    'a percentage appears in the hero for a fixture with no stored forecast: '+hero);
+  /* An ASSERTED call, not a denial of one. "No prediction was published for this match" is the
+     correct text and must not trip this. */
+  assert.doesNotMatch(hero,/\bthe engine'?s\b[^|]*\b(call|read|pick|forecast|prediction)\b/i,
+    'a hindsight recalculation was presented as the engine call: '+hero);
+  assert.doesNotMatch(hero,/confidence/i,'the hero still speaks of confidence: '+hero);
+  /* The positive side needs a SUBJECT, so an unrelated "… unavailable" cannot satisfy it. */
+  assert.match(seen.pick,/\bno (pre-match )?(published )?(forecast|prediction)\b|\b(forecast|prediction) (was |is )?(not )?(published|stored)\b|statistical prediction unavailable/i,
     'the hero did not say the prediction was never published: '+seen.pick);
 });
 
@@ -97,6 +106,11 @@ test('the same played fixture does not change its headline when the corpus grows
   const page=await open(t);
   const a=await page.evaluate(async setup=>{eval(setup);return await renderPlayed(0);},SETUP);
   const b=await page.evaluate(async()=>await renderPlayed(12));
+  /* Compare the WHOLE hero, not two fields that are constants once the fix is in. With only
+     pick and conf this became a tautology after the fix and could catch nothing. */
   assert.equal(a.pick,b.pick,'the headline moved between two renders of the same finished match');
   assert.equal(a.conf,b.conf,'the confidence moved between two renders of the same finished match');
+  assert.equal(a.strong,b.strong,'the hero explanation moved between two renders');
+  assert.doesNotMatch([a.pick,a.conf,a.strong,b.pick,b.conf,b.strong].join(' | '),
+    /\d+(\.\d+)?\s*%/,'a percentage reached the hero on either render');
 });

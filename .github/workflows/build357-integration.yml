@@ -53,7 +53,7 @@ jobs:
         run: PWA_PLAYWRIGHT=playwright-core PWA_CHROMIUM="$MM_TEST_CHROMIUM" node --test test/*.test.mjs
 
   # The browser suite says nothing about PROPOSAL-up.sql, so the raw fence was
-  # operator-attested only. This runs the 8 asserting probes against a throwaway
+  # operator-attested only. This runs the 10 asserting probes against a throwaway
   # PostgreSQL service, and then a NEGATIVE CONTROL: with the permissive policy removed,
   # probe 3 must fail. A regression that only ever passes proves nothing.
   fence:
@@ -87,7 +87,8 @@ jobs:
           # Probes 9 and 10 exercise the collector preflight's predicate pair. They live in a
           # synthetic replica, so they could drift away from the migration that actually runs.
           # These greps fail the job if PROPOSAL-up.sql stops using the same two expressions.
-          grep -q "has_table_privilege('service_role',obj,'SELECT')" backend/fixture-delivery/PROPOSAL-up.sql
+          # They are the reason an earlier rename of the loop variable was caught here.
+          grep -q "has_table_privilege('service_role',pre.oid,'SELECT')" backend/fixture-delivery/PROPOSAL-up.sql
           grep -q "a.grantee=(select oid from pg_roles where rolname='service_role')" backend/fixture-delivery/PROPOSAL-up.sql
           grep -q "has_table_privilege('service_role','public.fixtures','SELECT')" backend/fixture-delivery/local-fence-regression.sql
           grep -q "a.grantee=(select oid from pg_roles where rolname='service_role')" backend/fixture-delivery/local-fence-regression.sql

@@ -73,6 +73,16 @@ test('an ordinary caller sees every published competition and fixture on the Ana
       wrapHidden:wrap?wrap.classList.contains('hidden'):null,
       visible:visibleLeagues().map(L=>L.name),
       feed:$('fixtureList')?$('fixtureList').textContent:'',
+      /* STRUCTURE, not substring. Independent QA showed the flat textContent checks below pass
+         even when every fixture is filed under the WRONG competition heading, because both names
+         are still present somewhere in one string. This walks the rendered children in order and
+         builds {competition -> [row text]} so a mis-association fails. */
+      grouped:(()=>{const out={};let cur=null;
+        for(const el of ($('fixtureList')||{children:[]}).children){
+          if(el.classList.contains('lghead')){cur=el.textContent.trim();out[cur]=out[cur]||[];}
+          else if(cur&&el.querySelector&&el.textContent.trim())out[cur].push(el.textContent);
+        }
+        return out;})(),
       raw:rawCalls};
   });
   /* The payload is correct: this is not a delivery failure. */
@@ -86,6 +96,17 @@ test('an ordinary caller sees every published competition and fixture on the Ana
     assert.ok(seen.feed.includes(name),'competition missing from the feed: '+name);
   for(const team of ['Alpha FC','Beta FC','Gamma FC','Delta FC','Epsilon FC','Zeta FC'])
     assert.ok(seen.feed.includes(team),'fixture side missing from the feed: '+team);
+  /* Each fixture must sit under ITS OWN competition. */
+  const heads=Object.keys(seen.grouped);
+  const premier=heads.find(h=>h.includes('Synthetic Premier'));
+  const bundes=heads.find(h=>h.includes('Synthetic Bundes'));
+  assert.ok(premier&&bundes,'both competition headings must be rendered: '+heads.join(' | '));
+  const under=h=>seen.grouped[h].join(' ');
+  assert.match(under(premier),/Alpha FC/);
+  assert.match(under(premier),/Gamma FC/);
+  assert.doesNotMatch(under(premier),/Epsilon FC/,'a Bundes fixture was filed under Premier');
+  assert.match(under(bundes),/Epsilon FC/);
+  assert.doesNotMatch(under(bundes),/Alpha FC/,'a Premier fixture was filed under Bundes');
 });
 
 test('opening a published fixture shows its original pick and stored probabilities, with no refit',async t=>{

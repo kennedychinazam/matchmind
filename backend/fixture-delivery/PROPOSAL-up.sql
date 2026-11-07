@@ -160,39 +160,63 @@ grant execute on function mm_fixture_delivery.schema_valid(jsonb,jsonb,integer),
 -- The reader is a dedicated NONLOGIN NONBYPASSRLS role. It has NO raw-table grants or role memberships.
 -- service_role continues to use its existing collector/publisher privileges; this proposal changes no source rows or write policies.
 do $$
-declare r record;obj regclass;n text;col record;auth_had_select boolean;svc_direct boolean;svc_effective boolean;
+declare r record;obj regclass;n text;col record;auth_had_select boolean;svc_direct boolean;svc_effective boolean;svc_public boolean;svc_revoked_role text;pre record;
 begin
  if exists(select 1 from pg_roles where rolname in ('anon','authenticated') and (rolsuper or rolbypassrls)) then raise exception 'Public caller role bypasses RLS';end if;
  foreach n in array array['fixtures','predictions','daily_slips','shared_records','odds_snapshots','injuries','match_context','predictions_retired','match_analysis','venues'] loop
   obj=to_regclass('public.'||quote_ident(n));if obj is null then raise exception 'Required source object missing: %',n;end if;
   if (select relkind from pg_class where oid=obj)<>'r' then raise exception 'Expected base table: %',n;end if;
-  -- BUILD 357 PREFLIGHT: PROVE THE COLLECTOR SURVIVES THIS MIGRATION, BEFORE ANYTHING IS REVOKED.
-  -- Below, this script runs `revoke select on <table> from public,anon,authenticated`. If the
-  -- collector's read came to it THROUGH `PUBLIC` rather than through a grant of its own, that
-  -- statement silently stops ingestion. Nothing in the catalogue makes that obvious afterwards,
-  -- which is why it is checked here and not assumed.
-  --
-  -- This verifies the PROPERTY the migration depends on - an explicit direct SELECT grant to the
-  -- collector role, so that removing PUBLIC cannot remove its access - rather than asserting any
-  -- particular installation's observed configuration. An owner inspection on 6 November 2026
-  -- reported that property holds for all ten tables in the current production database; this
-  -- check exists so the migration does not depend on that report still being true when it runs.
-  if not exists(select 1 from pg_roles where rolname='service_role') then
-   raise exception 'Collector role service_role does not exist; review the collector identity before installing';
-  end if;
-  svc_effective = has_table_privilege('service_role',obj,'SELECT');
-  svc_direct = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
-                      where c.oid=obj and a.privilege_type='SELECT'
-                        and a.grantee=(select oid from pg_roles where rolname='service_role'));
-  if not svc_effective then
-   raise exception 'Collector cannot read %: service_role has no effective SELECT. Installing would stop ingestion',n;
-  end if;
-  if not svc_direct then
-   raise exception 'Collector read on % is not an explicit grant to service_role (it is inherited, e.g. via PUBLIC). Revoking PUBLIC would stop ingestion. Grant SELECT on public.% to service_role, then re-run',n,n;
-  end if;
  end loop;
  foreach n in array array['fixtures_lean','competitions','odds_latest'] loop
   obj=to_regclass('public.'||quote_ident(n));if obj is null then raise exception 'Required source view missing: %',n;end if;
+ end loop;
+ -- BUILD 357 PREFLIGHT: PROVE THE COLLECTOR SURVIVES THIS MIGRATION, BEFORE ANYTHING IS REVOKED.
+ -- Below, this script runs `revoke select on <object> from public,anon,authenticated`. If the
+ -- collector's read reached it THROUGH one of those three, that statement silently stops
+ -- ingestion, and nothing in the catalogue afterwards says why.
+ --
+ -- It is driven from THE SAME recursive CTE the revoke loop uses, not from a separate list.
+ -- An earlier version checked ten named base tables while the revoke loop reached thirteen roots
+ -- plus every dependent view, so three roots and all the views were revoked unchecked. Found by
+ -- independent review. Two hand-maintained lists, one for the check and a larger one for the
+ -- action, is the shape of that bug, so there is now one list.
+ --
+ -- It still completes for EVERY object before the first source revoke, which happens in the next
+ -- loop. The whole file is one transaction, so any abort rolls all of it back.
+ --
+ -- It verifies the PROPERTY the migration depends on - an explicit direct SELECT grant to the
+ -- collector - rather than any installation's observed configuration, and it NAMES THE REAL
+ -- CAUSE when it refuses. aclexplode reports the ACL grantee, which for a group grant is the
+ -- group, never the member, so a direct-grant test alone cannot tell PUBLIC from a group the
+ -- revoke never touches. Saying 'via PUBLIC' in that second case sends the operator to inspect
+ -- the wrong grant, so the three cases are distinguished below.
+ if not exists(select 1 from pg_roles where rolname='service_role') then
+  raise exception 'Collector role service_role does not exist; review the collector identity before installing';
+ end if;
+ for pre in with recursive roots as(select c.oid from pg_class c join pg_namespace ns on ns.oid=c.relnamespace where ns.nspname='public' and c.relname in ('fixtures','fixtures_lean','competitions','predictions','daily_slips','shared_records','odds_snapshots','odds_latest','injuries','match_context','predictions_retired','match_analysis','venues')),
+ deps(oid) as(select oid from roots union select rw.ev_class from deps d join pg_depend pd on pd.refobjid=d.oid join pg_rewrite rw on rw.oid=pd.objid where rw.ev_class<>d.oid)
+ select distinct c.oid,c.relname,c.relkind from deps d join pg_class c on c.oid=d.oid join pg_namespace ns on ns.oid=c.relnamespace where c.relkind in ('r','v','m') loop
+  svc_effective = has_table_privilege('service_role',pre.oid,'SELECT');
+  svc_direct = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault((case c.relkind when 'v' then 'v' else 'r' end)::"char",c.relowner))) a
+                      where c.oid=pre.oid and a.privilege_type='SELECT'
+                        and a.grantee=(select oid from pg_roles where rolname='service_role'));
+  if not svc_effective then
+   raise exception 'Collector cannot read %: service_role has no effective SELECT. Installing would stop ingestion',pre.relname;
+  end if;
+  if not svc_direct then
+   svc_public = exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault((case c.relkind when 'v' then 'v' else 'r' end)::"char",c.relowner))) a
+                       where c.oid=pre.oid and a.privilege_type='SELECT' and a.grantee=0);
+   select r2 into svc_revoked_role from unnest(array['anon','authenticated']) r2
+    where exists(select 1 from pg_roles g where g.rolname=r2 and pg_has_role('service_role',g.oid,'USAGE'))
+      and has_table_privilege(r2,pre.oid,'SELECT') limit 1;
+   if svc_public then
+    raise exception 'Collector read on % comes from the PUBLIC grant this migration revokes. Installing would stop ingestion. Run: grant select on public.% to service_role; then re-run',pre.relname,pre.relname;
+   elsif svc_revoked_role is not null then
+    raise exception 'Collector read on % comes through role %, which this migration revokes from. Installing would stop ingestion. Run: grant select on public.% to service_role; then re-run',pre.relname,svc_revoked_role,pre.relname;
+   else
+    raise exception 'Collector read on % is inherited through a role this migration does not revoke from, so the read would survive, but there is no explicit grant to service_role and this migration will not install on an unverified privilege shape. Run: grant select on public.% to service_role; then re-run',pre.relname,pre.relname;
+   end if;
+  end if;
  end loop;
  -- Collect named provider-bearing objects and recursively dependent views, including owner-right aliases.
  for r in with recursive roots as(select c.oid from pg_class c join pg_namespace ns on ns.oid=c.relnamespace where ns.nspname='public' and c.relname in ('fixtures','fixtures_lean','competitions','predictions','daily_slips','shared_records','odds_snapshots','odds_latest','injuries','match_context','predictions_retired','match_analysis','venues')),

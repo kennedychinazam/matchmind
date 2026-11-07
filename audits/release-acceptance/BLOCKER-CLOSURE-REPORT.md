@@ -130,20 +130,48 @@ the existing suite because no test opened the screen.
 - **VERIFICATION** see part 7.
 - **STATUS** FIXED and green.
 
-### Verified absence of a defect — edition ordering
+### ERROR F — refusing a stale edition emptied the public feed, and my own test could not see it
 
-Observation A asked whether a partly loaded slate can reach the screen, or a stale response replace
-a newer edition. Both behaviours **hold** on the bounded path, asserted in
-`test/edition-ordering.test.mjs`. A first version of that test appeared to show a stale-edition
-defect; it did not. Swapping the client object is an account change, `fixtureDeliveryReset` clears
-the retained edition, and with nothing to compare against a later edition is correctly accepted.
-Production keeps one client, so the test keeps one too. The apparent defect was my rig, and it is
-recorded here rather than quietly dropped.
+Found by the independent review, against my claim that this behaviour was fine. The claim was
+wrong and is withdrawn.
 
-On which build was photographed: the screenshots cannot be pinned to a build from their pixels
-alone, and I will not claim otherwise. What is established is that both behaviours Observation A
-raises are correct on the current candidate, and that Observation B's defect was real, is
-reproduced, and is fixed.
+- **ROOT CAUSE** `fixtureDisplayLoad` correctly refuses an edition whose `as_of` is older than the
+  one already accepted, by throwing `Obsolete display edition`. That exception reached
+  `loadFixturePresentation`'s catch, which cleared `afState.leagues` on **any** failure. So
+  refusing a stale edition emptied the public Analysis feed — and kept it empty on every later
+  refresh for as long as a replica lagged, because the newer payload stays the one to beat.
+- **EVIDENCE** the reviewer's probe: `fresh: leagues 3, wrapHidden false` then
+  `afterStale: leagues 0, wrapHidden true` and `afterStale2: leagues 0, wrapHidden true`.
+  My assertion was `assert.notDeepEqual(afterStale,['Alpha Cup'])`, which an EMPTY slate satisfies,
+  so a total blanking read as correct behaviour and the test passed. The catch-wipe predates this
+  branch; fixing `visibleLeagues` is what made it reachable, so ERROR A uncovered it.
+- **PROPOSED SOLUTION** keep the slate already on screen when it is a published edition that has
+  not itself expired, and say the refresh failed. Nothing stale is adopted: the kept slate IS the
+  newest edition ever accepted. Once its own `expires_at` passes, the screen is cleared as before.
+- **ALTERNATIVE** keep the fail-closed wipe but render the message where the feed was. Rejected:
+  it accepts the empty-feed symptom, which is the very thing this build exists to remove. Worth
+  recording that there is no `#fixturesMeta` element in the page at all, so that message has been
+  landing in the Discover card.
+- **IMPACT** the same user-visible failure as ERROR A, reached by another road, and persistent
+  across refreshes rather than transient.
+- **VERIFICATION** the assertion is now `deepEqual(afterStale, fresh)`, plus the feed must not be
+  hidden, plus a second refresh against the still-lagging replica must also hold.
+- **STATUS** FIXED.
+
+### Verified absence of a defect — partial loads
+
+A partly loaded edition is never put on screen: while a second, larger edition is held mid-flight
+the screen keeps the first in full, and the larger slate appears only once it has fully arrived.
+That half of Observation A does hold.
+
+One honest note on how the stale half was first written. A first version swapped the client object
+between loads and appeared to show a defect; it did not, because changing the client is an account
+change and `fixtureDeliveryReset` clears the retained edition. I corrected that, concluded the
+behaviour was sound, and was wrong a second time in the other direction — the real defect was
+behind an assertion too weak to see it. The reviewer found what two of my own passes missed.
+
+On which build was photographed: the screenshots cannot be pinned to a build from their pixels and
+I do not claim otherwise.
 
 ---
 
@@ -155,7 +183,7 @@ reproduced, and is fixed.
 | `backend/fixture-delivery/PROPOSAL-up.sql` | collector preflight before any revoke |
 | `backend/fixture-delivery/local-fence-regression.sql` | probes 9 and 10; `service_role` with its explicit grant |
 | `.github/workflows/build357-integration.yml` | `postgrest` job with a negative control and cleanup; fence expects 10 probes; preflight drift guard; control renames every role; branch on the trigger |
-| `test/` | four new files, six new tests |
+| `test/` | three new test files, six new tests |
 
 `sw.js`, `manifest.webmanifest` and `robot/publish.mjs` are byte-identical to the accepted head. No
 engine constant, market table, threshold, settlement rule or grading rule is in the diff.
@@ -242,21 +270,56 @@ excluded.
 
 ## 9. Independent security and QA findings
 
-The Director asked for specialist agents. Two were dispatched, for statistical provenance and for
-backend/RLS. **Both terminated early on the account's 5-hour usage limit before producing findings**,
-so their work is not represented here and none of it is claimed. I carried both workstreams
-directly as lead integrator, which is why every finding above carries its own reproduction rather
-than a reviewer's sign-off.
+The first two specialist agents terminated early on the account's usage limit. Once capacity
+returned, an independent QA and security reviewer ran against this head with a brief to break four
+specific claims. It did break two of them, and found a defect I had certified as absent.
 
-That is a real gap against the Director's instruction and I am naming it rather than papering over
-it: **this round has had no independent review.** The accepted work it builds on did (security: no
-ERROR-class finding; QA: four findings, all fixed). Re-running the two reviews against this head is
-the first thing I would do with fresh capacity, and it is listed in part 11.
+**Six findings, all acted on.**
 
-What stands in for it, imperfectly: every correction here is pinned by a test that was watched to
-fail first, and the two negative controls mean the SQL and PostgREST suites cannot pass vacuously.
+| | Finding | Outcome |
+|---|---|---|
+| F1 | refusing a stale edition empties the public feed; my test could not see it | **FIXED** — ERROR F above |
+| F2 | the preflight blamed PUBLIC for a read inherited through a group role the migration never revokes from | **FIXED** — three distinct causes, each verified |
+| F3 | the preflight checked 10 objects while the revoke loop reached 13 roots plus every dependent view | **FIXED** — both now driven from the same recursive CTE |
+| F4 | the visibility test passed with every fixture filed under the wrong competition | **FIXED** — asserts structure, not substring |
+| F5 | the hindsight tests passed against a reworded claim still carrying a moving percentage | **FIXED** — asserts the whole hero region |
+| F6 | comment and count drift | **FIXED** |
 
----
+Each fix was verified by reproducing the reviewer's own mutation and watching it fail:
+
+- F4: filing every fixture under the other competition's heading previously passed green; it now
+  fails.
+- F5: replacing the hero text with `Odds unavailable` and moving the claim into the explanation
+  line as "The engine's call for this match is DRAW at 45.8% confidence" previously passed green;
+  it now fails on the percentage.
+- F2: the rewritten preflight was run as the migration's own do-block against five privilege
+  shapes on a synthetic cluster. Explicit direct grant passes. PUBLIC-only, membership in
+  `authenticated`, membership in an untouched group, and no access at all each abort with a
+  message naming that specific cause. The untouched-group case now says plainly that the read
+  would survive the revoke but the invariant is not met, instead of blaming PUBLIC.
+- F3: the preflight loop is driven from the same CTE as the revoke loop and still completes for
+  every object before the first source revoke.
+
+Writing F2's fix surfaced a defect of my own that only running it could find: the dynamic
+`relkind` expression produced `text` where `acldefault` wants `"char"`, so the whole preflight
+errored. Caught and fixed before pushing.
+
+**What the review confirmed as sound**, after trying to break it: the visibility fix is
+load-bearing (reverting only that line reproduces the failure); the hindsight fix is genuine and
+its second test fails pre-change for the right reason (the numbers moved, 45.8% against 48.4%);
+the 10 fence probes and the negative control both stand up, and the `service_role` rename is
+load-bearing; no legitimate published pick is hidden, probed across played-with-archive,
+un-started with a board row, in-play with a pick, and played-with-no-archive-but-board-present; and
+no security regression in the diff, with raw access denied measured as zero private-table reads and
+only the two permitted RPCs.
+
+One new surface it noted, not a defect: a zero-corpus competition created from the Scores feed now
+clears the relaxed filter and appears on Analysis with "No pick". That is the same bounded data the
+Scores tab already shows the same caller. Recorded here for the release notes.
+
+One operational caveat for anyone reproducing this work: copying the worktree with `cp -a` copies
+its `.git` pointer file, so a `git checkout` inside the copy writes to the shared index. The
+reviewer hit it, restored it, and the worktree is verified clean at the recorded head.
 
 ## 10. Remaining external release blockers
 
@@ -281,7 +344,7 @@ made or is proposed. Branding stays neutral.
 
 | # | Request | Cost |
 |---|---|---|
-| 1 | Re-run the independent security and QA reviews against this head, once usage capacity allows | none |
+| 1 | A confirming review pass over the six fixes made in response to the first review | none |
 | 2 | An operator session on one iOS and one Android device | operator time |
 | 3 | The remaining staging authorizations, if a production-equivalent deployment is still wanted | expected 0.00 USD, worst case 10 USD/month |
 
@@ -295,8 +358,9 @@ part 10. No provider contact is proposed.
 
 ## 12. GO / NO-GO
 
-**NO-GO for production merge, deployment and public release.** Publication rights are unresolved,
-there has been no physical-device acceptance, and this round has had no independent review.
+**NO-GO for production merge, deployment and public release.** Publication rights are unresolved
+and there has been no physical-device acceptance. Independent review HAS now run against this
+head, found six issues including one defect I had certified as absent, and all six are fixed.
 
 **GO on this branch as the engineering candidate.** Two user-facing defects are closed, one of them
 launch-blocking: ordinary users could not see any fixtures on the Analysis screen, and a finished
@@ -305,6 +369,6 @@ report named as the largest is closed too, in CI, with 95 PostgREST checks and a
 The migration no longer trusts a report about production; it checks the property itself and refuses
 to install if it does not hold.
 
-What would move it to GO for release, in order of value per unit of work: the two independent
-reviews against this head; the operator's device session; then the rights review, which decides
-public release and is independent of all the engineering.
+What would move it to GO for release, in order of value per unit of work: a confirming review pass
+over the six fixes; the operator's device session; then the rights review, which decides public
+release and is independent of all the engineering.
