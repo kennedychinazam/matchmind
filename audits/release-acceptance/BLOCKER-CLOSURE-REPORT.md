@@ -12,8 +12,8 @@ regrading or destructive operation was performed.
 |---|---|
 | Base, accepted by the Director | `20884c8774bdff44ddb5872eb5c2d3e9ed929fed` |
 | Branch | `claude/blocker-closure-20261106` |
-| Head | `32ec840` |
-| CI, all four jobs green | [`42371166394`](https://github.com/kennedychinazam/matchmind/actions/runs/42371166394) |
+| Head | `2aa7d09` |
+| CI, all four jobs green | [`42375945678`](https://github.com/kennedychinazam/matchmind/actions/runs/42375945678) |
 
 Commits, oldest first:
 
@@ -23,6 +23,9 @@ Commits, oldest first:
 | `fd3ce61` | collector preflight, proven by a probe that distinguishes explicit from inherited |
 | `9ee7b6b` | PostgREST acceptance runs in CI, with a negative control |
 | `32ec840` | edition ordering verified, and the fence negative control fixed |
+| `ad90f57` | the twelve-part blocker closure report |
+| `a07d593` | six findings from the independent review, including one I had certified as absent |
+| `2aa7d09` | the preflight over-reached, and the project's own acceptance run proved it |
 
 Nothing from the accepted work was reopened. The corrections the Director listed as accepted are
 untouched and still pass.
@@ -259,8 +262,8 @@ internal-only network, images pinned by digest, no hosted URL, no real key, no c
 |---|---|---|---|---|---|---|
 | Local | 20.20.0 | 223 | 223 | 0 | 0 | 0 |
 | Local | 24.19.0 | 223 | 223 | 0 | 0 | 0 |
-| [`42371166394`](https://github.com/kennedychinazam/matchmind/actions/runs/42371166394) | 20.20.2 | 223 | 223 | 0 | 0 | 0 |
-| [`42371166394`](https://github.com/kennedychinazam/matchmind/actions/runs/42371166394) | 24.19.0 | 223 | 223 | 0 | 0 | 0 |
+| [`42375945678`](https://github.com/kennedychinazam/matchmind/actions/runs/42375945678) | 20.20.2 | 223 | 223 | 0 | 0 | 0 |
+| [`42375945678`](https://github.com/kennedychinazam/matchmind/actions/runs/42375945678) | 24.19.0 | 223 | 223 | 0 | 0 | 0 |
 
 Four jobs green in that run: `combined (20.20.2)`, `combined (24.19.0)`, `fence`, `postgrest`.
 223 browser tests, 10 SQL probes, 95 PostgREST checks. No test weakened, skipped, quarantined or
@@ -334,6 +337,14 @@ Scores tab already shows the same caller. Recorded here for the release notes.
 One operational caveat for anyone reproducing this work: copying the worktree with `cp -a` copies
 its `.git` pointer file, so a `git checkout` inside the copy writes to the shared index. The
 reviewer hit it, restored it, and the worktree is verified clean at the recorded head.
+
+### One unreproduced CI failure, recorded not explained away
+
+Run `42374692691` failed one browser test on Node 24 only: *switch while Search is open clears
+previous query and restores input focus*, at **17937 ms** against a sub-second local run, with
+Node 20 green in the same run. It passes 3 of 3 locally on the same Node 24.19.0, and the next
+run (`42375945678`) was green on both versions. That reads as a slow runner, but one unreproduced
+timing failure is evidence of nothing either way. It is not claimed fixed; it is watched.
 
 ## 10. Remaining external release blockers
 
