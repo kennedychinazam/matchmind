@@ -25,8 +25,8 @@ jobs:
           const expected = 'director/staging-auth-http-20261107';
           if(process.env.GITHUB_REF_NAME !== expected || !pub.startsWith('sb_publishable_') || root.includes('toqfdrcjzwnlydqekude')) throw Error('WRONG_TEST_TARGET');
           const id = process.env.GITHUB_RUN_ID;
-          const a = {email:'matchmind-stage-http-a-'+id+'@example.invalid',pass:randomBytes(30).toString('base64url')};
-          const b = {email:'matchmind-stage-http-b-'+id+'@example.invalid',pass:randomBytes(30).toString('base64url')};
+          const a = {email:'matchmind-stage-http-a-'+id+'@example.com',pass:randomBytes(30).toString('base64url')};
+          const b = {email:'matchmind-stage-http-b-'+id+'@example.com',pass:randomBytes(30).toString('base64url')};
           const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
           const check=(condition,name)=>{if(!condition)throw Error('FAILED '+name);console.log('PASS '+name)};
           async function req(path,method='GET',payload=undefined,token=undefined,extra={}) {
