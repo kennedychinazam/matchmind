@@ -2962,7 +2962,18 @@ function fixtureProjection(value,s,path='display',depth=0){
 function fixtureEnvelope(value,screen){
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='as_of,board,cards,edition_id,expires_at,records,screen,slips,version')throw Error('Invalid display envelope');
  const from=Date.parse(value.as_of),until=Date.parse(value.expires_at),now=Date.now();
- if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000||new Date(from).toISOString().slice(0,10)!==new Date(now).toISOString().slice(0,10))throw Error('Display edition expired or unavailable');
+ /* BUILD 358 - THE EDITION IS A ROLLING 24-HOUR WINDOW, NOT A CALENDAR DAY.
+    This condition also required `as_of` to fall on the SAME UTC CALENDAR DAY as the reader's
+    clock. That term was wrong twice over. The published policy is a rolling one - an edition is
+    current from its `as_of` until `expires_at`, which is `as_of + 24h` and is not clipped to UTC
+    midnight - so a calendar-day equality refused a perfectly live edition for every hour between
+    00:00 UTC and the hour the next edition was published, which is where the daily blackout of
+    about five and a half hours came from. It also added no safety: an edition from another day is
+    already refused by `until<=now` once it has expired, by `until-from>86400000` if it claims a
+    life longer than 24 hours, and by `from>now+30000` if it is stamped in the future. The rolling
+    rule is now exactly those terms: accept while `as_of <= now` (+30s skew) and `now < expires_at`,
+    with a hard 24-hour ceiling on the window. Fails closed on any unparseable timestamp. */
+ if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
  if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>524288)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
  const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
@@ -4136,7 +4147,22 @@ function renderStandings(L, homeTeam, awayTeam){
   const over = tbl.rows.filter(r => r.pl > maxLeague).length;
   const caveat =
     (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name MatchMind does not yet classify.</div>` : '') +
-    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b> — checked against the provider on 2026-08-23, which found three in the Championship (Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2) and none anywhere else across ten competitions.</div>`;
+    /* ══ BUILD 358 — THE DEDUCTION CAVEAT IS NOW SCOPED TO THE COMPETITION IT IS ABOUT ═══════
+       The else branch of this ternary printed the 2026-08-23 sweep's Championship finding under EVERY
+       table: a reader looking at Bayern and Dortmund was told about Sheffield Wednesday, Leicester and
+       West Brom. Three named English clubs' disciplinary history is not a fact about the Bundesliga,
+       and printing it there invites exactly the inference Milestone 8 forbids — that some unnamed side
+       in the table on screen might be carrying a penalty.
+       Split in two. The GENERAL limitation — a table derived from results cannot see an administrative
+       penalty — is true of every competition and stays, in one short line, on every table. The SPECIFIC
+       finding is a fact about league 40 only and is printed only there. Gated on `L.id`, not `L.name`:
+       the id is what the provider keys on and what LEAGUE_FIT_NAME indexes, while the display name is
+       whatever the feed last called it. No deduction is invented, displayed or applied anywhere — the
+       numbers in this table are unchanged; only the sentence under it moved. */
+    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b>.</div>` +
+    (Number(L && L.id) === 40
+      ? `<div class="subnote">Checked against the provider on 2026-08-23, which found three deductions in the Championship — Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2 — so these points totals read higher than the official table.</div>`
+      : '');
   const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
   const note = played === 0
     ? '<div class="subnote">Season not started — every side is listed and every number is nought until the first results come in.</div>'
