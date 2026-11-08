@@ -35,16 +35,14 @@
 #      unrunnable.
 name: MatchMind staging authenticated acceptance
 on:
-  # `gh workflow run` cannot dispatch a workflow that is not yet on the default branch, so without
-  # a push trigger there is no way to record a result before merge. The environment's branch
-  # restriction, not the trigger, is what scopes the secret.
-  push:
-    branches:
-      - claude/staging-s1-s2-20261107
-    paths:
-      - .github/workflows/staging-authenticated-acceptance.yml
-      - backend/fixture-delivery/staging-authenticated-acceptance.mjs
-      - backend/fixture-delivery/acceptance-predicates.mjs
+  # THE PUSH TRIGGER IS GONE, deliberately, on 8 November 2026. It existed only because
+  # `gh workflow run` cannot dispatch a workflow absent from the default branch, so before the
+  # acceptance run there was no other way to record a result. That run has now PASSED
+  # (run 42456545800, attempt 3, `MATCHMIND_STAGING_AUTHENTICATED_ACCEPTANCE_PASS 54`) and the
+  # Director has DELETED the MM_STAGING_SERVICE_KEY environment secret, as intended secret
+  # hygiene. On push this job would now reach the missing-secret step and fail on every unrelated
+  # commit to this branch, which is a red check carrying no information. Dispatch only, so the job
+  # runs when an operator re-installs a staging key and asks for it, and not otherwise.
   workflow_dispatch:
     inputs:
       confirm:

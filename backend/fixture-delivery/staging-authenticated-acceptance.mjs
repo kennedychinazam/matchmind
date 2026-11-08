@@ -91,6 +91,44 @@ const claims = jwt => JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toS
 const users = [];
 let primary = null;
 try {
+  /* ── FIXTURE-FRESHNESS PREFLIGHT, BEFORE ANY USER EXISTS ──
+     Director review of 8 November 2026, after attempt 2 of run 42456545800. That attempt created
+     two real users, proved both sign-ins, A/B isolation, every raw-feed denial, the publisher gate
+     and full cleanup, and then failed at `authenticated_still_reads_bounded_display` with an
+     HTTP 500 carrying Postgres P0002 `Current presentation unavailable`. The cause was not a
+     product defect: the only synthetic display edition on staging was the previous day's and had
+     already expired, and the public display function is CORRECT to fail closed without a same-day
+     unexpired edition. An expired test fixture is not evidence of a product bug, but the run
+     reported it as a generic mid-test 500 after doing all of that work.
+     So the edition's own expiry is checked FIRST, with the admin key, before a single disposable
+     user is created, and a stale fixture is named as a stale fixture. Nothing here publishes,
+     refreshes or extends an edition: the harness reports and stops. Republishing a staging
+     edition is an authorized operator action, deliberately not automated here. */
+  const edition = await admin('/rest/v1/rpc/matchmind_display_v1',
+    {method: 'POST', body: {screen: 'history'}});
+  if (edition.status !== 200) {
+    const body = JSON.stringify(edition.data || null);
+    const stale = /presentation unavailable|P0002/i.test(body);
+    throw Error(stale
+      ? `FIXTURE NOT FRESH: staging has no current unexpired synthetic display edition, so the ` +
+        `public display function fails closed as designed. This is a TEST FIXTURE problem, not a ` +
+        `product defect. Publish a same-day synthetic edition on staging and run this again. ` +
+        explain(edition)
+      : `FAILED display_preflight_readable ${explain(edition)}`);
+  }
+  const until = Date.parse(edition.data?.expires_at || '');
+  const left = Number.isFinite(until) ? Math.round((until - Date.now()) / 1000) : NaN;
+  note('display_edition_id', String(edition.data?.edition_id));
+  note('display_edition_expires_at', String(edition.data?.expires_at));
+  note('display_edition_seconds_remaining', String(left));
+  check(Number.isFinite(left) && left > 0,
+    'display_edition_is_published_and_unexpired_BEFORE_users_are_created',
+    `expires_at=${edition.data?.expires_at} seconds_remaining=${left}`);
+  /* A run of this job takes well under a minute, but an edition expiring mid-run would reproduce
+     exactly the attempt-2 failure, so a thin margin is called out as a fixture problem up front. */
+  check(left > 300, 'display_edition_has_margin_to_outlive_this_run',
+    `only ${left}s remain; publish a fresh staging edition rather than racing its expiry`);
+
   /* ── real users, through the official Admin API, never by touching auth tables ──
      DR3: each id is validated before the next user is created, so a silent creation failure
      cannot leave the run proceeding with an undefined id. */
