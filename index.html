@@ -4160,8 +4160,17 @@ function renderStandings(L, homeTeam, awayTeam){
        whatever the feed last called it. No deduction is invented, displayed or applied anywhere — the
        numbers in this table are unchanged; only the sentence under it moved. */
     `<div class="subnote">Derived from results, so <b>point deductions are not shown</b>.</div>` +
-    (Number(L && L.id) === 40
-      ? `<div class="subnote">Checked against the provider on 2026-08-23, which found three deductions in the Championship — Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2 — so these points totals read higher than the official table.</div>`
+    /* ══ F-5, INDEPENDENT REVIEW: THE SEASON IS PART OF THE FACT, NOT JUST THE LEAGUE ═════════
+       The id gate above was right and incomplete. This table is drawn for `latestSeasonOf(L)`,
+       whatever season the device happens to hold, so the note printed under a 2019 or a 2029
+       Championship table too - and the clause "so these points totals read higher than the
+       official table" is a claim about the numbers ON SCREEN. It is only true for the season the
+       deductions were actually applied in. From 2027-28 on, every Championship table would have
+       asserted a discrepancy caused by sanctions that had expired: precisely the unmeasured claim
+       the Build 198 note above says this panel exists to remove. Gated on the season as well, and
+       the sentence now names it, so it reads as the dated observation it is. */
+    (Number(L && L.id) === 40 && Number(season) === 2026
+      ? `<div class="subnote">In the 2026-27 season the provider's table carried three deductions in the Championship &mdash; Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2 &mdash; checked on 2026-08-23, so these points totals read higher than the official table.</div>`
       : '');
   const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
   const note = played === 0

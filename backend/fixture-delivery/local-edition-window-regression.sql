@@ -16,8 +16,13 @@
 -- HOW THIS FILE STAYS HONEST. It does not re-type the rules. It EXTRACTS, with sed, the two
 -- expressions that PROPOSAL-up.sql actually executes -- display()'s admission predicate and
 -- materialize()'s expires_at expression -- and builds the probe fixtures from them. Run it
--- against the pre-fix PROPOSAL-up.sql and probes 1, 2 and 3 fail; run it against the fixed one
--- and all four pass. There is no second copy of the rule to drift.
+-- against the pre-fix PROPOSAL-up.sql and probes 1 and 3 fail while 2 and 4 still pass -- the
+-- blackout was never a missing guard -- and against the fixed one all four pass.
+--
+-- The two EXECUTED expressions have no second copy. Independent review of 2e788a8 found that
+-- the rest does: the ORDER BY, the LIMIT and the table DDL are re-typed here, so a later
+-- `create or replace` of display(), an `alter table ... drop constraint`, or a change to the
+-- tiebreak were all invisible. The text invariants below now pin those too.
 --
 -- Because statement_timestamp() cannot be moved, the extracted admission predicate is
 -- re-pointed at a p_at parameter so the probes can assert at EXACT clock times (23:30, 00:30,
@@ -59,7 +64,16 @@
 \set chk_day `grep -cF "check((as_of at time zone 'UTC')::date=edition_day)" :up || true`
 \set chk_24h `grep -cF "check(expires_at>as_of and expires_at<=as_of+interval '24 hours')" :up || true`
 \set chk_p0002 `grep -cF "raise exception 'Current presentation unavailable' using errcode='P0002'" :up || true`
-\set backfills `grep -ciE "update[[:space:]]+(mm_fixture_delivery\.)?editions" :up || true`
+\set backfills `grep -ciE "update[[:space:]]+(only[[:space:]]+)?(\"?mm_fixture_delivery\"?\.)?\"?editions\"?" :up || true`
+-- F-3: the pieces this file RE-TYPES rather than extracts, pinned by count so a later statement
+-- cannot redefine them behind the probes' back. One admission select, one ORDER BY with the
+-- primary-key tiebreak, exactly one display() definition and no replacement of it, and no
+-- constraint ever dropped.
+\set n_admission `grep -cF "select * into e from mm_fixture_delivery.editions" :up || true`
+\set n_orderby `grep -cF "order by as_of desc,edition_id desc limit 1" :up || true`
+\set n_display `grep -cE "create (or replace )?function mm_fixture_delivery\.display\(" :up || true`
+\set n_replace `grep -ciE "create or replace function mm_fixture_delivery\.display\(" :up || true`
+\set n_dropck `grep -ciE "alter table[[:space:]]+(only[[:space:]]+)?(\"?mm_fixture_delivery\"?\.)?\"?editions\"?[[:space:]]+drop" :up || true`
 
 \echo 'extracted admission predicate:' :'admission'
 \echo 'extracted expires_at expression:' :'expiry'
@@ -79,13 +93,25 @@ insert into mmwin.rules values
  ('chk_day',    :'chk_day'),
  ('chk_24h',    :'chk_24h'),
  ('chk_p0002',  :'chk_p0002'),
- ('backfills',  :'backfills');
+ ('backfills',  :'backfills'),
+ ('n_admission',:'n_admission'),
+ ('n_orderby',  :'n_orderby'),
+ ('n_display',  :'n_display'),
+ ('n_replace',  :'n_replace'),
+ ('n_dropck',   :'n_dropck');
+create function mmwin.die(text) returns boolean language plpgsql immutable as $$begin raise exception '%',$1;end$$;
 create function mmwin.rule(text) returns text language sql stable as $$select v from mmwin.rules where k=$1$$;
 -- Each probe records its own verdict only if it runs to completion, so the closing banner cannot
 -- claim a pass that an aborted probe never earned (a DO block is its own transaction, so a raise
 -- rolls its verdict back with it).
 create table mmwin.verdict(probe integer primary key, note text not null);
-create function mmwin.rulen(text) returns integer language sql stable as $$select coalesce(nullif(v,'')::integer,0) from mmwin.rules where k=$1$$;
+-- A key that was never registered used to come back NULL here, and `NULL <> 1` is NULL, so an
+-- invariant nobody inserted passed silently. Found when the ORDER BY mutant survived the very
+-- guard written for it. A missing key is now a setup failure, not a pass.
+create function mmwin.rulen(text) returns integer language sql stable as $$
+ select case when count(*)=0
+   then (select null::integer where mmwin.die('SETUP: invariant '||$1||' was never registered in mmwin.rules, so its guard could never fire'))
+   else coalesce(nullif(min(v),'')::integer,0) end from mmwin.rules where k=$1$$;
 
 -- ===== exactly the temporal shape PROPOSAL-up.sql creates for mm_fixture_delivery.editions =====
 -- Columns and both CHECK constraints are copied verbatim from the migration; probe 4 asserts the
@@ -212,6 +238,35 @@ begin
  else raise notice 'PASS 1f: the 23:17 run gets a full 24-hour life, expires_at=%',exp;
  end if;
 
+ -- (c) THE SAME EXPIRY ACROSS A REAL DST TRANSITION, AND AGAINST THE WALL CLOCK.
+ -- Independent review of 2e788a8: 1f alone compared the expiry at a single instant on a
+ -- non-transition date, so `interval '1 day'` survived -- and on timestamptz that is NOT 24
+ -- hours across a transition. In a non-UTC session it yields 23 hours in spring (an hour of
+ -- blackout) and 25 hours in autumn, which VIOLATES the table's expires_at<=as_of+24h check and
+ -- would abort the publisher insert outright, once a year. A clip referencing statement_timestamp()
+ -- also survived, because every date above is in the past relative to CI's clock.
+ -- 2026-03-08 and 2026-11-01 are the real US transitions; 2026-03-29 and 2026-10-25 the EU ones.
+ declare
+  tz text; t timestamptz; d interval;
+ begin
+  foreach tz in array array['UTC','America/New_York','Europe/Berlin','Australia/Lord_Howe'] loop
+   foreach t in array array['2026-03-07 23:17:00+00'::timestamptz,'2026-03-08 06:17:00+00',
+                            '2026-03-28 23:17:00+00','2026-10-24 23:17:00+00',
+                            '2026-10-31 23:17:00+00','2026-11-01 05:17:00+00',
+                            statement_timestamp()] loop
+    execute format('set local timezone to %L',tz);
+    d = mmwin.publish_expiry(t,(t at time zone 'UTC')::date) - t;
+    if d <> interval '24 hours' then
+     bad = bad || format('FAIL 1g: in session timezone %s an edition published at %s would be given a life of %s instead of exactly 24 hours. interval ''1 day'' is not 24 hours across a DST transition on timestamptz, and a life over 24 hours is refused by the table check, so the publisher insert aborts',tz,t,d)::text;
+    end if;
+   end loop;
+  end loop;
+  execute 'set local timezone to ''UTC''';
+ end;
+ if array_length(bad,1) is null then
+  raise notice 'PASS 1g: the expiry is exactly 24 hours in 4 session timezones across both 2026 DST transitions, and at the live clock';
+ end if;
+
  if array_length(bad,1) > 0 then
   raise exception E'PROBE 1 FAILED, the feed still goes dark:\n  - %', array_to_string(bad,E'\n  - ');
  end if;
@@ -261,6 +316,27 @@ begin
  select count(*) into n from mmwin.editions;
  if n <> 2 then raise exception 'FAIL 2c: display() must not delete editions';end if;
  raise notice 'PASS 2c: every publisher run failed for >24h -> P0002, fails CLOSED, both stale rows still stored and simply not served';
+
+ -- 2d. THE EMBARGO. Independent review of 2e788a8 found no probe touched the as_of<=now half of
+ -- the admission predicate, so deleting that term outright, or widening it by a day, passed all
+ -- sixteen verdicts. An edition must not be served before the instant it was published.
+ delete from mmwin.editions;
+ e1 = mmwin.publish_24h('b','2026-03-12 23:17:00+00');
+ code = null; got = null;
+ begin got = mmwin.display_at('2026-03-10 12:00:00+00');
+ exception when sqlstate 'P0002' then code='P0002'; end;
+ if code is distinct from 'P0002' then
+  raise exception 'FAIL 2d: an edition stamped 2026-03-12 23:17Z was served at 2026-03-10 12:00Z, two days before it was published (returned %). The as_of<=now half of the admission predicate is gone',got;
+ end if;
+ raise notice 'PASS 2d: an edition is not served before its own as_of (the embargo holds)';
+ -- One second before, refused; at its own as_of, served. The boundary, from both sides.
+ code = null; got = null;
+ begin got = mmwin.display_at('2026-03-12 23:16:59.999999+00');
+ exception when sqlstate 'P0002' then code='P0002'; end;
+ if code is distinct from 'P0002' then raise exception 'FAIL 2e: served one microsecond before its own as_of (returned %)',got;end if;
+ got = mmwin.display_at('2026-03-12 23:17:00+00');
+ if got is distinct from e1 then raise exception 'FAIL 2e: not served at exactly its own as_of (got %, expected %)',got,e1;end if;
+ raise notice 'PASS 2e: refused one microsecond before as_of, served at exactly as_of';
  insert into mmwin.verdict values(2,'an expired or >24h-old edition is refused with P0002, never served stale');
 
 end $probe2$;
@@ -354,7 +430,16 @@ begin
  if mmwin.rulen('chk_24h') < 1 then raise exception 'FAIL 4e: the expires_at>as_of and <=as_of+24h check is gone from %',mmwin.rule('up');end if;
  if mmwin.rulen('chk_p0002') < 1 then raise exception 'FAIL 4e: the P0002 fail-closed raise is gone from %',mmwin.rule('up');end if;
  if mmwin.rulen('backfills') > 0 then raise exception 'FAIL 4e: % rewrites stored editions. The rolling window applies to future publications only; no backfill is authorised',mmwin.rule('up');end if;
+ -- F-3. The probes below re-type the ORDER BY and the table DDL, so without these a later
+ -- statement in the migration could redefine display() or drop a constraint and every probe
+ -- would still pass. Independent review of 2e788a8 demonstrated exactly that.
+ if mmwin.rulen('n_admission') <> 1 then raise exception 'FAIL 4f: % has % admission selects against editions, expected exactly 1',mmwin.rule('up'),mmwin.rulen('n_admission');end if;
+ if mmwin.rulen('n_orderby') <> 1 then raise exception 'FAIL 4f: the "order by as_of desc,edition_id desc limit 1" tiebreak is not present exactly once in %. Without the primary-key tiebreak two editions sharing an as_of have no total order',mmwin.rule('up');end if;
+ if mmwin.rulen('n_display') <> 1 then raise exception 'FAIL 4f: % defines mm_fixture_delivery.display() % times, expected exactly 1. A later definition would win at install time and these probes would not see it',mmwin.rule('up'),mmwin.rulen('n_display');end if;
+ if mmwin.rulen('n_replace') > 0 then raise exception 'FAIL 4f: % uses create or replace on display(), so the admission rule these probes extracted may not be the one installed',mmwin.rule('up');end if;
+ if mmwin.rulen('n_dropck') > 0 then raise exception 'FAIL 4f: % drops a constraint from editions, so the 24-hour bound these probes rely on may not survive the install',mmwin.rule('up');end if;
  raise notice 'PASS 4e: edition_day, both table checks and the P0002 raise are all still in the migration, and it rewrites no stored edition';
+ raise notice 'PASS 4f: one display() definition, never replaced, one admission select with the primary-key tiebreak, and no constraint dropped';
  insert into mmwin.verdict values(4,'the table checks still reject a malformed edition and the invariants survive');
 end $probe4$;
 
