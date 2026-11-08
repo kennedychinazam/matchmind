@@ -207,7 +207,10 @@ create function mm_fixture_delivery.display(screen text) returns jsonb language 
 declare e mm_fixture_delivery.editions%rowtype;outp jsonb;screen_cards jsonb;day_utc date=(statement_timestamp() at time zone 'UTC')::date;
 begin
  if screen not in ('scores','predictions','history','records','slips') or screen is null then raise exception 'Unsupported display screen' using errcode='22023';end if;
- select * into e from mm_fixture_delivery.editions where edition_day=(statement_timestamp() at time zone 'UTC')::date and as_of<=statement_timestamp() and expires_at>statement_timestamp() order by as_of desc,edition_id desc limit 1;
+ -- ROLLING WINDOW. Admission is as_of/expires_at only: a calendar-date equality here made an
+ -- edition published at 23:17 UTC inadmissible from the next midnight, so the feed went dark until
+ -- the 05:17 run. edition_day remains created-day metadata and is deliberately not a filter.
+ select * into e from mm_fixture_delivery.editions where as_of<=statement_timestamp() and expires_at>statement_timestamp() order by as_of desc,edition_id desc limit 1;
  if not found then raise exception 'Current presentation unavailable' using errcode='P0002';end if;
  -- Select only this fixed app screen's necessary membership; never caller dates/IDs/offsets.
  if screen='scores' then
@@ -409,7 +412,10 @@ begin
  built=jsonb_build_object('cards',cards,'board',b,'records',jsonb_build_object('engine',rec_engine,'clv',rec_clv),'slips',slips);
  if not mm_fixture_delivery.payload_valid(built) then raise exception 'Incomplete or unsupported presentation inventory';end if;
  nc=jsonb_array_length(cards);
- insert into mm_fixture_delivery.editions values(eid,day_utc,stamp,least(stamp+interval '24 hours',((day_utc+1)::timestamp at time zone 'UTC')),'existing-published-record-projection/1',nc,np,built);
+ -- Expiry is a rolling 24 hours from as_of. The old least(...) clipped it to the next UTC
+ -- midnight, which gave the 23:17 run a 43-minute edition. This sits exactly on the table's
+ -- expires_at<=as_of+interval '24 hours' bound.
+ insert into mm_fixture_delivery.editions values(eid,day_utc,stamp,stamp+interval '24 hours','existing-published-record-projection/1',nc,np,built);
  return jsonb_build_object('version','matchmind-display/1','edition_id',eid,'cards',nc,'predictions',np,'as_of',stamp);
 end $$;
 alter function mm_fixture_delivery.materialize() owner to mm_display_materializer;
