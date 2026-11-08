@@ -280,6 +280,16 @@ test('DEFECT: a reload with retained state must not hide part of the slate silen
   assert.equal(r.tab,'scores','the retained tab was not Scores');
   assert.equal(r.cached,18,'the retained slate was not restored');
   assert.equal(r.dayHolds,6,'the retained slate holds six matches on the day shown');
+  /* Independent review: the three assertions below sat inside `if(r.rows!==r.dayHolds)` and
+     nothing pinned the retained setting to have survived the reload at all. A mutant that
+     ignored it outright (`const cf = 'all'`), which both hides a real regression and loses a
+     user setting, passed this test untouched. The branch is now required to exist. */
+  assert.equal(r.restoredFilter,39,
+    'the retained competition setting did not survive the reload, so this test was not'+
+    ' exercising a narrowed feed at all');
+  assert.ok(r.rows<r.dayHolds,
+    'the retained competition setting did not narrow the feed, so the disclosure contract'+
+    ' below is untested: rows='+r.rows+' dayHolds='+r.dayHolds);
   if(r.rows!==r.dayHolds){
     const why='after a reload the feed rendered '+r.rows+' of the '+r.dayHolds+
       ' matches the day holds, because the retained competition setting ('+r.restoredFilter+

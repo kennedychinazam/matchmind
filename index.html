@@ -36,7 +36,17 @@
   .app{width:100%; max-width:520px; min-height:100vh; background:linear-gradient(180deg,var(--bg2),var(--bg) 30%); position:relative; padding-bottom:84px;}
 
   /* ---------- top bar ---------- */
-  .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px;}
+  /* F1, independent review: `min-width:0` on `.brand` below removed the SYMPTOM I measured, the
+     page's horizontal scroll, by turning it into overflow of the brand's own CONTENTS. Its
+     children keep min-width:auto, so the wordmark and the PRO badge spilled right, under
+     #dataChip, which is opaque and later in the DOM and therefore paints over them. Measured
+     occlusion of the badge: 47px² at 375px and the DEFAULT text size, 647px² at 390px/130%,
+     1865px² at 430px/200% - the badge simply gone, with no scrollbar to reveal it. Wrapping is
+     the only thing that actually rescues the bar, and it was gated behind the single
+     max-width:360px query. It costs height (72 -> 106 at 375px/100%), but that 72 was only ever
+     reached by overlapping the badge, so the taller bar is the honest measurement, not a
+     regression. Verified across 9 widths x 7 text scales: 0 occlusion and 0 sideways scroll. */
+  .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px; flex-wrap:wrap; row-gap:8px;}
   /* A flex item's automatic minimum size is its min-content width, so `.brand` could not shrink:
      at 361-393 CSS px with the reader's text scaling raised there was no room for it, the bar
      overflowed and the WHOLE PAGE gained up to 20 CSS px of horizontal scroll. The only media
@@ -406,7 +416,13 @@
      100% and at 130% text scaling. Scoped to this row, because every other `.setrow` puts a
      control on the right that must stay beside its label. Nothing here caps the reader's text size. */
   .setrow.aboutrow{flex-wrap:wrap; row-gap:2px;}
-  .setrow.aboutrow .sd{white-space:nowrap;}
+  /* F2, independent review: this used to be `.setrow.aboutrow .sd{white-space:nowrap}`, which
+     forbade the legitimate break between "MatchMind PRO ·" and the version value as well as the
+     reported break inside the value. Above about 140% text scaling the string then could not fit
+     and overflowed the card instead of wrapping: measured 8px of page scroll at 320px/140%, 27px
+     at 320px/150%, 117px at 320px/200%, 41px at 360px/180% - the very fault this commit removes
+     from the top bar. Only the VALUE must not break; the label before it may wrap freely. */
+  .setrow.aboutrow .sd #verLabel{white-space:nowrap;}
   .setrow.aboutrow > span.muted{flex:1 0 100%; text-align:right;}
   .segsm{display:flex; gap:6px;}
   .segsm .sfchip{padding:8px 12px;}
@@ -5140,6 +5156,13 @@ const PICK_STATUS = {
     why:'This competition is fitted on this device and its archive holds no forecast for this match. The archive cannot establish why, so no reason is claimed.' },
   nostub: { label:'Unavailable',
     why:'This row came from the results feed and carries no published forecast record, so nothing about a pick is known for it.' },
+  /* F5, independent review: `nostub` was returned from TWO branches and its sentence named the
+     results feed for both. The second branch is a competition whose raw access this device does
+     not currently hold - a favourited fixture whose competition has not loaded reaches it - which
+     did not come from the results feed. Naming a source the code has not established is the exact
+     defect class this change exists to remove, so the branch gets its own state. */
+  noauthority: { label:'Unavailable',
+    why:'This device has no current access to the published forecast record for this competition, so nothing about a pick is known for this match.' },
   unread: { label:'Unavailable',
     why:'The published forecast record has not been read on this device yet, so this match has no established status.' },
   failed: { label:'Unavailable',
@@ -5165,7 +5188,7 @@ function pickStatusCode(L, f){
      own copy of the published record. Without current raw authority the archive is an edition
      extract instead, so a row whose competition is not in hand says nothing about an archive it
      does not own. A favourited fixture whose competition has not loaded reaches here. */
-  if(!fixtureRawCurrent()) return 'nostub';
+  if(!fixtureRawCurrent()) return 'noauthority';
   if(_archiveRead === 'failed') return 'failed';
   if(_archiveRead !== 'loaded' || !afState.archive) return 'unread';
   const a = (f.fxid != null) ? afState.archive[f.fxid] : null;
@@ -5619,7 +5642,13 @@ function realOddsChip(fxid, code){
   const px = dailyRealPrice(fxid, code);
   return (px && px > 1) ? '<span class="predchip sm">@ ' + px.toFixed(2) + '</span>' : '';
 }
-function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+/* F7, independent review: this escaped only &, < and >, while the provenance chip interpolates
+   into data-statuswhy="", title="" and aria-label="" three times per row. A quote in any
+   non-constant interpoland would close the attribute and allow more attributes onto the existing
+   button. No reachable path was found on the public feed - the board date is schema-validated and
+   a rebuilt pick cannot traverse a bounded edition - but a pick value on the raw publisher path
+   carries no client-side pattern. Escaping the quotes costs nothing in text positions. */
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* ---------- detail-header meta: competition + date/time + score (#16) ---------- */
 function setHeroMeta(meta){
@@ -19553,7 +19582,12 @@ async function fetchAllRows(table, cols, apply, orderCol){
 /* The archive is what makes a prediction permanent rather than a thing the app recalculates.
    Pulled once per session, keyed by fixture, covering the window the feed can show (build 62). */
 async function loadArchive(){
-  if(!supa) return;
+  /* F9, independent review: this exit left `_archiveRead` at whatever it already held, so a stale
+     'loaded' could outlive the client it described. Not reachable with harm today - `supa` is only
+     nulled when createClient itself throws, before any successful read, and the archive branch of
+     pickStatusCode sits behind fixtureRawCurrent() - but the invariant should hold by construction
+     rather than by two unrelated fences. */
+  if(!supa){ _archiveRead = 'pending'; return; }
   try{
     const from = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // a month back (build 70)
     /* build 199 — market, made_at and withheld_at join the select. The window already had no upper
