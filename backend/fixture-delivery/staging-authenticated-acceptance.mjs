@@ -151,7 +151,11 @@ try {
      so the refusal is the runtime gate's, not an ACL's. Both halves are asserted. */
   const pubAcl = await call('/rest/v1/rpc/matchmind_publish_display_v1', {method: 'POST', body: {}, bearer: A.token});
   check(pubAcl.status >= 400 && pubAcl.status < 500, 'authenticated_publish_refused', explain(pubAcl));
-  check(/scoped publisher|publisher/i.test(JSON.stringify(pubAcl.data)),
+  /* The gate's own message, not merely a string containing "publisher". A permission error would
+     name publisher_allowed and would have satisfied the looser pattern, which is exactly the
+     "do not label unrelated errors as success" trap. The Director's staging run recorded the gate
+     answering `Scoped publisher required`. */
+  check(/scoped publisher required/i.test(JSON.stringify(pubAcl.data)),
     'authenticated_publish_refused_BY_THE_GATE_not_by_acl', explain(pubAcl));
   const hist = await call('/rest/v1/rpc/matchmind_display_v1', {method: 'POST', body: {screen: 'history'}, bearer: A.token});
   check(hist.status === 200 && Array.isArray(hist.data?.cards),
