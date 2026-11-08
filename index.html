@@ -55,7 +55,15 @@
      after, and the bar's height is unchanged or lower at every width and text size tested, so this
      costs no vertical space. `min-width:0` alone carries it; the wordmark is NOT clipped, because
      clipping a brand name is information lost exactly for the readers who raised their text size. */
-  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px; min-width:0;}
+  /* And the brand must wrap its OWN contents, not only sit on its own line. CI caught this on a
+     wider font stack than this container's: with `.topbar` wrapping, `.brand` still laid the
+     brandmark, the wordmark and the PRO badge on one unbreakable line, so at 320 and 361 CSS px
+     with 200% text scaling the badge ran past the right edge - SPAN.pro right=342 against a 320px
+     viewport - and the page scrolled 22px. Reproduced here by pushing the root to 36-44px, which
+     is the same condition a wider font reaches sooner. With this, the badge drops to its own line
+     and overflow is 0 at every width and scale measured, local and CI. It only wraps when the
+     content genuinely does not fit, so nothing changes at ordinary text sizes. */
+  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px; min-width:0; flex-wrap:wrap; row-gap:4px;}
   .brand .ball{font-size:1.35rem;}
   .brandmark{width:26px; height:26px; flex-shrink:0;}
   .pro{background:linear-gradient(135deg,var(--gold),#e0a72e); color:#1a1405; font-size:.62rem; font-weight:800; padding:3px 8px; border-radius:7px; letter-spacing:.08em;}
