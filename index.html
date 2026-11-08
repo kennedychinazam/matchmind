@@ -37,7 +37,15 @@
 
   /* ---------- top bar ---------- */
   .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px;}
-  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px;}
+  /* A flex item's automatic minimum size is its min-content width, so `.brand` could not shrink:
+     at 361-393 CSS px with the reader's text scaling raised there was no room for it, the bar
+     overflowed and the WHOLE PAGE gained up to 20 CSS px of horizontal scroll. The only media
+     query in this sheet is `max-width:360px`, so nothing rescued that band. Measured at
+     375/390/393 px with the root at 20.8 and 22.4 px: 2/5/20 px of sideways scroll before, 0
+     after, and the bar's height is unchanged or lower at every width and text size tested, so this
+     costs no vertical space. `min-width:0` alone carries it; the wordmark is NOT clipped, because
+     clipping a brand name is information lost exactly for the readers who raised their text size. */
+  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px; min-width:0;}
   .brand .ball{font-size:1.35rem;}
   .brandmark{width:26px; height:26px; flex-shrink:0;}
   .pro{background:linear-gradient(135deg,var(--gold),#e0a72e); color:#1a1405; font-size:.62rem; font-weight:800; padding:3px 8px; border-radius:7px; letter-spacing:.08em;}
@@ -389,6 +397,17 @@
   .setrow:last-child{border-bottom:none;}
   .setrow .sl{font-size:.9rem; font-weight:600;}
   .setrow .sd{font-size:.72rem; color:var(--muted);}
+  /* The About row carries two short strings that cannot share 298 CSS px at 360 px wide: the
+     version wants 182 and the descriptor 151, against 245 left after the 32 px icon and the gaps.
+     Both therefore wrapped at the DEFAULT text size, with no accessibility setting involved, and
+     the version string broke between "build" and its number - which is exactly what the Director
+     photographed, and it reproduces on build 355 itself. The descriptor is the one that can move:
+     given a line of its own the version keeps the full row width and both read on one line, at
+     100% and at 130% text scaling. Scoped to this row, because every other `.setrow` puts a
+     control on the right that must stay beside its label. Nothing here caps the reader's text size. */
+  .setrow.aboutrow{flex-wrap:wrap; row-gap:2px;}
+  .setrow.aboutrow .sd{white-space:nowrap;}
+  .setrow.aboutrow > span.muted{flex:1 0 100%; text-align:right;}
   .segsm{display:flex; gap:6px;}
   .segsm .sfchip{padding:8px 12px;}
   /* account avatar (initials badge) */
@@ -859,7 +878,7 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="var(--gold)" stroke="none"><path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 20.9l1.1-6.5L2.6 9.3l6.5-.9z"/></svg></span><div><div class="sl" data-i18n="Favourites">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div></div>
         <button class="btn" id="goFavs">Open</button>
       </div>
-      <div class="setrow">
+      <div class="setrow aboutrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
         <span class="muted" style="font-size:.72rem">Statistical football forecasts</span>
       </div>
@@ -21502,15 +21521,23 @@ function renderScores(){
   const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
             : mins < 60 ? mins + ' min ago'
             : mins < 120 ? 'over an hour ago' : Math.floor(mins/60) + ' hours ago';
-  const live = dayAll.filter(s=>LIVE_CODES.includes(s.status)).length;
-  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${dayAll.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   const sf = afState.scoreFilter || 'all';
   let list = dayAll;
-  { const cf = afState.filter;   // shared competition setting (build 82)
-    if(cf && cf!=='all' && cf!=='football' && cf!=='basketball') list = list.filter(s=>String(s.lid)===String(cf)); }
+  const cf = afState.filter;   // shared competition setting (build 82)
+  const narrowed = !!(cf && cf!=='all' && cf!=='football' && cf!=='basketball');
+  if(narrowed) list = list.filter(s=>String(s.lid)===String(cf));
   if(sf==='live') list = list.filter(s=>LIVE_CODES.includes(s.status));
   else if(sf==='ns') list = list.filter(s=>s.status==='NS'||s.status==='TBD');
   else if(sf==='ft') list = list.filter(s=>['FT','AET','PEN'].includes(s.status));
+  /* THE HEADER COUNTS THE ROWS BELOW IT, not the unfiltered day. It used to read `dayAll.length`
+     while the SHARED competition setting - which this view never stated, and which Search sets
+     without the reader opening any dropdown - was narrowing the list. That is how a reader is told
+     · 6 matches over two rows, or over none at all, on a screen that looks entirely settled. */
+  const live = list.filter(s=>LIVE_CODES.includes(s.status)).length;
+  syncCompsChips();   // the chip states which competition is on, on every repaint
+  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${list.length} matches`
+    + (narrowed ? ` <span class="muted">of ${dayAll.length} — one competition</span>` : '')
+    + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   // group by league, sorted by importance
   const groups = {};
   for(const s of list) (groups[s.lid] = groups[s.lid] || []).push(s);
@@ -21519,6 +21546,13 @@ function renderScores(){
   let html = `<div class="sfilters">
     ${[['all','All'],['live','🔴 Live'],['ns','Upcoming'],['ft','Finished']].map(([v,l])=>
       `<button class="sfchip${sf===v?' active':''}" data-sf="${v}">${l}</button>`).join('')}</div>`;
+  /* A day that HAS matches and renders none of them must say which filter is hiding them and offer
+     one tap out. The `if(!dayAll.length)` empty state above fires only on the UNFILTERED day, so a
+     filtered-empty day fell straight through to `box.innerHTML = html` with nothing under the
+     chips: a count, four chips, and no rows. */
+  if(!list.length) html += `<div class="subnote">No matches on this date match the current filter`
+    + (narrowed ? ` — this day holds ${dayAll.length}.` : '.')
+    + ` <a href="#" id="scoresClearFilter" style="color:var(--gold)">Show all ${dayAll.length}</a></div>`;
   const rowRefs = [];
   for(const g of ordered){
     const s0 = g[0];
@@ -21543,6 +21577,8 @@ function renderScores(){
   }
   box.innerHTML = html;
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
+  { const cl = $('scoresClearFilter'); if(cl) cl.onclick = e=>{ e.preventDefault();
+      afState.filter='all'; afState.scoreFilter='all'; saveState(); renderCompsDrop(); renderScores(); }; }
   box.querySelectorAll('.scrow.favrow').forEach(row=>row.addEventListener('click',()=>{
     const s = rowRefs[+row.dataset.i];
     if(s.status==='NS' || s.status==='TBD'){ const {L, f} = ensureLeagueFromScore(s); openFixture(L.id, f); }
@@ -22054,7 +22090,7 @@ function renderStrongPicks(){
 function compsLabel(){
   const v = afState.filter;
   return '🏆 ' + (v==='all' ? 'All competitions' : v==='football' ? 'All football' : v==='basketball' ? 'All basketball'
-                : (afState.leagues[v] ? afState.leagues[v].name : 'All competitions')) + ' ▾';
+                : (afState.leagues[v] ? afState.leagues[v].name : 'One competition')) + ' ▾';
 }
 function syncCompsChips(){
   for(const id of ['segComps','segCompsS']){ const b=$(id); if(b) b.innerHTML = compsLabel(); }
@@ -22086,7 +22122,15 @@ function buildCompsDrop(boxId){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
           + bk.map(l=>item(l.id, lgLabel(l, '🏀'), predicted(l))).join('');
   }
-  if(!all.length) html = '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
+  /* The empty-corpus note USED TO REPLACE `html`, and threw the "All competitions" item away with
+     it. A reader whose competition setting was a league id - set from Search, or left over after
+     loadCloudLeagues rebuilt and dropped that league, or after sign-out cleared afState.leagues -
+     then had no control anywhere able to widen the feed back out, on Scores or on Predict. In the
+     public presentation shape L.matches is empty, so the >=15 qualifying test leaves `all` empty
+     for EVERY public reader and this branch is the normal path, not an edge case. The note is
+     extra information, not a reason to remove the only way back. */
+  if(!all.length) html = item('all','🌍 All competitions', 0)
+    + '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
   html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
@@ -24237,7 +24281,9 @@ $('clearCacheBtn').addEventListener('click', ()=>{
 // Sign out lives in the Account card only (build 91) — two log-out buttons is one too many.
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
-$('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
+/* renderCompsDrop() is reached only from renderFixtures(), so on a fresh load with Scores as the
+   retained tab this control opened with nothing in it at all. Build it before showing it. */
+$('segCompsS').addEventListener('click', ()=>{ buildCompsDrop('compsDropS'); $('compsDropS').classList.toggle('hidden'); });
 syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
 $('shareCardBtn').addEventListener('click', shareCard);
