@@ -340,6 +340,20 @@
   /* build 118 — a withheld pick. Deliberately grey and quiet: it must not read as a third kind of
      tip sitting alongside the green ones, it must read as the absence of one. */
   .predchip.muted-chip{background:transparent; border:1px dashed var(--line); color:var(--muted); font-weight:600;}
+  /* ANALYSIS-STATUS AMENDMENT - the compact provenance status. A real button, so its one sentence is
+     reachable by tap and carries an accessible name, not only a pointer tooltip. The hit area is
+     grown with a pseudo element rather than padding, so it clears the 44 CSS px floor without making
+     the row taller or the feed wider; `max-width` plus wrapping keeps a long label from pushing the
+     row sideways at 360px or under enlarged text. */
+  .predchip.statuschip{font-family:inherit; line-height:1.2; cursor:pointer; position:relative;
+    flex:0 1 auto; min-width:0; max-width:46%; text-align:center;
+    /* WRAP, never clip: `.predchip` sets `white-space:nowrap`, which under enlarged text either
+       truncated the label or pushed the row sideways. And NO `overflow:hidden` here - it clipped
+       the pseudo element below, which is the whole of the 44px hit area. */
+    white-space:normal; overflow-wrap:break-word;}
+  .predchip.statuschip::after{content:''; position:absolute; left:-3px; right:-3px; top:50%;
+    transform:translateY(-50%); height:44px;}
+  .predchip.statuschip:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
   /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
@@ -3003,12 +3017,30 @@ function fixturePresentationRow(r,board){
  const p=r.prediction,b=board&&board.rows.find(x=>x.f===r.fxid),v=p?probabilityVector(p.p_home,p.p_draw,p.p_away):b?probabilityVector(b.pw,b.pd,b.pq):null;
  return {fxid:r.fxid,date:p?p.kickoff:r.date,time:p?p.ktime:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
    _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
-   frozen:!!p,pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
+   /* ANALYSIS-STATUS AMENDMENT - `_boardRow` records WHICH source answered, because the two prove
+      different things. A published prediction row is insert-once and never deleted, so its ABSENCE
+      does prove no pick was issued. A board row is one upserted snapshot with no history, and
+      `boardBuild` drops every fixture whose kick-off has passed, so for a played match its absence
+      proves nothing and its presence is only that dated board's observation. `recon` carries the
+      ledger's own exclusion (build === RECONSTRUCTED) to the display, so the feed cannot grade a
+      hindsight rebuild that the record two taps away excludes. The bounded display schema already
+      bars build < 0, so this is the field the row was missing rather than a relaxed bound. */
+   frozen:!!p,_boardRow:!!b,recon:!!(p&&p.build===RECONSTRUCTED),
+   pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
 }
 /* BUILD 357 - HOW LONG THE ACCEPTED EDITION STAYS GOOD. Set from the edition this function
    actually accepted, and read by its catch below to decide between keeping the screen and
    clearing it. Zero means nothing has ever been accepted. */
 let _presentationUntil = 0;
+/* ANALYSIS-STATUS AMENDMENT - WHETHER THE LOCAL FORECAST ARCHIVE WAS ACTUALLY READ.
+   `loadArchive` swallowed its own failure and left `afState.archive` exactly as it found it, so a
+   refused or broken read was indistinguishable on screen from a month in which nothing had been
+   published: every played fixture simply showed "No pick". A status is worth no more than its
+   provenance, so the read now records whether it happened.
+     'pending' never attempted (no backend, or not reached yet)
+     'failed'  attempted and refused, or threw
+     'loaded'  `afState.archive` is what the source actually returned */
+let _archiveRead = 'pending';
 async function loadFixturePresentation(){
  try{
   const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
@@ -3026,6 +3058,7 @@ async function loadFixturePresentation(){
   afState.leagues=leagues;afState.leagueOrder=Object.keys(leagues).map(Number);afState.archive=archive;afState.cloudFix=cloudFix;
   _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
   _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;
+  _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
  }catch(e){
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
@@ -4509,7 +4542,13 @@ const GATE_TEXT = {
   nobase: 'No edge here',
   unpriced:'Not priced',
   newteam: 'New to this competition',   // build 343 (WO-37)
-  notyet: 'Not priced yet'   // build 345 (WO-38) - no board row: past the robot's horizon, or the board not read
+  notyet: 'Not priced yet',   // build 345 (WO-38) - no board row: past the robot's horizon, or the board not read
+  /* ANALYSIS-STATUS AMENDMENT - `fixturePresentationRow` has produced `gated: 'withheld'` since the
+     bounded-delivery build and this map had no key for it, so `GATE_TEXT[_g] || GATE_TEXT.low`
+     printed "No strong read" over a decision the published record states outright. A proven
+     withhold is not a weak read, and reporting one as the other is the fault this change exists to
+     remove. */
+  withheld: 'Withheld'
 };
 const GATE_WHY = {
   notyet: () => 'Picks appear up to 7 days ahead.',   // build 345 (WO-38)
@@ -4526,6 +4565,8 @@ const GATE_WHY = {
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
   outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
   unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`,
+  /* The published record stamped this one, so the reason is read rather than recomputed. */
+  withheld: () => `The published forecast record stamps this pick as withheld before kick-off, so it was never offered here. It is not re-judged after the whistle.`,
   /* BUILD 343 (WO-37) - the only reason that names a team, so it takes the prediction as a fourth argument;
      the other reasons ignore it. Ken's wording, from the WO-36 review. */
   newteam: (p, bar, met, P) => {
@@ -5025,6 +5066,137 @@ function setHeroDnb(code, shown){
   el.textContent = note;
   el.classList.toggle('hidden', !note);
 }
+/* ══ ANALYSIS-STATUS AMENDMENT — WHAT A PLAYED MATCH WITH NO GRADED PICK IS ALLOWED TO SAY ══════
+   Replaced: one chip reading "No pick" for every cause at once, under a four-sentence paragraph
+   repeated beneath every matchday. Both are gone, and so is what they claimed.
+
+   THE PARAGRAPH NAMED TWO CAUSES AND NEITHER WAS REAL.
+     · "the app was not open before kick-off" — forecasts are published by the scheduled publisher
+       (.github/workflows/publish-picks.yml running robot/publish.mjs). Every shared write path is
+       publisher-only: archivePrediction, recordDrift, markWithheld and backfillPredictions all
+       return unless isPublisher(), and the client table shim refuses a non-publisher write
+       outright. Whether a reader opened their phone cannot bear on whether a pick exists.
+     · "the pick was withheld … because it did not clear that competition's bar" — a withheld row
+       KEEPS its pick (build 199 stamps `withheld_at` instead of deleting, and the deleting
+       function no longer exists), so `f.pick` is truthy and such a fixture never reaches this
+       branch at all. The sentence described build 142's behaviour, six builds dead.
+
+   WHAT THE STATUS IS DRIVEN BY NOW IS PROVENANCE, never the absence of `f.pick` alone:
+     withheld   a published prediction row carrying `withheld_at`. Stated by the record; named.
+     nopick     a published prediction row that issued no pick. The row is insert-once and is never
+                deleted, so this one really does prove that no pick was published.
+     boardgate  no prediction row, but the publisher's board carries a row with a gate reason. The
+                board is ONE upserted snapshot with no history and `boardBuild` excludes any fixture
+                whose kick-off has passed, so this is an observation of a DATED board, phrased as
+                one, and it can change when the next board is built.
+     norow      no prediction row and no board row. Four causes collapse here and cannot be told
+                apart: the publisher never ran in this fixture's window; the gate declined it before
+                any publication (which writes no row, no counter and no log line); the competition
+                was not priced that run; or the fixture was outside the publishing horizon at every
+                run that saw it. The label names the fact and NO cause, and never implies that a
+                withhold has been ruled out.
+     norecord   the locally fitted path: `afState.archive` was read and holds no row. On that path
+                the cause is genuinely unknowable.
+     nostub     a bare row pushed into a presentation league by `ensureLeagueFromScore`, carrying no
+                `_displayCard` and therefore no provenance whatever. It is NOT a verified edition.
+     unread /
+     failed     the archive was never read, or its read failed, or the accepted edition is past its
+                own expiry. Nothing is known, so nothing is claimed.
+     rebuilt    a pick stamped RECONSTRUCTED by `backfillPredictions`. `renderLedger` and
+                `engineRecordPayload` both exclude it (`r.build === RECONSTRUCTED`) while this feed
+                used to award it a plain tick or cross — one pick, two answers. It now carries its
+                own label and no grade.
+   An unknown or unreadable record is NEVER presented as a deliberate abstention, and two causes
+   that cannot be separated are never shown as though they had been. */
+const PICK_STATUS = {
+  withheld: { label:'Withheld',
+    why:'Withheld before kick-off: the published forecast record stamps this pick as withheld, so it was never offered. It is not graded.' },
+  nopick: { label:'No pick issued',
+    why:'The published forecast record for this match issued no pick, so there is nothing to grade. Nothing is filled in after the whistle.' },
+  boardgate: { label:'Board: no pick',
+    why:'' },
+  norow: { label:'No record',
+    why:'No published forecast record exists for this match. The data does not say why, and the possible reasons cannot be told apart, so none is named.' },
+  norecord: { label:'Not archived',
+    why:'This competition is fitted on this device and its archive holds no forecast for this match. The archive cannot establish why, so no reason is claimed.' },
+  nostub: { label:'Unavailable',
+    why:'This row came from the results feed and carries no published forecast record, so nothing about a pick is known for it.' },
+  unread: { label:'Unavailable',
+    why:'The published forecast record has not been read on this device yet, so this match has no established status.' },
+  failed: { label:'Unavailable',
+    why:'The published forecast record for this match could not be read, so its status is unknown.' },
+  rebuilt: { label:'rebuilt',
+    why:'Rebuilt from a later model after the match, not a forecast issued before kick-off. It is not graded and is not counted in the accuracy record.' }
+};
+function pickStatusCode(L, f){
+  if(!f) return 'failed';
+  /* A presentation row proves things only while the edition it came from is still live. An expired
+     edition and a failed board read are both "unknown", and neither may pass for "no pick". */
+  if(f._presentation && f._displayCard){
+    if(!(_presentationUntil > Date.now())) return 'failed';
+    if(_boardRecord && _boardRecord.state === 'failed') return 'failed';
+    const p = f._displayCard.prediction;
+    if(p) return p.withheld_at ? 'withheld' : 'nopick';
+    return f._boardRow ? 'boardgate' : 'norow';
+  }
+  /* `ensureLeagueFromScore` marks the LEAGUE as presentation and pushes bare rows into it. Those
+     rows carry no card, so they are not evidence of an edition having issued anything. */
+  if(f._presentation || (L && L._presentation)) return 'nostub';
+  /* The archive branch below speaks for a device that FITS locally, where `afState.archive` is its
+     own copy of the published record. Without current raw authority the archive is an edition
+     extract instead, so a row whose competition is not in hand says nothing about an archive it
+     does not own. A favourited fixture whose competition has not loaded reaches here. */
+  if(!fixtureRawCurrent()) return 'nostub';
+  if(_archiveRead === 'failed') return 'failed';
+  if(_archiveRead !== 'loaded' || !afState.archive) return 'unread';
+  const a = (f.fxid != null) ? afState.archive[f.fxid] : null;
+  if(a && a.withheldAt) return 'withheld';
+  return 'norecord';
+}
+/* The board's own build time, and `payload.builtAt` deliberately rather than `computedAt`, which
+   means the board's write time on one load path and the edition's as_of on the other. */
+function boardBuiltText(){
+  const at = (_boardRecord && _boardRecord.payload && _boardRecord.payload.builtAt) || '';
+  return String(at).slice(0, 16).replace('T', ' ');
+}
+function pickStatusWhy(code){
+  if(code !== 'boardgate') return (PICK_STATUS[code] || PICK_STATUS.failed).why;
+  const when = boardBuiltText();
+  return 'The publisher\u2019s board' + (when ? ' of ' + when : '')
+       + ' carries this match with no pick. That board is one snapshot, rebuilt every run and never covering a match already played, so this is what it recorded then — not a settled fact, and not a ruling out of a withhold.';
+}
+function pickStatusChip(L, f){
+  const code = pickStatusCode(L, f), s = PICK_STATUS[code] || PICK_STATUS.failed;
+  const why = pickStatusWhy(code);
+  /* Compact on screen; the sentence is OPTIONAL — a title for a pointer, an accessible name for
+     assistive technology, a tap for everyone else. Never a paragraph under the matchday. */
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(why)}"`
+       + ` title="${escapeHtml(why)}" aria-label="${escapeHtml('Pick status: ' + s.label + '. ' + why)}"`
+       + `>${escapeHtml(s.label)}</button>`;
+}
+/* A pick the record itself excludes gets a label instead of a grade. Same shape, same affordance. */
+function rebuiltChip(f){
+  const s = PICK_STATUS.rebuilt;
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(s.why)}"`
+       + ` title="${escapeHtml(s.why)}" aria-label="${escapeHtml('Pick status: ' + chipCode(f.pick) + ' ' + s.label + '. ' + s.why)}"`
+       + `>${escapeHtml(chipCode(f.pick) + ' ' + s.label)}</button>`;
+}
+/* Whether the shared record excludes this fixture's pick as a post-match reconstruction. Read from
+   the archive row, exactly as the late-void rule below reads it, and never from a field written by
+   `applyGatePass` — that function is pinned byte-identical to build 344. */
+function pickIsRebuilt(f){
+  if(!f || !f.pick) return false;
+  if(f.recon) return true;
+  const a = (f.fxid != null && afState.archive) ? afState.archive[f.fxid] : null;
+  return !!(a && a.recon);
+}
+function bindStatusChips(root){
+  if(!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.statuschip').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation();           // asking about the status is not opening the match
+    toast(b.dataset.statuswhy || '');
+  }));
+}
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
   smap=smap||scoreMap();
@@ -5033,7 +5205,10 @@ function fxCells(L,f,smap){
      says what is missing, and it carries NO grade chip, because there is nothing to grade on. */
   { const u = (f && f.fxid!=null) ? smap[f.fxid] : null;
     if(u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
-      return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`, chip:'', finished:true}; }
+      /* No grade, because there is nothing to grade on. A fixture with no pick still says what is
+         known about its pick rather than leaving a blank where a chip goes. */
+      return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`,
+              chip: f && f.pick ? '' : pickStatusChip(L, f), finished:true}; }
   const res=fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
@@ -5052,16 +5227,27 @@ function fxCells(L,f,smap){
        record against a bet that actually returned the stake. */
     if(f.pick && _lateVoid){
                 chip=`<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`; }
+    /* ANALYSIS-STATUS AMENDMENT - A HINDSIGHT REBUILD IS NOT A GRADED CLAIM. `backfillPredictions`
+       writes prediction rows for matches ALREADY PLAYED, stamped build = RECONSTRUCTED, and both
+       `renderLedger` and `engineRecordPayload` exclude exactly those rows. This branch did not, so
+       the feed awarded a tick or a cross to a pick the published record refuses to count: one pick,
+       two answers. `gradePick`, every threshold and the ledger's own exclusion are untouched - only
+       what this chip is allowed to assert changes. */
+    else if(f.pick && pickIsRebuilt(f)){ chip = rebuiltChip(f); }
     else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
                 const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
                 chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
     /* BUILD 164 — a played match with no frozen pick says so, rather than showing a blank space
-       where a result chip goes. It is deliberately ONE message for both causes — never archived,
-       or withheld and removed — because after the fact the app genuinely cannot tell them apart,
-       and a label that picks one would be stating something it does not know. What it does know,
-       and what matters, is that nothing was published, so nothing is graded. */
-    else chip = `<span class="predchip muted-chip" title="No pick was published for this match before kick-off, so it is not graded and does not count in the accuracy record">No pick</span>`;
+       where a result chip goes.
+       ⚠ ANALYSIS-STATUS AMENDMENT — THE ORIGINAL REASONING NAMED A CAUSE THAT CANNOT OCCUR. It
+       offered "never archived, or withheld and removed". The second does not exist: build 199
+       stamps `withheld_at` and KEEPS the pick, `unarchivePrediction` was removed with it, and a row
+       that keeps its pick never reaches this branch. The first is not one cause either — it is at
+       least four, and which of them applies is not recoverable from the data. So the single
+       message is replaced by a status read from provenance, which says what the record proves and
+       stops there. See PICK_STATUS above. */
+    else chip = pickStatusChip(L, f);
     return {timeCell, chip, finished:true};
   }
   /* BUILD 118 — a withheld pick still shows the fixture. Ken's call: "show the fixture, no pick".
@@ -17315,6 +17501,7 @@ function favRow(L,f,i,smap){
   return `<div class="fxrow favrow" data-i="${i}">${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="lname">${(L&&L.name)||f.lname||''}</span></span><span class="favright">${chipSmall}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
 }
 function wireFavRows(feed,refs,rerender,isMatches){
+  bindStatusChips(feed);
   feed.querySelectorAll('.favrow').forEach(row=>row.addEventListener('click',()=>{
     const r=refs[+row.dataset.i];
     if(isMatches){ if(r.lid!=null && afState.leagues[r.lid]) openFixture(r.lid,r); else{ const s=afState.scores&&afState.scores.list.find(x=>x.fxid===r.fxid); if(s) matchDetail(s); else toast('Open this match from its competition feed'); } }
@@ -19357,11 +19544,12 @@ async function loadArchive(){
     const { data, error } = await fetchAllRows('predictions',
       'fxid,kickoff,ktime,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build',   /* build 349 - the ORIGINAL kick-off, for the void rule */
       q => q.gte('kickoff', from));
-    if(error || !data) return;
+    if(error || !data){ _archiveRead = 'failed'; return; }
     const m = {};
     for(const r of data) m[r.fxid] = archiveRow(r);
     afState.archive = m;
-  }catch(e){}
+    _archiveRead = 'loaded';
+  }catch(e){ _archiveRead = 'failed'; }
 }
 
 /* ══ BUILD 286 — THE SETTLED HALF, FETCHED AFTER THE FEED IS ALREADY USABLE ═══════════════════
@@ -22012,6 +22200,14 @@ function renderFixtures(){
        · the pick was WITHHELD before kick-off and unarchivePrediction removed the row (build 142,
          so a gated fixture cannot come back graded).
 
+     ⚠ ANALYSIS-STATUS AMENDMENT — THIS BLOCK CITES A MECHANISM THAT NO LONGER EXISTS. The second
+     bullet above names `unarchivePrediction`; that function was removed at build 199 and the only
+     surviving occurrences of the name are this comment and one other. A withheld row now KEEPS its
+     pick, so it never reaches the no-pick branch, and the first bullet is not one cause but at
+     least four that the data cannot separate (see PICK_STATUS, by fxCells). The paragraph this
+     block used to justify is gone and each row carries its own provenance-read status instead.
+     The filter itself is unchanged: a played match still never silently vanishes.
+
      ✅ **THE SECOND CAUSE IS GONE AT BUILD 199, AND IT WAS THE SAME REPORT AS THIS ONE.** Ken again,
      2026-08-23: *"imagine someone betting with the tip only to later realize the tip has
      disappeared because they were taken off just before kickoff."* Build 164 patched the symptom —
@@ -22029,13 +22225,12 @@ function renderFixtures(){
      "show the fixture, no pick... rather than the fixture quietly disappearing, which would leave
      the user unable to tell an absent prediction from an absent match." A played match is exactly
      that case and had exactly that hole. */
-  let noPickPlayed = 0;
   for(const L of Ls){
     const todays = L.upcoming.filter(f=>{
       if(f.date !== afState.selectedDate) return false;
       if(f.pick) return true;
       if(!fixtureResult(L, f, smap)) return false;   // upcoming with no pick: unchanged, still hidden
-      noPickPlayed++; return true;                   // played: it stays, and says so
+      return true;                                   // played: the row stays and carries its own status
     });
     if(!todays.length) continue;
     const badge = competitionBadge(L);
@@ -22047,13 +22242,19 @@ function renderFixtures(){
     const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
     html = `<div class="subnote">No predictions for ${when}. ${dp>0?'No matches were played in the competitions the engine covers.':'Fixtures appear here once they are announced and both teams are confirmed.'}</div>`;
   }
-  /* BUILD 164 — the rows above marked "No pick" get one line of explanation, and only when there
-     are some. The two causes cannot be told apart after the fact, so both are named rather than
-     guessed between. The last sentence is the one that matters: they are not in the record, so
-     seeing them here cannot move the accuracy number in either direction. */
-  if(noPickPlayed){
-    html += `<div class="subnote" style="margin-top:12px">${noPickPlayed} played ${noPickPlayed===1?'match is':'matches are'} shown with <b>No pick</b>. Either the app was not open before kick-off, or the pick was withheld at the time because it did not clear that competition's bar. Frozen picks are never re-calculated after the whistle, so these stay blank rather than being filled in now — and they are not counted in your accuracy record.</div>`;
-  }
+  /* ⚠ ANALYSIS-STATUS AMENDMENT — BUILD 164'S PARAGRAPH IS REMOVED, AND SO IS WHAT IT CLAIMED.
+     It sat permanently under every matchday holding one unissued played fixture, and it named two
+     causes, neither of which is real:
+       · "the app was not open before kick-off" — forecasts are published by the scheduled publisher
+         (.github/workflows/publish-picks.yml running robot/publish.mjs) and every shared write path
+         refuses a non-publisher, so a reader's own device has no bearing on whether a pick exists.
+       · "the pick was withheld … because it did not clear that competition's bar" — since build 199
+         a withheld row keeps its pick, so such a fixture is never one of these rows at all.
+     Nothing persistent replaces it. Each row carries a compact status read from provenance, with
+     the one sentence available on hover, to a screen reader and on tap (pickStatusChip). The
+     accuracy figure never counted these fixtures and still does not: `recordStats` reads the shared
+     engine record, which is built only from issued pre-kick-off forecasts, and nothing on this
+     screen feeds it. */
   /* BUILD 117 — say what the edge filter removed, and only when it actually cost you matches today.
      Naming a hidden competition that has no fixtures on this date would be noise, not information. */
   { const missed = edgeHidden.filter(L => (L.upcoming||[]).some(f=>f.date===afState.selectedDate && f.pick));
@@ -22088,6 +22289,7 @@ function renderFixtures(){
     html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${_loadShort} competition${_loadShort===1?'':'s'} did not load</b> — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
   }
   $('fixtureList').innerHTML = html;
+  bindStatusChips($('fixtureList'));
   { const rh = $('reloadHint');
     if(rh) rh.addEventListener('click', ()=>{ toast('Reloading…'); loadCloudLeagues(true); });
   }
