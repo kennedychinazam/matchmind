@@ -109,8 +109,10 @@ try {
     'owner_B_reads_only_its_own_row', 'n=' + (readB.data?.length));
 
   const crossRead = await call(`/rest/v1/app_state?select=*&user_id=eq.${B.id}`, {bearer: A.token});
-  check(crossRead.status === 200 && Array.isArray(crossRead.data) && crossRead.data.length === 0,
-    'owner_A_cannot_read_B_row', 'n=' + (crossRead.data?.length));
+  check((crossRead.status === 200 && Array.isArray(crossRead.data) && crossRead.data.length === 0)
+        || crossRead.status >= 400,
+    'owner_A_cannot_read_B_row', 'http ' + crossRead.status + ' body ' +
+    JSON.stringify(crossRead.data).slice(0, 120));
   const crossWrite = await call(`/rest/v1/app_state?user_id=eq.${B.id}`, {method: 'PATCH', bearer: A.token,
     body: {fav_teams: ['tampered-by-A']}, headers: {Prefer: 'return=representation'}});
   check(!(crossWrite.status === 200 && Array.isArray(crossWrite.data) && crossWrite.data.length > 0),
@@ -123,18 +125,33 @@ try {
   check(JSON.stringify(stillB.data) === JSON.stringify([{fav_teams: ['acceptance-B']}]),
     'owner_B_row_unchanged_after_A_attempts', JSON.stringify(stillB.data).slice(0, 120));
 
-  /* ── an authenticated ordinary user is still an ordinary user ── */
+  /* ── an authenticated ordinary user is still an ordinary user ──
+     Every assertion below carries A.token. A.token exists only because the sign-in check above
+     passed, and that check throws on failure, so the script cannot reach here unauthenticated.
+     That matters: a "denied" result proves nothing if the request was never signed in. */
   for (const table of ['fixtures', 'predictions', 'shared_records', 'daily_slips',
                        'fixtures_lean', 'provider_alias', 'odds_latest']) {
     const r = await call(`/rest/v1/${table}?select=*`, {bearer: A.token});
-    check(!(r.status === 200 && Array.isArray(r.data) && r.data.length > 0),
-      'authenticated_no_raw_feed_' + table, 'http ' + r.status + ' n=' + (r.data?.length));
+    /* A denial assertion written as !(200 && isArray && length>0) passes when the body is not an
+       array at all, so a 200 carrying rows in some other shape would read as "denied". Require
+       the shape explicitly: either the request was refused, or it returned an EMPTY ARRAY. */
+    const refused = r.status >= 400;
+    const emptyArray = r.status === 200 && Array.isArray(r.data) && r.data.length === 0;
+    check(refused || emptyArray, 'authenticated_no_raw_feed_' + table,
+      'http ' + r.status + ' body ' + JSON.stringify(r.data).slice(0, 120));
   }
   const cap = await call('/rest/v1/rpc/matchmind_fixture_access_v1', {method: 'POST', body: {}, bearer: A.token});
   check(cap.status === 200 && cap.data?.raw_allowed === false, 'authenticated_raw_capability_false',
     JSON.stringify(cap.data).slice(0, 120));
-  const pub = await call('/rest/v1/rpc/matchmind_publish_display_v1', {method: 'POST', body: {}, bearer: A.token});
-  check(pub.status >= 400, 'authenticated_cannot_publish', 'http ' + pub.status);
+  /* NAMED FOR WHAT IT PROVES. PROPOSAL-up.sql:418 deliberately grants EXECUTE on the publish
+     entry point to `authenticated`; the refusal comes from the runtime gate publisher_allowed(),
+     not from a missing privilege. An earlier version of this assertion was called
+     "authenticated_cannot_publish", which overstated it. Independent review caught that. So this
+     checks BOTH halves: the call is refused, and it is refused by the gate. */
+  const pubAcl = await call('/rest/v1/rpc/matchmind_publish_display_v1', {method: 'POST', body: {}, bearer: A.token});
+  check(pubAcl.status >= 400, 'authenticated_publish_refused', 'http ' + pubAcl.status);
+  check(/scoped publisher|publisher/i.test(JSON.stringify(pubAcl.data)),
+    'authenticated_publish_refused_BY_THE_GATE_not_by_acl', JSON.stringify(pubAcl.data).slice(0, 200));
   const hist = await call('/rest/v1/rpc/matchmind_display_v1', {method: 'POST', body: {screen: 'history'}, bearer: A.token});
   check(hist.status === 200 && Array.isArray(hist.data?.cards), 'authenticated_still_reads_bounded_display',
     'http ' + hist.status);
@@ -160,13 +177,24 @@ try {
   check(!(afterOut.status === 200 && Array.isArray(afterOut.data) && afterOut.data.length > 0),
     'revoked_session_cannot_read_owner_rows', 'http ' + afterOut.status + ' n=' + (afterOut.data?.length));
 } finally {
-  /* ── cleanup runs whatever happened above ── */
+  /* ── cleanup runs whatever happened above, and must not mask why we got here ──
+     Every call is wrapped: a throw inside finally would replace the original failure with a
+     cleanup error, which is the worst possible thing to read in a failing security run. A user
+     that could not be deleted is reported loudly so a person removes it. */
   for (const u of users) {
     if (!u.id) continue;
-    const del = await admin(`/auth/v1/admin/users/${u.id}`, {method: 'DELETE'});
-    console.log(`${del.status === 200 || del.status === 204 ? 'PASS' : 'WARN'} disposable_user_deleted_${u.tag} http ${del.status}`);
-    const gone = await admin(`/auth/v1/admin/users/${u.id}`);
-    console.log(`${gone.status === 404 ? 'PASS' : 'WARN'} disposable_user_absent_after_delete_${u.tag} http ${gone.status}`);
+    try {
+      const del = await admin(`/auth/v1/admin/users/${u.id}`, {method: 'DELETE'});
+      const ok = del.status === 200 || del.status === 204;
+      console.log(`${ok ? 'PASS' : 'LEFTOVER'} disposable_user_deleted_${u.tag} http ${del.status}`);
+      const gone = await admin(`/auth/v1/admin/users/${u.id}`);
+      console.log(`${gone.status === 404 ? 'PASS' : 'LEFTOVER'} disposable_user_absent_after_delete_${u.tag} http ${gone.status}`);
+      if (!ok || gone.status !== 404)
+        console.log(`::warning::disposable staging user ${u.tag} (${u.id}) may still exist and needs manual deletion`);
+    } catch (e) {
+      console.log(`LEFTOVER disposable_user_cleanup_threw_${u.tag}`);
+      console.log(`::warning::cleanup threw for staging user ${u.tag} (${u.id}); delete it by hand`);
+    }
   }
 }
 console.log('MATCHMIND_STAGING_AUTHENTICATED_ACCEPTANCE_PASS ' + passed);

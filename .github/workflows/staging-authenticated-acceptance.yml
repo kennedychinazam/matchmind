@@ -17,6 +17,15 @@
 # does not pretend to have passed.
 name: MatchMind staging authenticated acceptance
 on:
+  # A push trigger as well as dispatch, scoped to this branch and these two files only.
+  # `gh workflow run` cannot dispatch a workflow that is not yet on the default branch, so
+  # without this there is no way to record a result at all before merge.
+  push:
+    branches:
+      - claude/staging-s1-s2-20261107
+    paths:
+      - .github/workflows/staging-authenticated-acceptance.yml
+      - backend/fixture-delivery/staging-authenticated-acceptance.mjs
   workflow_dispatch:
     inputs:
       confirm:
@@ -32,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Refuse unless the operator confirmed the staging target
+        if: github.event_name == 'workflow_dispatch'
         run: |
           test "${{ inputs.confirm }}" = "STAGING" || {
             echo 'Confirmation input must be exactly STAGING.'; exit 1; }
