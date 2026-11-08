@@ -37,9 +37,23 @@ export const isGenuineRead = res => classify(res) === 'rows';
  * which would mean the token was ACCEPTED and merely filtered by RLS - is not a pass here. */
 export const isExplicitlyUnauthorized = res => classify(res) === 'refused_auth';
 
-/* Why a response was rejected, for a failure message that tells the reader something. */
+/* Credentials that a response body can legitimately carry. A GoTrue token response is the one
+ * body this routinely sees that holds a usable bearer secret, and a failure message must not
+ * print it: the 160-character cut is not a redaction, it is an accident of field ordering. */
+const CREDENTIAL_FIELDS =
+  /("(?:access_token|refresh_token|id_token|provider_token|provider_refresh_token)"\s*:\s*")[^"]*(")/g;
+
+/* Why a response was rejected, for a failure message that tells the reader something.
+ * Never throws, whatever the body is, and never prints a bearer credential. */
 export function explain(res) {
-  const kind = classify(res);
-  const detail = (() => { try { return JSON.stringify(res?.data).slice(0, 160); } catch { return '[unserialisable]'; } })();
-  return `http ${res?.status} classified ${kind} body ${detail}`;
+  try {
+    const kind = classify(res);
+    let detail;
+    try {
+      detail = String(JSON.stringify(res?.data)).replace(CREDENTIAL_FIELDS, '$1[redacted]$2').slice(0, 160);
+    } catch { detail = '[unserialisable]'; }
+    return `http ${res?.status} classified ${kind} body ${detail}`;
+  } catch {
+    return 'http [unreadable] classified unusable body [unserialisable]';
+  }
 }

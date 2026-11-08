@@ -75,3 +75,28 @@ test('explain() names the classification, so a failure message is readable', () 
   assert.match(explain(res(200, [])), /classified empty/);
   assert.doesNotThrow(() => explain(undefined));
 });
+
+/* Independent review of 8 November 2026 killed 9 of 12 mutants of the rules above with these
+   controls, but survived one that removed explain()'s own guard: nothing fed it a body that
+   cannot be serialised, so a future simplification could turn every failure message into a
+   crash that masks the real finding. These two controls close that. */
+test('NEGATIVE CONTROL: explain() never throws, whatever the body is', () => {
+  const circular = {}; circular.self = circular;
+  assert.doesNotThrow(() => explain({status: 200, data: circular}));
+  assert.match(explain({status: 200, data: circular}), /unserialisable/);
+  assert.doesNotThrow(() => explain({status: 200, data: {n: 1n}}));
+  assert.match(explain({status: 200, data: {n: 1n}}), /unserialisable/);
+  assert.doesNotThrow(() => explain({status: 200, data: {toJSON() { throw Error('no'); }}}));
+  assert.doesNotThrow(() => explain(new Proxy({}, {get() { throw Error('hostile'); }})));
+  assert.doesNotThrow(() => explain(undefined));
+  assert.doesNotThrow(() => explain('not a response'));
+});
+
+test('explain() redacts bearer credentials out of a token response', () => {
+  const out = explain({status: 200, data: {
+    access_token: 'eyJhbGciOiJIUzI1NiJ9.PAYLOAD.SIGNATURE',
+    refresh_token: 'r-abc123', token_type: 'bearer', expires_in: 3600}});
+  assert.ok(!out.includes('eyJhbGciOiJIUzI1NiJ9'), out);
+  assert.ok(!out.includes('r-abc123'), out);
+  assert.match(out, /redacted/);
+});

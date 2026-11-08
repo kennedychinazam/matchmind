@@ -63,8 +63,8 @@ the app does, and then proves over real HTTP with real JWTs:
 - a re-encoded JWT claiming `service_role` is rejected; a broken signature is rejected; role
   headers do not elevate
 - a signed-out token stops working
-- both users are deleted and their deletion verified, in a `finally` that cannot mask the original
-  failure
+- both users are deleted and their deletion verified, in a cleanup pass that runs unconditionally
+  and cannot mask the original failure
 
 ### Corrections after Director review of 8 November 2026
 
@@ -75,31 +75,42 @@ The first version of this harness had four defects. All are fixed in one source-
 before `/auth/v1/logout` stops authorizing PostgREST immediately. Supabase revokes the **refresh**
 token; an already minted access token stays valid until its own `exp`. The old assertion would
 have failed against correct platform behaviour, and reading that as an app defect would have been
-worse than not testing it. Replaced with: sign-out is accepted; the refresh token mints nothing,
-asserted on both the status and the absence of a new `access_token`; and the access token's
-lifetime is required to be finite and within 24 hours. Expiry to exhaustion is **not claimed** —
-it would mean idling out the token's remaining life — so the remaining seconds are printed as a
-NOTE and the omission is named in the job output rather than left for a reader to find.
+worse than not testing it. Replaced with: the refresh token is **exchanged once while the session
+is live**, as a positive control, so a refusal afterwards can only mean revocation; sign-out is
+accepted; the exchange afterwards must return exactly 400, with a body naming the token, and no
+new `access_token`. The access token is bounded against the **wall clock** (`exp - now` within 24
+hours, `iat` within ten minutes of now), not against its own `iat`. Expiry to exhaustion is
+**not claimed** — it would mean idling out the token's remaining life — so the remaining seconds
+are printed as a NOTE and the omission is named in the job output rather than left for a reader
+to find.
+
+The first two of those were corrections after independent review, not part of DR1 as first
+written; the section below says what the earlier wording claimed and why it was wrong.
 
 **DR2, the tamper checks were vacuous.** `!(200 && isArray && length>0)` is satisfied by a 500, a
 404, a rate limit, and a 200 carrying rows under another key. The decision rules now live in
 `backend/fixture-delivery/acceptance-predicates.mjs` and classify a response before anything is
 called a denial: `refused_auth`, `empty`, `rows`, `malformed`, `server_error`, `other_4xx`,
-`unusable`. A denial is only `refused_auth` or `empty`. A forged token must be refused
-**explicitly** with 401 or 403 — an empty 200 there would mean the token was accepted and merely
-filtered, which the old assertion counted as a pass. A forged role **header** rides a valid token,
-so it is written as a different contract: answered normally, yielding no privileged rows, with an
-error not accepted as success.
+`unusable`. A denial is only `refused_auth` or `empty`, at **every** denial site — including the
+cross-owner INSERT, which independent review found was still a bare 4xx range. A forged token must
+be refused **explicitly** with 401 or 403 — an empty 200 there would mean the token was accepted
+and merely filtered, which the old assertion counted as a pass. A forged role **header** rides a
+valid token, so it is written as a different contract: answered normally, yielding no privileged
+rows, and classifying **identically to the same request without the headers**, which is what makes
+it falsifiable.
 
 **The negative controls the review required**, in `test/auth-acceptance-predicates.test.mjs`:
-8 offline tests feeding a 200 with a non-array body, 500/502/503/504, 400/404/405/429, undefined,
-null, and an accepted-but-filtered 200, each required to be **rejected** as a denial. They need no
+10 offline tests feeding a 200 with a non-array body, 500/502/503/504, 400/404/405/429, undefined,
+null, an accepted-but-filtered 200, a circular and a BigInt body, and a token response whose
+credentials must be redacted, each required to be **rejected** as a denial or survived without a
+throw. They need no
 network and no key. The workflow runs them first, with no secret in scope, so the rules are proven
 before the key exists:
 
 ```
 ok 1..8   # tests 8  # pass 8  # fail 0
 MM_STAGING_SERVICE_KEY is not configured in the staging-auth-acceptance environment.
+(that run predates the two controls added after independent review; the suite is now 10)
 ```
 ([run `42454204170`](https://github.com/kennedychinazam/matchmind/actions/runs/42454204170))
 
@@ -119,6 +130,77 @@ reviewer before any secret is materialised; a repository secret has neither cont
 **One further tightening, from auditing my own corrections:** the publisher assertion matched any
 string containing "publisher", which a permission error naming `publisher_allowed` would satisfy.
 It now requires the gate's own message, `Scoped publisher required`.
+
+### Independent security review of the corrections, and what it found
+
+An independent reviewer rebuilt a fake Supabase (GoTrue admin, token and logout endpoints,
+PostgREST, the RPCs), drove the real harness against it under 20 adversarial scenarios,
+brute-forced the decision rules over 5,632 status-by-body combinations, and ran 12 mutants of the
+predicates against the negative controls. It confirmed DR2 and DR3 hold under attack, and that
+9 of the 12 mutants die — the controls are real tests. It also found that **three of the four
+corrections still contained a vacuous assertion of exactly the class this round existed to
+remove**, plus a command-injection sink in the workflow. Eight findings, each reproduced by
+execution. All are fixed:
+
+| # | What was wrong | Why it mattered | Fix |
+|---|---|---|---|
+| F1 | `refresh_token_revoked_by_sign_out` accepted any 4xx, with no proof the token ever worked | Passed 42/42 and exit 0 in a stub where **logout revoked nothing**, and under a 429 | Positive control before sign-out; exactly 400 after; body must name the token; sign-in must return a `refresh_token` |
+| F2 | The cross-owner INSERT was a bare 4xx range | A stub that **wrote the forged row** and answered an unrelated 400 passed, leaving a row at an unowned id | Explicit 401/403, body must name row-level security, no row may exist at the forged id, and cleanup removes it |
+| F3 | `test "${{ inputs.confirm }}" = "STAGING"` | Actions substitutes textually: a quote in the input closed the string and ran arbitrary shell **inside the approved job**, two steps from the key, while the gate returned 0 | Input read through `env:`, plus a `choice` input and a fail-closed branch assertion |
+| F4 | The 24-hour bound measured `exp - iat` | A token valid for **ten years** passed a check whose name said 24 hours | Bounded against the wall clock, with an `iat` freshness check |
+| F5 | The user record was captured after the checks that reject it | A created user survived the project unnamed when the response shape differed or a 500 followed the commit | Record pushed first; both response shapes read; recovery by email; row and user cleanup in separate `try` blocks |
+| F6 | No control fed `explain()` an unserialisable body | A mutant removing its guard survived all 8 controls; a future simplification turns every failure message into a crash | Controls for circular, BigInt, throwing `toJSON` and hostile proxy bodies |
+| F7 | `forged_role_header_answer_is_a_real_contract_not_an_error` | **Proven tautology** over 5,632 inputs: unfailable, and it inflated the pass count by one | Replaced with the comparison against the unforged request |
+| F8 | `::add-mask::` printed unconditionally | That line **is** the admin key in clear text anywhere but Actions | Emitted only when `GITHUB_ACTIONS=true`; `explain()` now redacts token fields |
+
+Two lower findings from the same review are also fixed: the failure printer lost the stack
+(`String(primary.message)` surfaced the literal `undefined` for a non-`Error` throw), and the
+now-stricter raw-feed loop would fail for a relation that is simply not exposed through PostgREST,
+which would read like an Auth finding — an admin-keyed preflight now asserts exposure separately.
+
+**Four sentences in an earlier version of this report were wrong**, and they are corrected above
+rather than quietly edited: it claimed the refresh token "mints nothing, asserted on both the
+status and the absence of a new `access_token`", that the access token's lifetime "is required to
+be finite and within 24 hours", that "a denial is only `refused_auth` or `empty`", and that for
+the role header "an error is not accepted as success". Per F1, F4, F2 and F7 the first two passed
+on evidence consistent with no revocation and with a ten-year token, the third did not hold at the
+cross-owner INSERT, and the fourth could not fail.
+
+**Verification of the fixes**, each a stub scenario that must now end the job:
+
+```
+happy path                          PASS 54, exit 0, ROWS_LEFT=[] USERS_LEFT=[]
+refresh_429                         FAILED refresh_token_WORKS_before_sign_out        exit 1
+logout_noop                         FAILED refresh_after_sign_out_refused_400...      exit 1
+no_refresh_in_signin                FAILED real_password_sign_in_a                    exit 1
+hostile_exp (10-year token)         FAILED access_token_remaining_life_within_24h     exit 1
+foreign_insert_allowed              FAILED owner_A_cannot_insert_for_another_owner    exit 1, ROWS_LEFT=[]
+create_500_after_create             FAILED admin_created_user_a, user recovered by email, USERS_LEFT=[]
+table_404                           FAILED relation_is_exposed_through_postgrest_...  exit 1
+raw_feed_malformed / leaks / 500    FAILED authenticated_no_raw_feed_fixtures         exit 1
+header_role_elevates                FAILED forged_role_header_yields_no_privileged... exit 1
+crossread_leaks / crosswrite        FAILED owner_A_reads_only_its_own_row / ..._update exit 1
+cleanup_socket_dies                 CLEANUP INCOMPLETE, every id and email named      exit 1
+display_500,row_delete_noop         original failure first, cleanup problem second    exit 1
+injection payload into confirm      refused, nothing executed                         exit 1
+dispatch from another branch        refused by the in-job branch assertion            exit 1
+no GITHUB_ACTIONS                   no ::add-mask:: line, no key on stdout
+offline suite                       233 tests, 233 pass, 0 fail
+```
+
+**Two limits a person has to close**, named by the review and now written into the workflow
+header. Referencing an environment that does not exist **auto-creates it with no protection
+rules**, so the branch policy and the required reviewer exist only because somebody set them, and
+nothing in the repository can verify that. And the branch policy names a feature branch: after
+merge and branch deletion the push trigger stops firing and a dispatch from the default branch is
+refused by that policy, so whoever merges updates it. Required reviewers are now stated as
+**required**, not recommended, because the push trigger carries no confirmation input.
+
+**One finding I did not fix.** The review suggested SHA-pinning `actions/checkout@v4` and
+`actions/setup-node@v4`, which is sound for a job that holds an admin key. Resolving a trustworthy
+commit SHA means reading a repository outside the access this session is scoped to, and guessing
+one would break CI. Both tags are unchanged from the other workflows in this repository. It is the
+operator's call, and a one-line edit.
 
 **A factual limit on DR4.** I cannot create or inspect GitHub environments or secrets from here;
 those API paths return 403 through this session's proxy. That step is the operator's. Environments

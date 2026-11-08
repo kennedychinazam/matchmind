@@ -9,7 +9,9 @@
 #   REQUIRED SETUP, by a person, in the GitHub UI only:
 #     Settings > Environments > New environment > name it exactly: staging-auth-acceptance
 #       Deployment branches: Selected branches -> claude/staging-s1-s2-20261107
-#       Required reviewers: add yourself (recommended; the run then pauses for approval)
+#       Required reviewers: add yourself. REQUIRED, not optional: the push trigger below fires
+#         on every push to the acceptance branch and carries no confirmation input, so required
+#         reviewers are the only control that stops the key being materialised unattended.
 #       Environment secrets > Add secret:
 #         name  MM_STAGING_SERVICE_KEY
 #         value the service_role (secret) key of the STAGING project rdcbnvfnxenrpnnwxszs ONLY
@@ -22,6 +24,15 @@
 #
 # Nothing privileged can reach the logs: the script masks the key before first use, GitHub
 # redacts registered secrets, and this workflow uploads no artifacts.
+#
+# TWO LIMITS A PERSON HAS TO CLOSE, named by the independent review of 8 November 2026:
+#   1. Referencing an environment that does not exist AUTO-CREATES it with no protection rules.
+#      Branch policy and required reviewers exist only because somebody set them. Nothing in this
+#      file can verify they were set, so the setup block above is a requirement, not a suggestion.
+#   2. The Deployment-branches policy names a feature branch. After this merges and the branch is
+#      deleted, the push trigger stops firing and a dispatch from the default branch is refused by
+#      that policy. Whoever merges updates the policy to the default branch, or this job becomes
+#      unrunnable.
 name: MatchMind staging authenticated acceptance
 on:
   # `gh workflow run` cannot dispatch a workflow that is not yet on the default branch, so without
@@ -37,9 +48,13 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type STAGING to confirm this runs against the staging project only'
+        description: 'Confirm this runs against the staging project only'
         required: true
-        default: ''
+        type: choice
+        default: 'NO'
+        options:
+          - 'NO'
+          - 'STAGING'
 permissions:
   contents: read
 jobs:
@@ -54,11 +69,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20.20.2'
-      - name: Refuse unless the operator confirmed the staging target
-        if: github.event_name == 'workflow_dispatch'
+      # The input is read through `env:`, never interpolated into the script body. Actions
+      # substitutes `${{ }}` textually before bash parses it, so a quote in the value used to
+      # close the string and turn the rest into shell source: arbitrary code inside the approved
+      # job, two steps from the admin key, and the gate returned 0 for a value that was not
+      # STAGING. A `choice` input removes the attacker's control of the value as well.
+      # The branch assertion is a repository-side fail-closed check: it does not depend on the
+      # environment's branch policy, which this file cannot see.
+      - name: Refuse unless the branch and the operator confirmation match the staging contract
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          test "${{ inputs.confirm }}" = "STAGING" || {
-            echo 'Confirmation input must be exactly STAGING.'; exit 1; }
+          test "$REF_NAME" = "claude/staging-s1-s2-20261107" || {
+            echo "Refusing: this job runs only on the acceptance branch, not $REF_NAME."; exit 1; }
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$CONFIRM" = "STAGING" || {
+              echo 'Confirmation input must be exactly STAGING.'; exit 1; }
+          fi
       - name: Prove the decision rules first, offline, with no secret in scope
         run: node --test test/auth-acceptance-predicates.test.mjs
       - name: Report whether the environment secret is present
