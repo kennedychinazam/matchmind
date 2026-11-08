@@ -66,13 +66,81 @@ the app does, and then proves over real HTTP with real JWTs:
 - both users are deleted and their deletion verified, in a `finally` that cannot mask the original
   failure
 
+### Corrections after Director review of 8 November 2026
+
+The first version of this harness had four defects. All are fixed in one source-only commit,
+`5731c29`, with no key required to land it.
+
+**DR1, the sign-out assertion was factually wrong.** It asserted that an access token minted
+before `/auth/v1/logout` stops authorizing PostgREST immediately. Supabase revokes the **refresh**
+token; an already minted access token stays valid until its own `exp`. The old assertion would
+have failed against correct platform behaviour, and reading that as an app defect would have been
+worse than not testing it. Replaced with: sign-out is accepted; the refresh token mints nothing,
+asserted on both the status and the absence of a new `access_token`; and the access token's
+lifetime is required to be finite and within 24 hours. Expiry to exhaustion is **not claimed** —
+it would mean idling out the token's remaining life — so the remaining seconds are printed as a
+NOTE and the omission is named in the job output rather than left for a reader to find.
+
+**DR2, the tamper checks were vacuous.** `!(200 && isArray && length>0)` is satisfied by a 500, a
+404, a rate limit, and a 200 carrying rows under another key. The decision rules now live in
+`backend/fixture-delivery/acceptance-predicates.mjs` and classify a response before anything is
+called a denial: `refused_auth`, `empty`, `rows`, `malformed`, `server_error`, `other_4xx`,
+`unusable`. A denial is only `refused_auth` or `empty`. A forged token must be refused
+**explicitly** with 401 or 403 — an empty 200 there would mean the token was accepted and merely
+filtered, which the old assertion counted as a pass. A forged role **header** rides a valid token,
+so it is written as a different contract: answered normally, yielding no privileged rows, with an
+error not accepted as success.
+
+**The negative controls the review required**, in `test/auth-acceptance-predicates.test.mjs`:
+8 offline tests feeding a 200 with a non-array body, 500/502/503/504, 400/404/405/429, undefined,
+null, and an accepted-but-filtered 200, each required to be **rejected** as a denial. They need no
+network and no key. The workflow runs them first, with no secret in scope, so the rules are proven
+before the key exists:
+
+```
+ok 1..8   # tests 8  # pass 8  # fail 0
+MM_STAGING_SERVICE_KEY is not configured in the staging-auth-acceptance environment.
+```
+([run `42454204170`](https://github.com/kennedychinazam/matchmind/actions/runs/42454204170))
+
+**DR3, cleanup did not cover the rows.** Deleting the Auth user is not proof `public.app_state` is
+clean, because that table has no verified `ON DELETE CASCADE`. Rows are now deleted by their own
+owner where a token exists and by the authorized staging admin path otherwise, their absence is
+verified, then the users are deleted and their absence verified. Either survivor fails the job and
+emits a warning naming the id. The original failure is preserved: the body records its error,
+cleanup runs unconditionally and collects its own problems, and the original is reported first.
+Each created user id is validated as a UUID before the next user is created.
+
+**DR4, secret routing.** This repository is **public**. The key now comes from a GitHub
+**Environment** secret in `staging-auth-acceptance`, with `environment:` on the job, rather than a
+repository-wide secret. An environment can be restricted to one branch and can require a named
+reviewer before any secret is materialised; a repository secret has neither control.
+
+**One further tightening, from auditing my own corrections:** the publisher assertion matched any
+string containing "publisher", which a permission error naming `publisher_allowed` would satisfy.
+It now requires the gate's own message, `Scoped publisher required`.
+
+**A factual limit on DR4.** I cannot create or inspect GitHub environments or secrets from here;
+those API paths return 403 through this session's proxy. That step is the operator's. Environments
+with branch restrictions and required reviewers are available on public repositories, so the
+control the review asked for does exist.
+
 ### The exact access requirement
 
-> **One repository secret: `MM_STAGING_SERVICE_KEY`, the `service_role` (secret) API key of the
+> **One ENVIRONMENT secret: `MM_STAGING_SERVICE_KEY`, the `service_role` (secret) API key of the
 > STAGING project `rdcbnvfnxenrpnnwxszs` only. Never the production key.**
 >
-> Supabase dashboard → project `matchmind-staging-357` → Settings → API → `service_role` key.
-> GitHub → repository Settings → Secrets and variables → Actions → New repository secret.
+> 1. GitHub → Settings → Environments → New environment → name it exactly
+>    `staging-auth-acceptance`
+> 2. Deployment branches: Selected branches → `claude/staging-s1-s2-20261107`
+> 3. Required reviewers: add yourself, so each run pauses for approval before the secret exists
+>    in the job
+> 4. Environment secrets → Add secret → `MM_STAGING_SERVICE_KEY`
+> 5. Value from Supabase → `matchmind-staging-357` → Settings → API → `service_role`
+>
+> Enter it in that settings page and nowhere else: not in chat, not in source, not in a PR
+> comment, not in a log. A one-time staging key rotated after acceptance is safer than a standing
+> one.
 
 The value never passes through chat, a commit, a file or a log: the script masks it before first
 use and GitHub redacts secrets from logs. The only key committed is the staging **publishable**
