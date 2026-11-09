@@ -13,8 +13,9 @@ const definitions=[
 const outcomes=[];
 const brief=e=>String(e?.message||e).slice(0,1200);
 async function geometry(page){return page.evaluate(()=>{
- const root=document.documentElement,nav=document.querySelector('.nav'),r=nav?.getBoundingClientRect();
- return{width:innerWidth,height:innerHeight,scrollWidth:root.scrollWidth,clientWidth:root.clientWidth,rootFont:getComputedStyle(root).fontSize,
+ const root=document.documentElement,nav=document.querySelector('.bottomnav'),r=nav?.getBoundingClientRect();
+ return{width:innerWidth,height:innerHeight,scrollWidth:root.scrollWidth,clientWidth:root.clientWidth,clientHeight:root.clientHeight,scrollY,rootFont:getComputedStyle(root).fontSize,
+ visualViewport:visualViewport?{width:visualViewport.width,height:visualViewport.height,offsetTop:visualViewport.offsetTop,offsetLeft:visualViewport.offsetLeft,scale:visualViewport.scale}:null,
  nav:r?{top:r.top,bottom:r.bottom,height:r.height}:null,
  buttons:[...document.querySelectorAll('.nav-btn')].map(n=>{const b=n.getBoundingClientRect();return{view:n.dataset.view,width:b.width,height:b.height};})};
 });}
@@ -22,7 +23,7 @@ function assertGeometry(g){
  assert.ok(g.scrollWidth<=g.clientWidth+1,`Page horizontal overflow: ${g.scrollWidth-g.clientWidth}px at ${g.width}px`);
  assert.equal(g.buttons.length,5,'five navigation tabs');
  for(const b of g.buttons){assert.ok(b.width>=44&&b.height>=44,`${b.view} touch box ${b.width}x${b.height} below existing project44px floor`);}
- assert.ok(g.nav&&g.nav.bottom<=g.height+1,'fixed navigation must remain within viewport');
+ assert.ok(g.nav&&g.nav.bottom<=g.height+1,`fixed navigation must remain within viewport; observed=${JSON.stringify(g)}`);
 }
 for(const definition of definitions){
  let h;
@@ -39,7 +40,9 @@ for(const definition of definitions){
   const dataCurrent=()=>edition.valid&&Number.isFinite(expiration)&&Date.now()<expiration;
   h.record('synthetic edition prerequisite',dataCurrent()?'PASS':'BLOCKED',{valid:edition.valid,reason:edition.reason,asOf:edition.asOf,expiresAt:edition.expiresAt,observedAt:edition.observedAt,
    note:'Unavailable or expired synthetic data is not classified as a product missing-match defect.'});
-  await h.check('WebKit default phone layout and touch navigation geometry',async()=>{assertGeometry(await geometry(page));});
+  await h.check('WebKit default phone layout and touch navigation geometry',async()=>{const observed=await geometry(page);assertGeometry(observed);return observed;});
+  await page.screenshot({path:resolve(process.env.EVIDENCE_DIR||'qa-evidence',definition.role+'-initial-viewport.png'),fullPage:false});
+  h.report.errors??=[];h.report.errors.push({ERROR:'Initial QA run reported eight fixed-navigation failures per profile',ROOT_CAUSE:'Verified harness selector defect: .nav matched no element; actual approved markup uses .bottomnav. No product clipping established by those failures.',EVIDENCE:'Initial CI reports retained separately; index.html:298 defines .bottomnav and index.html:1011 renders that class.',PROPOSED_SOLUTION:'Query the actual .bottomnav element and retain the original viewport/touch-size assertions; record numeric geometry and viewport screenshots.',ALTERNATIVES:'Explicitly inspect nav-button parent element; replacing the selector is smaller and matches approved markup.',IMPACT:'Initial navigation geometry results were false failures cascading into unrelated scenarios. Physical iOS acceptance remains unverified.',VERIFICATION:'Rerun both WebKit profiles against actual staging with non-null nav geometry and unchanged bounds.',STATUS:'Harness correction implemented; actual staging rerun required'});
   await h.screenshot('initial-scores');
   await h.check('all five navigation tabs respond to simulated touch',async()=>{
    for(const view of ['predict','tips','favs','data','scores']){
@@ -68,9 +71,10 @@ for(const definition of definitions){
    const text=await page.locator('#fixtureList').innerText();
    assert.ok(count>0||/no|nothing|unavailable|not yet|no matches/i.test(text),'Analysis is blank rather than an explicit empty/unavailable state');
    // Only click a genuinely rendered fixture; never seed a replacement match or call openFixture directly.
-   const actionable=page.locator('#fixtureList .fxrow');
-   if(count>0){await actionable.first().tap();assert.equal(await page.locator('#view-detail').isVisible(),true);assertGeometry(await geometry(page));await h.screenshot('analysis-detail');}
-   return{renderedFixtures:count,emptyState:count===0?text.slice(0,300):null};
+   const actionable=page.locator('#fixtureList .fxrow.favrow'),actionableCount=await actionable.count();
+   if(actionableCount>0){await actionable.first().tap();assert.equal(await page.locator('#view-detail').isVisible(),true);assertGeometry(await geometry(page));await h.screenshot('analysis-detail');}
+   else h.record('Analysis match-detail touch prerequisite','BLOCKED',{reason:'No actionable admitted fixture is rendered; static historical rows are not treated as buttons.'});
+   return{renderedFixtures:count,actionableFixtures:actionableCount,emptyState:count===0?text.slice(0,300):null};
   });
   await dataCheck('Scores status filters keep rendered count and selected labels truthful',async()=>{
    await page.locator('.nav-btn[data-view="scores"]').tap();

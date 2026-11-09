@@ -21,16 +21,36 @@ async function dataCheck(name,fn,deadline){
  try{const details=await fn();if(Date.now()>=deadline)h.record(name,'BLOCKED','The observed edition expired during comparison; no product-failure claim is made.');else h.record(name,'PASS',details||{});}
  catch(e){if(Date.now()>=deadline)h.record(name,'BLOCKED',{reason:'Edition expired during check',error:e.message});else{let screenshot=null;try{screenshot=await h.screenshot('failure-data-'+h.report.checks.length);}catch{}h.record(name,'FAIL',{error:e.stack||String(e),screenshot});}}
 }
+// Cloudflare canonicalizes /index.html to /. Follow only bounded HTTPS static-asset
+// redirects on the exact approved origin. Never send an asset request to another service.
+async function fetchStaticAsset(start,fetcher=fetch){
+ const allowed=new Set(['/','/index.html','/sw.js','/manifest.webmanifest','/icon-192.png','/icon-512.png','/BUILD-INFO.json']);
+ const chain=[],seen=new Set();let current=new URL(start,origin);current.hash='';
+ const refuse=message=>{const e=new Error(message);e.code='QA_REDIRECT_REJECTED';e.redirectChain=chain;return e;};
+ for(let hops=0;hops<=3;hops++){
+  if(current.protocol!=='https:'||current.origin!==origin||current.username||current.password||!allowed.has(current.pathname))throw refuse('Static asset redirect leaves the approved HTTPS origin/path set');
+  if(seen.has(current.href))throw refuse('Static asset redirect cycle');seen.add(current.href);
+  const r=await fetcher(current.href,{redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(30000)});
+  const step={url:current.href,status:r.status};chain.push(step);
+  if([301,302,303,307,308].includes(r.status)){
+   const location=r.headers.get('location');if(!location)throw refuse('Static asset redirect lacks Location');
+   const next=new URL(location,current);next.hash='';step.location=next.origin+next.pathname;
+   if(hops===3)throw refuse('Static asset redirect limit exceeded');current=next;continue;
+  }
+  return{response:r,bytes:Buffer.from(await r.arrayBuffer()),chain,finalURL:current.href};
+ }
+ throw refuse('Static asset redirect limit exceeded');
+}
 async function archiveSnapshot(){return page.evaluate(()=>Object.fromEntries(Object.entries(afState.archive||{}).sort(([a],[b])=>a.localeCompare(b)).map(([id,r])=>[id,{kickoff:r.kickoff,ktime:r.ktime,pick:r.pick,prob:r.prob,market:r.market,pW:r.pW,pD:r.pD,pL:r.pL,xgH:r.xgH,xgA:r.xgA,at:r.at}])));}
 try{
  const info=JSON.parse(readFileSync(join(dist,'BUILD-INFO.json'),'utf8'));
  h.report.expectedArtifact=info;
  assert.equal(info.build,358);assert.equal(info.staging_project,'rdcbnvfnxenrpnnwxszs');
  for(const name of ['index.html','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','BUILD-INFO.json']){
-  let r,b;try{r=await fetch(new URL('/'+name,origin),{redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(30000)});b=Buffer.from(await r.arrayBuffer());}
-  catch(e){h.record('actual '+name+' reachability','BLOCKED',{error:e.message,classification:'transport, not an observed application defect'});continue;}
+  let r,b,chain,finalURL;try{const asset=await fetchStaticAsset('/'+name);r=asset.response;b=asset.bytes;chain=asset.chain;finalURL=asset.finalURL;}
+  catch(e){h.record('actual '+name+' reachability',e.code==='QA_REDIRECT_REJECTED'?'FAIL':'BLOCKED',{error:e.message,redirectChain:e.redirectChain||[],classification:e.code==='QA_REDIRECT_REJECTED'?'rejected redirect; no external or nonstatic request followed':'transport, not an observed application defect'});continue;}
   const want=name==='BUILD-INFO.json'?sha(readFileSync(join(dist,name))):info.output_sha256[name];
-  assets[name]={status:r.status,sha256:sha(b),expected_sha256:want,contentType:r.headers.get('content-type'),cacheControl:r.headers.get('cache-control'),bytes:b.length};
+  assets[name]={status:r.status,redirectChain:chain,finalURL,sha256:sha(b),expected_sha256:want,contentType:r.headers.get('content-type'),cacheControl:r.headers.get('cache-control'),bytes:b.length};
   await h.check('Cloudflare '+name+' equals reviewed generated artifact',async()=>{assert.equal(r.status,200);assert.equal(sha(b),want);});
   if(name==='index.html'&&r.status===200){reachable=true;await h.check('deployed HTML has only staging binding and Build358 guard',async()=>{const html=b.toString('utf8');assert.match(html,/const APP_BUILD = 358;/);assert.match(html,/const SUPA_URL = 'https:\/\/rdcbnvfnxenrpnnwxszs\.supabase\.co';/);assert.match(html,/id="stagingGuard"/);assert.doesNotMatch(html,/toqfdrcjzwnlydqekude|sb_secret_|SUPABASE_SERVICE_ROLE_KEY/);});}
   if(name==='sw.js')await h.check('worker identity is Build358 and contains no backend/provider route',async()=>{const text=b.toString('utf8');assert.match(text,/const CACHE = 'matchmind-v358';/);assert.doesNotMatch(text,/toqfdrcjzwnlydqekude|openrouter\.ai|api-sports\.io|\/functions\/v1\//);});
