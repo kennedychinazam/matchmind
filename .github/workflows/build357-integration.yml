@@ -56,6 +56,36 @@ jobs:
       - name: Run offline launch, settlement, integration and takeover UI tests
         run: PWA_PLAYWRIGHT=playwright-core PWA_CHROMIUM="$MM_TEST_CHROMIUM" node --test test/*.test.mjs
 
+  cross-tab-webkit:
+    name: Offline cross-tab recovery — simulated WebKit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20.20.2'
+      - name: Install pinned offline browser test driver and WebKit
+        run: |
+          npm install --no-save --package-lock=false --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps webkit
+      - name: Verify synthetic mobile and desktop filter recovery without network-backed data
+        run: |
+          mkdir -p "$RUNNER_TEMP/cross-tab-evidence"
+          MM_CROSS_TAB_BROWSER=webkit PWA_PLAYWRIGHT=playwright \
+            MM_FILTER_SCREENSHOT_DIR="$RUNNER_TEMP/cross-tab-evidence" \
+            node --test test/scores-predict-filter-recovery.test.mjs
+      - name: Preserve explicitly synthetic screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cross-tab-webkit-synthetic-${{ github.sha }}
+          path: ${{ runner.temp }}/cross-tab-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+
   # The browser suite says nothing about PROPOSAL-up.sql, so the raw fence was
   # operator-attested only. This runs the 10 asserting probes against a throwaway
   # PostgreSQL service, and then a NEGATIVE CONTROL: with the permissive policy removed,

@@ -22273,7 +22273,21 @@ function renderFixtures(){
   const anyLeagues = footballLeagues().length>0;
   $('discoverCard').classList.toggle('hidden', anyLeagues && !discoverPinned);
   renderCompsDrop();
-  if(!Ls.length){ wrap.classList.add('hidden'); return; }
+  if(!Ls.length){
+    // Scores can select a competition with no prediction inventory. Keep an explicit
+    // recovery surface instead of hiding both the feed and its competition control.
+    const filtered = anyLeagues && !['all','football','basketball'].includes(afState.filter);
+    wrap.classList.toggle('hidden', !filtered);
+    if(filtered){
+      syncCompsChips(); $('dateBar').innerHTML = '';
+      $('fixtureList').innerHTML = '<p class="subnote" role="status">No predictions are available for the selected competition in the loaded data. The competition filter is still applied.</p><button type="button" class="btn" style="min-height:44px" id="predictClearFilter">Show All competitions</button>';
+      $('predictClearFilter').addEventListener('click', ()=>{
+        afState.filter = 'all'; syncCompsChips(); renderFixtures(); saveState();
+        $('segComps').focus();
+      });
+    }
+    return;
+  }
   wrap.classList.remove('hidden');
   // a week of played fixtures stays in the feed with its ✓/✗, so the record is visible rather than
   // vanishing overnight (build 59; was 2 days)
