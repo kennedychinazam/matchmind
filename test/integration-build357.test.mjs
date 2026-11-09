@@ -21,8 +21,8 @@ const path=browserPath();
 test('Build 357 and cache version remain aligned',()=>{
   const html=readFileSync(join(ROOT,'index.html'),'utf8');
   const sw=readFileSync(join(ROOT,'sw.js'),'utf8');
-  assert.match(html,/const APP_BUILD = 357;/);
-  assert.match(sw,/const CACHE = 'matchmind-v357';/);
+  assert.match(html,/const APP_BUILD = 358;/);
+  assert.match(sw,/const CACHE = 'matchmind-v358';/);
 });
 test('published DNB disclosure coexists with unresolved AET protection',async t=>{
   assert.ok(pw&&path,'CI must include Chromium, never skip the integration behavioral test');

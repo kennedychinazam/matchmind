@@ -15,6 +15,7 @@ on:
       - claude/release-acceptance-20261106
       - claude/blocker-closure-20261106
       - claude/staging-s1-s2-20261107
+      - claude/build-358-candidate-20261109
     paths:
       - 'index.html'
       - 'sw.js'

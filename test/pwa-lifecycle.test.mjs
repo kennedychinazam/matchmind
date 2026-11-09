@@ -14,16 +14,16 @@ const repo = new URL('../', import.meta.url);
 test('disposable origin: worker update, offline shell, and forward-version rollback', { skip: !playwrightPath || !executablePath ? 'set PWA_PLAYWRIGHT and PWA_CHROMIUM for browser integration' : false, timeout: 120000 }, async () => {
   const { chromium } = createRequire(import.meta.url)(playwrightPath);
   const [worker, html, manifest, icon192, icon512] = await Promise.all(['sw.js', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'].map(name => readFile(new URL(name, repo))));
-  assert.equal(digest(worker), '67640f8c46be5635b6efe536f33564ec08530c84e8b79ca5b527c79ee15d430a');
+  assert.equal(digest(worker), 'f3d69081ea3d2c6a410d338143d4afd70cd704cf39d724cda789c9f8d59117e8');
   // Bind cached/offline bytes to the exact current candidate, not an older accepted HTML digest.
-  assert.match(html.toString(), /const APP_BUILD = 357[;\s]/);
+  assert.match(html.toString(), /const APP_BUILD = 358[;\s]/);
   assert.match(html.toString(), /<title>MatchMind/);
   const updatedHtml = Buffer.from(html.toString().replace('<head>', '<head><meta name="synthetic-app-version" content="N+1">'));
   assert.notEqual(digest(updatedHtml), digest(html));
-  let version = 357, offline = false;
+  let version = 358, offline = false;
   const requests = [], phases = [], errors = [];
-  const workerFor = v => v === 357 ? worker : Buffer.from(worker.toString().replace("const CACHE = 'matchmind-v357';", `const CACHE = 'matchmind-v${v}';`) + `\n// Synthetic response fixture ${v}.\nself.addEventListener('message', e => { if (e.data === 'fixture-identity') e.ports[0].postMessage('synthetic-worker-${v}'); });\n`);
-  const bodyFor = v => v === 358 ? updatedHtml : html;
+  const workerFor = v => v === 358 ? worker : Buffer.from(worker.toString().replace("const CACHE = 'matchmind-v358';", `const CACHE = 'matchmind-v${v}';`) + `\n// Synthetic response fixture ${v}.\nself.addEventListener('message', e => { if (e.data === 'fixture-identity') e.ports[0].postMessage('synthetic-worker-${v}'); });\n`);
+  const bodyFor = v => v === 359 ? updatedHtml : html;
   const server = createServer((req, res) => {
     const path = new URL(req.url, 'http://127.0.0.1').pathname;
     if (offline) { req.socket.destroy(); return; }
@@ -71,20 +71,20 @@ test('disposable origin: worker update, offline shell, and forward-version rollb
       assert.equal(received.marker, 'preserved');
       phases.push({ label, version: v, worker_sha256: digest(workerFor(v)), ...received });
     }
-    await receipt(357, 'baseline activated and controls page');
+    await receipt(358, 'baseline activated and controls page');
     async function offlineReload(v, label) {
       offline = true;
       const response = await page.reload({ waitUntil: 'load' });
       assert.equal(response.status(), 200);
       const offlineBodyHash = digest(await response.body());
       assert.equal(offlineBodyHash, digest(bodyFor(v)));
-      assert.equal(await page.evaluate(() => document.querySelector('meta[name="synthetic-app-version"]')?.content ?? null), v === 358 ? 'N+1' : null);
+      assert.equal(await page.evaluate(() => document.querySelector('meta[name="synthetic-app-version"]')?.content ?? null), v === 359 ? 'N+1' : null);
       await receipt(v, label);
       phases.at(-1).offline_response_sha256 = offlineBodyHash;
-      phases.at(-1).offline_app_marker = v === 358 ? 'N+1' : null;
+      phases.at(-1).offline_app_marker = v === 359 ? 'N+1' : null;
       offline = false;
     }
-    await offlineReload(357, 'baseline offline reload');
+    await offlineReload(358, 'baseline offline reload');
     const probeCached = await page.evaluate(async () => {
       await fetch('/sw.js?cb=synthetic-probe', { cache: 'no-store' });
       return !!(await caches.match('/sw.js?cb=synthetic-probe'));
@@ -112,13 +112,13 @@ test('disposable origin: worker update, offline shell, and forward-version rollb
       });
       assert.equal(identity.response, `synthetic-worker-${v}`);
       assert.ok(requests.some(r => r.path === '/sw.js' && r.version === v && r.sha256 === digest(workerFor(v))));
-      await receipt(v, v === 358 ? 'synthetic N+1 update' : 'synthetic forward-version rollback to N content');
+      await receipt(v, v === 359 ? 'synthetic N+1 update' : 'synthetic forward-version rollback to N content');
       phases.at(-1).identity = identity;
     }
-    await update(358);
-    await offlineReload(358, 'updated content offline reload');
     await update(359);
-    await offlineReload(359, 'rolled-back content offline reload');
+    await offlineReload(359, 'updated content offline reload');
+    await update(360);
+    await offlineReload(360, 'rolled-back content offline reload');
     evidence.result = 'PASS';
   } catch (e) {
     evidence.result = 'FAIL'; evidence.failure = { message: e.message, stack: e.stack }; throw e;
