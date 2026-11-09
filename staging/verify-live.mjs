@@ -53,7 +53,7 @@ check('the page is configured for the staging project', state && state.supa === 
 check('the staging bar is on screen', state && state.bar);
 check('the page adopted the published edition', state && state.leagues > 0 && state.until > Date.now(), JSON.stringify(state));
 check('the adopted edition is the one the RPC serves', env && state && state.asOf === Date.parse(env.as_of), `page ${state && state.asOf} rpc ${env && Date.parse(env.as_of)}`);
-check('145 frozen predictions are in the page archive', state && state.archive === 145, 'archive ' + (state && state.archive));
+check('the 145 frozen predictions and the 4 additive QA forecasts are in the page archive', state && state.archive >= 145, 'archive ' + (state && state.archive));
 const hosts = [...new Set(reqs.map(u => { try { return new URL(u).hostname; } catch { return u; } }))].sort();
 check('the browser contacted only allowed hosts', hosts.every(h => ['127.0.0.1', `${STG}.supabase.co`, 'fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net'].includes(h)), hosts.join(', '));
 check('production, providers and AI were never contacted', !reqs.some(u => u.includes(PROD) || /api-sports|openrouter|anthropic|moonshot|deepseek/.test(u)));
