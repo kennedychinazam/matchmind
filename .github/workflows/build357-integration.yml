@@ -17,6 +17,7 @@ on:
       - claude/staging-s1-s2-20261107
       - claude/build-358-candidate-20261109
       - claude/build-358-staging-20261109
+      - codex/build358-staging-remediation-20261109
     paths:
       - 'index.html'
       - 'sw.js'

@@ -3152,7 +3152,7 @@ function showPublishedFixture(L,f){
  $('heroConf').textContent=issued?pct(f.prob)+' published probability':'';
  $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
  setHeroDnb(available?f.pick:null,v);
- $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. MatchMind is no longer backing it; it is not a current recommendation.</p>')+'<p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
+ $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. MatchMind is no longer backing it; it is not a current recommendation.</p>')+'<p>League Table unavailable in this published edition. Full competition standings are not supplied; no table is inferred from the limited display window.</p><p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
  const result=fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
  const resultLine=document.createElement('div');resultLine.className='hm-dt';
  const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
@@ -22191,7 +22191,8 @@ function renderStrongPicks(){
 function compsLabel(){
   const v = afState.filter;
   return '🏆 ' + (v==='all' ? 'All competitions' : v==='football' ? 'All football' : v==='basketball' ? 'All basketball'
-                : (afState.leagues[v] ? afState.leagues[v].name : 'One competition')) + ' ▾';
+                : (afState.leagues[v] ? afState.leagues[v].name
+                   : escapeHtml(((afState.scores?.list||[]).find(s=>String(s.lid)===String(v))||{}).lname || 'One competition'))) + ' ▾';
 }
 function syncCompsChips(){
   for(const id of ['segComps','segCompsS']){ const b=$(id); if(b) b.innerHTML = compsLabel(); }
@@ -22205,15 +22206,26 @@ function buildCompsDrop(boxId){
   /* Same rule as the feed: a competition with no history can't be predicted, so it doesn't belong in
      Predict's own competition list either. The World Cup was still listed here with 20 fixtures and
      no prediction behind any of them (build 84). */
-  const all = order.map(id=>afState.leagues[id])
+  // Scores is an admitted fixture display, not a prediction-history inventory. Its menu must
+  // include every competition on the selected local day, including unpriced fixtures and
+  // competitions absent from the private prediction corpus. Never create or mutate that corpus.
+  const isScores = boxId==='compsDropS';
+  const scoreComps = new Map();
+  if(isScores) for(const s of (afState.scores?.list||[])){
+    if((s.ldate||localDateOf(s))!==(afState.scoresDate||ymdOffset(0))) continue;
+    const key=String(s.lid);
+    if(!scoreComps.has(key)) scoreComps.set(key,{id:s.lid,name:s.lname||'One competition',country:s.lcountry||'',sport:'football',_scoreCount:0});
+    scoreComps.get(key)._scoreCount++;
+  }
+  const all = isScores ? [...scoreComps.values()] : order.map(id=>afState.leagues[id])
     .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
   const fb = all.filter(l=>(l.sport||'football')==='football').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
-  const predicted = l => (l.upcoming||[]).filter(f=>f.pick).length;
+  const predicted = l => isScores ? l._scoreCount : (l.upcoming||[]).filter(f=>f.pick).length;
   const cnt = ls => ls.reduce((s,l)=>s+predicted(l),0);
   const item = (val,label,count)=>`<div class="lgitem${String(afState.filter)===String(val)?' sel':''}" data-f="${val}"><span>${label}</span><span class="muted">${count}</span></div>`;
   // show country next to the competition name so generic names ("Cup", "Super Cup"…) are identifiable (#19)
-  const lgLabel = (l, ic) => `${ic} ${l.name}` + (l.country && !(l.name||'').toLowerCase().includes((l.country||'').toLowerCase()) ? ` <span class="muted" style="font-weight:500">· ${l.country}</span>` : '');
+  const lgLabel = (l, ic) => `${ic} ${isScores ? escapeHtml(l.name) : l.name}` + (l.country && !(l.name||'').toLowerCase().includes((l.country||'').toLowerCase()) ? ` <span class="muted" style="font-weight:500">· ${isScores ? escapeHtml(l.country) : l.country}</span>` : '');
   let html = item('all','🌍 All competitions', cnt(all));
   if(fb.length){
     html += `<div class="sec-label" style="margin:10px 4px 4px">⚽ Football</div>` + item('football','All football', cnt(fb))
@@ -22231,7 +22243,8 @@ function buildCompsDrop(boxId){
      for EVERY public reader and this branch is the normal path, not an edge case. The note is
      extra information, not a reason to remove the only way back. */
   if(!all.length) html = item('all','🌍 All competitions', 0)
-    + '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
+    + (isScores ? '<div class="subnote" style="margin-bottom:4px">No competitions on this date.</div>'
+                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>');
   html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
