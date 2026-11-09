@@ -1,0 +1,45 @@
+# Build 358 staging preview: build it, and prove from a runner that it talks to the STAGING project only.
+# Anonymous and read-only. No secrets, no provider, no production, no deployment.
+name: Build 358 staging preview verify
+on:
+  push:
+    branches:
+      - claude/build-358-staging-20261109
+    paths:
+      - 'staging/**'
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - '.github/workflows/staging-preview-verify.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Select installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Build the preview
+        run: node staging/build-preview.mjs staging/dist
+      - name: Offline preview tests
+        run: PWA_PLAYWRIGHT=playwright-core PWA_CHROMIUM="$MM_TEST_CHROMIUM" node --test test/staging-preview.test.mjs
+      - name: Live binding check against the staging project
+        run: node staging/verify-live.mjs staging/dist
+      - name: Keep the built preview as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matchmind-build358-staging-preview
+          path: staging/dist
+          retention-days: 7
