@@ -18,7 +18,7 @@ rule serves the most recent edition while it is under 24 hours old.
 | A2 | Same window, pull to refresh twice, one minute apart. | The slate stays. No flicker to an empty screen between refreshes. |
 | A3 | Note the kick-off time of one fixture two or three days ahead, with a pick. Close the app fully. Reopen it after the next publisher run. | Same pick, same probability, same timestamp. A forecast is issued before kickoff and does not change because you opened the app. |
 | A4 | Pick a fixture that has already been played and carries a pick. Force-quit, reopen, and look again after midnight UTC. | The pick, its probability and its tick or cross are unchanged. No played fixture gains a pick it did not have. |
-| A5 | Ask the Director to **disable the publisher workflow for 25 hours** (a deliberate test, not a real outage), then open Analysis. | The feed reports the edition as unavailable and says so plainly. It must **not** read "No pick", and it must not serve a stale edition. Re-enable the workflow afterwards. |
+| A5 | Open Analysis when the newest edition is more than 7 hours old (the scheduled publisher stays on, no outage is staged). Read the header chip. | The chip reads `Updated Nh ago`, not `Live`. Its long-press or hover title names the publication time in UTC. Right after a publisher run it reads `Live` again. Do **not** disable the publisher to test this: the expired-edition case already passed offline. |
 | A6 | On the run after re-enabling, check the Actions tab. | The publisher ran and a new edition exists. A6 confirms recovery is automatic and needs no reader action. |
 
 ## B. League Table copy, on a real device

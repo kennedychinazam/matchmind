@@ -163,3 +163,45 @@ test('every remaining admission term still fails closed on the envelope itself',
  for(const k of ['expired','notYetPublished','livesTooLong','expiresBeforeAsOf','unparseableAsOf','unparseableExpiry','wrongVersion','wrongScreen'])
   assert.notEqual(r[k],'accepted',k+' must still be refused');
 });
+
+/* ───────────────────────── 3. THE HEADER CHIP STATES THE EDITION'S AGE ───────────────────────── */
+/* Measured: an edition 22.7 hours old still read "Live". The chip describes score state; the
+   published predictions are a rolling edition, so once it is old the chip says how old. */
+async function chipAt(t,now,width=390){
+ const page=await open(t);
+ await page.setViewportSize({width,height:844});
+ await setFakeNow(page,now);
+ await edition(page,{asOf:'2026-11-08T05:00:00.000Z',expires:'2026-11-09T05:00:00.000Z',day:'2026-11-08'});
+ await load(page,'2026-11-08');
+ return page.evaluate(()=>{const e=document.getElementById('dataChip'),r=e.getBoundingClientRect(),
+  lh=parseFloat(getComputedStyle(e).lineHeight)||r.height;
+  return{text:e.textContent.trim(),title:e.title,w:r.width,h:r.height,lines:Math.round(r.height/lh),
+   overflow:e.scrollWidth>e.clientWidth+1,right:r.right,vw:innerWidth};});
+}
+test('an edition 22.7 hours old does not read Live; the chip states its age',async t=>{
+ const c=await chipAt(t,'2026-11-09T03:42:00.000Z');
+ assert.equal(c.text,'● Updated 22h ago',`#dataChip read "${c.text}"`);
+ assert.doesNotMatch(c.text,/live/i,'#dataChip must not say Live for a 22.7 hour old edition');
+ assert.match(c.title,/2026-11-08 05:00 UTC/,'the title carries the publication time');
+});
+test('an edition under 7 hours old keeps the Live chip',async t=>{
+ const c=await chipAt(t,'2026-11-08T11:59:00.000Z');
+ assert.match(c.text,/^● Live · /,`#dataChip read "${c.text}"`);
+});
+test('the age chip is one line and stays on screen at 320 px and 390 px',async t=>{
+ for(const w of [320,390]){
+  const c=await chipAt(t,'2026-11-09T03:42:00.000Z',w);
+  assert.equal(c.lines,1,`#dataChip wrapped to ${c.lines} lines at ${w}px (${c.w}x${c.h})`);
+  assert.ok(!c.overflow,`#dataChip overflows its own box at ${w}px`);
+  assert.ok(c.right<=c.vw,`#dataChip right edge ${c.right} is past the ${c.vw}px viewport`);
+ }
+});
+test('the chip text follows the clock without a reload',async t=>{
+ const page=await open(t);
+ await setFakeNow(page,'2026-11-08T11:59:00.000Z');
+ await edition(page,{asOf:'2026-11-08T05:00:00.000Z',expires:'2026-11-09T05:00:00.000Z',day:'2026-11-08'});
+ await load(page,'2026-11-08');
+ await setFakeNow(page,'2026-11-08T12:01:00.000Z');
+ await page.evaluate(()=>setDataChip(_chipBase));
+ assert.equal((await page.evaluate(()=>document.getElementById('dataChip').textContent.trim())),'● Updated 7h ago');
+});

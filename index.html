@@ -3086,6 +3086,7 @@ function fixturePresentationRow(r,board){
    actually accepted, and read by its catch below to decide between keeping the screen and
    clearing it. Zero means nothing has ever been accepted. */
 let _presentationUntil = 0;
+let _presentationAsOf = 0;   // as_of of the accepted edition; the header chip states its age once it is old
 /* ANALYSIS-STATUS AMENDMENT - WHETHER THE LOCAL FORECAST ARCHIVE WAS ACTUALLY READ.
    `loadArchive` swallowed its own failure and left `afState.archive` exactly as it found it, so a
    refused or broken read was indistinguishable on screen from a month in which nothing had been
@@ -3111,7 +3112,7 @@ async function loadFixturePresentation(){
   }
   afState.leagues=leagues;afState.leagueOrder=Object.keys(leagues).map(Number);afState.archive=archive;afState.cloudFix=cloudFix;
   _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
-  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;
+  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
   _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
  }catch(e){
@@ -3132,7 +3133,7 @@ async function loadFixturePresentation(){
      cleared rather than showing an edition past its life. */
   const keep = _presentationUntil > Date.now()
     && Object.values(afState.leagues||{}).some(L=>L&&L._presentation);
-  if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;
+  if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;_presentationAsOf=0;
    _boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};}
   renderFixtures();
   const el=$('fixturesMeta')||$('discoverStatus');
@@ -3263,7 +3264,30 @@ function loadScorers(text, isSample){
   }).filter(s=>s.name && s.team);
 }
 
-function setDataChip(text){ $('dataChip').innerHTML = '● <b>'+text+'</b>'; }
+/* A rolling edition is current for up to 24 hours, so "Live" in the header said nothing true about
+   the age of the published predictions: at 22.7 hours it still read Live. Past 7 hours the chip
+   states the edition's age instead. Live SCORE state is not touched: Scores keeps its own live
+   markers on live matches. The count is dropped from the chip because 132px does not hold it. */
+const EDITION_STALE_MS = 7*3600000;
+let _chipBase = '';
+function editionAgeHours(){
+  if(!(_presentationAsOf && _presentationUntil > Date.now())) return -1;
+  const ms = Date.now() - _presentationAsOf;
+  return ms >= EDITION_STALE_MS ? Math.floor(ms/3600000) : -1;
+}
+function setDataChip(text){
+  _chipBase = text;
+  const el = $('dataChip'), h = /^Live/.test(text) ? editionAgeHours() : -1;
+  if(h >= 0){
+    el.innerHTML = '● <b>Updated '+h+'h ago</b>';
+    el.style.whiteSpace = 'nowrap';
+    el.title = 'Predictions published '+new Date(_presentationAsOf).toISOString().slice(0,16).replace('T',' ')+' UTC. '+text.replace(/^Live · /,'');
+    return;
+  }
+  el.innerHTML = '● <b>'+text+'</b>';
+  el.removeAttribute('title');
+}
+setInterval(()=>{ if(_chipBase && /^Live/.test(_chipBase)) setDataChip(_chipBase); }, 300000);
 
 /* ══ BUILD 214 — THE HEADER BADGE SAID "Sample data" ON TOP OF 23,033 REAL MATCHES ═══════════════
    Read from a live device on 2026-08-26: the chip in the global header read **"● Sample data"**
@@ -3307,7 +3331,7 @@ function refreshDataChip(){
      merely unlikely. */
   setDataChip(n < want ? 'Live · ' + n + '/' + want : 'Live · ' + n);
   const el = $('dataChip');
-  if(el){
+  if(el && editionAgeHours() < 0){
     el.style.whiteSpace = 'nowrap';
     el.title = n < want
       ? n + ' of ' + want + ' competitions loaded'

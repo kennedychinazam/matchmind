@@ -1,6 +1,6 @@
 # MatchMind final integrated release correction — report to the Director
 
-8 November 2026. Branch `claude/staging-s1-s2-20261107`, PR #26, **draft and unmerged**.
+8 November 2026, updated 9 November 2026 for the rolling-window round (sections 2.9, 2.10, 5.1, 9, 10). Branch `claude/staging-s1-s2-20261107`, PR #26, **draft and unmerged**.
 Baseline accepted head `e6459adcfc0f565b6ad26743b38560161491d115`.
 
 Nothing here has been deployed. Installed users are on **Build 355**; this branch is Build 357 and
@@ -223,7 +223,11 @@ fixture rather than surfacing as a generic mid-test 500. Verified failing-first 
 Supabase: an expired edition exits 1 with "FIXTURE NOT FRESH … TEST FIXTURE problem, not a product
 defect" and **zero** POSTs to `/auth/v1/admin/users`.
 
-### 2.9 A daily blackout of the public feed — FOUND, NOT FIXED, needs a Director decision
+### 2.9 A daily blackout of the public feed — FIXED on 8 and 9 November (original finding kept below)
+
+**Resolution.** The Director decided on a rolling 24-hour edition. SQL admits an edition when `as_of <= now` and `expires_at > now`; `materialize()` sets `expires_at = as_of + 24 hours`; the client `fixtureEnvelope` lost its calendar-day term. After 24 hours with no publish, `display()` raises `P0002` and the client fails closed. No stored edition was rewritten and no forecast, grade or formula changed. Head `0fbc41a`, CI run 42530534196: Node 20 and 24 each 276 of 276, PG16 and PG17 rolling-window probes 20 verdicts, PostgREST 95 checks. The independent review of `8c4a499..2e788a8` is closed and its 12 surviving mutants are killed. Hosted staging still runs the old migration; any hosted rollout needs separate Director authorization.
+
+The finding as first written:
 
 **ERROR.** Every UTC day has a window of roughly five and a half hours in which **no edition is
 admissible**, so ordinary readers get `Published fixtures unavailable. Please try again.` An
@@ -263,6 +267,18 @@ evidence about the publisher.
   installation to verify.
 
 **STATUS.** CONFIRMED by direct reading of all four sites. Awaiting a decision.
+
+### 2.10 The header chip said Live for an edition up to 24 hours old
+
+**ERROR.** With a rolling edition, the header chip read `Live · N` at 22.7 hours after `as_of`. It describes score state, and the reader took it as freshness of the published predictions.
+
+**CORRECTION (Director decision 1, 9 November).** `setDataChip` now states the age once the accepted edition is 7 hours old or more: `Updated 22h ago`, with the publication time in UTC in the title. Under 7 hours it reads `Live · N` as before. The chip is one line and nowrap, so it keeps its place at 320 px and 390 px. A 5-minute timer re-evaluates it, so it ages without a reload. Scores keeps its own live markers on live matches. No backend, formula or historical pick changed.
+
+**TESTS** (`test/display-edition-rolling-window.test.mjs`, section 3). They fail against the old `index.html` (tests 7 and 10 fail) and pass against the new one: the 22.7 hour edition does not read Live, a young edition keeps Live, the chip is one line and inside the viewport at 320 and 390 px (each failure names `#dataChip`), and the text follows a clock moved forward without a reload.
+
+**CHECKLIST.** `OPERATOR-CHECKLIST-ROLLING-EDITION.md` item A5 no longer asks anyone to disable the publisher for 25 hours. The Director ruled that out, and the expired case already passed offline.
+
+**Decision 2 (index on `editions(as_of desc, edition_id desc)`)** is deferred to after launch; no database change.
 
 ## 3. Files changed
 
@@ -369,6 +385,10 @@ not ok - after a reload the feed rendered 2 of the 6 matches the day holds, beca
          Chip: "🏆 All competitions ▾". The competition chip claims the feed is unfiltered.
 ```
 
+### 5.1 Rolling-window round
+
+CI on `0fbc41a` (run 42530534196) is green: Node 20.20.2 and 24.19.0 each 276 pass, 0 fail, 0 skipped; PG16 fence, PG17 hosted and PostgREST 95 checks pass. The header chip change (section 2.10) adds four tests to the 276. Local run on Node 22.23.4 with Chromium: 280 pass, 0 fail, 0 skipped (276 + 4 new). Exact-head CI on the new commit is pending until it is pushed and read.
+
 ## 6. Evidence that published predictions and historical accuracy are preserved
 
 - **Immutability verified in code.** `unarchivePrediction` does not exist. No `.delete()` against
@@ -457,9 +477,7 @@ as a precaution.
 2. **Read the API-Football subscription terms** and answer one question: may MatchMind redistribute
    fixture identity, kickoff times, team and competition names and scores to its own end users? No
    provider enquiry is needed or authorized to answer it.
-3. **Decide the daily blackout** (section 2.9). My recommendation is re-scoping the edition window
-   to the product's own day in all three places. It needs your approval because it touches the
-   migration, and a staging installation to verify.
+3. **Daily blackout: decided and fixed** (section 2.9). Hosted staging still runs the old migration. Any hosted rollout needs your separate authorization.
 4. **Decide anonymous reach**: should the bounded edition be readable by anonymous visitors, or
    only by signed-in accounts? The mechanism supports either and no decision is recorded.
 5. **Optional, two one-line calls.** SHA-pin `actions/checkout@v4` and `actions/setup-node@v4` in
@@ -481,8 +499,7 @@ evidence. Four things are outstanding, and three of them are not engineering's t
 1. **No physical-device acceptance.** Emulated Chromium is not a Samsung and not an iPhone, and
    Firefox Android and iOS Safari are entirely unverified. Needs an operator with the hardware.
 2. **The publication-rights licence question is open.** Needs the subscription terms read.
-3. **The daily edition blackout** (section 2.9) is a user-visible defect I did not fix, because
-   every available mitigation is something the Director ruled out or did not authorize.
+3. **`APP_BUILD` and the `sw.js` cache name are both 357** and must be bumped together at release, with the update banner. Offline readers keep the old shell and the old calendar-day refusal until they go online once. (The daily blackout of section 2.9 is fixed in source.)
 4. **Three open review findings** are product decisions rather than defects: F4 (whether a
    partial Scores slate gets an in-feed escape), F8 (whether the publisher should exclude
    `build < 0` rows when projecting, which touches the migration), and F10 (whether the live
