@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        role: [android, iphone, independent]
+        # A diagnostic-only follow-up can target the independent runner without repeating
+        # unchanged mobile journeys. Full runs remain the default; reports identify each head.
+        role: ${{ fromJSON(contains(github.event.head_commit.message, '[qa:independent]') && '["independent"]' || '["android","iphone","independent"]') }}
     env:
       STAGING_URL: https://matchmind-staging-358.pages.dev/
       EVIDENCE_DIR: qa-evidence

@@ -9,6 +9,21 @@ import {createHarness} from './common.mjs';
 const TARGET=process.env.STAGING_URL||'https://matchmind-staging-358.pages.dev/';
 const origin=new URL(TARGET).origin,dist=resolve(process.env.APPROVED_DIST||process.env.STAGING_DIST||'staging/dist');
 const sha=b=>createHash('sha256').update(b).digest('hex');
+// Independent expectation for the reviewed Scores collection policy: index.html
+// afScoresFromCloud UTC query [-7,+8] days, freshRows 24h-relative-to-newest,
+// then dedupeProviders only when its API-Football twin is in that admitted batch.
+// Deliberately do not invoke the application's own filter to determine expectations.
+function expectedScoresInventory(cards,now){
+ const dayMs=86400000,minDay=new Date(now-7*dayMs).toISOString().slice(0,10),maxDay=new Date(now+8*dayMs).toISOString().slice(0,10);
+ const exclusions=[],windowRows=cards.filter(c=>{const keep=c.date>=minDay&&c.date<=maxDay;if(!keep)exclusions.push({fxid:c.fxid,reason:'outside-documented-UTC-query-window',date:c.date});return keep;});
+ const newest=Math.max(0,...windowRows.map(c=>Date.parse(c.updated_at||'')).filter(Number.isFinite)),cutoff=newest?newest-dayMs:null;
+ const fresh=windowRows.filter(c=>{const t=Date.parse(c.updated_at||'');const keep=cutoff===null||t>=cutoff;if(!keep)exclusions.push({fxid:c.fxid,reason:Number.isFinite(t)?'older-than-24h-relative-to-newest':'timestamp-unusable-in-timestamped-batch',updated_at:c.updated_at,cutoff:new Date(cutoff).toISOString()});return keep;});
+ const twin={2021:39,2014:140,2002:78,2019:135,2015:61,2001:2,2003:88,2017:94,2016:40,2013:71,2152:13};
+ const pro=new Set(fresh.filter(c=>c.provider==='af').map(c=>String(c.lid)));
+ const admitted=fresh.filter(c=>{const keep=c.provider==='af'||twin[c.lid]==null||!pro.has(String(twin[c.lid]));if(!keep)exclusions.push({fxid:c.fxid,reason:'free-provider-twin-of-present-api-football-competition',lid:c.lid,twin:twin[c.lid]});return keep;});
+ return{ids:admitted.map(c=>c.fxid).sort((a,b)=>a-b),exclusions,policy:{utcQueryWindow:{minDay,maxDay},freshnessHours:24,newest: newest?new Date(newest).toISOString():null,cutoff:cutoff===null?null:new Date(cutoff).toISOString(),source:'Reviewed immutable index.html afScoresFromCloud/freshRows/dedupeProviders'}};
+}
+
 const h=await createHarness({role:'independent',browserType:'chromium',contextOptions:{viewport:{width:1280,height:900},timezoneId:'UTC'},serviceWorkers:'allow'});
 const {page,context,browser}=h;
 h.report.proofClass='Actual Cloudflare URL, desktop Chromium; no physical device or deployed-version rollout proof';
@@ -76,7 +91,9 @@ try{
    });
    await checkData('Scores renders every admitted day row and matching count without hidden competition/status filters',async()=>{
     const rows=await page.evaluate(async()=>{await afScoresFromCloud();navTo('scores');afState.filter='all';afState.scoreFilter='all';const days=[...new Set((afState.scores?.list||[]).map(s=>s.ldate||localDateOf(s)))];const out=[];for(const day of days){afState.scoresDate=day;renderScores();const expected=afState.scores.list.filter(s=>(s.ldate||localDateOf(s))===day).map(s=>[s.home,s.away].join('|')).sort();const actual=[...document.querySelectorAll('#scoresList .scrow')].map(r=>[...r.querySelectorAll('.tline')].map(n=>[...n.childNodes].filter(c=>c.nodeType===3).map(c=>c.textContent).join('').trim()).join('|')).sort();out.push({day,expected,actual,meta:$('scoresMeta').textContent});}return{days:out,ids:(afState.scores?.list||[]).map(s=>s.fxid).sort((a,b)=>a-b)};});
-    const expectedIds=editions.scores.data.cards.map(c=>c.fxid).sort((a,b)=>a-b);h.report.scoresInventoryDiagnostic={clientIds:rows.ids,serverCards:editions.scores.data.cards.map(c=>({fxid:c.fxid,lid:c.lid,date:c.date,time:c.time,updated_at:c.updated_at,provider:c.provider,status:c.status})),verifiedAt:new Date().toISOString()};assert.deepEqual(rows.ids,expectedIds,'Client Scores inventory differs from the server-approved screen');for(const day of rows.days){assert.deepEqual(day.actual,day.expected,day.day+' lost/duplicated a match');assert.match(day.meta,new RegExp('·\\s*'+day.expected.length+' matches'));}h.report.scoresCompleteness={ids:rows.ids,days:rows.days.map(x=>({day:x.day,count:x.actual.length,meta:x.meta}))};
+    const observedAt=Date.now(),expected=expectedScoresInventory(editions.scores.data.cards,observedAt);
+    h.report.scoresInventoryDiagnostic={clientIds:rows.ids,serverCards:editions.scores.data.cards.map(c=>({fxid:c.fxid,lid:c.lid,date:c.date,time:c.time,updated_at:c.updated_at,provider:c.provider,status:c.status})),expectedPolicy:expected.policy,declaredExclusions:expected.exclusions,expectedIds:expected.ids,renderedDays:rows.days,verifiedAt:new Date(observedAt).toISOString()};
+    assert.deepEqual(rows.ids,expected.ids,'Client Scores inventory differs from independently admitted source inventory');for(const day of rows.days){assert.deepEqual(day.actual,day.expected,day.day+' lost/duplicated a match');assert.match(day.meta,new RegExp('·\\s*'+day.expected.length+' matches'));}h.report.scoresCompleteness={ids:rows.ids,declaredExclusions:expected.exclusions,days:rows.days.map(x=>({day:x.day,count:x.actual.length,meta:x.meta}))};
    });
    const tables=await page.evaluate(()=>{const ids=[...document.querySelectorAll('#acc-standings')];return ids.map(e=>({visible:e.getBoundingClientRect().height>0&&getComputedStyle(e).display!=='none',text:e.textContent}));});
    h.report.availableLeagueTableSurfaces=tables;
