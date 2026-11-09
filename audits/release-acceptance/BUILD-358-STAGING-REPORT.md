@@ -154,3 +154,47 @@ Nothing is claimed about a phone, Firefox Android or iOS Safari.
    S23 Ultra and a real iPhone in Safari, before 2026-11-10 14:02 UTC or after a fresh staging
    edition. Do not stop any publisher. Use only synthetic accounts. Item A5 should read
    `Live` now and `Updated 7h ago` at about 21:02 UTC.
+
+## 7. Synthetic mobile QA slate and edition refresh (9 November 2026, 16:00 UTC)
+
+Authorized by the Director on PR 26 (Decisions 3 and 4). Staging only. No provider, no production.
+
+Additive rows, in one transaction that refuses unless the baseline is exactly 148 fixtures and 145
+predictions and the id range 920000 and up is empty. It would have rolled back as a whole on any
+mismatch. It committed.
+
+| | Before | After |
+|---|---|---|
+| Fixtures | 148 | 156 (8 new: 920001 to 920008) |
+| Predictions | 145 | 149 (4 new: 920001, 920002, 920004, 920006) |
+| md5 of the 148 old fixture rows | `e775a54fa3d90f86b4087f5b98e79439` | identical |
+| md5 of the 145 old prediction rows | `19f6cacdf289b6bbbce15d8180f2d1db` | identical |
+| Principals, existing editions, shared records | fingerprinted | identical |
+
+The new fixtures are fictional clubs ("QA Harbor FC" and so on), league "Synthetic League", provider
+`synthetic`, status NS, no scores, no odds, no provider facts, no logos. Dates 9 to 12 November,
+kickoffs between 12:00 and 21:00. Four carry one pre-match forecast each (all pick `1`, market `Home`,
+probabilities 0.58, 0.47, 0.41, 0.64, build 358). Each `made_at` is 2026-11-09T16:00:49.369Z, which is
+strictly before its kickoff, and the probabilities sum to 1. No played match got a forecast. No old
+row was touched. The board record was not changed, so the four forecasts reach the app through the
+edition's prediction cards. The four fixtures without a forecast test the honest no-pick state.
+
+Edition refreshed after validation, through the reviewed five-minute publisher procedure:
+
+| | |
+|---|---|
+| Edition id | `a4734e39-65d1-4cea-a4dc-21dbd9ec0432` |
+| `as_of` | 2026-11-09 16:01:25.674414 UTC |
+| `expires_at` | 2026-11-10 16:01:25.674414 UTC |
+| Cards, predictions | 155 and 149 |
+| Anonymous reads | predictions screen 9 cards (4 with a pick), scores 9, history 150 |
+| Publisher principal afterwards | disabled, `approved_until` unchanged, row md5 identical, 0 enabled |
+| Function fingerprint, `display` and `materialize` md5 | unchanged: `ab5c5e97...`, `0f85fe96...`, `223529aa...` |
+
+The earlier edition `4f81c165` (14:02 UTC) stays in the table. One attempt at this refresh was
+rejected by my own guard before it wrote anything (a PL/pgSQL `FOUND` scoping mistake) and nothing
+changed. That makes two editions published today, the second one explicitly under Decision 4. The next
+refresh is due after 2026-11-10 16:01 UTC and is limited to one per day.
+
+Rollback of only the additive rows, should one be asked for: delete the 4 predictions and 8 fixtures
+with `fxid >= 920000`, then publish a new edition.

@@ -1,0 +1,36 @@
+# Verifies the hosted staging preview whose URL is committed in staging/PREVIEW-URL.txt.
+# Anonymous and read only. No secrets. Runs only when that file or this workflow changes.
+name: Build 358 staging preview URL verify
+on:
+  push:
+    branches:
+      - claude/build-358-staging-20261109
+    paths:
+      - 'staging/PREVIEW-URL.txt'
+      - 'staging/verify-preview-url.mjs'
+      - '.github/workflows/staging-preview-url-verify.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Select installed Chromium
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Rebuild the reviewed preview from the candidate files
+        run: node staging/build-preview.mjs staging/dist >/dev/null
+      - name: Verify the hosted preview
+        run: |
+          test -s staging/PREVIEW-URL.txt || { echo "No preview URL committed yet. Nothing to verify."; exit 0; }
+          node staging/verify-preview-url.mjs "$(tr -d '\r\n ' < staging/PREVIEW-URL.txt)" staging/dist
