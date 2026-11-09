@@ -1,0 +1,116 @@
+# GENUINE Supabase Auth acceptance against the ISOLATED STAGING project.
+#
+# THIS REPOSITORY IS PUBLIC. Director review of 8 November 2026 required least-privilege secret
+# routing accordingly, so the admin key is read from a GitHub ENVIRONMENT secret and not from a
+# repository-wide one. An environment can be restricted to specific branches and can require a
+# named reviewer to approve each run before any secret is exposed; a repository secret has
+# neither control and is reachable by any workflow with the right trigger.
+#
+#   REQUIRED SETUP, by a person, in the GitHub UI only:
+#     Settings > Environments > New environment > name it exactly: staging-auth-acceptance
+#       Deployment branches: Selected branches -> claude/staging-s1-s2-20261107
+#       Required reviewers: add yourself. REQUIRED, not optional: the push trigger below fires
+#         on every push to the acceptance branch and carries no confirmation input, so required
+#         reviewers are the only control that stops the key being materialised unattended.
+#       Environment secrets > Add secret:
+#         name  MM_STAGING_SERVICE_KEY
+#         value the service_role (secret) key of the STAGING project rdcbnvfnxenrpnnwxszs ONLY
+#   Never the production key. Enter it in that settings page and nowhere else: not in chat, not
+#   in source, not in a PR comment, not in a log.
+#
+# Until that environment and secret exist the job stops and says so. It does not pretend to pass.
+# A one-time staging key that is rotated after acceptance is safer than a standing key, and the
+# project ref is staging-only in any case.
+#
+# Nothing privileged can reach the logs: the script masks the key before first use, GitHub
+# redacts registered secrets, and this workflow uploads no artifacts.
+#
+# TWO LIMITS A PERSON HAS TO CLOSE, named by the independent review of 8 November 2026:
+#   1. Referencing an environment that does not exist AUTO-CREATES it with no protection rules.
+#      Branch policy and required reviewers exist only because somebody set them. Nothing in this
+#      file can verify they were set, so the setup block above is a requirement, not a suggestion.
+#   2. The Deployment-branches policy names a feature branch. After this merges and the branch is
+#      deleted, the push trigger stops firing and a dispatch from the default branch is refused by
+#      that policy. Whoever merges updates the policy to the default branch, or this job becomes
+#      unrunnable.
+name: MatchMind staging authenticated acceptance
+on:
+  # THE PUSH TRIGGER IS GONE, deliberately, on 8 November 2026. It existed only because
+  # `gh workflow run` cannot dispatch a workflow absent from the default branch, so before the
+  # acceptance run there was no other way to record a result. That run has now PASSED
+  # (run 42456545800, attempt 3, `MATCHMIND_STAGING_AUTHENTICATED_ACCEPTANCE_PASS 54`) and the
+  # Director has DELETED the MM_STAGING_SERVICE_KEY environment secret, as intended secret
+  # hygiene. On push this job would now reach the missing-secret step and fail on every unrelated
+  # commit to this branch, which is a red check carrying no information. Dispatch only, so the job
+  # runs when an operator re-installs a staging key and asks for it, and not otherwise.
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Confirm this runs against the staging project only'
+        required: true
+        type: choice
+        default: 'NO'
+        options:
+          - 'NO'
+          - 'STAGING'
+permissions:
+  contents: read
+jobs:
+  authenticated-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The secret lives here, not at repository scope. With required reviewers configured, the run
+    # waits for approval before this job starts and before the secret is materialised.
+    environment: staging-auth-acceptance
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20.20.2'
+      # The input is read through `env:`, never interpolated into the script body. Actions
+      # substitutes `${{ }}` textually before bash parses it, so a quote in the value used to
+      # close the string and turn the rest into shell source: arbitrary code inside the approved
+      # job, two steps from the admin key, and the gate returned 0 for a value that was not
+      # STAGING. A `choice` input removes the attacker's control of the value as well.
+      # The branch assertion is a repository-side fail-closed check: it does not depend on the
+      # environment's branch policy, which this file cannot see.
+      - name: Refuse unless the branch and the operator confirmation match the staging contract
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          test "$REF_NAME" = "claude/staging-s1-s2-20261107" || {
+            echo "Refusing: this job runs only on the acceptance branch, not $REF_NAME."; exit 1; }
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$CONFIRM" = "STAGING" || {
+              echo 'Confirmation input must be exactly STAGING.'; exit 1; }
+          fi
+      - name: Prove the decision rules first, offline, with no secret in scope
+        run: node --test test/auth-acceptance-predicates.test.mjs
+      - name: Report whether the environment secret is present
+        id: secret
+        env:
+          KEY: ${{ secrets.MM_STAGING_SERVICE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo 'present=no' >> "$GITHUB_OUTPUT"
+            echo 'MM_STAGING_SERVICE_KEY is not configured in the staging-auth-acceptance environment.'
+          else
+            echo 'present=yes' >> "$GITHUB_OUTPUT"
+            echo 'Admin secret is configured; it is masked for the whole job.'
+          fi
+      - name: Genuine Auth sign-in, A/B isolation, denied operations, JWT integrity, cleanup
+        if: steps.secret.outputs.present == 'yes'
+        env:
+          MM_STAGING_SERVICE_KEY: ${{ secrets.MM_STAGING_SERVICE_KEY }}
+        run: node backend/fixture-delivery/staging-authenticated-acceptance.mjs
+      - name: Say plainly that the evidence is missing, rather than passing quietly
+        if: steps.secret.outputs.present != 'yes'
+        run: |
+          echo 'NOT RUN: MM_STAGING_SERVICE_KEY is absent from the staging-auth-acceptance environment.'
+          echo 'This job is the only source of genuine signed-in evidence; treat its absence as'
+          echo 'the Auth gate still being open, not as a pass.'
+          exit 1

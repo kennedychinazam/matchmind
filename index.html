@@ -36,8 +36,34 @@
   .app{width:100%; max-width:520px; min-height:100vh; background:linear-gradient(180deg,var(--bg2),var(--bg) 30%); position:relative; padding-bottom:84px;}
 
   /* ---------- top bar ---------- */
-  .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px;}
-  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px;}
+  /* F1, independent review: `min-width:0` on `.brand` below removed the SYMPTOM I measured, the
+     page's horizontal scroll, by turning it into overflow of the brand's own CONTENTS. Its
+     children keep min-width:auto, so the wordmark and the PRO badge spilled right, under
+     #dataChip, which is opaque and later in the DOM and therefore paints over them. Measured
+     occlusion of the badge: 47px² at 375px and the DEFAULT text size, 647px² at 390px/130%,
+     1865px² at 430px/200% - the badge simply gone, with no scrollbar to reveal it. Wrapping is
+     the only thing that actually rescues the bar, and it was gated behind the single
+     max-width:360px query. It costs height (72 -> 106 at 375px/100%), but that 72 was only ever
+     reached by overlapping the badge, so the taller bar is the honest measurement, not a
+     regression. Verified across 9 widths x 7 text scales: 0 occlusion and 0 sideways scroll. */
+  .topbar{display:flex; align-items:center; justify-content:space-between; padding:18px 16px 10px; flex-wrap:wrap; row-gap:8px;}
+  /* A flex item's automatic minimum size is its min-content width, so `.brand` could not shrink:
+     at 361-393 CSS px with the reader's text scaling raised there was no room for it, the bar
+     overflowed and the WHOLE PAGE gained up to 20 CSS px of horizontal scroll. The only media
+     query in this sheet is `max-width:360px`, so nothing rescued that band. Measured at
+     375/390/393 px with the root at 20.8 and 22.4 px: 2/5/20 px of sideways scroll before, 0
+     after, and the bar's height is unchanged or lower at every width and text size tested, so this
+     costs no vertical space. `min-width:0` alone carries it; the wordmark is NOT clipped, because
+     clipping a brand name is information lost exactly for the readers who raised their text size. */
+  /* And the brand must wrap its OWN contents, not only sit on its own line. CI caught this on a
+     wider font stack than this container's: with `.topbar` wrapping, `.brand` still laid the
+     brandmark, the wordmark and the PRO badge on one unbreakable line, so at 320 and 361 CSS px
+     with 200% text scaling the badge ran past the right edge - SPAN.pro right=342 against a 320px
+     viewport - and the page scrolled 22px. Reproduced here by pushing the root to 36-44px, which
+     is the same condition a wider font reaches sooner. With this, the badge drops to its own line
+     and overflow is 0 at every width and scale measured, local and CI. It only wraps when the
+     content genuinely does not fit, so nothing changes at ordinary text sizes. */
+  .brand{display:flex; align-items:center; gap:8px; font-size:1.25rem; font-weight:800; letter-spacing:.2px; min-width:0; flex-wrap:wrap; row-gap:4px;}
   .brand .ball{font-size:1.35rem;}
   .brandmark{width:26px; height:26px; flex-shrink:0;}
   .pro{background:linear-gradient(135deg,var(--gold),#e0a72e); color:#1a1405; font-size:.62rem; font-weight:800; padding:3px 8px; border-radius:7px; letter-spacing:.08em;}
@@ -340,6 +366,20 @@
   /* build 118 — a withheld pick. Deliberately grey and quiet: it must not read as a third kind of
      tip sitting alongside the green ones, it must read as the absence of one. */
   .predchip.muted-chip{background:transparent; border:1px dashed var(--line); color:var(--muted); font-weight:600;}
+  /* ANALYSIS-STATUS AMENDMENT - the compact provenance status. A real button, so its one sentence is
+     reachable by tap and carries an accessible name, not only a pointer tooltip. The hit area is
+     grown with a pseudo element rather than padding, so it clears the 44 CSS px floor without making
+     the row taller or the feed wider; `max-width` plus wrapping keeps a long label from pushing the
+     row sideways at 360px or under enlarged text. */
+  .predchip.statuschip{font-family:inherit; line-height:1.2; cursor:pointer; position:relative;
+    flex:0 1 auto; min-width:0; max-width:46%; text-align:center;
+    /* WRAP, never clip: `.predchip` sets `white-space:nowrap`, which under enlarged text either
+       truncated the label or pushed the row sideways. And NO `overflow:hidden` here - it clipped
+       the pseudo element below, which is the whole of the 44px hit area. */
+    white-space:normal; overflow-wrap:break-word;}
+  .predchip.statuschip::after{content:''; position:absolute; left:-3px; right:-3px; top:50%;
+    transform:translateY(-50%); height:44px;}
+  .predchip.statuschip:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
   /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
@@ -375,6 +415,23 @@
   .setrow:last-child{border-bottom:none;}
   .setrow .sl{font-size:.9rem; font-weight:600;}
   .setrow .sd{font-size:.72rem; color:var(--muted);}
+  /* The About row carries two short strings that cannot share 298 CSS px at 360 px wide: the
+     version wants 182 and the descriptor 151, against 245 left after the 32 px icon and the gaps.
+     Both therefore wrapped at the DEFAULT text size, with no accessibility setting involved, and
+     the version string broke between "build" and its number - which is exactly what the Director
+     photographed, and it reproduces on build 355 itself. The descriptor is the one that can move:
+     given a line of its own the version keeps the full row width and both read on one line, at
+     100% and at 130% text scaling. Scoped to this row, because every other `.setrow` puts a
+     control on the right that must stay beside its label. Nothing here caps the reader's text size. */
+  .setrow.aboutrow{flex-wrap:wrap; row-gap:2px;}
+  /* F2, independent review: this used to be `.setrow.aboutrow .sd{white-space:nowrap}`, which
+     forbade the legitimate break between "MatchMind PRO ·" and the version value as well as the
+     reported break inside the value. Above about 140% text scaling the string then could not fit
+     and overflowed the card instead of wrapping: measured 8px of page scroll at 320px/140%, 27px
+     at 320px/150%, 117px at 320px/200%, 41px at 360px/180% - the very fault this commit removes
+     from the top bar. Only the VALUE must not break; the label before it may wrap freely. */
+  .setrow.aboutrow .sd #verLabel{white-space:nowrap;}
+  .setrow.aboutrow > span.muted{flex:1 0 100%; text-align:right;}
   .segsm{display:flex; gap:6px;}
   .segsm .sfchip{padding:8px 12px;}
   /* account avatar (initials badge) */
@@ -845,7 +902,7 @@
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="var(--gold)" stroke="none"><path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.8 6.2 20.9l1.1-6.5L2.6 9.3l6.5-.9z"/></svg></span><div><div class="sl" data-i18n="Favourites">Favourites</div><div class="sd">Manage starred matches, teams &amp; leagues</div></div></div>
         <button class="btn" id="goFavs">Open</button>
       </div>
-      <div class="setrow">
+      <div class="setrow aboutrow">
         <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
         <span class="muted" style="font-size:.72rem">Statistical football forecasts</span>
       </div>
@@ -2905,7 +2962,18 @@ function fixtureProjection(value,s,path='display',depth=0){
 function fixtureEnvelope(value,screen){
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!=='as_of,board,cards,edition_id,expires_at,records,screen,slips,version')throw Error('Invalid display envelope');
  const from=Date.parse(value.as_of),until=Date.parse(value.expires_at),now=Date.now();
- if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000||new Date(from).toISOString().slice(0,10)!==new Date(now).toISOString().slice(0,10))throw Error('Display edition expired or unavailable');
+ /* BUILD 358 - THE EDITION IS A ROLLING 24-HOUR WINDOW, NOT A CALENDAR DAY.
+    This condition also required `as_of` to fall on the SAME UTC CALENDAR DAY as the reader's
+    clock. That term was wrong twice over. The published policy is a rolling one - an edition is
+    current from its `as_of` until `expires_at`, which is `as_of + 24h` and is not clipped to UTC
+    midnight - so a calendar-day equality refused a perfectly live edition for every hour between
+    00:00 UTC and the hour the next edition was published, which is where the daily blackout of
+    about five and a half hours came from. It also added no safety: an edition from another day is
+    already refused by `until<=now` once it has expired, by `until-from>86400000` if it claims a
+    life longer than 24 hours, and by `from>now+30000` if it is stamped in the future. The rolling
+    rule is now exactly those terms: accept while `as_of <= now` (+30s skew) and `now < expires_at`,
+    with a hard 24-hour ceiling on the window. Fails closed on any unparseable timestamp. */
+ if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
  if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>524288)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
  const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
@@ -3003,12 +3071,31 @@ function fixturePresentationRow(r,board){
  const p=r.prediction,b=board&&board.rows.find(x=>x.f===r.fxid),v=p?probabilityVector(p.p_home,p.p_draw,p.p_away):b?probabilityVector(b.pw,b.pd,b.pq):null;
  return {fxid:r.fxid,date:p?p.kickoff:r.date,time:p?p.ktime:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
    _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
-   frozen:!!p,pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
+   /* ANALYSIS-STATUS AMENDMENT - `_boardRow` records WHICH source answered, because the two prove
+      different things. A published prediction row is insert-once and never deleted, so its ABSENCE
+      does prove no pick was issued. A board row is one upserted snapshot with no history, and
+      `boardBuild` drops every fixture whose kick-off has passed, so for a played match its absence
+      proves nothing and its presence is only that dated board's observation. `recon` carries the
+      ledger's own exclusion (build === RECONSTRUCTED) to the display, so the feed cannot grade a
+      hindsight rebuild that the record two taps away excludes. The bounded display schema already
+      bars build < 0, so this is the field the row was missing rather than a relaxed bound. */
+   frozen:!!p,_boardRow:!!b,recon:!!(p&&p.build===RECONSTRUCTED),
+   pW:v?v.pW:null,pD:v?v.pD:null,pL:v?v.pL:null};
 }
 /* BUILD 357 - HOW LONG THE ACCEPTED EDITION STAYS GOOD. Set from the edition this function
    actually accepted, and read by its catch below to decide between keeping the screen and
    clearing it. Zero means nothing has ever been accepted. */
 let _presentationUntil = 0;
+let _presentationAsOf = 0;   // as_of of the accepted edition; the header chip states its age once it is old
+/* ANALYSIS-STATUS AMENDMENT - WHETHER THE LOCAL FORECAST ARCHIVE WAS ACTUALLY READ.
+   `loadArchive` swallowed its own failure and left `afState.archive` exactly as it found it, so a
+   refused or broken read was indistinguishable on screen from a month in which nothing had been
+   published: every played fixture simply showed "No pick". A status is worth no more than its
+   provenance, so the read now records whether it happened.
+     'pending' never attempted (no backend, or not reached yet)
+     'failed'  attempted and refused, or threw
+     'loaded'  `afState.archive` is what the source actually returned */
+let _archiveRead = 'pending';
 async function loadFixturePresentation(){
  try{
   const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
@@ -3025,7 +3112,8 @@ async function loadFixturePresentation(){
   }
   afState.leagues=leagues;afState.leagueOrder=Object.keys(leagues).map(Number);afState.archive=archive;afState.cloudFix=cloudFix;
   _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
-  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;
+  _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
+  _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
  }catch(e){
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
@@ -3045,7 +3133,7 @@ async function loadFixturePresentation(){
      cleared rather than showing an edition past its life. */
   const keep = _presentationUntil > Date.now()
     && Object.values(afState.leagues||{}).some(L=>L&&L._presentation);
-  if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;
+  if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;_presentationAsOf=0;
    _boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};}
   renderFixtures();
   const el=$('fixturesMeta')||$('discoverStatus');
@@ -3176,7 +3264,30 @@ function loadScorers(text, isSample){
   }).filter(s=>s.name && s.team);
 }
 
-function setDataChip(text){ $('dataChip').innerHTML = '● <b>'+text+'</b>'; }
+/* A rolling edition is current for up to 24 hours, so "Live" in the header said nothing true about
+   the age of the published predictions: at 22.7 hours it still read Live. Past 7 hours the chip
+   states the edition's age instead. Live SCORE state is not touched: Scores keeps its own live
+   markers on live matches. The count is dropped from the chip because 132px does not hold it. */
+const EDITION_STALE_MS = 7*3600000;
+let _chipBase = '';
+function editionAgeHours(){
+  if(!(_presentationAsOf && _presentationUntil > Date.now())) return -1;
+  const ms = Date.now() - _presentationAsOf;
+  return ms >= EDITION_STALE_MS ? Math.floor(ms/3600000) : -1;
+}
+function setDataChip(text){
+  _chipBase = text;
+  const el = $('dataChip'), h = /^Live/.test(text) ? editionAgeHours() : -1;
+  if(h >= 0){
+    el.innerHTML = '● <b>Updated '+h+'h ago</b>';
+    el.style.whiteSpace = 'nowrap';
+    el.title = 'Predictions published '+new Date(_presentationAsOf).toISOString().slice(0,16).replace('T',' ')+' UTC. '+text.replace(/^Live · /,'');
+    return;
+  }
+  el.innerHTML = '● <b>'+text+'</b>';
+  el.removeAttribute('title');
+}
+setInterval(()=>{ if(_chipBase && /^Live/.test(_chipBase)) setDataChip(_chipBase); }, 300000);
 
 /* ══ BUILD 214 — THE HEADER BADGE SAID "Sample data" ON TOP OF 23,033 REAL MATCHES ═══════════════
    Read from a live device on 2026-08-26: the chip in the global header read **"● Sample data"**
@@ -3220,7 +3331,7 @@ function refreshDataChip(){
      merely unlikely. */
   setDataChip(n < want ? 'Live · ' + n + '/' + want : 'Live · ' + n);
   const el = $('dataChip');
-  if(el){
+  if(el && editionAgeHours() < 0){
     el.style.whiteSpace = 'nowrap';
     el.title = n < want
       ? n + ' of ' + want + ' competitions loaded'
@@ -4060,7 +4171,31 @@ function renderStandings(L, homeTeam, awayTeam){
   const over = tbl.rows.filter(r => r.pl > maxLeague).length;
   const caveat =
     (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name MatchMind does not yet classify.</div>` : '') +
-    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b> — checked against the provider on 2026-08-23, which found three in the Championship (Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2) and none anywhere else across ten competitions.</div>`;
+    /* ══ BUILD 358 — THE DEDUCTION CAVEAT IS NOW SCOPED TO THE COMPETITION IT IS ABOUT ═══════
+       The else branch of this ternary printed the 2026-08-23 sweep's Championship finding under EVERY
+       table: a reader looking at Bayern and Dortmund was told about Sheffield Wednesday, Leicester and
+       West Brom. Three named English clubs' disciplinary history is not a fact about the Bundesliga,
+       and printing it there invites exactly the inference Milestone 8 forbids — that some unnamed side
+       in the table on screen might be carrying a penalty.
+       Split in two. The GENERAL limitation — a table derived from results cannot see an administrative
+       penalty — is true of every competition and stays, in one short line, on every table. The SPECIFIC
+       finding is a fact about league 40 only and is printed only there. Gated on `L.id`, not `L.name`:
+       the id is what the provider keys on and what LEAGUE_FIT_NAME indexes, while the display name is
+       whatever the feed last called it. No deduction is invented, displayed or applied anywhere — the
+       numbers in this table are unchanged; only the sentence under it moved. */
+    `<div class="subnote">Derived from results, so <b>point deductions are not shown</b>.</div>` +
+    /* ══ F-5, INDEPENDENT REVIEW: THE SEASON IS PART OF THE FACT, NOT JUST THE LEAGUE ═════════
+       The id gate above was right and incomplete. This table is drawn for `latestSeasonOf(L)`,
+       whatever season the device happens to hold, so the note printed under a 2019 or a 2029
+       Championship table too - and the clause "so these points totals read higher than the
+       official table" is a claim about the numbers ON SCREEN. It is only true for the season the
+       deductions were actually applied in. From 2027-28 on, every Championship table would have
+       asserted a discrepancy caused by sanctions that had expired: precisely the unmeasured claim
+       the Build 198 note above says this panel exists to remove. Gated on the season as well, and
+       the sentence now names it, so it reads as the dated observation it is. */
+    (Number(L && L.id) === 40 && Number(season) === 2026
+      ? `<div class="subnote">In the 2026-27 season the provider's table carried three deductions in the Championship &mdash; Sheffield Wednesday &minus;18, Leicester &minus;6, West Brom &minus;2 &mdash; checked on 2026-08-23, so these points totals read higher than the official table.</div>`
+      : '');
   const played = Math.round(tbl.rows.reduce((n, r) => n + r.pl, 0) / 2);
   const note = played === 0
     ? '<div class="subnote">Season not started — every side is listed and every number is nought until the first results come in.</div>'
@@ -4509,7 +4644,13 @@ const GATE_TEXT = {
   nobase: 'No edge here',
   unpriced:'Not priced',
   newteam: 'New to this competition',   // build 343 (WO-37)
-  notyet: 'Not priced yet'   // build 345 (WO-38) - no board row: past the robot's horizon, or the board not read
+  notyet: 'Not priced yet',   // build 345 (WO-38) - no board row: past the robot's horizon, or the board not read
+  /* ANALYSIS-STATUS AMENDMENT - `fixturePresentationRow` has produced `gated: 'withheld'` since the
+     bounded-delivery build and this map had no key for it, so `GATE_TEXT[_g] || GATE_TEXT.low`
+     printed "No strong read" over a decision the published record states outright. A proven
+     withhold is not a weak read, and reporting one as the other is the fault this change exists to
+     remove. */
+  withheld: 'Withheld'
 };
 const GATE_WHY = {
   notyet: () => 'Picks appear up to 7 days ahead.',   // build 345 (WO-38)
@@ -4526,6 +4667,8 @@ const GATE_WHY = {
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
   outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
   unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`,
+  /* The published record stamped this one, so the reason is read rather than recomputed. */
+  withheld: () => `The published forecast record stamps this pick as withheld before kick-off, so it was never offered here. It is not re-judged after the whistle.`,
   /* BUILD 343 (WO-37) - the only reason that names a team, so it takes the prediction as a fourth argument;
      the other reasons ignore it. Ken's wording, from the WO-36 review. */
   newteam: (p, bar, met, P) => {
@@ -5025,6 +5168,144 @@ function setHeroDnb(code, shown){
   el.textContent = note;
   el.classList.toggle('hidden', !note);
 }
+/* ══ ANALYSIS-STATUS AMENDMENT — WHAT A PLAYED MATCH WITH NO GRADED PICK IS ALLOWED TO SAY ══════
+   Replaced: one chip reading "No pick" for every cause at once, under a four-sentence paragraph
+   repeated beneath every matchday. Both are gone, and so is what they claimed.
+
+   THE PARAGRAPH NAMED TWO CAUSES AND NEITHER WAS REAL.
+     · "the app was not open before kick-off" — forecasts are published by the scheduled publisher
+       (.github/workflows/publish-picks.yml running robot/publish.mjs). Every shared write path is
+       publisher-only: archivePrediction, recordDrift, markWithheld and backfillPredictions all
+       return unless isPublisher(), and the client table shim refuses a non-publisher write
+       outright. Whether a reader opened their phone cannot bear on whether a pick exists.
+     · "the pick was withheld … because it did not clear that competition's bar" — a withheld row
+       KEEPS its pick (build 199 stamps `withheld_at` instead of deleting, and the deleting
+       function no longer exists), so `f.pick` is truthy and such a fixture never reaches this
+       branch at all. The sentence described build 142's behaviour, six builds dead.
+
+   WHAT THE STATUS IS DRIVEN BY NOW IS PROVENANCE, never the absence of `f.pick` alone:
+     withheld   a published prediction row carrying `withheld_at`. Stated by the record; named.
+     nopick     a published prediction row that issued no pick. The row is insert-once and is never
+                deleted, so this one really does prove that no pick was published.
+     boardgate  no prediction row, but the publisher's board carries a row with a gate reason. The
+                board is ONE upserted snapshot with no history and `boardBuild` excludes any fixture
+                whose kick-off has passed, so this is an observation of a DATED board, phrased as
+                one, and it can change when the next board is built.
+     norow      no prediction row and no board row. Four causes collapse here and cannot be told
+                apart: the publisher never ran in this fixture's window; the gate declined it before
+                any publication (which writes no row, no counter and no log line); the competition
+                was not priced that run; or the fixture was outside the publishing horizon at every
+                run that saw it. The label names the fact and NO cause, and never implies that a
+                withhold has been ruled out.
+     norecord   the locally fitted path: `afState.archive` was read and holds no row. On that path
+                the cause is genuinely unknowable.
+     nostub     a bare row pushed into a presentation league by `ensureLeagueFromScore`, carrying no
+                `_displayCard` and therefore no provenance whatever. It is NOT a verified edition.
+     unread /
+     failed     the archive was never read, or its read failed, or the accepted edition is past its
+                own expiry. Nothing is known, so nothing is claimed.
+     rebuilt    a pick stamped RECONSTRUCTED by `backfillPredictions`. `renderLedger` and
+                `engineRecordPayload` both exclude it (`r.build === RECONSTRUCTED`) while this feed
+                used to award it a plain tick or cross — one pick, two answers. It now carries its
+                own label and no grade.
+   An unknown or unreadable record is NEVER presented as a deliberate abstention, and two causes
+   that cannot be separated are never shown as though they had been. */
+const PICK_STATUS = {
+  withheld: { label:'Withheld',
+    why:'Withheld before kick-off: the published forecast record stamps this pick as withheld, so it was never offered. It is not graded.' },
+  nopick: { label:'No pick issued',
+    why:'The published forecast record for this match issued no pick, so there is nothing to grade. Nothing is filled in after the whistle.' },
+  boardgate: { label:'Board: no pick',
+    why:'' },
+  norow: { label:'No record',
+    why:'No published forecast record exists for this match. The data does not say why, and the possible reasons cannot be told apart, so none is named.' },
+  norecord: { label:'Not archived',
+    why:'This competition is fitted on this device and its archive holds no forecast for this match. The archive cannot establish why, so no reason is claimed.' },
+  nostub: { label:'Unavailable',
+    why:'This row came from the results feed and carries no published forecast record, so nothing about a pick is known for it.' },
+  /* F5, independent review: `nostub` was returned from TWO branches and its sentence named the
+     results feed for both. The second branch is a competition whose raw access this device does
+     not currently hold - a favourited fixture whose competition has not loaded reaches it - which
+     did not come from the results feed. Naming a source the code has not established is the exact
+     defect class this change exists to remove, so the branch gets its own state. */
+  noauthority: { label:'Unavailable',
+    why:'This device has no current access to the published forecast record for this competition, so nothing about a pick is known for this match.' },
+  unread: { label:'Unavailable',
+    why:'The published forecast record has not been read on this device yet, so this match has no established status.' },
+  failed: { label:'Unavailable',
+    why:'The published forecast record for this match could not be read, so its status is unknown.' },
+  rebuilt: { label:'rebuilt',
+    why:'Rebuilt from a later model after the match, not a forecast issued before kick-off. It is not graded and is not counted in the accuracy record.' }
+};
+function pickStatusCode(L, f){
+  if(!f) return 'failed';
+  /* A presentation row proves things only while the edition it came from is still live. An expired
+     edition and a failed board read are both "unknown", and neither may pass for "no pick". */
+  if(f._presentation && f._displayCard){
+    if(!(_presentationUntil > Date.now())) return 'failed';
+    if(_boardRecord && _boardRecord.state === 'failed') return 'failed';
+    const p = f._displayCard.prediction;
+    if(p) return p.withheld_at ? 'withheld' : 'nopick';
+    return f._boardRow ? 'boardgate' : 'norow';
+  }
+  /* `ensureLeagueFromScore` marks the LEAGUE as presentation and pushes bare rows into it. Those
+     rows carry no card, so they are not evidence of an edition having issued anything. */
+  if(f._presentation || (L && L._presentation)) return 'nostub';
+  /* The archive branch below speaks for a device that FITS locally, where `afState.archive` is its
+     own copy of the published record. Without current raw authority the archive is an edition
+     extract instead, so a row whose competition is not in hand says nothing about an archive it
+     does not own. A favourited fixture whose competition has not loaded reaches here. */
+  if(!fixtureRawCurrent()) return 'noauthority';
+  if(_archiveRead === 'failed') return 'failed';
+  if(_archiveRead !== 'loaded' || !afState.archive) return 'unread';
+  const a = (f.fxid != null) ? afState.archive[f.fxid] : null;
+  if(a && a.withheldAt) return 'withheld';
+  return 'norecord';
+}
+/* The board's own build time, and `payload.builtAt` deliberately rather than `computedAt`, which
+   means the board's write time on one load path and the edition's as_of on the other. */
+function boardBuiltText(){
+  const at = (_boardRecord && _boardRecord.payload && _boardRecord.payload.builtAt) || '';
+  return String(at).slice(0, 16).replace('T', ' ');
+}
+function pickStatusWhy(code){
+  if(code !== 'boardgate') return (PICK_STATUS[code] || PICK_STATUS.failed).why;
+  const when = boardBuiltText();
+  return 'The publisher\u2019s board' + (when ? ' of ' + when : '')
+       + ' carries this match with no pick. That board is one snapshot, rebuilt every run and never covering a match already played, so this is what it recorded then — not a settled fact, and not a ruling out of a withhold.';
+}
+function pickStatusChip(L, f){
+  const code = pickStatusCode(L, f), s = PICK_STATUS[code] || PICK_STATUS.failed;
+  const why = pickStatusWhy(code);
+  /* Compact on screen; the sentence is OPTIONAL — a title for a pointer, an accessible name for
+     assistive technology, a tap for everyone else. Never a paragraph under the matchday. */
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(why)}"`
+       + ` title="${escapeHtml(why)}" aria-label="${escapeHtml('Pick status: ' + s.label + '. ' + why)}"`
+       + `>${escapeHtml(s.label)}</button>`;
+}
+/* A pick the record itself excludes gets a label instead of a grade. Same shape, same affordance. */
+function rebuiltChip(f){
+  const s = PICK_STATUS.rebuilt;
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(s.why)}"`
+       + ` title="${escapeHtml(s.why)}" aria-label="${escapeHtml('Pick status: ' + chipCode(f.pick) + ' ' + s.label + '. ' + s.why)}"`
+       + `>${escapeHtml(chipCode(f.pick) + ' ' + s.label)}</button>`;
+}
+/* Whether the shared record excludes this fixture's pick as a post-match reconstruction. Read from
+   the archive row, exactly as the late-void rule below reads it, and never from a field written by
+   `applyGatePass` — that function is pinned byte-identical to build 344. */
+function pickIsRebuilt(f){
+  if(!f || !f.pick) return false;
+  if(f.recon) return true;
+  const a = (f.fxid != null && afState.archive) ? afState.archive[f.fxid] : null;
+  return !!(a && a.recon);
+}
+function bindStatusChips(root){
+  if(!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.statuschip').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation();           // asking about the status is not opening the match
+    toast(b.dataset.statuswhy || '');
+  }));
+}
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
 function fxCells(L,f,smap){
   smap=smap||scoreMap();
@@ -5033,7 +5314,10 @@ function fxCells(L,f,smap){
      says what is missing, and it carries NO grade chip, because there is nothing to grade on. */
   { const u = (f && f.fxid!=null) ? smap[f.fxid] : null;
     if(u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
-      return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`, chip:'', finished:true}; }
+      /* No grade, because there is nothing to grade on. A fixture with no pick still says what is
+         known about its pick rather than leaving a blank where a chip goes. */
+      return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`,
+              chip: f && f.pick ? '' : pickStatusChip(L, f), finished:true}; }
   const res=fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
@@ -5052,16 +5336,27 @@ function fxCells(L,f,smap){
        record against a bet that actually returned the stake. */
     if(f.pick && _lateVoid){
                 chip=`<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`; }
+    /* ANALYSIS-STATUS AMENDMENT - A HINDSIGHT REBUILD IS NOT A GRADED CLAIM. `backfillPredictions`
+       writes prediction rows for matches ALREADY PLAYED, stamped build = RECONSTRUCTED, and both
+       `renderLedger` and `engineRecordPayload` exclude exactly those rows. This branch did not, so
+       the feed awarded a tick or a cross to a pick the published record refuses to count: one pick,
+       two answers. `gradePick`, every threshold and the ledger's own exclusion are untouched - only
+       what this chip is allowed to assert changes. */
+    else if(f.pick && pickIsRebuilt(f)){ chip = rebuiltChip(f); }
     else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
                 const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
                 chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
     /* BUILD 164 — a played match with no frozen pick says so, rather than showing a blank space
-       where a result chip goes. It is deliberately ONE message for both causes — never archived,
-       or withheld and removed — because after the fact the app genuinely cannot tell them apart,
-       and a label that picks one would be stating something it does not know. What it does know,
-       and what matters, is that nothing was published, so nothing is graded. */
-    else chip = `<span class="predchip muted-chip" title="No pick was published for this match before kick-off, so it is not graded and does not count in the accuracy record">No pick</span>`;
+       where a result chip goes.
+       ⚠ ANALYSIS-STATUS AMENDMENT — THE ORIGINAL REASONING NAMED A CAUSE THAT CANNOT OCCUR. It
+       offered "never archived, or withheld and removed". The second does not exist: build 199
+       stamps `withheld_at` and KEEPS the pick, `unarchivePrediction` was removed with it, and a row
+       that keeps its pick never reaches this branch. The first is not one cause either — it is at
+       least four, and which of them applies is not recoverable from the data. So the single
+       message is replaced by a status read from provenance, which says what the record proves and
+       stops there. See PICK_STATUS above. */
+    else chip = pickStatusChip(L, f);
     return {timeCell, chip, finished:true};
   }
   /* BUILD 118 — a withheld pick still shows the fixture. Ken's call: "show the fixture, no pick".
@@ -5414,7 +5709,13 @@ function realOddsChip(fxid, code){
   const px = dailyRealPrice(fxid, code);
   return (px && px > 1) ? '<span class="predchip sm">@ ' + px.toFixed(2) + '</span>' : '';
 }
-function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+/* F7, independent review: this escaped only &, < and >, while the provenance chip interpolates
+   into data-statuswhy="", title="" and aria-label="" three times per row. A quote in any
+   non-constant interpoland would close the attribute and allow more attributes onto the existing
+   button. No reachable path was found on the public feed - the board date is schema-validated and
+   a rebuilt pick cannot traverse a bounded edition - but a pick value on the raw publisher path
+   carries no client-side pattern. Escaping the quotes costs nothing in text positions. */
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* ---------- detail-header meta: competition + date/time + score (#16) ---------- */
 function setHeroMeta(meta){
@@ -17315,6 +17616,7 @@ function favRow(L,f,i,smap){
   return `<div class="fxrow favrow" data-i="${i}">${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span><span class="lname">${(L&&L.name)||f.lname||''}</span></span><span class="favright">${chipSmall}<span class="mstar${on?'':' off'}" data-star="${i}">${on?'★':'☆'}</span></span></div>`;
 }
 function wireFavRows(feed,refs,rerender,isMatches){
+  bindStatusChips(feed);
   feed.querySelectorAll('.favrow').forEach(row=>row.addEventListener('click',()=>{
     const r=refs[+row.dataset.i];
     if(isMatches){ if(r.lid!=null && afState.leagues[r.lid]) openFixture(r.lid,r); else{ const s=afState.scores&&afState.scores.list.find(x=>x.fxid===r.fxid); if(s) matchDetail(s); else toast('Open this match from its competition feed'); } }
@@ -19347,7 +19649,12 @@ async function fetchAllRows(table, cols, apply, orderCol){
 /* The archive is what makes a prediction permanent rather than a thing the app recalculates.
    Pulled once per session, keyed by fixture, covering the window the feed can show (build 62). */
 async function loadArchive(){
-  if(!supa) return;
+  /* F9, independent review: this exit left `_archiveRead` at whatever it already held, so a stale
+     'loaded' could outlive the client it described. Not reachable with harm today - `supa` is only
+     nulled when createClient itself throws, before any successful read, and the archive branch of
+     pickStatusCode sits behind fixtureRawCurrent() - but the invariant should hold by construction
+     rather than by two unrelated fences. */
+  if(!supa){ _archiveRead = 'pending'; return; }
   try{
     const from = new Date(Date.now()-31*86400000).toISOString().slice(0,10);   // a month back (build 70)
     /* build 199 — market, made_at and withheld_at join the select. The window already had no upper
@@ -19357,11 +19664,12 @@ async function loadArchive(){
     const { data, error } = await fetchAllRows('predictions',
       'fxid,kickoff,ktime,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build',   /* build 349 - the ORIGINAL kick-off, for the void rule */
       q => q.gte('kickoff', from));
-    if(error || !data) return;
+    if(error || !data){ _archiveRead = 'failed'; return; }
     const m = {};
     for(const r of data) m[r.fxid] = archiveRow(r);
     afState.archive = m;
-  }catch(e){}
+    _archiveRead = 'loaded';
+  }catch(e){ _archiveRead = 'failed'; }
 }
 
 /* ══ BUILD 286 — THE SETTLED HALF, FETCHED AFTER THE FEED IS ALREADY USABLE ═══════════════════
@@ -21314,15 +21622,23 @@ function renderScores(){
   const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
             : mins < 60 ? mins + ' min ago'
             : mins < 120 ? 'over an hour ago' : Math.floor(mins/60) + ' hours ago';
-  const live = dayAll.filter(s=>LIVE_CODES.includes(s.status)).length;
-  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${dayAll.length} matches` + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   const sf = afState.scoreFilter || 'all';
   let list = dayAll;
-  { const cf = afState.filter;   // shared competition setting (build 82)
-    if(cf && cf!=='all' && cf!=='football' && cf!=='basketball') list = list.filter(s=>String(s.lid)===String(cf)); }
+  const cf = afState.filter;   // shared competition setting (build 82)
+  const narrowed = !!(cf && cf!=='all' && cf!=='football' && cf!=='basketball');
+  if(narrowed) list = list.filter(s=>String(s.lid)===String(cf));
   if(sf==='live') list = list.filter(s=>LIVE_CODES.includes(s.status));
   else if(sf==='ns') list = list.filter(s=>s.status==='NS'||s.status==='TBD');
   else if(sf==='ft') list = list.filter(s=>['FT','AET','PEN'].includes(s.status));
+  /* THE HEADER COUNTS THE ROWS BELOW IT, not the unfiltered day. It used to read `dayAll.length`
+     while the SHARED competition setting - which this view never stated, and which Search sets
+     without the reader opening any dropdown - was narrowing the list. That is how a reader is told
+     · 6 matches over two rows, or over none at all, on a screen that looks entirely settled. */
+  const live = list.filter(s=>LIVE_CODES.includes(s.status)).length;
+  syncCompsChips();   // the chip states which competition is on, on every repaint
+  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${list.length} matches`
+    + (narrowed ? ` <span class="muted">of ${dayAll.length} — one competition</span>` : '')
+    + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   // group by league, sorted by importance
   const groups = {};
   for(const s of list) (groups[s.lid] = groups[s.lid] || []).push(s);
@@ -21331,6 +21647,13 @@ function renderScores(){
   let html = `<div class="sfilters">
     ${[['all','All'],['live','🔴 Live'],['ns','Upcoming'],['ft','Finished']].map(([v,l])=>
       `<button class="sfchip${sf===v?' active':''}" data-sf="${v}">${l}</button>`).join('')}</div>`;
+  /* A day that HAS matches and renders none of them must say which filter is hiding them and offer
+     one tap out. The `if(!dayAll.length)` empty state above fires only on the UNFILTERED day, so a
+     filtered-empty day fell straight through to `box.innerHTML = html` with nothing under the
+     chips: a count, four chips, and no rows. */
+  if(!list.length) html += `<div class="subnote">No matches on this date match the current filter`
+    + (narrowed ? ` — this day holds ${dayAll.length}.` : '.')
+    + ` <a href="#" id="scoresClearFilter" style="color:var(--gold)">Show all ${dayAll.length}</a></div>`;
   const rowRefs = [];
   for(const g of ordered){
     const s0 = g[0];
@@ -21355,6 +21678,8 @@ function renderScores(){
   }
   box.innerHTML = html;
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
+  { const cl = $('scoresClearFilter'); if(cl) cl.onclick = e=>{ e.preventDefault();
+      afState.filter='all'; afState.scoreFilter='all'; saveState(); renderCompsDrop(); renderScores(); }; }
   box.querySelectorAll('.scrow.favrow').forEach(row=>row.addEventListener('click',()=>{
     const s = rowRefs[+row.dataset.i];
     if(s.status==='NS' || s.status==='TBD'){ const {L, f} = ensureLeagueFromScore(s); openFixture(L.id, f); }
@@ -21866,7 +22191,7 @@ function renderStrongPicks(){
 function compsLabel(){
   const v = afState.filter;
   return '🏆 ' + (v==='all' ? 'All competitions' : v==='football' ? 'All football' : v==='basketball' ? 'All basketball'
-                : (afState.leagues[v] ? afState.leagues[v].name : 'All competitions')) + ' ▾';
+                : (afState.leagues[v] ? afState.leagues[v].name : 'One competition')) + ' ▾';
 }
 function syncCompsChips(){
   for(const id of ['segComps','segCompsS']){ const b=$(id); if(b) b.innerHTML = compsLabel(); }
@@ -21898,7 +22223,15 @@ function buildCompsDrop(boxId){
     html += `<div class="sec-label" style="margin:10px 4px 4px">🏀 Basketball</div>` + item('basketball','All basketball', cnt(bk))
           + bk.map(l=>item(l.id, lgLabel(l, '🏀'), predicted(l))).join('');
   }
-  if(!all.length) html = '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
+  /* The empty-corpus note USED TO REPLACE `html`, and threw the "All competitions" item away with
+     it. A reader whose competition setting was a league id - set from Search, or left over after
+     loadCloudLeagues rebuilt and dropped that league, or after sign-out cleared afState.leagues -
+     then had no control anywhere able to widen the feed back out, on Scores or on Predict. In the
+     public presentation shape L.matches is empty, so the >=15 qualifying test leaves `all` empty
+     for EVERY public reader and this branch is the normal path, not an edge case. The note is
+     extra information, not a reason to remove the only way back. */
+  if(!all.length) html = item('all','🌍 All competitions', 0)
+    + '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>';
   html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
@@ -22012,6 +22345,14 @@ function renderFixtures(){
        · the pick was WITHHELD before kick-off and unarchivePrediction removed the row (build 142,
          so a gated fixture cannot come back graded).
 
+     ⚠ ANALYSIS-STATUS AMENDMENT — THIS BLOCK CITES A MECHANISM THAT NO LONGER EXISTS. The second
+     bullet above names `unarchivePrediction`; that function was removed at build 199 and the only
+     surviving occurrences of the name are this comment and one other. A withheld row now KEEPS its
+     pick, so it never reaches the no-pick branch, and the first bullet is not one cause but at
+     least four that the data cannot separate (see PICK_STATUS, by fxCells). The paragraph this
+     block used to justify is gone and each row carries its own provenance-read status instead.
+     The filter itself is unchanged: a played match still never silently vanishes.
+
      ✅ **THE SECOND CAUSE IS GONE AT BUILD 199, AND IT WAS THE SAME REPORT AS THIS ONE.** Ken again,
      2026-08-23: *"imagine someone betting with the tip only to later realize the tip has
      disappeared because they were taken off just before kickoff."* Build 164 patched the symptom —
@@ -22029,13 +22370,12 @@ function renderFixtures(){
      "show the fixture, no pick... rather than the fixture quietly disappearing, which would leave
      the user unable to tell an absent prediction from an absent match." A played match is exactly
      that case and had exactly that hole. */
-  let noPickPlayed = 0;
   for(const L of Ls){
     const todays = L.upcoming.filter(f=>{
       if(f.date !== afState.selectedDate) return false;
       if(f.pick) return true;
       if(!fixtureResult(L, f, smap)) return false;   // upcoming with no pick: unchanged, still hidden
-      noPickPlayed++; return true;                   // played: it stays, and says so
+      return true;                                   // played: the row stays and carries its own status
     });
     if(!todays.length) continue;
     const badge = competitionBadge(L);
@@ -22047,13 +22387,19 @@ function renderFixtures(){
     const when = new Date(afState.selectedDate+'T00:00:00').toLocaleDateString(undefined,{weekday:'long', day:'numeric', month:'long'});
     html = `<div class="subnote">No predictions for ${when}. ${dp>0?'No matches were played in the competitions the engine covers.':'Fixtures appear here once they are announced and both teams are confirmed.'}</div>`;
   }
-  /* BUILD 164 — the rows above marked "No pick" get one line of explanation, and only when there
-     are some. The two causes cannot be told apart after the fact, so both are named rather than
-     guessed between. The last sentence is the one that matters: they are not in the record, so
-     seeing them here cannot move the accuracy number in either direction. */
-  if(noPickPlayed){
-    html += `<div class="subnote" style="margin-top:12px">${noPickPlayed} played ${noPickPlayed===1?'match is':'matches are'} shown with <b>No pick</b>. Either the app was not open before kick-off, or the pick was withheld at the time because it did not clear that competition's bar. Frozen picks are never re-calculated after the whistle, so these stay blank rather than being filled in now — and they are not counted in your accuracy record.</div>`;
-  }
+  /* ⚠ ANALYSIS-STATUS AMENDMENT — BUILD 164'S PARAGRAPH IS REMOVED, AND SO IS WHAT IT CLAIMED.
+     It sat permanently under every matchday holding one unissued played fixture, and it named two
+     causes, neither of which is real:
+       · "the app was not open before kick-off" — forecasts are published by the scheduled publisher
+         (.github/workflows/publish-picks.yml running robot/publish.mjs) and every shared write path
+         refuses a non-publisher, so a reader's own device has no bearing on whether a pick exists.
+       · "the pick was withheld … because it did not clear that competition's bar" — since build 199
+         a withheld row keeps its pick, so such a fixture is never one of these rows at all.
+     Nothing persistent replaces it. Each row carries a compact status read from provenance, with
+     the one sentence available on hover, to a screen reader and on tap (pickStatusChip). The
+     accuracy figure never counted these fixtures and still does not: `recordStats` reads the shared
+     engine record, which is built only from issued pre-kick-off forecasts, and nothing on this
+     screen feeds it. */
   /* BUILD 117 — say what the edge filter removed, and only when it actually cost you matches today.
      Naming a hidden competition that has no fixtures on this date would be noise, not information. */
   { const missed = edgeHidden.filter(L => (L.upcoming||[]).some(f=>f.date===afState.selectedDate && f.pick));
@@ -22088,6 +22434,7 @@ function renderFixtures(){
     html += `<div class="subnote" style="margin-top:12px"><b style="color:var(--red,#e56)">${_loadShort} competition${_loadShort===1?'':'s'} did not load</b> — a connection hiccup, not a competition change. <span id="reloadHint" style="color:var(--gold);font-weight:700;cursor:pointer;text-decoration:underline">Try again</span></div>`;
   }
   $('fixtureList').innerHTML = html;
+  bindStatusChips($('fixtureList'));
   { const rh = $('reloadHint');
     if(rh) rh.addEventListener('click', ()=>{ toast('Reloading…'); loadCloudLeagues(true); });
   }
@@ -24035,7 +24382,9 @@ $('clearCacheBtn').addEventListener('click', ()=>{
 // Sign out lives in the Account card only (build 91) — two log-out buttons is one too many.
 
 $('segComps').addEventListener('click', ()=>$('compsDrop').classList.toggle('hidden'));
-$('segCompsS').addEventListener('click', ()=>$('compsDropS').classList.toggle('hidden'));
+/* renderCompsDrop() is reached only from renderFixtures(), so on a fresh load with Scores as the
+   retained tab this control opened with nothing in it at all. Build it before showing it. */
+$('segCompsS').addEventListener('click', ()=>{ buildCompsDrop('compsDropS'); $('compsDropS').classList.toggle('hidden'); });
 syncCompsChips();
 $('backToFeed').addEventListener('click', showFeed);
 $('shareCardBtn').addEventListener('click', shareCard);

@@ -20,7 +20,18 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 90   # build 324: the publisher measures every competition's bar before it publishes
+    # The script's OWN budget is larger than this job used to allow, so a slow run was cancelled
+    # by the runner instead of failing with its own diagnosis. Measured from robot/publish.mjs:
+    #   3 x waitSettled  @ LOAD_TIMEOUT_MS 20 min   (lines 289, 301, 370)   = 60 min
+    #   measurement pass @ MEASURE_TIMEOUT_MS 70 min (line 181)             = 70 min
+    #   Smart Bet tab    @ SLIPS_TIMEOUT_MS 5 min    (line 138)             =  5 min
+    #   2 x sign-in wait @ AUTH_WAIT_MS 3 min        (line 208)             =  6 min
+    #                                                                   total 141 min
+    # At 90 the runner killed the run mid-sequence, AFTER the bars, the engine record and possibly
+    # the board had been written, and the `summary` line (publish.mjs:373-382) carrying
+    # newPredictions, board.notPassed and issuedRowsToday was lost exactly when it was needed.
+    # 150 leaves the measurement budget intact and lets the script own its own failure.
+    timeout-minutes: 150  # build 324: the publisher measures every competition's bar before it publishes
     steps:
       - uses: actions/checkout@v4
 
@@ -55,3 +66,47 @@ jobs:
         with:
           path: mm-profile
           key: mm-profile-${{ github.run_id }}
+
+  # A FAILED PUBLISHER RUN USED TO REACH NOBODY. There was no `if: failure()` step, no issue, no
+  # webhook and no badge anywhere in this repository, so the only surfacing was GitHub's default
+  # failure email to the owner, which is an account setting rather than something this repository
+  # guarantees. Silent non-publication is precisely the symptom that produces a day of fixtures
+  # with no forecast, so it gets a channel of its own.
+  #
+  # A SEPARATE job, deliberately: it needs `issues: write`, and the publisher job holds the
+  # publisher's credentials. Keeping them apart means the token that can open an issue never sits
+  # in the same job as the sign-in secrets, and this job is given no secrets at all.
+  report-failure:
+    needs: publish
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the single publisher-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE='Publisher robot run failed'
+          BODY="The scheduled publisher did not complete.
+
+          Run: $RUN_URL
+
+          No new display edition may exist for this UTC day. While none does, the public Analysis
+          feed reads \"Published fixtures unavailable\" and fixtures that kick off before the next
+          successful run will carry no issued forecast. Picks are never backfilled automatically
+          after kick-off, by design, so a missed window is not recoverable by re-running later.
+
+          Opened automatically by the Publish picks workflow."
+          EXISTING=$(gh issue list --repo "$REPO" --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+            echo "Commented on existing issue #$EXISTING"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY"
+          fi

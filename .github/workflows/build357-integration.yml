@@ -14,6 +14,7 @@ on:
       - codex/public-fixture-remediation-20261102
       - claude/release-acceptance-20261106
       - claude/blocker-closure-20261106
+      - claude/staging-s1-s2-20261107
     paths:
       - 'index.html'
       - 'sw.js'
@@ -114,6 +115,55 @@ jobs:
           grep -q 'PASS 1: anonymous generic raw read refused' control.log
           grep -q 'PASS 2: ordinary' control.log
           echo 'Negative control held: probe 3 fails without the policy; protections 1 and 2 still pass.'
+      - name: Published-edition rolling-window regression, 4 probes
+        run: |
+          # The public feed went dark for ~5.5h of every UTC day: display() admitted an edition
+          # only on its own edition_day, and materialize() clipped expires_at to the next UTC
+          # midnight, so the 23:17 run produced a 43-minute edition. These probes assert the
+          # rolling window at exact clock times. They create NO roles, so they share a cluster
+          # with the fence probes above without colliding.
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database window16'
+          ( cd backend/fixture-delivery && psql -d window16 -v ON_ERROR_STOP=1 \
+              -f local-edition-window-regression.sql ) 2>&1 | tee window.log
+          grep -q 'ALL 4 ROLLING-WINDOW PROBES PASSED' window.log
+      - name: Negative control, the calendar-day rule and the midnight clip put back
+        run: |
+          # The probes read the two expressions out of PROPOSAL-up.sql, so they can only ever
+          # pass because the migration is right. This reconstructs the pre-fix migration -- the
+          # edition_day equality in display() and the least(...) clip in materialize() -- and
+          # INSISTS each edit applied, then requires the probes to FAIL on it. A regression that
+          # only ever passes proves nothing.
+          sed -e "s/where as_of<=statement_timestamp()/where edition_day=(statement_timestamp() at time zone 'UTC')::date and as_of<=statement_timestamp()/" \
+              -e "s|stamp,stamp+interval '24 hours','existing-published-record-projection/1'|stamp,least(stamp+interval '24 hours',((day_utc+1)::timestamp at time zone 'UTC')),'existing-published-record-projection/1'|" \
+              backend/fixture-delivery/PROPOSAL-up.sql > backend/fixture-delivery/prefix-up.sql
+          grep -q "where edition_day=(statement_timestamp() at time zone 'UTC')::date and as_of<=" backend/fixture-delivery/prefix-up.sql \
+            || { echo 'control could not restore the edition_day admission filter'; exit 1; }
+          grep -q "stamp,least(stamp+interval '24 hours',((day_utc+1)::timestamp at time zone 'UTC'))" backend/fixture-delivery/prefix-up.sql \
+            || { echo 'control could not restore the midnight clip'; exit 1; }
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database window16_control'
+          # First in the file's default mode, where a failing probe must abort the run: this is
+          # the contract CI depends on, and psql exits non-zero.
+          if ( cd backend/fixture-delivery && psql -d window16_control -v ON_ERROR_STOP=1 \
+                 -v up=prefix-up.sql -f local-edition-window-regression.sql ) > wabort.log 2>&1; then
+            echo 'NEGATIVE CONTROL FAILED: the probes passed against the pre-fix migration'
+            cat wabort.log; exit 1
+          fi
+          # Then with ON_ERROR_STOP=off, so every probe records its own verdict. psql exits 0 in
+          # that mode whatever happens, so the verdict is read from the log, not the exit code.
+          ( cd backend/fixture-delivery && psql -d window16_control -v ON_ERROR_STOP=off \
+              -v up=prefix-up.sql -f local-edition-window-regression.sql ) > wcontrol.log 2>&1 || true
+          ! grep -q 'ALL 4 ROLLING-WINDOW PROBES PASSED' wcontrol.log
+          grep -q 'FAIL 1c: THE BLACKOUT' wcontrol.log
+          grep -q 'FAIL 1d: THE BLACKOUT' wcontrol.log
+          grep -q 'midnight clip in materialize() is still there' wcontrol.log
+          grep -q 'FAIL 3a' wcontrol.log
+          grep -q 'only 2 of 4 probes passed' wcontrol.log
+          # Fail-closed and the table checks must STILL hold in the pre-fix state: the blackout
+          # was never a missing guard, so a control that broke those would be the wrong control.
+          grep -q 'PASS 2c' wcontrol.log
+          grep -q 'PASS 4b' wcontrol.log
+          rm -f backend/fixture-delivery/prefix-up.sql wabort.log
+          echo 'Negative control held: probes 1 and 3 fail on the pre-fix migration; 2 and 4 still pass.'
 
   # The fence job proves the RLS layer in SQL. It says nothing about PostgREST: request shaping,
   # ?select= projection, Range pagination, the JWT role switch or /rpc/. This container has no
@@ -180,3 +230,64 @@ jobs:
           docker network ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker network rm || true
           docker volume  ls --format '{{.Name}}' | grep '^mm-fixture-delivery-' | xargs -r -n1 docker volume  rm || true
           echo 'remaining:'; docker ps -a --filter label=matchmind.purpose=offline-fixture-delivery
+
+  # PostgreSQL 17, the version production and staging actually run. The fence job above proves the
+  # RLS layer on 16 and stays; this job does not replace it. It exists because Director staging on
+  # 17.11 found two defects that a local SUPERUSER install cannot see: ownership transfer needs
+  # SET ROLE on the new owner, and the auth schema belongs to someone else. So this installs the
+  # real migration as a NON-SUPERUSER role administrator against a foreign-owned auth schema.
+  hosted17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-not-a-real-secret
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - name: Report the engine, and refuse anything that is not 17
+        run: |
+          v=$(psql -tAc 'show server_version')
+          echo "server_version: $v"
+          case "$v" in 17.*) ;; *) echo "expected PostgreSQL 17, got $v"; exit 1;; esac
+      - name: The 10 fence probes, on PostgreSQL 17 as well as 16
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database fence17'
+          psql -d fence17 -v ON_ERROR_STOP=1 \
+            -f backend/fixture-delivery/local-fence-regression.sql 2>&1 | tee fence17.log
+          grep -q 'ALL 10 FENCE PROBES PASSED' fence17.log
+      - name: The 4 rolling-window probes, on PostgreSQL 17 as well as 16
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'create database window17'
+          ( cd backend/fixture-delivery && psql -d window17 -v ON_ERROR_STOP=1 \
+              -f local-edition-window-regression.sql ) 2>&1 | tee window17.log
+          grep -q 'ALL 4 ROLLING-WINDOW PROBES PASSED' window17.log
+      - name: Hosted-shape compatibility, non-superuser role administrator
+        run: node backend/fixture-delivery/hosted-compat-regression.mjs
+      - name: Negative control, the S1 and S2 fixes removed
+        run: |
+          # The harness in --negative-control mode puts both fixes back out and asserts the
+          # migration then FAILS with the two errors Director staging reported. It exits 0 when
+          # that holds, so success here is exit 0 PLUS the marker PLUS both error strings; an
+          # earlier version of this step read the exit code backwards and reported a held control
+          # as a failure.
+          node backend/fixture-delivery/hosted-compat-regression.mjs --negative-control > nc.log 2>&1 || {
+            echo 'NEGATIVE CONTROL DID NOT HOLD: the migration installed with the fixes removed'
+            tail -40 nc.log; exit 1
+          }
+          grep -q 'NEGATIVE CONTROL HELD' nc.log
+          grep -q 'must be able to SET ROLE' nc.log
+          grep -q 'no privileges were granted for "auth"' nc.log
+          echo 'Negative control held on PostgreSQL 17.'
