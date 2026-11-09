@@ -1,0 +1,56 @@
+name: Build 358 deployed staging cross-platform QA
+on:
+  push:
+    branches: ['codex/build358-cross-platform-qa-20261109']
+    paths: ['staging/qa/**', '.github/workflows/staging-cross-platform-qa.yml']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  staging:
+    name: ${{ matrix.role }} — actual Cloudflare staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [android, iphone, independent]
+    env:
+      STAGING_URL: https://matchmind-staging-358.pages.dev/
+      EVIDENCE_DIR: qa-evidence
+      APPROVED_DIST: /tmp/matchmind-approved-dist
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20.20.2'
+      - name: Install pinned test driver
+        run: npm install --no-save --package-lock=false --no-audit --no-fund playwright@1.63.0
+      - name: Install simulated WebKit and its system dependencies
+        if: matrix.role == 'iphone'
+        run: npx playwright install --with-deps webkit
+      - name: Select runner Chromium
+        if: matrix.role != 'iphone'
+        run: |
+          chromium_path=$(command -v google-chrome || command -v chromium)
+          test -n "$chromium_path"
+          echo "MM_TEST_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
+      - name: Rebuild immutable approved staging artifact for comparison
+        run: |
+          mkdir -p /tmp/matchmind-approved-source
+          git fetch --no-tags origin b1d3d75c2db61801dd3b2033108035aeb77fc424
+          git archive b1d3d75c2db61801dd3b2033108035aeb77fc424 | tar -x -C /tmp/matchmind-approved-source
+          node /tmp/matchmind-approved-source/staging/build-preview.mjs "$APPROVED_DIST" > /tmp/matchmind-approved-build-info.json
+      - name: Test actual deployed staging URL
+        run: node staging/qa/${{ matrix.role }}.mjs
+      - name: Preserve screenshots and reproducible reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: build358-staging-${{ matrix.role }}-${{ github.sha }}
+          path: qa-evidence/
+          if-no-files-found: warn
+          retention-days: 7
