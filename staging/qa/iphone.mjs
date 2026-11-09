@@ -89,6 +89,21 @@ for(const definition of definitions){
    }
    return{observed};
   });
+  await dataCheck('WebKit Scores competition menu covers the visible day without losing rows',async()=>{
+   await page.locator('.nav-btn[data-view="scores"]').tap();
+   const base=await page.evaluate(()=>{const day=afState.scoresDate;return{day,rows:(afState.scores?.list||[]).filter(x=>(x.ldate||localDateOf(x))===day).map(x=>({lid:String(x.lid),fxid:x.fxid}))};});
+   if(!base.rows.length)return{notExercised:true,reason:'No supplied rows on the current selected day; no source data injected.'};
+   await page.locator('#segCompsS').tap();
+   try{
+    const offered=await page.locator('#compsDropS [data-f]').evaluateAll(es=>es.map(e=>e.dataset.f));
+    const required=[...new Set(base.rows.map(x=>x.lid))];assert.ok(required.every(id=>offered.includes(id)),`Visible Scores competitions absent from menu: ${required.filter(id=>!offered.includes(id)).join(',')}`);
+    await page.locator(`#compsDropS [data-f="${required[0]}"]`).tap();
+    assert.equal(await page.locator('#scoresList .scrow').count(),base.rows.filter(x=>x.lid===required[0]).length);
+    await page.locator('#segCompsS').tap();await page.locator('#compsDropS [data-f="all"]').tap();
+    assert.equal(await page.locator('#scoresList .scrow').count(),base.rows.length);
+    return{day:base.day,requiredIds:required,offeredIds:offered};
+   }finally{if(await page.locator('#compsDropS:not(.hidden)').count())await page.locator('#segCompsS').tap();}
+  });
   await dataCheck('match detail exposes League Table or an honest visible availability explanation',async()=>{
    await page.locator('.nav-btn[data-view="scores"]').tap();
    const row=page.locator('#scoresList .scrow.favrow');

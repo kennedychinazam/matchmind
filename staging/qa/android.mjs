@@ -83,7 +83,19 @@ for(let index=0;index<profiles.length;index++){
    for(const view of ['scores','predict','data'])await h.check(profile.width+'px '+scale+'% text '+view+' layout',async()=>{await nav(h.page,view);await h.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));const measured=await layout(h.page);assert.equal(Math.round(measured.rootPx*10),Math.round(16*scale/100*10));assertLayout(measured);return{scalePercent:scale,...measured};});
   }
   await h.page.evaluate(()=>{document.documentElement.style.fontSize='16px';});await nav(h.page,'scores');await h.screenshot('baseline-scores');await nav(h.page,'data');await h.screenshot('baseline-more');
-  await h.check('vertical touch scrolling does not displace bottom navigation',async()=>{const session=await h.context.newCDPSession(h.page);await h.page.evaluate(()=>window.scrollTo(0,0));await h.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));const before=await h.page.evaluate(()=>scrollY);await session.send('Input.synthesizeScrollGesture',{x:Math.round(profile.width/2),y:Math.round(profile.height*.65),yDistance:-500,xDistance:0,gestureSourceType:'touch',speed:600});await h.page.waitForTimeout(250);const m=await layout(h.page),after=await h.page.evaluate(()=>scrollY);assertLayout(m);assert(after>before||m.scrollHeight<=profile.height,'scrollable More page did not move after a touch gesture');return{before,after,scrollHeight:m.scrollHeight};});
+  await h.check('vertical touch scrolling does not displace bottom navigation',async()=>{
+   const session=await h.context.newCDPSession(h.page);
+   const state=()=>h.page.evaluate(()=>({y:scrollY,scrollHeight:document.documentElement.scrollHeight,viewportHeight:innerHeight,scrollingElement:document.scrollingElement.tagName,target:(()=>{const e=document.elementFromPoint(innerWidth/2,innerHeight*.78);return e?{tag:e.tagName,id:e.id,touchAction:getComputedStyle(e).touchAction}:null;})()}));
+   await h.page.evaluate(()=>window.scrollTo(0,0));await h.page.waitForTimeout(100);
+   const before=await state(),x=Math.round(profile.width/2),startY=Math.round(profile.height*.78),endY=Math.round(profile.height*.24);
+   // CDP synthesizeScrollGesture(touch) was a verified no-op on the local reference while
+   // direct touchStart/move/end advanced425px. Use actual emulated touch events, not a wheel substitute.
+   await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:startY}]});
+   for(let y=startY-20;y>=endY;y-=20){await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});await h.page.waitForTimeout(16);}
+   await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await h.page.waitForTimeout(250);
+   const after=await state(),m=await layout(h.page);h.report.scrollDiagnostics={before,after,method:'CDP direct touchStart/move/end',startY,endY};
+   assertLayout(m);assert(after.y>before.y||before.scrollHeight<=before.viewportHeight,'scrollable More page did not move after direct touch events');return h.report.scrollDiagnostics;
+  });
   await h.check('no uncaught page exception during Android simulation',async()=>{assert.deepEqual(h.report.pageErrors,[]);return{consoleErrors:h.report.consoleErrors};});
  }catch(e){if(h)h.record('Android QA harness completed','FAIL',{error:String(e.stack||e.message)});else{failed=true;console.error('Android browser unavailable:',e.message);}}
  finally{if(h){const report=await h.finish();failed ||= report.counts.FAIL>0;console.log('ANDROID_STAGING_QA '+JSON.stringify({role:report.role,counts:report.counts,browserVersion:report.browserVersion}));}}
