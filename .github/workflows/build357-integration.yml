@@ -16,6 +16,7 @@ on:
       - claude/blocker-closure-20261106
       - claude/staging-s1-s2-20261107
       - claude/build-358-candidate-20261109
+      - claude/build-358-staging-20261109
     paths:
       - 'index.html'
       - 'sw.js'
@@ -275,6 +276,8 @@ jobs:
           ( cd backend/fixture-delivery && psql -d window17 -v ON_ERROR_STOP=1 \
               -f local-edition-window-regression.sql ) 2>&1 | tee window17.log
           grep -q 'ALL 4 ROLLING-WINDOW PROBES PASSED' window17.log
+      - name: Build 358 staging incremental patch, guard, rollback, on PostgreSQL 17
+        run: node backend/fixture-delivery/staging-358-incremental-regression.mjs
       - name: Hosted-shape compatibility, non-superuser role administrator
         run: node backend/fixture-delivery/hosted-compat-regression.mjs
       - name: Negative control, the S1 and S2 fixes removed
