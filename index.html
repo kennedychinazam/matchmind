@@ -619,10 +619,9 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
       <div class="card" id="fixtureList"></div>
     </div>
 
-    <div class="card hidden" id="discoverCard">
-      <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> — World Cup, friendlies, qualifiers, any active competition worldwide.</div>
-      <button class="btn gold" id="discoverBtn">🔍 Discover competitions</button>
-      <div class="status" id="discoverStatus"></div>
+    <!-- Compatibility-only discovery nodes. Public provider discovery is disabled by policy. -->
+    <div hidden aria-hidden="true" id="discoverCard">
+      <div id="discoverBtn"></div><div id="discoverStatus"></div>
     </div>
 
   </div>
@@ -944,12 +943,9 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
       </div>
     </div>
 
-    <div class="card" id="publicProviderNotice">
-      <p>Football data is supplied by MatchMind's server. Personal provider keys are not accepted in this public application.</p>
-      <div id="aiServerStatus" role="status"></div>
-    </div>
     <!-- Non-input compatibility nodes only. They cannot save or activate provider credentials. -->
     <div hidden aria-hidden="true" id="personalProviderStubs">
+      <div id="aiServerStatus" role="status"></div>
       <div id="afKey"></div><div id="aiKeyInput"></div><div id="afKeyUse"></div><div id="aiKeyUse"></div>
       <div id="afSaveKey"></div><div id="aiSaveBtn"></div><div id="afKeyStatus"></div><div id="keyStatus"></div>
       <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiKeyLabel"></div>
@@ -2733,7 +2729,7 @@ function quotaNote(via){
 }
 function renderAISettings(){
   if(!PERSONAL_PROVIDER_INPUTS_ENABLED){
-    if($('aiServerStatus')) $('aiServerStatus').textContent='AI analysis availability is managed by the server. Personal provider keys are not accepted.';
+    if($('aiServerStatus')) $('aiServerStatus').textContent='AI analysis availability is managed by MatchMind.';
     return;
   }
   const pc = $('aiProviderChips'); if(!pc) return;
@@ -3149,7 +3145,7 @@ function fixtureTable(table){
   count=rows.length;
   if(columns!=='*'){const keys=columns.split(',');if(keys.some(k=>!/^\w+$/.test(k)))throw Error('Unsupported display field selector');rows=rows.map(r=>Object.fromEntries(keys.filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]])));}
   return {data:head?null:single?(rows[0]||null):rows,error:null,count};
- }catch(e){return{data:null,error:{message:'Bounded fixture display unavailable',code:'MM_DISPLAY_UNAVAILABLE'},count:null};}}
+ }catch(e){return{data:null,error:{message:'Matches temporarily unavailable. Please try again.',code:'MM_DISPLAY_UNAVAILABLE'},count:null};}}
  return query;
 }
 function fixturePresentationRow(r,board){
@@ -3224,7 +3220,7 @@ async function loadFixturePresentation(){
   const el=$('fixturesMeta')||$('discoverStatus');
   if(el)el.textContent=keep
    ?'Showing the published edition already loaded; a newer one could not be read just now.'
-   :'Published fixtures unavailable. Please try again.';
+   :'Matches temporarily unavailable. Please try again.';
  }
 }
 function showPublishedFixture(L,f){
@@ -21694,7 +21690,7 @@ function scoresReadFailed(msg){
     // Preserve that disclosure when the next read fails instead of hiding the full slate count.
     el.innerHTML = '<b style="color:var(--red)">Refresh failed</b> · ' + el.innerHTML;
   } else {
-    el.textContent = 'Scores unavailable: ' + msg;
+    el.textContent = 'Matches temporarily unavailable. Please try again.';
   }
   return true;
 }
@@ -22251,7 +22247,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <li><b>API-Football</b>: supplies results, fixtures and odds. No personal data is sent to it.</li>
 <li><b>Google, Apple or Mozilla</b>, according to your browser: the push service that delivers a notification to your device, if you have switched notifications on.</li>
 <li><b>Google Fonts and jsDelivr</b>: serve the typeface and one software library. They receive your IP address when the app loads.</li>
-<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. The app’s own server function sends the request using the project’s key, so the provider receives the match data and nothing that identifies you. The count described above is what applies the shared allowance. Personal provider keys are not requested or accepted by this public application.</li>
+<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. MatchMind sends the match data without information that identifies you. The count described above is what applies the shared allowance.</li>
 </ul>
 <p>No personal data is sold or rented. None is used for advertising. None is disclosed to anyone else except where the law requires it.</p>
 <h3>7. International transfers</h3>
