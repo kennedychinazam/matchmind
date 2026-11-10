@@ -269,7 +269,6 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   /* ---------- scores feed ---------- */
   .scrow{display:flex; align-items:center; gap:7px; padding:11px 0; border-bottom:1px solid var(--border);}
   .scrow:last-child{border-bottom:none;}
-  .fxtime.fixture-status,.scstat.fixture-status{width:76px;max-width:76px;overflow-wrap:anywhere;font-size:.6rem;line-height:1.3;}
   .scstat{width:42px; font-size:.71rem; color:var(--muted); font-weight:700; flex-shrink:0;}
   .livechip{display:inline-flex;align-items:center;gap:3px;font-size:.66rem;font-weight:700;
   color:var(--red);background:rgba(229,57,53,.10);border:1px solid rgba(229,57,53,.35);
@@ -386,6 +385,19 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   .predchip.statuschip::after{content:''; position:absolute; left:-3px; right:-3px; top:50%;
     transform:translateY(-50%); height:44px;}
   .predchip.statuschip:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+  /* Director 5 approved fixture state: the provider status occupies the prediction slot while
+     the left column remains a real kickoff/minute. The quiet solid pill mirrors the public UI
+     reference and the 44px pseudo hit area preserves touch accessibility without growing rows. */
+  .predchip.exceptional-chip{display:inline-flex;align-items:center;justify-content:center;gap:5px;
+    flex:0 0 auto;min-width:0;max-width:none;padding:6px 9px;border-radius:11px;white-space:nowrap;
+    background:rgba(148,163,184,.09);border:1px solid rgba(148,163,184,.42);
+    color:#aab4c8;font-size:.68rem;font-weight:700;overflow-wrap:normal;}
+  .predchip.exceptional-chip svg{width:10px;height:10px;flex:0 0 auto;fill:currentColor;opacity:.85;}
+  .scscore.exceptional-status-slot{width:auto;}
+  .scscore .exceptional-chip{width:auto;}
+  .fxrow>.fxteams{min-width:0;}
+  .fxrow>.fxteams .tline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  @media(max-width:340px){.predchip.exceptional-chip{gap:4px;padding:6px 7px;font-size:.64rem;}}
   /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
@@ -5390,6 +5402,22 @@ function fixtureExceptionalStatus(f){
   const code=normStatus(f&&f.status);
   return ['PST','ABD','CANC','SUSP','INT'].includes(code) ? statusWord(code) : '';
 }
+function fixtureExceptionalLabel(f){
+  const word=fixtureExceptionalStatus(f);
+  return word ? word.charAt(0)+word.slice(1).toLowerCase() : '';
+}
+function fixtureExceptionalTime(f){
+  const code=normStatus(f&&f.status),elapsed=Number(f&&f.elapsed);
+  if(f&&f.elapsed!=null&&['ABD','SUSP','INT'].includes(code)&&Number.isInteger(elapsed)&&elapsed>=0&&elapsed<=200) return elapsed+"'";
+  return localHM(f&&f.date,f&&f.time);
+}
+function exceptionalStatusChip(f){
+  const label=fixtureExceptionalLabel(f);
+  if(!label)return '';
+  const why='Latest accepted provider status: '+label+'. The original locked prediction remains preserved in its record.';
+  const pause='<svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"><rect x="1" y="1" width="3" height="8" rx=".7"></rect><rect x="6" y="1" width="3" height="8" rx=".7"></rect></svg>';
+  return `<button type="button" class="predchip statuschip exceptional-chip" data-statuswhy="${escapeHtml(why)}" title="${escapeHtml(why)}" aria-label="${escapeHtml('Fixture status: '+label+'. '+why)}">${pause}<span>${escapeHtml(label)}</span></button>`;
+}
 function forecastDisplayExpired(f,nowMs,originalPrediction){
   const a=originalPrediction||(f&&f.pick&&afState.archive&&afState.archive[f.fxid]);
   if(!a||!f)return false;
@@ -5483,12 +5511,13 @@ function fxCells(L,f,smap){
      robot's own issuing path, and a display rule has no business moving it. */
   const _arch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
   const _void = forecastDisplayExpired(f);
-  const chip = !f.pick&&f._presentation ? pickStatusChip(L,f)
+  const chip = exceptional ? exceptionalStatusChip(f)
+             : !f.pick&&f._presentation ? pickStatusChip(L,f)
              : _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
              : _void  ? expiredForecastChip()
              : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${probabilityPercent(f.prob,0)}</span>`
              : f._presentation||exceptional ? pickStatusChip(L,f) : '';
-  return {timeCell:`<span class="fxtime${exceptional?' fixture-status':''}">${exceptional||localHM(f.date, f.time)}</span>`, chip, finished:false};
+  return {timeCell:`<span class="fxtime">${exceptional?fixtureExceptionalTime(f):localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
 let _toastT=null;
 function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
@@ -21824,7 +21853,7 @@ function renderScores(){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
       const exceptional=fixtureExceptionalStatus(s);
-      const stat = exceptional ? escapeHtml(exceptional) : isLive ? `<span class="livedot">●</span>${s.elapsed?escapeHtml(s.elapsed)+"'":escapeHtml(statusWord(s.status))}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : escapeHtml(statusWord(s.status));
+      const stat = exceptional ? fixtureExceptionalTime(s) : isLive ? `<span class="livedot">●</span>${s.elapsed?escapeHtml(s.elapsed)+"'":escapeHtml(statusWord(s.status))}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : escapeHtml(statusWord(s.status));
       /* build 357 - an unresolved extra-time tie shows its real result and says plainly that the
          90-minute score, which is what every market here settles on, is not available. */
       const score = exceptional ? '–' : unsettled90(s) ? `${escapeHtml(s.raw_gh)} – ${escapeHtml(s.raw_ga)}<span class="ftl">AET · 90' n/a</span>`
@@ -21833,12 +21862,13 @@ function renderScores(){
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
         <span class="mstar lft${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
-        <span class="scstat${exceptional?' fixture-status':''}">${stat}</span>
+        <span class="scstat">${stat}</span>
         <span class="fxteams"><span class="tline">${crest(s.home)}${escapeHtml(s.home)}</span><span class="tline">${crest(s.away)}${escapeHtml(s.away)}</span></span>
-        <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span></div>`;
+        <span class="scscore${done?' final':''}${isLive?' liven':''}${exceptional?' exceptional-status-slot':''}">${exceptional?exceptionalStatusChip(s):score}</span></div>`;
     }
   }
   box.innerHTML = html;
+  bindStatusChips(box);
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
   { const cl = $('scoresClearFilter'); if(cl) cl.onclick = e=>{ e.preventDefault();
       afState.filter='all'; afState.scoreFilter='all'; saveState(); renderCompsDrop(); renderScores(); }; }
@@ -22839,8 +22869,9 @@ async function showPredictDate(d){
         : expired
         ? expiredForecastChip()   // build 349
         : `<span class="predchip">${chipCode(p.pick)} · ${probabilityPercent(p.pick_prob,0)}</span>`;
-      html += `<div class="fxrow"><span class="fxtime${exceptional?' fixture-status':''}">${exceptional|| (done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(f&&f.date||d, f&&f.time||p.ktime))}</span>
-        <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
+      const displayChip=exceptional?exceptionalStatusChip(f):chip;
+      html += `<div class="fxrow"><span class="fxtime">${exceptional?fixtureExceptionalTime(f):(done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(f&&f.date||d, f&&f.time||p.ktime))}</span>
+        <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${displayChip}</div>`;
     }
     $('fixtureList').innerHTML =
       (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html + retiredNoteDay(retiredHere);
