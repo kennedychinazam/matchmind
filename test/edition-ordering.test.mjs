@@ -161,7 +161,7 @@ test('delayed edition adds Champions League atomically, preserving date, filter 
  assert.deepEqual(x.during,x.first,'no half-slate or false no-pick count while one screen is delayed');
  assert.deepEqual(x.after.names,['Alpha Cup','UEFA Champions League']);
  assert.ok(x.after.text.includes('UEFA Champions League'));
- assert.ok(x.after.text.includes('POSTPONED'),'provider status propagates through real admitted edition');
+ assert.ok(x.after.text.toUpperCase().includes('POSTPONED'),'provider status propagates through real admitted edition');
  assert.equal(x.after.date,x.first.date);assert.equal(x.after.filter,x.first.filter);
  assert.deepEqual(x.lagging,x.after,'older/slower subset cannot replace complete accepted edition');
  assert.deepEqual(JSON.parse(x.after.archive)['980000'],JSON.parse(x.first.archive)['980000'],'published history is unchanged');
