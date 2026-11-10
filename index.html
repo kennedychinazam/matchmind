@@ -618,6 +618,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
       <div class="datebar" id="dateBar"></div>
       <div class="card" id="fixtureList"></div>
     </div>
+    <div class="status" id="fixturesMeta" role="status">Matches temporarily unavailable. Please try again.</div>
 
     <!-- Compatibility-only discovery nodes. Public provider discovery is disabled by policy. -->
     <div hidden aria-hidden="true" id="discoverCard">
@@ -3196,6 +3197,7 @@ async function loadFixturePresentation(){
   _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
   _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
+  if($('fixturesMeta'))$('fixturesMeta').textContent='';
  }catch(e){
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
      This catch used to clear afState.leagues on ANY failure. One of those failures is the

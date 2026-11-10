@@ -125,14 +125,14 @@ test('a first visit with no key and no backend never sits on "Loading matches…
   }
 });
 
-test('the SDK loading but failing to give a client is reported as configuration, not network', async t => {
+test('the SDK loading but failing to give a client reports only the public availability message', async t => {
   if(!ready) return t.skip(skip());
   const {port} = await host();
   {
     const {ctx, page} = await open({port, stubSdk:true});
     const meta = await page.evaluate(()=>document.getElementById('scoresMeta').textContent);
-    assert.match(meta, /unavailable/i);
-    assert.match(meta, /no data source/i, 'with window.supabase present the reason must not blame the network');
+    assert.equal(meta, 'Matches temporarily unavailable. Please try again.');
+    assert.doesNotMatch(meta, /data source|network|provider|key/i, 'private diagnostics must not reach the public error');
     await ctx.close();
   }
 });
