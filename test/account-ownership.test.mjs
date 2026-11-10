@@ -12,6 +12,8 @@ async function open(t, seed){
  if(seed) await ctx.addInitScript(value=>localStorage.setItem('mm_state',value),seed);
  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  await ctx.route('**/*',r=>r.request().url()==='http://ownership.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
+ // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+ await ctx.addInitScript(()=>localStorage.setItem('mm_intro','1'));
  const p=await ctx.newPage();await p.goto('http://ownership.test/');return p;
 }
 test('completed A data is detached on direct B switch and restored for A',async t=>{

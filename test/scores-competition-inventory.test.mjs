@@ -16,6 +16,8 @@ test('Scores selector uses the displayed day inventory without requiring predict
   t.after(()=>browser.close());
   const context=await browser.newContext({serviceWorkers:'block',viewport:{width:360,height:772},isMobile:true,hasTouch:true});
   await context.route('**/*',r=>r.request().url()==='http://scores-inventory.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page=await context.newPage();await page.goto('http://scores-inventory.test/');
   const out=await page.evaluate(()=>{
     const today=ymdOffset(0),tomorrow=ymdOffset(1);

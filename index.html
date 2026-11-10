@@ -7,7 +7,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23070c18'/%3E%3Crect x='20.5' y='6' width='7' height='5' rx='1.6' fill='%23f6c344'/%3E%3Ccircle cx='24' cy='28' r='15' fill='none' stroke='%23f6c344' stroke-width='3.2'/%3E%3Cpath d='M16 35 V21 L24 29 L32 21 V35' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<title>MatchMind PRO — Statistical Football Forecasts</title>
+<title>MatchMind PRO: Statistical Football Forecasts</title>
+<script>
+const APP_NAME = 'MatchMind';
+const APP_NAME_FULL = APP_NAME + ' PRO';
+document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
+</script>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -407,6 +412,24 @@
   .cghead.sub{margin-top:4px; background:var(--card); font-size:.82rem;}
 
   /* toast */
+  .introwrap{position:fixed; inset:0; z-index:300; background:var(--overlay); backdrop-filter:blur(14px);
+             overflow-y:auto; display:flex; justify-content:center;}
+  .introwrap[hidden]{display:none;}
+  .introbox{width:100%; max-width:520px; padding:26px 20px 30px; display:flex; flex-direction:column; gap:14px;}
+  .intronm{font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--text);}
+  .introlead{font-size:.95rem; font-weight:600; color:var(--muted); line-height:1.5;}
+  .introsec{border:1px solid var(--border); border-radius:14px; background:var(--card); padding:13px 14px;}
+  .introsec h4{margin:0 0 7px; font-size:.72rem; font-weight:800; letter-spacing:.07em;
+               text-transform:uppercase; color:var(--muted2);}
+  .introsec p{margin:0 0 5px; font-size:.9rem; line-height:1.45; color:var(--text);}
+  .introsec p:last-child{margin-bottom:0;}
+  .introrec{font-size:.9rem; font-weight:700; color:var(--green2); line-height:1.45;}
+  .introage{display:inline-block; margin-top:4px; padding:2px 9px; border-radius:11px;
+            background:var(--card3); border:1px solid var(--border2); font-size:.78rem; font-weight:800;}
+  .introlinks{display:flex; flex-wrap:wrap; gap:14px; font-size:.84rem; font-weight:700;}
+  .introlinks a{color:var(--gold); text-decoration:none;}
+  .introgo{width:100%; padding:14px; border:none; border-radius:14px; background:var(--gold);
+           color:#1a1203; font-size:1rem; font-weight:900; cursor:pointer;}
   .toast{position:fixed; bottom:92px; left:50%; transform:translateX(-50%); background:var(--card3); color:var(--text); border:1px solid var(--border2); border-radius:22px; padding:11px 20px; font-size:.86rem; font-weight:700; z-index:200; box-shadow:0 8px 30px rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none;}
   .toast.show{opacity:1;}
 
@@ -537,7 +560,7 @@
 <div class="app">
 
   <div class="topbar">
-    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>MatchMind <span class="pro">PRO</span></div>
+    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span id="brandName"></span> <span class="pro">PRO</span></div>
     <div class="topright">
       <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
       <button class="iconbtn" id="searchOpen" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;display:block"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
@@ -903,21 +926,20 @@
         <button class="btn" id="goFavs">Open</button>
       </div>
       <div class="setrow aboutrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd"><span id="aboutName"></span> · <span id="verLabel">v0.9</span></div></div></div>
         <span class="muted" style="font-size:.72rem">Statistical football forecasts</span>
       </div>
     </div>
 
-    <div class="sec-label">Personal provider keys</div>
-    <div class="card">
-      <p>Keys saved for an account stay on this device. Guest keys last only for this session. Existing unassigned keys are retained and are not used.</p>
-      <label for="afKey">API-Football key</label><input id="afKey" type="password" autocomplete="off">
-      <button class="btn" id="afSaveKey">Save key for this account / use for this guest session</button><div id="afKeyStatus" role="status"></div>
-      <label><input type="checkbox" id="afKeyUse"> Allow API-Football requests this session</label>
-      <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiServerStatus"></div>
-      <label id="aiKeyLabel" for="aiKeyInput">AI API key</label><input id="aiKeyInput" type="password" autocomplete="off">
-      <button class="btn" id="aiSaveBtn">Save key for this account / use for this guest session</button><div id="keyStatus" role="status"></div>
-      <label><input type="checkbox" id="aiKeyUse"> Allow personal AI key fallback this session</label>
+    <div class="card" id="publicProviderNotice">
+      <p>Football data is supplied by MatchMind's server. Personal provider keys are not accepted in this public application.</p>
+      <div id="aiServerStatus" role="status"></div>
+    </div>
+    <!-- Non-input compatibility nodes only. They cannot save or activate provider credentials. -->
+    <div hidden aria-hidden="true" id="personalProviderStubs">
+      <div id="afKey"></div><div id="aiKeyInput"></div><div id="afKeyUse"></div><div id="aiKeyUse"></div>
+      <div id="afSaveKey"></div><div id="aiSaveBtn"></div><div id="afKeyStatus"></div><div id="keyStatus"></div>
+      <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiKeyLabel"></div>
     </div>
     <div class="sec-label" data-i18n="Your data">Your data</div>
     <div class="card">
@@ -1019,6 +1041,40 @@
 </div>
 
 <!-- Supabase SDK (accounts + sync). Fails silently offline → app stays in guest mode. -->
+<div class="introwrap" id="introScreen" role="dialog" aria-modal="true" aria-labelledby="introName" tabindex="-1" hidden>
+  <div class="introbox">
+    <div class="intronm" id="introName"></div>
+    <div class="introlead">Football predictions from a model, published before kick-off and counted afterwards.</div>
+
+    <div class="introsec">
+      <h4>How it works</h4>
+      <p>A pick is published before the match kicks off.</p>
+      <p>It is then frozen. Nobody can change it afterwards.</p>
+      <p>Every pick is counted when the match ends, the wrong ones too.</p>
+    </div>
+
+    <div class="introsec">
+      <h4>The record so far</h4>
+      <div class="introrec" id="introRecord"></div>
+    </div>
+
+    <div class="introsec">
+      <h4>What this is not</h4>
+      <p>Not a bookmaker. It takes no stake and pays no winnings.</p>
+      <p>Nothing here is advice to bet.</p>
+      <p><span class="introage">18+</span></p>
+    </div>
+
+    <div class="introlinks">
+      <a href="#" id="introTerms">Terms</a>
+      <a href="#" id="introPrivacy">Privacy</a>
+      <a href="#" id="introPlay">Responsible play</a>
+    </div>
+
+    <button class="introgo" id="introGo">Open the app</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
@@ -1030,6 +1086,13 @@
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
 const APP_BUILD = 358;   // bump every release; shown in More → About and matches the service-worker version
+const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
+function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
+function applyAppName(){
+ for(const [id,text] of [['brandName',APP_NAME],['aboutName',APP_NAME_FULL],['introName',APP_NAME]]){const el=document.getElementById(id);if(el)el.textContent=text;}
+}
+applyAppName();
+
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 let _authAttempt = 0, _cloudAccountEpoch = 0, _cloudPushVersion = 0, _analysisGeneration = 0;
 let _cloudSync = {owner:null,status:'idle'};
@@ -2513,6 +2576,7 @@ function deLatex(s){
     .trim();
 }
 async function callClaude(payload, key, credential){
+  personalProviderCheck();
   credentialCheck(credential);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
@@ -2526,6 +2590,7 @@ async function callClaude(payload, key, credential){
 // OpenAI-compatible chat/completions (DeepSeek, Kimi/Moonshot, etc.)
 function openAICompat(url, model){
   return async (payload, key, credential)=>{
+    personalProviderCheck();
     credentialCheck(credential);
     const res = await fetch(url, {
       method:'POST',
@@ -2624,7 +2689,7 @@ async function refreshServerProviders(){
    Returns {text, via} or throws with a message already fit to show the user. */
 async function runAIWriter(providerId, payload, credential=credentialContext()){
   credentialCheck(credential);
-  const p = aiProviderById(providerId), ownKey = aiKeys[providerId];
+  const p = aiProviderById(providerId), ownKey = PERSONAL_PROVIDER_INPUTS_ENABLED ? aiKeys[providerId] : null;
   let serverErr = null;
   if(supa){
     try{ const j = await callProxy(payload, providerId, credential); return { text:j.text, via:'server', label:j.providerLabel || p.name }; }
@@ -2637,11 +2702,10 @@ async function runAIWriter(providerId, payload, credential=credentialContext()){
     }
   }
   credentialCheck(credential);
-  if(ownKey && p.run && $('aiKeyUse') && $('aiKeyUse').checked){ const text=await p.run(payload, ownKey, credential); credentialCheck(credential); return { text, via:'own', label:p.name }; }
-  if(ownKey && p.run) throw new Error('Enable personal AI key fallback for this session to use the saved key.');
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED && ownKey && p.run && $('aiKeyUse') && $('aiKeyUse').checked){ const text=await p.run(payload, ownKey, credential); credentialCheck(credential); return { text, via:'own', label:p.name }; }
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED && ownKey && p.run) throw new Error('Enable personal AI key fallback for this session to use the saved key.');
   if(serverErr) throw serverErr;
-  throw new Error(p.run ? 'Add a '+p.name+' key in More → Settings, or sign in to use the shared allowance.'
-                        : p.name+' needs the server — sign in to use it.');
+  throw new Error('AI analysis requires an authorized server session; personal provider fallback is unavailable.');
 }
 function syncAIKeyField(){
   const p = aiProviderById(aiProvider);
@@ -2655,6 +2719,10 @@ function quotaNote(via){
   return `  (${u} of ${aiQuota.limit} free analyses used today.)`;
 }
 function renderAISettings(){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){
+    if($('aiServerStatus')) $('aiServerStatus').textContent='AI analysis availability is managed by the server. Personal provider keys are not accepted.';
+    return;
+  }
   const pc = $('aiProviderChips'); if(!pc) return;
   // ● marks a provider the server can write with — no personal key needed
   const onServer = (id)=> aiServerProviders && aiServerProviders.includes(id);
@@ -2732,8 +2800,10 @@ const afRate = [];   // timestamps of recent requests — free plan allows 10/mi
      • Manual buttons (Load leagues, Discover) are untouched; they only run when pressed. */
 let afExtras = false;
 function afCloudOwnsFixtures(){ return !!supa; }
-function afExtrasOn(){ return !!afState.key && !!($('afKeyUse') && $('afKeyUse').checked) && (afExtras || !supa); }
-const AF_OFF_MSG = 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).';
+function afExtrasOn(){ return PERSONAL_PROVIDER_INPUTS_ENABLED && !!afState.key && !!($('afKeyUse') && $('afKeyUse').checked) && (afExtras || !supa); }
+const AF_OFF_MSG = PERSONAL_PROVIDER_INPUTS_ENABLED
+  ? 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).'
+  : 'These football details are unavailable in this public version.';
 async function afAuto(path, base, credential=credentialContext()){
   credentialCheck(credential);
   if(!afExtrasOn()) throw new Error(AF_OFF_MSG);
@@ -2741,6 +2811,7 @@ async function afAuto(path, base, credential=credentialContext()){
 }
 
 async function afFetch(path, base, credential=credentialContext()){
+  personalProviderCheck();
   credentialCheck(credential);
   const key=afState.key;
   if(!key || !$('afKeyUse') || !$('afKeyUse').checked) throw Error('Enable API-Football requests for this session first.');
@@ -3152,7 +3223,7 @@ function showPublishedFixture(L,f){
  $('heroConf').textContent=issued?pct(f.prob)+' published probability':'';
  $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
  setHeroDnb(available?f.pick:null,v);
- $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. MatchMind is no longer backing it; it is not a current recommendation.</p>')+'<p>League Table unavailable in this published edition. Full competition standings are not supplied; no table is inferred from the limited display window.</p><p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
+ $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. ' + APP_NAME + ' is no longer backing it; it is not a current recommendation.</p>')+'<p>League Table unavailable in this published edition. Full competition standings are not supplied; no table is inferred from the limited display window.</p><p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
  const result=fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
  const resultLine=document.createElement('div');resultLine.className='hm-dt';
  const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
@@ -3214,6 +3285,7 @@ function credentialDetach(){
 }
 function credentialSelect(owner){
   credentialDetach(); _credentialOwner=owner; _credentialReady=true; _credentialStoredRaw=null;
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED) return; // Preserve all stored credentials without reading or assigning them.
   if(!_personalReady){_credentialReady=false;if($('afKeyStatus'))$('afKeyStatus').textContent='Credentials unavailable while local data needs attention.';return;}
   if(owner===null)return;
   if(typeof owner!=='string' || !owner){_credentialReady=false;return;}
@@ -3228,6 +3300,7 @@ function credentialSelect(owner){
   }catch(e){_credentialReady=false; if($('afKeyStatus')) $('afKeyStatus').textContent='Credentials could not be read; use is paused.';}
 }
 function credentialSave(slot,value){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED) return false;
   const owner=authUser&&authUser.id||null, status=$(slot==='af'?'afKeyStatus':'keyStatus');
   if(!['af','ai:gemini','ai:claude','ai:deepseek','ai:kimi'].includes(slot) || typeof value!=='string'){if(status)status.textContent='Invalid key selection.';return false;}
   if(!_credentialReady || !_personalReady || owner!==_credentialOwner || _personalOwner!==owner){if(status)status.textContent='Credentials unavailable; retry after signing in.';return false;}
@@ -4170,7 +4243,7 @@ function renderStandings(L, homeTeam, awayTeam){
   const maxLeague = 2 * (tbl.rows.length - 1);
   const over = tbl.rows.filter(r => r.pl > maxLeague).length;
   const caveat =
-    (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name MatchMind does not yet classify.</div>` : '') +
+    (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name ${APP_NAME} does not yet classify.</div>` : '') +
     /* ══ BUILD 358 — THE DEDUCTION CAVEAT IS NOW SCOPED TO THE COMPETITION IT IS ABOUT ═══════
        The else branch of this ternary printed the 2026-08-23 sweep's Championship finding under EVERY
        table: a reader looking at Bayern and Dortmund was told about Sheffield Wednesday, Leicester and
@@ -4665,7 +4738,7 @@ const GATE_WHY = {
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`,
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
-  outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
+  outofscope: () => `${APP_NAME} does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
   unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`,
   /* The published record stamped this one, so the reason is read rather than recomputed. */
   withheld: () => `The published forecast record stamps this pick as withheld before kick-off, so it was never offered here. It is not re-judged after the whistle.`,
@@ -5883,7 +5956,7 @@ async function shareCard(){
     try{ file = new File([blob], name, {type:'image/png'}); }catch(e){}
     if(file && navigator.canShare && navigator.canShare({files:[file]})){
       try{
-        await navigator.share({files:[file], title:'MatchMind prediction'});
+        await navigator.share({files:[file], title:APP_NAME + ' prediction'});
         return;
       }catch(e){
         // AbortError is the user closing the share sheet. That is a decision, not a fault, and
@@ -6851,6 +6924,62 @@ function dailyFloorFor(c, floors){
   const F = floors || DAILY_FLOOR_PRIMARY;
   const v = F[c.code];
   return (v === undefined) ? null : v;      // unknown code -> not eligible, rather than undefined
+}
+
+// WO62B: approved Build356 daily-card selection policy; no grading/formula changes.
+const CARD_MAX_CARDS_PER_FIXTURE = 2;      // Ken: one match, "one more card". Never a third.
+const CARD_PICK_CONFLICTS = {
+  /* the home side wins */
+  '1'  :['1X','1D','1/1','X/1','2/1'],
+  '1D' :['1','1X','1/1','X/1','2/1'],
+  '1/1':['1','1X','1D'],
+  'X/1':['1','1X','1D'],
+  '2/1':['1','1X','1D'],
+  /* the match is drawn */
+  'X'  :['1X','X2','1/X','X/X','2/X'],
+  '1/X':['X','1X','X2'],
+  'X/X':['X','1X','X2'],
+  '2/X':['X','1X','X2'],
+  /* the away side wins */
+  '2'  :['X2','2D','1/2','X/2','2/2'],
+  '2D' :['2','X2','1/2','X/2','2/2'],
+  '1/2':['2','X2','2D'],
+  'X/2':['2','X2','2D'],
+  '2/2':['2','X2','2D'],
+  /* the double chances, which each cover two of the three results above */
+  '1X' :['1','X','1D','1/1','1/X','X/1','X/X','2/1','2/X'],
+  'X2' :['X','2','2D','1/X','1/2','X/X','X/2','2/X','2/2'],
+  /* goals: the Over lines are nested in one another, and BTTS yes pulls with them */
+  'O15':['BTS','O25','O35'],
+  'O25':['BTS','O15','O35'],
+  'O35':['BTS','O15','O25'],
+  'BTS':['O15','O25','O35'],
+  /* goals: the Under lines likewise, with BTTS no */
+  'U15':['NBT','U25','U35'],
+  'U25':['NBT','U15','U35'],
+  'U35':['NBT','U15','U25'],
+  'NBT':['U15','U25','U35']
+};
+/* Two picks on one fixture. The SAME code is the plainest conflict there is and is tested first
+   rather than being left to the table, so an entry missing from the table can never let a
+   straight repeat of yesterday's complaint through. */
+function cardPicksConflict(a, b){
+  if(!a || !b) return true;                // an unknown pick is treated as conflicting, not as safe
+  if(String(a) === String(b)) return true;
+  const row = CARD_PICK_CONFLICTS[String(a)];
+  return !!(row && row.indexOf(String(b)) >= 0);
+}
+/* The one question the card loop asks of every candidate: may this fixture carry this pick, given
+   what the day's earlier cards already hold? `placed` is fixture id -> the codes already shown.
+   COUNTED BY CARD, WHICH IS THE SAME AS BY LEG HERE: `dailyEligible` returns at most one selection
+   per fixture, so no single card can hold two legs of one match. If that ever changes this count
+   has to change with it, and the comment is here so the next reader knows. */
+function cardLegAllowed(placed, fxid, code){
+  if(fxid == null || fxid === '') return true;          // no id -> no way to track it, so no block
+  const prior = (placed && placed[String(fxid)]) || [];
+  if(prior.length >= CARD_MAX_CARDS_PER_FIXTURE) return false;
+  for(const p of prior) if(cardPicksConflict(p, code)) return false;
+  return true;
 }
 
 /* ══ BUILD 272 — THE TIER NUMBER IS A MINIMUM, NOT A MIDPOINT ═══════════════════════════════════
@@ -8631,7 +8760,7 @@ function renderValueLadder(){
     + escapeHtml(String(st.unit)) + '"></div>'
     + grid
     + '<div class="subnote ctxprose"><b style="color:var(--gold)">Staking more after a loss creates no '
-    + 'edge.</b> A full cycle risks ' + money(cum) + '. MatchMind has no measured edge over the '
+    + 'edge.</b> A full cycle risks ' + money(cum) + '. ' + APP_NAME + ' has no measured edge over the '
     + 'bookmakers, so expect this to lose.</div>'
     + '</div>';
 
@@ -9188,10 +9317,12 @@ function renderDailySlips(){
      filled tier-days to 30. With Bold's 8-leg cap and the market cap as well it is 23, and the
      whole of that is reported in `wo61-harness-2026-10-18.txt` and in the WO-61 report. A tier that
      cannot be filled honestly is not issued, which is the existing rule and not a new one. */
-  const _taken = new Set();
+  // WO62B: each fixture may carry at most two distinct nonconflicting selections.
+  const _placed = Object.create(null);
   const _takeLegs = legs => { for(const l of (legs || [])){
       const fx = (l && l.fxid != null) ? l.fxid : (l && l.f && l.f.fxid != null ? l.f.fxid : null);
-      if(fx != null && fx !== '') _taken.add(String(fx));
+      const cd = (l && l.code != null) ? String(l.code) : '';
+      if(fx != null && fx !== '') (_placed[String(fx)] = _placed[String(fx)] || []).push(cd);
     } };
   /* The Banker first. Its ISSUED row, not `bankerOf()`: the card a reader is looking at is the one
      that must come out of the pool, and a live re-search can disagree with it. */
@@ -9250,11 +9381,9 @@ function renderDailySlips(){
              + '</div></div>';
       continue;
     }
-    /* build 355 (WO-61 scope 1) - the pool is what is LEFT. Filtered before `dailyEligible` runs,
-       so a fixture an earlier card took cannot even reach the per-fixture selection step, and a
-       fixture whose best market is gone does not silently fall through to a second market of the
-       same match. */
-    const _free = cands.filter(c => !(c.f && c.f.fxid != null && _taken.has(String(c.f.fxid))));
+    /* WO62B: reject conflicting selections before dailyEligible chooses one per fixture.
+       An approved distinct second selection may reach another card; never a third. */
+    const _free = cands.filter(c => cardLegAllowed(_placed, c.f && c.f.fxid, c.code));
     const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(_free, floorsForTier(st.floors, tier)));
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
@@ -9529,7 +9658,7 @@ function renderBanker(){
       must clear \u2014 enough history on both teams, a competition that has proven it beats
       \u201chome or draw\u201d before making a directional call, and the measured floor for that market.
       Picks already published and since withdrawn are excluded too.
-      MatchMind says nothing rather than picking the best of a bad set.</div></div>`;
+      ${APP_NAME} says nothing rather than picking the best of a bad set.</div></div>`;
     return;
   }
   const {L,f} = b;
@@ -11395,7 +11524,7 @@ async function renderLedger(){
     }
 
     html += `<div class="subnote" style="margin-top:12px"><b>No profit figure is shown, and that is deliberate.</b> `
-          + `${mkKeys.length ? '' : ''}Of the picks in this window, roughly nine in ten are Double Chance, Draw No Bet or goals lines, and this app only stores closing prices for the straight 1X2 market. A return calculated from those would describe under a tenth of what MatchMind actually publishes while carrying the name of the whole record. It arrives when the odds history covers the markets the app really uses.</div>`;
+          + `${mkKeys.length ? '' : ''}Of the picks in this window, roughly nine in ten are Double Chance, Draw No Bet or goals lines, and this app only stores closing prices for the straight 1X2 market. A return calculated from those would describe under a tenth of what ${APP_NAME} actually publishes while carrying the name of the whole record. It arrives when the odds history covers the markets the app really uses.</div>`;
     if(orphans.length)
       html += `<div class="subnote"><b>${orphans.length} pick${orphans.length===1?'':'s'} can never be graded.</b> ${orphans.length===1?'Its':'Their'} fixture belongs to the data provider this app retired at Milestone 11. The row is still there and still reads "not started", because the job that updated those fixtures was switched off and nothing has touched them since. You can spot them in the list under the old competition names — <i>Primera Division</i> beside <i>La Liga</i> — alongside their modern twins. Shown rather than hidden, and counted in neither the hit rate nor what is still to come.</div>`;
     if(excluded.length)
@@ -17317,7 +17446,7 @@ async function apiAnalyze(f, L){
     $('analysisText').textContent =
 `${f.home} vs ${f.away} — ${L.name}${L.country?' ('+L.country+')':''}.
 
-Match history for this competition isn't available on your current API plan, so the MatchMind engine can't run its own model here. The probabilities above come from API-Football's prediction service instead. This is a view-only provider estimate, not a MatchMind forecast; it is not recorded in the engine history.` + (comment ? `
+Match history for this competition isn't available on your current API plan, so the ${APP_NAME} engine can't run its own model here. The probabilities above come from API-Football's prediction service instead. This is a view-only provider estimate, not a ${APP_NAME} forecast; it is not recorded in the engine history.` + (comment ? `
 
 Model note: ${comment}.` : '');
     $('verdictBox').textContent = advice ? `Verdict (API-Football): ${advice}` : `Verdict: ${arr[0][1]} (${pct(arr[0][0])}).`;
@@ -17531,7 +17660,7 @@ function showNoAnalysis(home, away, info){
   if(box) box.innerHTML =
       `<p><b>There is no prediction for this fixture, and that is deliberate.</b></p>`
     + (info && info.outOfScope
-        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> is not a competition MatchMind predicts.</p>
+        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> is not a competition ${APP_NAME} predicts.</p>
            <p>Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two divisions elsewhere, and the cups. The fixture, kick-off time and result still work here.</p>`
       : info && info.thin
         ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> has only <b>${info.n}</b> completed match${info.n===1?'':'es'} loaded so far — the engine needs at least 15 before it will price a fixture. In early August that simply means the season has just started and the results have not arrived yet.</p>
@@ -21975,14 +22104,14 @@ function legalRecordLine(){
 }
 const LEGAL_PAGES = {
   terms: { title: 'Terms of Use', body: function(){ return `
-<div class="notice">These terms govern your use of MatchMind. By using the app you accept them. If you don’t accept them, don’t use the app.</div>
-<h3>1. What MatchMind is</h3>
-<p>MatchMind is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market. After the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
-<h3>2. What MatchMind is not</h3>
-<p>MatchMind is not a bookmaker, a betting exchange or a betting intermediary. It accepts no bets, takes no stake, holds no customer money, pays out nothing, and places no bet for you.</p>
+<div class="notice">These terms govern your use of ${APP_NAME}. By using the app you accept them. If you don’t accept them, don’t use the app.</div>
+<h3>1. What ${APP_NAME} is</h3>
+<p>${APP_NAME} is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market. After the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
+<h3>2. What ${APP_NAME} is not</h3>
+<p>${APP_NAME} is not a bookmaker, a betting exchange or a betting intermediary. It accepts no bets, takes no stake, holds no customer money, pays out nothing, and places no bet for you.</p>
 <p>The app offers no gambling facility of any kind. There is nothing in it to stake money on, no account to fund and no payment of any sort. Nothing in the app is a recommendation to place a bet. Nothing in it is financial, investment, tax or legal advice.</p>
 <h3>3. Who may use it</h3>
-<p>You must be 18 or over to use MatchMind. The app does not check your age, and by using it you confirm that you are 18 or over. We don’t offer the app to anyone under 18. If we find that an account belongs to someone under 18, we close it and delete its data.</p>
+<p>You must be 18 or over to use ${APP_NAME}. The app does not check your age, and by using it you confirm that you are 18 or over. We don’t offer the app to anyone under 18. If we find that an account belongs to someone under 18, we close it and delete its data.</p>
 <h3>4. The forecasts, and the rules they are published under</h3>
 <p>These are the rules the app runs on. They are the same for every match and every user, and we don’t vary them case by case.</p>
 <ul>
@@ -21993,13 +22122,13 @@ const LEGAL_PAGES = {
 <li><b>Withheld forecasts.</b> Where the engine’s confidence for a match falls below the threshold measured for that competition, we publish no forecast for that match.</li>
 </ul>
 <h3>5. Accuracy: the only representation the app makes</h3>
-<p>MatchMind is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are often wrong.</p>
+<p>${APP_NAME} is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are often wrong.</p>
 <p>The app’s own published record is the only representation we make about accuracy, and it includes the shortfall. Across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed, an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. We give no other representation or warranty about accuracy, availability, continuity or results, and none is to be implied, except where one cannot lawfully be excluded.</p>
 <h3>6. Your account</h3>
 <p>An account is an email address and a password. It exists so that your favourites and your copy of the record reach your other devices. Keep your password confidential: you are responsible for what is done through your account. Accounts are personal, and you may not share or transfer one.</p>
 <p>You can request account deletion in More → Your data → Delete my account. The app reports the server’s acknowledgement; it does not independently verify completed server-side erasure or device sign-out. Device copies and backups are retained for separate review.</p>
 <h3>7. Acceptable use</h3>
-<p>MatchMind is for your own personal, non-commercial use. You must not:</p>
+<p>${APP_NAME} is for your own personal, non-commercial use. You must not:</p>
 <ul>
 <li>attempt to gain unauthorised access to the app, its database or its server functions, or to any account that is not yours;</li>
 <li>scrape, harvest or systematically extract its forecasts, record or data;</li>
@@ -22012,7 +22141,7 @@ const LEGAL_PAGES = {
 <h3>9. Data from third parties</h3>
 <p>Results, fixtures and bookmakers’ odds come from API-Football. We don’t control that data and we are not responsible for errors in it. Where a provider’s figure later turns out to be wrong, the published record keeps what was published rather than being rewritten.</p>
 <h3>10. Availability, changes, and ending the service</h3>
-<p>MatchMind is free to use. It may be unavailable at times, its features may change, and it may stop publishing forecasts or close entirely.</p>
+<p>${APP_NAME} is free to use. It may be unavailable at times, its features may change, and it may stop publishing forecasts or close entirely.</p>
 <p>We may amend these terms. The version number and date at the foot of this page identify the text that applies. If you carry on using the app after a change, you accept the amended terms. We may suspend or close an account that breaches clause 7.</p>
 <h3>11. Liability</h3>
 <p>Nothing in these terms excludes or limits our liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any other liability that cannot lawfully be excluded or limited.</p>
@@ -22028,7 +22157,7 @@ ${legalGap('An address for notices under these terms. The project has no domain 
 `; } },
 
   privacy: { title: 'Privacy notice', body: function(){ return `
-<div class="notice">This notice explains what MatchMind does with personal data: what is held, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies. If you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 8 are written to cover all three.</div>
+<div class="notice">This notice explains what ${APP_NAME} does with personal data: what is held, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies. If you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 8 are written to cover all three.</div>
 <h3>1. Who is responsible</h3>
 ${legalGap('The data controller’s legal name, country of registration and registered address.')}
 ${legalGap('An email address for privacy requests, on the project’s own domain. The domain does not exist yet, so there is nothing to publish. A personal address is deliberately not used in its place.')}
@@ -22077,7 +22206,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <h3>9. No cookies, no tracking, no profiling</h3>
 <p>The app sets no cookies. It contains no analytics, advertising or tracking code. You are not profiled, and no decision about you is taken by automated means.</p>
 <h3>10. Children</h3>
-<p>MatchMind is not offered to anyone under 18, and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
+<p>${APP_NAME} is not offered to anyone under 18, and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
 <h3>11. Security</h3>
 <p>Every connection the app makes is encrypted: to the database, to the authentication service and to the data provider. Database access is restricted by per-row policy, so a signed-in account can reach its own rows and nobody else’s. The published forecasts carry no update or delete permission at all, which is what makes the record unalterable. Account deletion is carried out by a server function. It takes your identity from your verified session, so it cannot delete any account but your own.</p>
 <h3>12. Changes to this notice</h3>
@@ -22087,14 +22216,14 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
   play: { title: 'Responsible play', body: function(){ return `
 <div class="notice">18 and over. The forecasts here are often wrong, and this page prints how often.</div>
 <h3>18 and over</h3>
-<p>MatchMind is for adults. The app does not check your age.</p>
+<p>${APP_NAME} is for adults. The app does not check your age.</p>
 <h3>The record, and the gap</h3>
 ${legalRecordLine()}
 <p>Across the picks in that record the engine’s own average stated confidence was <b>${LEGAL_CLAIMED.toFixed(1)}%</b> while <b>${LEGAL_LANDED.toFixed(1)}%</b> landed, so it <b>over-claims by ${LEGAL_GAP.toFixed(1)} points</b>. Measured on ${LEGAL_GAP_AT} over ${LEGAL_GAP_N} graded picks.</p>
 <p>The filed test that tracks this is PROSPECTIVE-318. At its first reading, on 10 October 2026, the gap stood at 3.5 points over 267 picks.</p>
 <p>Put plainly: about one pick in four does not land, and the engine is more confident than its results justify.</p>
 <h3>This is not a tip to bet</h3>
-<p>MatchMind takes no stake and pays nothing out. It cannot tell you what will happen in a football match. If you bet, the decision and the money are yours.</p>
+<p>${APP_NAME} takes no stake and pays nothing out. It cannot tell you what will happen in a football match. If you bet, the decision and the money are yours.</p>
 <h3>Keep it in proportion</h3>
 <p>Never stake money you need. Never try to win back a loss with a bigger bet. A run of correct forecasts does not make the next one correct. The record above exists so that nobody, including us, can pretend otherwise.</p>
 <h3>If it is becoming a problem</h3>
@@ -22138,7 +22267,7 @@ ${legalGap('A contact email on the project’s own domain. The domain does not e
 <li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
 </ul>
 <h3>Post</h3>
-<p>MatchMind is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
+<p>${APP_NAME} is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
 ${legalGap('The operator’s legal name, country of registration and registered address.')}
 `; } }
 };
@@ -22159,6 +22288,82 @@ function openLegal(key){
      && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();
   renderLegal(key);
   navTo('legal');
+}
+
+const INTRO_KEY = 'mm_intro';
+/* THE SESSION'S OWN MEMORY, which is the whole answer to a store that throws. A device in private
+   mode, or with site data blocked, or with a full quota, throws on `getItem` rather than returning
+   null - so without this flag the screen would reappear on every re-render of that session. The
+   order's rule is that a throwing store must not break the boot AND must not show the screen twice
+   in one session. */
+let _introShown = false;
+let _introReturnFocus = null, _introPriorInert = false, _introWired = false;
+function introSeen(){
+  if(_introShown) return true;
+  try{ return localStorage.getItem(INTRO_KEY) === '1'; }catch(e){ return _introShown; }
+}
+function introMark(){
+  _introShown = true;                     // set FIRST, so a throwing store still ends the session's showing
+  try{ localStorage.setItem(INTRO_KEY, '1'); }catch(e){ }
+}
+/* The one figure on the screen, read live. No literal: not the hits, not the total, not the
+   percentage, not the date. */
+function introRecordLine(){
+  const s = recordStats();
+  if(!s || !s.n) return 'The published record has not loaded on this device yet. It is on the More tab.';
+  return s.hits + ' of ' + s.n + ' published picks have landed since '
+       + escapeHtml(recordFromText()) + ', ' + s.pct + '%.';
+}
+function introShow(){
+  const el = document.getElementById('introScreen');
+  if(!el) return;
+  const r = document.getElementById('introRecord');
+  if(r) r.textContent = introRecordLine();
+  if(el.hidden){ _introReturnFocus = document.activeElement; const app=document.querySelector('.app'); _introPriorInert=!!app?.inert; if(app) app.inert=true; }
+  el.hidden = false;
+  el.scrollTop = 0; el.focus({preventScroll:true});
+}
+function introDismiss(){
+  introMark();
+  const el = document.getElementById('introScreen');
+  if(el) el.hidden = true;
+  const app=document.querySelector('.app'); if(app) app.inert=_introPriorInert;
+  const fallback=document.getElementById('searchOpen');
+  if(_introReturnFocus?.isConnected && _introReturnFocus!==document.body) _introReturnFocus.focus(); else fallback?.focus();
+}
+/* Every path out of the screen marks it seen, including the three links: a reader who leaves
+   through Terms has read the screen, and showing it again afterwards would be a wall rather than
+   an introduction. */
+function introWire(){
+  if(_introWired) return; _introWired=true;
+  document.getElementById('introScreen')?.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ e.preventDefault(); introDismiss(); return; }
+    if(e.key!=='Tab') return;
+    const els=[...document.getElementById('introScreen').querySelectorAll('a[href],button:not([disabled])')];
+    const first=els[0],last=els[els.length-1];
+    if(e.shiftKey && (document.activeElement===first || !els.includes(document.activeElement))){e.preventDefault();last?.focus();}
+    else if(!e.shiftKey && (document.activeElement===last || !els.includes(document.activeElement))){e.preventDefault();first?.focus();}
+  });
+  /* WO-62A: the button's id is written out beside .addEventListener, in the call itself, because
+     build-deploy.py's verify_controls_wired() recognises only two spellings of a listener (the dollar
+     helper or getElementById, each followed directly by .addEventListener) and nothing wired through a
+     local variable. Through one it reported this button as dead and refused to build the public copy.
+     This comment avoids those literal call shapes on purpose: verify_no_null_refs() scans comments too.
+     The null guard is kept: a missing node must not throw during boot. */
+  if(document.getElementById('introGo')) document.getElementById('introGo').addEventListener('click', introDismiss);
+  const L = [['introTerms','terms'], ['introPrivacy','privacy'], ['introPlay','play']];
+  for(const [id, key] of L){
+    const a = document.getElementById(id);
+    if(a) a.addEventListener('click', e => { e.preventDefault(); introDismiss(); openLegal(key); document.getElementById('legalBack')?.focus(); });
+  }
+}
+/* Wrapped whole. Nothing about a first-run screen is worth a white screen, which is why the order
+   asks for the flag to be wrapped and why the call is too. */
+function introBoot(){
+  try{
+    introWire();
+    if(!introSeen()) introShow();
+  }catch(e){ try{ console.warn('intro:', e); }catch(_){ } }
 }
 
 /* ---------- AI strong picks (Analysis tab) ---------- */
@@ -23446,11 +23651,11 @@ function pushSupport(){
   if(!('serviceWorker' in navigator)) return {ok:false, why:'This browser cannot show notifications.'};
   if(!('PushManager' in window)){
     return isIOS()
-      ? {ok:false, why:'On iPhone, notifications only work once MatchMind is added to your Home Screen. Tap the share button below, choose "Add to Home Screen", then open MatchMind from your home screen and try again.'}
+      ? {ok:false, why:'On iPhone, notifications only work once ' + APP_NAME + ' is added to your Home Screen. Tap the share button below, choose "Add to Home Screen", then open ' + APP_NAME + ' from your home screen and try again.'}
       : {ok:false, why:'This browser does not support notifications.'};
   }
   if(isIOS() && !isStandalone())
-    return {ok:false, why:'Add MatchMind to your Home Screen first (share button → "Add to Home Screen"), then open it from there. iPhone only delivers notifications to installed apps.'};
+    return {ok:false, why:'Add ' + APP_NAME + ' to your Home Screen first (share button → "Add to Home Screen"), then open it from there. iPhone only delivers notifications to installed apps.'};
   return {ok:true};
 }
 
@@ -23483,7 +23688,7 @@ async function enablePush(){
   if(!current()) return;
   if(perm !== 'granted'){
     $('notifNote').textContent = perm === 'denied'
-      ? 'Notifications are blocked for MatchMind in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
+      ? 'Notifications are blocked for ' + APP_NAME + ' in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
       : 'Notifications were not enabled.';
     $('notifTypes').classList.remove('hidden');
     renderNotif(); return;
@@ -24603,6 +24808,7 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState=
    size to the publisher. Both are awaited in that order so the count reports the swept store rather
    than the one it found. Neither can affect what the reader sees if it fails. */
 mmCacheSweep().then(() => mmStoreCountLabel()).catch(() => {});
+introBoot();
 /* end of app */
 
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){

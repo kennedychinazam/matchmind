@@ -74,6 +74,8 @@ async function open({port, stubSdk=false, seed=null, viewport={width:390,height:
   const ctx = await browser.newContext({viewport, isMobile:true, hasTouch:true});
   await ctx.route('**/*', r => r.request().url().startsWith('http://127.0.0.1:'+port)
     ? r.continue() : r.abort());
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await ctx.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page = await ctx.newPage();
   const pageErrors = [];
   page.on('pageerror', e => pageErrors.push(String(e)));

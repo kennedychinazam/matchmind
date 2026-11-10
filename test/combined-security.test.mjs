@@ -12,6 +12,8 @@ async function open(t,legacy){
  const context=await browser.newContext({serviceWorkers:'block'});
  if(legacy)await context.addInitScript(value=>localStorage.setItem('mm_state',value),legacy);
  await context.route('**/*',r=>r.request().url()==='http://combined.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
+ // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+ await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto('http://combined.test/');return page;
 }
 async function seed(page){await page.evaluate(async()=>{

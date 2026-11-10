@@ -1,4 +1,7 @@
-// Synthetic browser. Every request except the local test page is aborted.
+// NONPUBLIC synthetic credential-capability regression fixture. The shipped public artifact
+// disables personal provider inputs; these original assertions still verify the retained
+// owner/epoch/storage logic with the capability explicitly enabled ONLY in this intercepted document.
+// Every request except the local synthetic page is aborted.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
@@ -8,8 +11,11 @@ async function open(t,seed){
  const executablePath=process.env.MM_TEST_CHROMIUM;assert.ok(executablePath&&existsSync(executablePath));
  const browser=await chromium.launch({executablePath,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
  const context=await browser.newContext({serviceWorkers:'block'});
- if(seed)await context.addInitScript(s=>{for(const [k,v] of Object.entries(s))localStorage.setItem(k,v);},seed);
- const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ await context.addInitScript(s=>{localStorage.setItem('mm_intro','1');for(const [k,v] of Object.entries(s||{}))localStorage.setItem(k,v);},seed);
+ const source=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ const marker='const PERSONAL_PROVIDER_INPUTS_ENABLED = false;';
+ assert.equal(source.split(marker).length,2,'actual public source must have one immutable disabled capability flag');
+ const html=source.replace(marker,'const PERSONAL_PROVIDER_INPUTS_ENABLED = true; // NONPUBLIC synthetic fixture only');
  await context.route('**/*',r=>r.request().url()==='http://credential.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
  const p=await context.newPage();await p.goto('http://credential.test/');return p;
 }
