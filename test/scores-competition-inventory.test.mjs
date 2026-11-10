@@ -18,31 +18,52 @@ test('Scores selector uses the displayed day inventory without requiring predict
   await context.route('**/*',r=>r.request().url()==='http://scores-inventory.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
   // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
   await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
-  const page=await context.newPage();await page.goto('http://scores-inventory.test/');
+  const page=await context.newPage();const unexpectedDialogs=[];
+  // Observe without accepting/dismissing: an unexpected modal must fail, never be hidden as cleanup.
+  page.on('dialog',dialog=>unexpectedDialogs.push({type:dialog.type(),message:dialog.message()}));
+  await page.goto('http://scores-inventory.test/');
   const out=await page.evaluate(()=>{
     const today=ymdOffset(0),tomorrow=ymdOffset(1);
     const fixture=(id,lid,name,date)=>({fxid:id,lid,lname:name,lcountry:'Synthetic Country',ldate:date,date,time:'20:00',status:'NS',home:'QA Home '+id,away:'QA Away '+id,gh:null,ga:null});
-    const list=[fixture(1,1,'Synthetic League',today),fixture(2,1,'Synthetic League',today),fixture(3,2,'Scores-only Cup <img src=x onerror=alert(1)>',today),fixture(4,3,'Tomorrow League',tomorrow)];
-    afState.scores={list,at:Date.now(),dataAt:Date.now(),v:SCORES_CACHE_V,source:'cloud'};
+    const list=[fixture(1,1,'Synthetic League',today),fixture(2,1,'Synthetic League',today),fixture(3,2,'Scores-only Cup',today),fixture(4,3,'Tomorrow League',tomorrow)];
+    const asof=new Date(Date.now()-1000).toISOString(),expires=new Date(Date.now()+60000).toISOString();
+    const envelope={version:'matchmind-display/1',edition_id:'11111111-1111-4111-8111-111111111111',as_of:asof,expires_at:expires,screen:'scores',cards:list.map(({ldate,...row})=>({...row,elapsed:null,ft_h:null,ft_a:null,ht_h:null,ht_a:null,updated_at:asof,provider:'af',prediction:null})),board:null,records:{engine:null,clv:null},slips:[]};
+    const admitted=fixtureEnvelope(envelope,'scores');
+    const maliciousName='Scores-only Cup <img src=x onerror=alert(1)>';
+    const badEnvelope=JSON.parse(JSON.stringify(envelope));badEnvelope.cards[2].lname=maliciousName;
+    let packetRejected=false,packetRejection='';try{fixtureEnvelope(badEnvelope,'scores');}catch(e){packetRejected=true;packetRejection=e.message;}
+    afState.scores={list:admitted.cards.map(row=>({...row,ldate:row.date})),at:Date.now(),dataAt:Date.now(),v:SCORES_CACHE_V,source:'cloud'};
     afState.leagues={1:{id:1,name:'Synthetic League',country:'Synthetic Country',upcoming:[],matches:[],sport:'football',_presentation:true}};
     afState.leagueOrder=[1];afState.filter='all';afState.scoreFilter='all';afState.scoresDate=today;
     const before=JSON.stringify({scores:afState.scores,leagues:afState.leagues});
     const items=id=>[...document.querySelectorAll('#'+id+' .lgitem[data-f]')].map(e=>({id:e.dataset.f,count:Number(e.lastElementChild.textContent),label:e.textContent}));
+    // Adversarial menu-unit probe intentionally bypasses packet admission. Do not render Scores,
+    // navigate or click while this inadmissible value is present; those are different consumers.
+    const safeScores=afState.scores;let injectedElements,isolatedLabel;
+    try{
+      afState.scores={...safeScores,list:safeScores.list.map(row=>row.lid===2?{...row,lname:maliciousName}:row)};
+      buildCompsDrop('compsDropS');
+      injectedElements=document.querySelectorAll('#compsDropS img').length;
+      isolatedLabel=items('compsDropS').find(x=>x.id==='2').label;
+    }finally{afState.scores=safeScores;buildCompsDrop('compsDropS');}
     navTo('scores');renderScores();buildCompsDrop('compsDropS');
-    const todayItems=items('compsDropS');const injectedElements=document.querySelectorAll('#compsDropS img').length;
+    const todayItems=items('compsDropS');
     const option=document.querySelector('#compsDropS [data-f="2"]');if(option)option.click();
     const selected={filter:afState.filter,rows:document.querySelectorAll('#scoresList .scrow').length,label:compsLabel()};
     document.querySelector('#compsDropS [data-f="all"]').click();
     const restored=document.querySelectorAll('#scoresList .scrow').length;
     afState.scoresDate=tomorrow;renderScores();buildCompsDrop('compsDropS');const tomorrowItems=items('compsDropS');
     afState.scoresDate=today;buildCompsDrop('compsDrop');const predictionItems=items('compsDrop');
-    return {injectedElements,todayItems,tomorrowItems,selected,restored,predictionItems,preserved:before===JSON.stringify({scores:afState.scores,leagues:afState.leagues})};
+    return {packetAdmitted:admitted.cards.length===4,packetRejected,packetRejection,isolatedLabel,injectedElements,todayItems,tomorrowItems,selected,restored,predictionItems,preserved:before===JSON.stringify({scores:afState.scores,leagues:afState.leagues})};
   });
   assert.deepEqual(out.todayItems.map(x=>[x.id,x.count]),[['all',3],['football',3],['1',2],['2',1]],'admitted Scores competition must remain selectable with no private history');
-  assert.equal(out.injectedElements,0,'source names remain literal text');assert.match(out.todayItems.find(x=>x.id==='2').label,/<img/);
+  assert.equal(out.packetAdmitted,true,'safe complete packet passes actual source admission');
+  assert.equal(out.packetRejected,true,'HTML-bearing fixture identity is rejected before public rendering');assert.match(out.packetRejection,/lname.*invalid text|Invalid fixture identity/);
+  assert.equal(out.injectedElements,0,'isolated menu probe keeps source names literal');assert.match(out.isolatedLabel,/<img/);
   assert.equal(out.selected.filter,2);assert.equal(out.selected.rows,1);assert.match(out.selected.label,/Scores-only Cup/);
   assert.equal(out.restored,3,'All restores exact selected-day slate');
   assert.deepEqual(out.tomorrowItems.map(x=>[x.id,x.count]),[['all',1],['football',1],['3',1]]);
   assert.deepEqual(out.predictionItems.map(x=>x.id),['all'],'prediction history eligibility is unchanged');
   assert.equal(out.preserved,true,'scores and engine source structures are never mutated');
+  assert.deepEqual(unexpectedDialogs,[],'no unexpected JavaScript dialog during safe flow or isolated menu proof');
 });
