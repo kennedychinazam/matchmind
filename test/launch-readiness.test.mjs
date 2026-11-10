@@ -30,7 +30,7 @@ function browserPath(){
     if(p && existsSync(p)) return p;
   return null;
 }
-function serve(){
+function serve({nonpublicPersonalProviders=false}={}){
   const server = createServer((req,res)=>{
     let p = decodeURIComponent(req.url.split('?')[0]);
     if(p === '/') p = '/index.html';
@@ -38,7 +38,16 @@ function serve(){
     if(!f.startsWith(ROOT) || !existsSync(f)){ res.writeHead(404); return res.end('not found'); }
     res.writeHead(200, {'content-type': TYPES[extname(f)] || 'application/octet-stream',
                         'service-worker-allowed': '/'});
-    res.end(readFileSync(f));
+    let body=readFileSync(f);
+    if(nonpublicPersonalProviders && p==='/index.html'){
+      // Explicit NONPUBLIC developer fixture only. Never modify the public source or
+      // any other launch case; original ownership/consent assertions stay intact.
+      const marker='const PERSONAL_PROVIDER_INPUTS_ENABLED = false;';
+      const source=body.toString('utf8');
+      assert.equal(source.split(marker).length,2,'public source must contain one disabled personal-provider flag');
+      body=Buffer.from(source.replace(marker,'const PERSONAL_PROVIDER_INPUTS_ENABLED = true; // NONPUBLIC synthetic fixture only'));
+    }
+    res.end(body);
   });
   return new Promise(ok => server.listen(0,'127.0.0.1',()=>ok({server, port: server.address().port})));
 }
@@ -59,15 +68,18 @@ const skip = () => 'needs a local Chromium: set MM_TEST_CHROMIUM or install play
    defining a stub window.supabase before the page scripts run. */
 const FLAGS = ['--no-sandbox','--disable-dev-shm-usage','--disable-background-networking',
   '--disable-component-update','--disable-sync','--no-first-run','--no-default-browser-check'];
-let _browser = null, _srv = null;
-async function host(){
-  if(!_srv) _srv = await serve();
+let _browser = null, _srv = null, _nonpublicSrv = null;
+async function host({nonpublicPersonalProviders=false}={}){
+  if(nonpublicPersonalProviders){
+    if(!_nonpublicSrv) _nonpublicSrv = await serve({nonpublicPersonalProviders:true});
+  }else if(!_srv) _srv = await serve();
   if(!_browser) _browser = await chromium.launch({executablePath: exe, args: FLAGS});
-  return {port: _srv.port};
+  return {port: (nonpublicPersonalProviders ? _nonpublicSrv : _srv).port};
 }
 async function shutdown(){
   if(_browser){ await _browser.close(); _browser = null; }
   if(_srv){ _srv.server.close(); _srv = null; }
+  if(_nonpublicSrv){ _nonpublicSrv.server.close(); _nonpublicSrv = null; }
 }
 async function open({port, stubSdk=false, seed=null, viewport={width:390,height:844}}){
   const browser = _browser;
@@ -125,9 +137,9 @@ test('the SDK loading but failing to give a client is reported as configuration,
   }
 });
 
-test('owned API-Football key works after explicit session consent with a cached corpus', async t => {
+test('nonpublic developer fixture: owned API-Football key works after explicit session consent with a cached corpus', async t => {
   if(!ready) return t.skip(skip());
-  const {port} = await host();
+  const {port} = await host({nonpublicPersonalProviders:true});
   // Approved compatibility change: ownerless saved keys are preserved but never activated.
   // Explicit user-supplied CSV is restorable; unknown provider corpora remain quarantined.
   const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({footballSource:'custom-csv',fb:[{date:'2026-01-10',home:'Synthetic A',away:'Synthetic B',hg:1,ag:0}]}),
@@ -342,9 +354,9 @@ test('the DNB line is shown only when a pick is actually published', async t => 
   }
 });
 
-test('owned API-Football key works after explicit session consent with no cached matches', async t => {
+test('nonpublic developer fixture: owned API-Football key works after explicit session consent with no cached matches', async t => {
   if(!ready) return t.skip(skip());
-  const {port} = await host();
+  const {port} = await host({nonpublicPersonalProviders:true});
   // Approved compatibility change: ownerless saved keys are preserved but never activated.
   // A newly owned key remains usable with or without cached matches after explicit consent.
   const {ctx,page}=await open({port,seed:{mm_state:JSON.stringify({fb:[]}),
