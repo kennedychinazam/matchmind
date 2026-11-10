@@ -100,10 +100,10 @@ test('old-day and excessive-lived editions cannot be accepted as current display
  const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});return[x=>{x.as_of='2020-01-01T00:00:00.000Z';},x=>{x.expires_at='2099-01-01T00:00:00.000Z';}].map(fn=>{const c=JSON.parse(JSON.stringify(data));fn(c);try{fixtureEnvelope(c,'predictions');return false;}catch{return true;}});});
  assert.deepEqual(result,[true,true]);
 });
-test('published rows retain original issued identity and kickoff while score cards remain current',async t=>{
+test('published rows use current fixture schedule while history retains original issued identity and kickoff',async t=>{
  const page=await open(t);await synthetic(page);
- const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});const c=data.cards[0];c.home='Current Home';c.away='Current Away';c.date='2099-11-03';c.prediction.home='Original Home';c.prediction.away='Original Away';c.prediction.lname='Original League';c.prediction.kickoff='2026-01-01';c.prediction.ktime='12:00';const row=fixturePresentationRow(c,null),history=fixturePublicRows('predictions',data)[0];return{row:{home:row.home,away:row.away,date:row.date,time:row.time},history:{home:history.home,away:history.away,lname:history.lname},card:{home:c.home,date:c.date}};});
- assert.deepEqual(result,{row:{home:'Original Home',away:'Original Away',date:'2026-01-01',time:'12:00'},history:{home:'Original Home',away:'Original Away',lname:'Original League'},card:{home:'Current Home',date:'2099-11-03'}});
+ const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});const c=data.cards[0];c.home='Current Home';c.away='Current Away';c.date='2099-11-03';c.prediction.home='Original Home';c.prediction.away='Original Away';c.prediction.lname='Original League';c.prediction.kickoff='2026-01-01';c.prediction.ktime='12:00';const row=fixturePresentationRow(c,null),history=fixturePublicRows('predictions',data)[0];return{row:{home:row.home,away:row.away,date:row.date,time:row.time},history:{home:history.home,away:history.away,lname:history.lname,kickoff:history.kickoff,ktime:history.ktime},card:{home:c.home,date:c.date}};});
+ assert.deepEqual(result,{row:{home:'Original Home',away:'Original Away',date:'2099-11-03',time:'23:59'},history:{home:'Original Home',away:'Original Away',lname:'Original League',kickoff:'2026-01-01',ktime:'12:00'},card:{home:'Current Home',date:'2099-11-03'}});
 });
 test('obsolete same-account capability responses cannot detach a newer valid delivery state',async t=>{
  const page=await open(t);await synthetic(page);

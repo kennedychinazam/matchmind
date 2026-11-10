@@ -269,6 +269,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   /* ---------- scores feed ---------- */
   .scrow{display:flex; align-items:center; gap:7px; padding:11px 0; border-bottom:1px solid var(--border);}
   .scrow:last-child{border-bottom:none;}
+  .fxtime.fixture-status,.scstat.fixture-status{width:76px;max-width:76px;overflow-wrap:anywhere;font-size:.6rem;line-height:1.3;}
   .scstat{width:42px; font-size:.71rem; color:var(--muted); font-weight:700; flex-shrink:0;}
   .livechip{display:inline-flex;align-items:center;gap:3px;font-size:.66rem;font-weight:700;
   color:var(--red);background:rgba(229,57,53,.10);border:1px solid rgba(229,57,53,.35);
@@ -2905,6 +2906,7 @@ async function afLoadAll(){
 
 // scan the whole football world for live competitions (≈13 requests)
 async function afDiscover(){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){$('discoverStatus').textContent='Competitions are managed by the server and appear after the next normal refresh.';return;}
   const credential=credentialContext();
   /* use only the currently assigned credential */
   if(!afState.key){ alert('Add your API-Football key in the Data tab first.'); return; }
@@ -3140,7 +3142,7 @@ function fixtureTable(table){
 }
 function fixturePresentationRow(r,board){
  const p=r.prediction,b=board&&board.rows.find(x=>x.f===r.fxid),v=p?probabilityVector(p.p_home,p.p_draw,p.p_away):b?probabilityVector(b.pw,b.pd,b.pq):null;
- return {fxid:r.fxid,date:p?p.kickoff:r.date,time:p?p.ktime:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
+ return {fxid:r.fxid,date:r.date,time:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
    _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
    /* ANALYSIS-STATUS AMENDMENT - `_boardRow` records WHICH source answered, because the two prove
       different things. A published prediction row is insert-once and never deleted, so its ABSENCE
@@ -3176,7 +3178,7 @@ async function loadFixturePresentation(){
   const cards=new Map();for(const r of [...h.cards,...p.cards])cards.set(r.fxid,r);
   const leagues={},archive={},cloudFix={};
   for(const r of cards.values()){
-   const lid=r.prediction?r.prediction.lid:r.lid,lname=r.prediction?r.prediction.lname:r.lname;
+   const lid=r.lid,lname=r.lname; // Current fixture grouping; original identity remains in archive.
    const L=leagues[lid]||(leagues[lid]={id:lid,name:lname,country:r.lcountry,logo:'',flag:'',sport:'football',matches:[],upcoming:[],teamIds:{},scorerText:'',histTried:true,_presentation:true});
    L.upcoming.push(fixturePresentationRow(r,p.board));if(r.prediction)archive[r.fxid]=archiveRow(r.prediction);
    const settled=settledRow({...r});if(unsettled90(settled)||(isFinishedScore(settled)&&Number.isInteger(settled.gh)&&Number.isInteger(settled.ga)))cloudFix[r.fxid]=settled;
@@ -3218,17 +3220,19 @@ function showPublishedFixture(L,f){
  $('analysisHeading').textContent='Published statistical prediction';
  $('heroHome').innerHTML=heroSide(f.home,'Home');$('heroAway').innerHTML=heroSide(f.away,'Away');setFavRow(f.home,f.away);
  setHeroMeta({comp:L.name,country:L.country,date:f.date,time:f.time,fxid:f.fxid,home:f.home,away:f.away,status:f.status});
- const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(f.pick&&f.prob!=null),available=issued&&!f.gated;
- $('heroPick').textContent=issued?pickLabel(f.pick,f.home,f.away):'Statistical prediction unavailable';
- $('heroConf').textContent=issued?pct(f.prob)+' published probability':'';
+ const expired=forecastDisplayExpired(f);
+ const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(f.pick&&f.prob!=null),available=issued&&!f.gated&&!expired&&!fixtureExceptionalStatus(f);
+ $('heroPick').textContent=expired?'Pick expired':issued?pickLabel(f.pick,f.home,f.away):'Statistical prediction unavailable';
+ $('heroConf').textContent=expired?'Original published forecast retained in history':issued?pct(f.prob)+' published probability':'';
  $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
  setHeroDnb(available?f.pick:null,v);
  $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. ' + APP_NAME + ' is no longer backing it; it is not a current recommendation.</p>')+'<p>League Table unavailable in this published edition. Full competition standings are not supplied; no table is inferred from the limited display window.</p><p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
- const result=fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
  const resultLine=document.createElement('div');resultLine.className='hm-dt';
  const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
  resultLine.textContent=complete?'90-minute score '+result.gh+'–'+result.ga:pending?'90-minute result pending':'90-minute result unavailable';
  $('heroMeta').appendChild(resultLine);
+ if(expired){const note=document.createElement('p');note.textContent='The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff; the original forecast is preserved. This match may still be scheduled.';$('analysisText').prepend(note);}
  setShareCard(false,null);navTo('detail');
 }
 
@@ -5380,18 +5384,46 @@ function bindStatusChips(root){
   }));
 }
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
+/* Director 5: read-only forecast presentation. Missing results/NS are not evidence of
+   non-play. The historical settlement functions remain unchanged pending Director approval. */
+function fixtureExceptionalStatus(f){
+  const code=normStatus(f&&f.status);
+  return ['PST','ABD','CANC','SUSP','INT'].includes(code) ? statusWord(code) : '';
+}
+function forecastDisplayExpired(f,nowMs,originalPrediction){
+  const a=originalPrediction||(f&&f.pick&&afState.archive&&afState.archive[f.fxid]);
+  if(!a||!f)return false;
+  const original=pickOriginalKick(a),current=fixtureCurrentKick(f);
+  if(original==null)return false;
+  const now=nowMs==null?Date.now():nowMs,windowMs=VOID_AFTER_HOURS*3600000;
+  if(now-original<windowMs)return false;
+  const status=normStatus(f.status);
+  // ABD/SUSP/INT alone say nothing about the approved settlement condition.
+  if(['ABD','SUSP','INT'].includes(status))return false;
+  return ['PST','CANC'].includes(status) || (current!=null&&current-original>=windowMs);
+}
+function forecastStatusChip(label,why){
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(why)}" title="${escapeHtml(why)}" aria-label="${escapeHtml(label+'. '+why)}">${escapeHtml(label)}</button>`;
+}
+function expiredForecastChip(){
+  return forecastStatusChip('Pick expired','The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff. The original forecast is preserved; this match may still be scheduled.');
+}
+function dnbVoidChip(pick){
+  return forecastStatusChip(chipCode(pick)+' · Void','The completed match was a draw. This DNB prediction is neither a hit nor a miss. A bookmaker returns the stake; MatchMind processes no stake.');
+}
 function fxCells(L,f,smap){
   smap=smap||scoreMap();
+  const exceptional=fixtureExceptionalStatus(f);
   /* build 357 - a played tie whose 90-minute score is unavailable would otherwise fall to the
      "upcoming" branch below and read as if it had not kicked off. It shows its real result and
      says what is missing, and it carries NO grade chip, because there is nothing to grade on. */
   { const u = (f && f.fxid!=null) ? smap[f.fxid] : null;
-    if(u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
+    if(!exceptional && u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
       /* No grade, because there is nothing to grade on. A fixture with no pick still says what is
          known about its pick rather than leaving a blank where a chip goes. */
       return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`,
               chip: f && f.pick ? '' : pickStatusChip(L, f), finished:true}; }
-  const res=fixtureResult(L,f,smap);
+  const res=exceptional?null:fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
     let chip='';
@@ -5408,7 +5440,7 @@ function fxCells(L,f,smap){
     /* build 119 — a drawn Draw No Bet is a VOID, not a loss. Grading it ✗ would understate the
        record against a bet that actually returned the stake. */
     if(f.pick && _lateVoid){
-                chip=`<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`; }
+                chip=expiredForecastChip(); }
     /* ANALYSIS-STATUS AMENDMENT - A HINDSIGHT REBUILD IS NOT A GRADED CLAIM. `backfillPredictions`
        writes prediction rows for matches ALREADY PLAYED, stamped build = RECONSTRUCTED, and both
        `renderLedger` and `engineRecordPayload` exclude exactly those rows. This branch did not, so
@@ -5418,8 +5450,8 @@ function fxCells(L,f,smap){
     else if(f.pick && pickIsRebuilt(f)){ chip = rebuiltChip(f); }
     else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
-                const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
-                chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
+                const mark = g==='hit'?'✓' : g==='void'?'· Void' : '✗';
+                chip=g==='void'?dnbVoidChip(f.pick):`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
     /* BUILD 164 — a played match with no frozen pick says so, rather than showing a blank space
        where a result chip goes.
        ⚠ ANALYSIS-STATUS AMENDMENT — THE ORIGINAL REASONING NAMED A CAUSE THAT CANNOT OCCUR. It
@@ -5450,13 +5482,13 @@ function fxCells(L,f,smap){
      that function is pinned byte-identical to build 344 (verify-board-345.js) because it is the
      robot's own issuing path, and a display rule has no business moving it. */
   const _arch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
-  const _void = !!(_arch && _arch.kickoff
-                   && pickPlayState({ kickoff: _arch.kickoff, ktime: _arch.ktime }, null, null) === 'void');
-  const chip = _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
-             : _void  ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`
+  const _void = forecastDisplayExpired(f);
+  const chip = !f.pick&&f._presentation ? pickStatusChip(L,f)
+             : _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
+             : _void  ? expiredForecastChip()
              : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${probabilityPercent(f.prob,0)}</span>`
-             : '';
-  return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
+             : f._presentation||exceptional ? pickStatusChip(L,f) : '';
+  return {timeCell:`<span class="fxtime${exceptional?' fixture-status':''}">${exceptional||localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
 let _toastT=null;
 function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
@@ -5796,7 +5828,8 @@ function setHeroMeta(meta){
   if(!meta || (!meta.comp && !meta.date)){ box.classList.add('hidden'); box.innerHTML=''; return; }
   box.classList.remove('hidden');
   const comp = meta.comp ? `${meta.comp}${meta.country && !(meta.comp||'').toLowerCase().includes((meta.country||'').toLowerCase()) ? ` · ${meta.country}` : ''}` : '';
-  const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '';
+  const exceptional=fixtureExceptionalStatus(meta);
+  const dt = exceptional || (meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '');
   let sc='';
   if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} ${meta.aet ? meta.aet : 'FT'}</b>`;
   box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
@@ -10788,7 +10821,7 @@ function resetMatchPanels(){
 // full words in the detail header — "PST" means nothing to a user (build 61)
 function statusWord(code){
   return ({ NS:'Not started', TBD:'Time to be confirmed', PST:'POSTPONED', SUSP:'SUSPENDED',
-            CANC:'CANCELLED', ABD:'ABANDONED', AWD:'AWARDED', FT:'Full time', AET:'After extra time',
+            CANC:'CANCELLED', ABD:'ABANDONED', INT:'INTERRUPTED', AWD:'AWARDED', FT:'Full time', AET:'After extra time',
             PEN:'After penalties', HT:'Half time', LIVE:'Live' })[code] || code;
 }
 
@@ -21672,6 +21705,7 @@ async function afScores(silent){
   if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading matches…';
   // when the backend is connected, the cloud is authoritative — never fall back to stale device data
   if(supa){ await afScoresFromCloud(); return; }
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){$('scoresMeta').textContent='Server-managed matches are unavailable. Please try again later.';return;}
   // legacy path: direct API-Football call (only when no backend is configured)
   /* use only the currently assigned credential */
   if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab.'; return; }
@@ -21787,21 +21821,22 @@ function renderScores(){
   for(const g of ordered){
     const s0 = g[0];
     const badge = competitionBadge(s0);
-    html += `<div class="lghead">${badge} ${s0.lname} <span class="muted" style="font-size:.7rem;font-weight:600">${s0.lcountry}</span></div>`;
+    html += `<div class="lghead">${badge} ${escapeHtml(s0.lname)} <span class="muted" style="font-size:.7rem;font-weight:600">${escapeHtml(s0.lcountry)}</span></div>`;
     for(const s of g){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
-      const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : s.status;
+      const exceptional=fixtureExceptionalStatus(s);
+      const stat = exceptional ? escapeHtml(exceptional) : isLive ? `<span class="livedot">●</span>${s.elapsed?escapeHtml(s.elapsed)+"'":escapeHtml(statusWord(s.status))}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : escapeHtml(statusWord(s.status));
       /* build 357 - an unresolved extra-time tie shows its real result and says plainly that the
          90-minute score, which is what every market here settles on, is not available. */
-      const score = unsettled90(s) ? `${s.raw_gh} – ${s.raw_ga}<span class="ftl">AET · 90' n/a</span>`
-        : (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}${s.fgh!=null ? ' <span class="ftl">' + aetText(s) + '</span>' : ''}` : '–';
+      const score = exceptional ? '–' : unsettled90(s) ? `${escapeHtml(s.raw_gh)} – ${escapeHtml(s.raw_ga)}<span class="ftl">AET · 90' n/a</span>`
+        : (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${escapeHtml(s.gh)} – ${escapeHtml(s.ga)}${s.fgh!=null ? ' <span class="ftl">' + escapeHtml(aetText(s)) + '</span>' : ''}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
         <span class="mstar lft${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
-        <span class="scstat">${stat}</span>
-        <span class="fxteams"><span class="tline">${crest(s.home)}${s.home}</span><span class="tline">${crest(s.away)}${s.away}</span></span>
+        <span class="scstat${exceptional?' fixture-status':''}">${stat}</span>
+        <span class="fxteams"><span class="tline">${crest(s.home)}${escapeHtml(s.home)}</span><span class="tline">${crest(s.away)}${escapeHtml(s.away)}</span></span>
         <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span></div>`;
     }
   }
@@ -22188,7 +22223,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <li><b>API-Football</b>: supplies results, fixtures and odds. No personal data is sent to it.</li>
 <li><b>Google, Apple or Mozilla</b>, according to your browser: the push service that delivers a notification to your device, if you have switched notifications on.</li>
 <li><b>Google Fonts and jsDelivr</b>: serve the typeface and one software library. They receive your IP address when the app loads.</li>
-<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. The app’s own server function sends the request using the project’s key, so the provider receives the match data and nothing that identifies you. The count described above is what applies the shared allowance. If you enter your own Claude key in More → Data instead, that request goes from your device straight to Anthropic.</li>
+<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. The app’s own server function sends the request using the project’s key, so the provider receives the match data and nothing that identifies you. The count described above is what applies the shared allowance. Personal provider keys are not requested or accepted by this public application.</li>
 </ul>
 <p>No personal data is sold or rented. None is used for advertising. None is disclosed to anyone else except where the law requires it.</p>
 <h3>7. International transfers</h3>
@@ -22449,8 +22484,8 @@ function buildCompsDrop(boxId){
      extra information, not a reason to remove the only way back. */
   if(!all.length) html = item('all','🌍 All competitions', 0)
     + (isScores ? '<div class="subnote" style="margin-bottom:4px">No competitions on this date.</div>'
-                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>');
-  html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
+                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet. Server-managed competitions appear after the next normal refresh.</div>');
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED) html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
     const v = it.dataset.f;
@@ -22539,6 +22574,7 @@ function renderFixtures(){
     const feat = [];
     for(const L of Ls) for(const f of L.upcoming){
       if(f.date!==afState.selectedDate) continue;
+      if(fixtureExceptionalStatus(f)||forecastDisplayExpired(f)) continue;
       if(!f.pick) continue;   // Predict is for fixtures the engine has actually priced (build 84)
       if(f.gated) continue;   // build 118 — a withheld pick is not a tip. The fixture still appears
                               // in its competition below.
@@ -22605,7 +22641,7 @@ function renderFixtures(){
   for(const L of Ls){
     const todays = L.upcoming.filter(f=>{
       if(f.date !== afState.selectedDate) return false;
-      if(f.pick) return true;
+      if(f.pick||f._presentation||fixtureExceptionalStatus(f)) return true;
       if(!fixtureResult(L, f, smap)) return false;   // upcoming with no pick: unchanged, still hidden
       return true;                                   // played: the row stays and carries its own status
     });
@@ -22794,20 +22830,23 @@ async function showPredictDate(d){
     for(const p of preds){
       const f = res[p.fxid];
       const v = pickVerdict(p, f, null, today);   // build 349 - the one void function
-      const done = v.done;                        // build 160
+      const exceptional=fixtureExceptionalStatus(f);
+      const expired=forecastDisplayExpired(f,null,p);
+      const done = v.done&&!exceptional;                        // build 160
       const hit = done ? v.g === 'hit' : null;    // build 120
-      if(done){ graded++; if(hit) hits++; }
+      if(done&&v.g!=='void'){ graded++; if(hit) hits++; }
       if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
       const chip = done
-        ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
-        : v.voidLate
-        ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${p.pick} void</span>`   // build 349
-        : `<span class="predchip">${p.pick} · ${probabilityPercent(p.pick_prob,0)}</span>`;
-      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(d, p.ktime)}</span>
+        ? (v.g==='void'?dnbVoidChip(p.pick):`<span class="predchip ${hit?'hit':'miss'}">${chipCode(p.pick)} ${hit?'✓':'✗'}</span>`)
+        : expired
+        ? expiredForecastChip()   // build 349
+        : `<span class="predchip">${chipCode(p.pick)} · ${probabilityPercent(p.pick_prob,0)}</span>`;
+      html += `<div class="fxrow"><span class="fxtime${exceptional?' fixture-status':''}">${exceptional|| (done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(f&&f.date||d, f&&f.time||p.ktime))}</span>
         <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
     }
     $('fixtureList').innerHTML =
       (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html + retiredNoteDay(retiredHere);
+    bindStatusChips($('fixtureList'));
   }catch(e){
     $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
   }
@@ -23502,7 +23541,7 @@ function renderAccount(){
   try{if(localStorage.getItem('mm_state_UNASSIGNED')!==null) quarantineNotice='<div class="notice">Existing local personal data retained unassigned; not imported into this account.</div>';}catch(e){}
   renderSyncBadge();
   if(!cloudEnabled()){
-    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
+    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">The account service is unavailable. Sign-in and cross-device sync will be available when the server connection is restored. Personal service keys are not required.</div>';
     return;
   }
   if(authUser){

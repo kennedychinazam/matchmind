@@ -79,6 +79,7 @@ jobs:
             MM_FILTER_SCREENSHOT_DIR="$RUNNER_TEMP/cross-tab-evidence" \
             node --test test/scores-predict-filter-recovery.test.mjs
           MM_INTRO_BROWSER=webkit PWA_PLAYWRIGHT=playwright node --test test/wo62b-intro.test.mjs
+          MM_DIRECTOR_BROWSER=webkit PWA_PLAYWRIGHT=playwright node --test test/director5-release.test.mjs
       - name: Preserve explicitly synthetic screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -23,3 +23,12 @@ test('issued slip fixture inventory cannot silently disappear',()=>{const slip={
 
 test('PostgreSQL RFC3339 offset timestamps preserve exact original text',()=>{const f={...fixture(),updated_at:'2026-11-03T12:00:00.123456+00:00'},p={...pred(),made_at:'2026-11-02T13:00:00+01:00'};const b=board();b.builtAt='2026-11-03T05:30:00+05:30';const out=buildPresentationPayload({fixtures:[f],predictions:[p],board:b});assert.equal(out.cards[0].updated_at,f.updated_at);assert.equal(out.cards[0].prediction.made_at,p.made_at);assert.equal(out.board.builtAt,b.builtAt);});
 test('timestamp syntax calendar ranges and explicit timezone are fail closed',()=>{for(const updated_at of ['2026-02-30T12:00:00Z','2026-11-03T24:00:00Z','2026-11-03T12:60:00Z','2026-11-03T12:00:60Z','2026-11-03T12:00:00','2026-11-03T12:00:00+16:00','0000-01-01T00:00:00Z'])assert.throws(()=>buildPresentationPayload({fixtures:[{...fixture(),updated_at}]}),/timestamp/i,updated_at);});
+
+test('publisher preserves all admitted competitions and refuses a missing immutable fixture instead of emitting a subset',()=>{
+ const fixtures=[fixture(),{...fixture(),fxid:2,lid:2,lname:'UEFA Champions League',home:'Champions Home',away:'Champions Away'}];
+ const predictions=[pred(),{...pred(),fxid:2,lid:2,lname:'UEFA Champions League',home:'Champions Home',away:'Champions Away'}];
+ const out=buildPresentationPayload({fixtures,predictions});
+ assert.equal(out.cards.length,2);assert.deepEqual(out.cards.map(c=>c.lname),['Synthetic League','UEFA Champions League']);
+ assert.deepEqual(out.cards.map(c=>c.prediction.pick_prob),[.6,.6]);
+ assert.throws(()=>buildPresentationPayload({fixtures:fixtures.slice(0,1),predictions}),/Unaccounted required prediction inventory 2/);
+});
