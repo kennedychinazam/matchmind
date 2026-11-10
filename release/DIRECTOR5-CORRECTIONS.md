@@ -21,6 +21,7 @@ superseding earlier Director wording. PUBLICATION REMAINS NO-GO.
   A completed DNB draw has a neutral original-selection `DNB · Void` badge;
   genuine expired forecasts read `Pick expired`. Both have tap/keyboard explanations.
   The older-date display's DNB void is excluded from its displayed hit-rate denominator.
+- A failed Scores refresh preserves its match count and competition-filter disclosure.
 - Scores row text is escaped at the actual renderer boundary, including the raw
   cloud-shaped path. Public no-SDK/account/discovery/privacy messages no longer
   request personal service keys. Direct-provider discovery is disabled publicly.

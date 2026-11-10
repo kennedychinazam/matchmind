@@ -21661,11 +21661,9 @@ function scoresReadFailed(msg){
   renderScores();                     // repaint the last good list — or clear, if there never was one
   const el = $('scoresMeta');
   if(have){
-    const src = afState.scores.dataAt || afState.scores.at;
-    const mins = Math.max(0, Math.round((Date.now() - src)/60000));
-    const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
-              : mins < 60 ? mins + ' min ago' : Math.floor(mins/60) + 'h ago';
-    el.innerHTML = `<b style="color:var(--red)">Refresh failed</b> · showing scores from ${ago}`;
+    // renderScores already states source age, visible count and competition narrowing.
+    // Preserve that disclosure when the next read fails instead of hiding the full slate count.
+    el.innerHTML = '<b style="color:var(--red)">Refresh failed</b> · ' + el.innerHTML;
   } else {
     el.textContent = 'Scores unavailable: ' + msg;
   }

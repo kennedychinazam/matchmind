@@ -83,3 +83,7 @@ test('mobile status labels and familiar badges fit at 320 and 390 pixels',async 
   if(process.env.MM_DIRECTOR_SCREENSHOT_DIR)await p.screenshot({path:process.env.MM_DIRECTOR_SCREENSHOT_DIR+'/status-'+(process.env.MM_DIRECTOR_BROWSER||'chromium')+'-'+width+'.png'});
  }
 });
+
+test('failed refresh retains complete Scores count and competition disclosure',async t=>{
+ const p=await open(t);const x=await p.evaluate(()=>{const date=ymdOffset(0);afState.scoresDate=date;afState.filter=2;afState.scores={at:Date.now(),list:[2,2,3,3,4,4].map((lid,i)=>({fxid:991300+i,lid,lname:'Competition '+lid,lcountry:'Synthetic',home:'Home '+i,away:'Away '+i,date,time:'12:00',status:'NS',gh:null,ga:null}))};scoresReadFailed('synthetic offline');return{text:$('scoresMeta').textContent,rows:$('scoresList').querySelectorAll('.scrow').length};});assert.equal(x.rows,2);assert.match(x.text,/Refresh failed/);assert.match(x.text,/2 matches/);assert.match(x.text,/of 6/);assert.match(x.text,/one competition/);
+});
