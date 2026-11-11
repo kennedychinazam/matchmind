@@ -4505,13 +4505,13 @@ function gateEdgeFor(L){
    the publisher account (the database enforces it - SQL ledger), and read by every device before its
    gate pass. A competition with no shared row, or a session in which the table could not be read,
    publishes nothing and withholds nothing. It never falls back on a guess. */
-const PUBLISHER_EMAIL = 'kennedychinazam+robot@gmail.com';
 const MEASURES_TABLE  = 'competition_measures';
 const SHARED_MEASURES = {};            // lid -> the shared row, filled ONLY from the server
 let _measuresState = 'pending';        // 'pending' | 'loaded' | 'failed'
 let _measuresWritten = 0, _measuresWriteFailed = 0, _measuresPassDone = 0;   // the publisher's pass, for verification
 function isPublisher(){
-  return !!(authUser && String(authUser.email || '').toLowerCase() === PUBLISHER_EMAIL);
+  // Public clients read published records; publisher authority stays on the server.
+  return false;
 }
 function sharedBarKnown(L){
   return _measuresState === 'loaded' && !!(L && SHARED_MEASURES[String(L.id)]);
