@@ -317,7 +317,7 @@ test('provenance decides the status: the eight states are told apart, not pooled
       'four indistinguishable causes were reported as a published decision: '+r.chip);
     assert.doesNotMatch(r.chip,/board/i,
       'a state with no board row cites a board: '+r.chip);
-    assert.match(r.chip,/^No record$/i,
+    assert.match(r.chip,/^No published prediction$/i,
       'the unknowable state is not reported as such: '+r.chip);
     assert.doesNotMatch(r.chipTitle,/not withheld|was not withheld/i,
       'the title rules out a withhold it cannot rule out: '+r.chipTitle);

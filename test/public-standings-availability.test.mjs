@@ -35,7 +35,7 @@ test('bounded public match detail states standings unavailable without inventing
  assert.equal(observed.preserved,true,'published prediction and source objects remain unchanged');
  assert.match(observed.probabilities,/50/);assert.match(observed.probabilities,/30/);assert.match(observed.probabilities,/20/);
  if(process.env.MM_STANDINGS_SCREENSHOT){
-  await page.locator('#analysisText p').filter({hasText:'League Table unavailable'}).evaluate(el=>el.scrollIntoView({block:'center'}));
+  await page.locator('#analysisText p').filter({hasText:'league table'}).evaluate(el=>el.scrollIntoView({block:'center'}));
   await page.screenshot({path:process.env.MM_STANDINGS_SCREENSHOT,fullPage:false});
  }
 });

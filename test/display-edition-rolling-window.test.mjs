@@ -101,6 +101,7 @@ test('the rolling window is admitted right up to expires_at and refused one mill
  await setFakeNow(page,'2026-11-09T23:17:00.000Z');
  const outside=await load(page,'2026-11-08');
  assert.deepEqual(outside.leagues,[],'expired the instant expires_at is reached');
+ assert.match(await page.locator('#dataChip').textContent(),/Unavailable/,'an expired refresh must not retain the Published badge');
  assert.match(outside.status,/unavailable/i);
 });
 
@@ -180,13 +181,13 @@ async function chipAt(t,now,width=390){
 }
 test('an edition 22.7 hours old does not read Live; the chip states its age',async t=>{
  const c=await chipAt(t,'2026-11-09T03:42:00.000Z');
- assert.equal(c.text,'● Updated 22h ago',`#dataChip read "${c.text}"`);
+ assert.equal(c.text,'● Edition · 22h old',`#dataChip read "${c.text}"`);
  assert.doesNotMatch(c.text,/live/i,'#dataChip must not say Live for a 22.7 hour old edition');
  assert.match(c.title,/2026-11-08 05:00 UTC/,'the title carries the publication time');
 });
-test('an edition under 7 hours old keeps the Live chip',async t=>{
+test('an edition under 7 hours old is labelled Published, not Live',async t=>{
  const c=await chipAt(t,'2026-11-08T11:59:00.000Z');
- assert.match(c.text,/^● Live · /,`#dataChip read "${c.text}"`);
+ assert.match(c.text,/^● Published$/,`#dataChip read "${c.text}"`);
 });
 test('the age chip is one line and stays on screen at 320 px and 390 px',async t=>{
  for(const w of [320,390]){
@@ -203,5 +204,5 @@ test('the chip text follows the clock without a reload',async t=>{
  await load(page,'2026-11-08');
  await setFakeNow(page,'2026-11-08T12:01:00.000Z');
  await page.evaluate(()=>setDataChip(_chipBase));
- assert.equal((await page.evaluate(()=>document.getElementById('dataChip').textContent.trim())),'● Updated 7h ago');
+ assert.equal((await page.evaluate(()=>document.getElementById('dataChip').textContent.trim())),'● Edition · 7h old');
 });

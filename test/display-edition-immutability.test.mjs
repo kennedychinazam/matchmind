@@ -94,7 +94,7 @@ test('a published pick, its probability and its grade survive a reload and a UTC
  assert.match(first.rows.Graded.chip,/class="predchip hit"/);
  assert.equal(first.rows.Ahead.text,'X · 34%','the upcoming pick carries its probability');
  assert.match(first.rows.Silent.chip,/statuschip/,'a fixture with no published pick gets a status, not a pick');
- assert.equal(first.rows.Silent.text,'No record');
+ assert.equal(first.rows.Silent.text,'No published prediction');
  assert.doesNotMatch(first.rows.Silent.text,/No pick/i,'and is never described as "No pick"');
  assert.equal(first.until,Date.parse('2026-11-09T23:17:00.000Z'));
 
@@ -121,7 +121,7 @@ test('a published pick, its probability and its grade survive a reload and a UTC
 
  /* No fixture acquired a pick it was not issued, at any of those clocks. */
  for(const s of [first,reload,after,later]){
-  assert.equal(s.rows.Silent.text,'No record');
+  assert.equal(s.rows.Silent.text,'No published prediction');
   assert.doesNotMatch(s.rows.Silent.chip,/·/,'no probability may appear on an unissued fixture');
   assert.doesNotMatch(s.rows.Silent.chip,/[✓✗]/,'no grade may appear on an unissued fixture');
  }
