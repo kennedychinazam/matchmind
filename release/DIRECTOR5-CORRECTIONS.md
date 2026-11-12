@@ -50,6 +50,18 @@ separate reviewed prospective settlement correction are required before release.
 No historical grader, archive writer, formulas, engine, SQL, publisher, schedule,
 backend security or financial controls are changed here.
 
+### Prospective implementation prepared — 12 November 2026
+
+The separately approved policy-2 implementation is proposed in
+`backend/settlement-cohort/PROPOSAL-up.sql`, with its activation and rollback gates
+documented in that directory's `README.md`. It enrolls new authorized issuance
+transactionally, preserves final per-selection decisions and exposes separate
+aggregate reporting. It does not change `pickPlayState` for historical records,
+backfill reasons or recalculate published aggregates. No hosted migration or
+activation has occurred. This release hold remains until staged source/consumer
+integration and explicit activation review; backend proposal tests alone do not
+establish live remediation or public-release approval.
+
 ## Evidence and limits
 
 `test/director5-release.test.mjs` covers exceptional statuses before kickoff,
