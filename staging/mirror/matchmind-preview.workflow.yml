@@ -1,0 +1,150 @@
+name: MatchMind development preview
+
+# This workflow publishes only to the separate matchmind-preview GitHub Pages site.
+# It never changes kennedychinazam/matchmind, production GitHub Pages,
+# the private owner app, Cloudflare, or production Supabase data.
+# The protected refresh job writes only validated isolated staging editions.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '8,23,38,53 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matchmind-preview-pages
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: matchmind-real-data-preview
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: kennedychinazam/matchmind
+          ref: codex/wo62b-public-release-20261110
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.19.0'}
+      - name: Record trusted development source
+        id: source
+        run: echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Refresh bounded public records into isolated staging
+        working-directory: source
+        env:
+          MM_STAGING_MIRROR_TOKEN: ${{ secrets.MM_STAGING_MIRROR_TOKEN }}
+        run: node staging/mirror/refresh.mjs
+
+  build:
+    needs: refresh
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.freshness.outputs.changed }}
+    steps:
+      - name: Checkout public development candidate
+        uses: actions/checkout@v4
+        with:
+          repository: kennedychinazam/matchmind
+          ref: ${{ needs.refresh.outputs.source }}
+          path: source
+          persist-credentials: false
+
+      - name: Check whether source changed
+        id: freshness
+        env:
+          PREVIEW_MARKER: https://kennedychinazam.github.io/matchmind-preview/SOURCE-COMMIT.txt
+        run: |
+          set -euo pipefail
+          current="$(git -C source rev-parse HEAD)"
+          published="$(curl -fsSL --connect-timeout 5 --max-time 12 "$PREVIEW_MARKER" 2>/dev/null || true)"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$current" != "$published" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Development source changed or manual refresh requested."
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new development commit. Skipping build and deployment."
+          fi
+
+      - name: Use Node.js
+        if: steps.freshness.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+
+      - name: Build isolated staging site
+        if: steps.freshness.outputs.changed == 'true'
+        working-directory: source
+        run: |
+          set -euo pipefail
+          node staging/build-real-preview.mjs staging/dist
+          test -s staging/dist/index.html
+          test -s staging/dist/sw.js
+          test -s staging/dist/manifest.webmanifest
+          test -s staging/dist/BUILD-INFO.json
+          grep -q 'stagingGuard' staging/dist/index.html
+          if grep -Eq 'toqfdrcjzwnlydqekude|sb_secret_|service_role' staging/dist/index.html; then
+            echo "Refusing deployment: production project or privileged credential marker found."
+            exit 1
+          fi
+          git rev-parse HEAD > staging/dist/SOURCE-COMMIT.txt
+          printf 'User-agent: *\nDisallow: /\n' > staging/dist/robots.txt
+          touch staging/dist/.nojekyll
+
+      - name: Configure GitHub Pages
+        if: steps.freshness.outputs.changed == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload staging-only website
+        if: steps.freshness.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: source/staging/dist
+
+  deploy:
+    if: needs.build.outputs.changed == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to separate preview URL
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  acceptance:
+    needs: [refresh, build, deploy]
+    if: always() && needs.refresh.result == 'success' && needs.build.result == 'success' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: kennedychinazam/matchmind
+          ref: ${{ needs.refresh.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.19.0'}
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - run: echo "MM_TEST_CHROMIUM=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+      - name: Verify hosted real records and mobile presentation
+        env:
+          MM_EXPECTED_COMMIT: ${{ needs.refresh.outputs.source }}
+        run: node staging/mirror/verify-hosted.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-preview-acceptance
+          path: |
+            real-preview-*.png
+            real-preview-*.json
+          retention-days: 7

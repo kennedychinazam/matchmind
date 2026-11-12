@@ -1,0 +1,19 @@
+name: Real-data preview focused acceptance
+on:
+  push:
+    branches: [codex/wo62b-public-release-20261110]
+    paths: ['staging/mirror/**', 'staging/build-real-preview.mjs', 'test/real-preview-mirror.test.mjs', '.github/workflows/real-preview-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.19.0'}
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - run: echo "MM_TEST_CHROMIUM=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+      - run: node --test test/real-preview-mirror.test.mjs test/staging-preview.test.mjs
