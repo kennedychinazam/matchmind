@@ -72,6 +72,8 @@ test.before(async()=>{
  sql(baseline.slice(baseline.indexOf('create function mm_fixture_delivery.schema_valid('),baseline.indexOf('alter table mm_fixture_delivery.editions add constraint closed_payload')));
  const predcount=baseline.match(/create function mm_fixture_delivery.prediction_count\([\s\S]*?\$\$;/)[0];sql(predcount);
  assert.throws(()=>sql(R('staging/mirror/INSTALL-staging-only.sql')),/configuration required/);
+ // Model permissive project defaults; private backups must still have no anonymous grants.
+ sql('alter default privileges for role postgres grant all on tables to anon,authenticated,service_role;');
  sql("set mm.preview_token_sha256='"+digest('synthetic-test-token-synthetic-test-token')+"';"+R('staging/mirror/INSTALL-staging-only.sql'));
  originalHashes=sql('select jsonb_object_agg(relation_name,fingerprint) from mm_preview_mirror.qa_backup');
 });

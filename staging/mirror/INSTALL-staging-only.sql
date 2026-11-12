@@ -85,6 +85,9 @@ create function mm_preview_mirror.status() returns jsonb language sql stable sec
 $$;
 revoke all on all functions in schema mm_preview_mirror from public,anon,authenticated,service_role;
 reset role;
+-- Do not inherit project-wide default table grants when schema usage is opened for RPCs.
+revoke all on all tables in schema mm_preview_mirror from public,anon,authenticated,service_role;
+revoke all on all sequences in schema mm_preview_mirror from public,anon,authenticated,service_role;
 grant usage on schema mm_fixture_delivery to mm_preview_mirror_owner;
 grant execute on function mm_fixture_delivery.payload_valid(jsonb),mm_fixture_delivery.schema_valid(jsonb,jsonb,integer),mm_fixture_delivery.prediction_count(jsonb) to mm_preview_mirror_owner;
 grant usage on schema mm_preview_mirror to anon,authenticated,service_role;
