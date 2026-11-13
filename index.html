@@ -3299,6 +3299,7 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
 }
 
 function showPublishedFixture(L,f){
+  prepareNavigation();
  showNoAnalysis(f.home,f.away);
  const p=f._displayCard&&f._displayCard.prediction;
  $('heroHome').innerHTML=heroSide(f.home,'Home');$('heroAway').innerHTML=heroSide(f.away,'Away');setFavRow(f.home,f.away);
@@ -6193,18 +6194,116 @@ function renderThemeChips(){ const box=$('themeChips'); if(!box) return;
   box.innerHTML=[['dark','🌙 Dark'],['light','☀️ Light'],['auto','🅰 Auto']].map(([v,l])=>`<button class="sfchip${themeMode===v?' active':''}" data-th="${v}">${l}</button>`).join('');
   box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.th))); }
 
-/* ---------- in-app / Android back (#5) ---------- */
-let _exitArmed=false;
-function setupBackHandler(){ try{ history.replaceState({mm:'root'},''); history.pushState({mm:'app'},''); }catch(e){} window.addEventListener('popstate', onBack); }
-function onBack(){
-  const so=$('searchOverlay');
-  if(so && !so.classList.contains('hidden')){ closeSearch(); history.pushState({mm:'app'},''); return; }
-  const drop=$('compsDrop');
-  if(drop && !drop.classList.contains('hidden')){ drop.classList.add('hidden'); history.pushState({mm:'app'},''); return; }
-  if(!$('view-detail').classList.contains('hidden')){ navTo(lastTab); history.pushState({mm:'app'},''); return; }
-  if(lastTab!=='scores'){ navTo('scores'); history.pushState({mm:'app'},''); return; }
-  if(_exitArmed){ window.removeEventListener('popstate', onBack); history.back(); return; }
-  _exitArmed=true; toast('Press back again to exit'); setTimeout(()=>_exitArmed=false,2000); history.pushState({mm:'app'},'');
+/* ---------- native browser / Android navigation ---------- */
+// The browser owns the stack. History contains only opaque UI entry identifiers;
+// node references stay in bounded session memory, never storage or public payloads.
+const _navSession = String(Date.now())+'-'+Math.random().toString(36).slice(2);
+const _navEntries = new Map();
+let _navActive = null, _navSerial = 0, _navScrollEpoch = 0, _navPrepared = false, _navRestored = null;
+const NAV_STATE_FIELDS = ['selectedDate','scoresDate','archiveDate','filter','scoreFilter','favTab','activeLeagueId'];
+function navigationOwner(){ return authUser && authUser.id || null; }
+function navigationProvenance(){
+  const screen=_fixtureDelivery.screens.get('predictions')||_fixtureDelivery.screens.get('scores');
+  return {epoch:_cloudAccountEpoch,edition:screen&&screen.edition_id||null,
+    asof:screen&&screen.as_of||null,until:screen?Date.parse(screen.expires_at):null};
+}
+function navigationProvenanceCurrent(saved){
+  const current=navigationProvenance();
+  return saved && saved.epoch===current.epoch && saved.edition===current.edition
+    && saved.asof===current.asof && (saved.until===null||saved.until>Date.now());
+}
+function navigationTree(root){
+  const tree=[];
+  const visit=node=>{
+    const element=node.nodeType===1;
+    tree.push({node,children:[...node.childNodes],text:node.nodeType===3?node.data:null,
+      attrs:element?[...node.attributes].map(a=>[a.name,a.value]):null,
+      value:element && /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName)?node.value:null,
+      checked:element && node.tagName==='INPUT'?node.checked:null,
+      x:element?node.scrollLeft:0,y:element?node.scrollTop:0});
+    for(const child of node.childNodes)visit(child);
+  };
+  visit(root);return tree;
+}
+function restoreNavigationTree(tree){
+  for(const saved of tree){
+    const node=saved.node;
+    if(saved.attrs){for(const a of [...node.attributes])node.removeAttribute(a.name);for(const [k,v]of saved.attrs)node.setAttribute(k,v);}
+    if(saved.text!==null)node.data=saved.text;
+    if(saved.children.length || node.childNodes.length)node.replaceChildren(...saved.children);
+    if(saved.value!==null)node.value=saved.value;
+    if(saved.checked!==null)node.checked=saved.checked;
+    if(saved.attrs){node.scrollLeft=saved.x;node.scrollTop=saved.y;}
+  }
+}
+function prepareNavigation(){
+  if(!_navPrepared && (curView==='detail'||curView==='legal')){captureNavigation();_navPrepared=true;}
+}
+function navigationRetains(view){
+  if(!_navRestored || !_navActive || _navRestored!==_navActive.id || curView!==view)return false;
+  const saved=_navEntries.get(_navRestored);
+  if(!saved || saved.owner!==navigationOwner() || !navigationProvenanceCurrent(saved.provenance)){_navRestored=null;return false;}
+  return true;
+}
+function captureNavigation(){
+  if(!_navActive) return;
+  const view=$('view-'+curView), state={};
+  for(const key of NAV_STATE_FIELDS) state[key]=afState[key];
+  _navEntries.set(_navActive.id,{view:curView,lastTab,owner:navigationOwner(),provenance:navigationProvenance(),state,
+    y:window.scrollY||0,sport:currentSport,discover:discoverPinned,tips:{...tipState},
+    // Preserve actual nodes, including their row listeners, ordering and accordion state.
+    // More contains account/credential controls, so it is always rendered afresh.
+    tree:view && curView!=='data'?navigationTree(view):null,
+    detail:curDetail,context:ctxFixture,share:shareCtx,favHome:curFavHome,favAway:curFavAway});
+  while(_navEntries.size>24){const id=_navEntries.keys().next().value;if(id===_navActive.id)break;_navEntries.delete(id);}
+}
+function navigationState(view,index){ return {mmNavigation:1,session:_navSession,id:++_navSerial,index,view}; }
+function navigationScroll(y){
+  const epoch=++_navScrollEpoch;
+  // The retained nodes must be laid out before restoring an exact list offset.
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(epoch!==_navScrollEpoch)return;
+    window.scrollTo(0,y);
+  }));
+}
+function setupBackHandler(){
+  try{history.scrollRestoration='manual';_navActive=navigationState(curView,0);history.replaceState(_navActive,'');}catch{_navActive=null;}
+  window.addEventListener('popstate',onBack);
+  document.addEventListener('click',()=>{_navRestored=null;},{capture:true});
+  document.addEventListener('change',()=>{_navRestored=null;},{capture:true});
+  // Cancel a pending restore when the reader deliberately starts scrolling.
+  for(const event of ['wheel','touchstart'])window.addEventListener(event,()=>{++_navScrollEpoch;},{passive:true});
+}
+function onBack(event){
+  const destination=event && event.state;
+  if(!destination || destination.mmNavigation!==1 || destination.session!==_navSession)return;
+  captureNavigation();++_navScrollEpoch;_navPrepared=false;_navRestored=null;++_predictDateRead;
+  const saved=_navEntries.get(destination.id);_navActive=destination;
+  closeSearch();
+  for(const id of ['compsDrop','compsDropS']){const box=$(id);if(box)box.classList.add('hidden');}
+  if(!saved || saved.owner!==navigationOwner()){
+    navTo(destination.view==='detail'||destination.view==='legal'?'scores':destination.view,{history:false});return;
+  }
+  for(const key of NAV_STATE_FIELDS)afState[key]=saved.state[key];
+  currentSport=saved.sport;discoverPinned=saved.discover;Object.assign(tipState,saved.tips);
+  if(!navigationProvenanceCurrent(saved.provenance)){
+    // A changed/expired edition is revalidated by the existing delivery path. UI
+    // history must never revive an older selection or an earlier account grant.
+    const target=saved.view==='detail'||saved.view==='legal'?saved.lastTab:saved.view;
+    navTo(target,{history:false});navigationScroll(saved.y);return;
+  }
+  lastTab=saved.lastTab;curView=saved.view;
+  curDetail=saved.detail;ctxFixture=saved.context;shareCtx=saved.share;curFavHome=saved.favHome;curFavAway=saved.favAway;
+  ++_analysisGeneration; // an analysis started after this entry must not overwrite it later.
+  const view=$('view-'+curView);
+  if(saved.tree && view)restoreNavigationTree(saved.tree);
+  else if(curView==='data')renderMoreRecord();
+  for(const v of NAV_VIEWS){const el=$('view-'+v);if(el)el.classList.toggle('hidden',v!==curView);}
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===curView));
+  _navRestored=destination.id;
+  scrollPos[curView]=saved.y;
+  try{localStorage.setItem('mm_tab',lastTab);}catch{}
+  navigationScroll(saved.y);
 }
 
 /* ---------- on-device search (#12) ---------- */
@@ -9806,6 +9905,7 @@ function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
   box.innerHTML=TIP_TABS().map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
   box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
 function renderTips(){
+  if(navigationRetains('tips'))return;
   /* BUILD 299 - the issued rows are needed by the strongest-read card and by all three list tabs,
      not only by the Smart Bet tab that used to be their only reader. Kicked off here so the first
      paint of ANY tips tab has them; `loaded` is set even on failure, so an outage falls through to
@@ -10228,6 +10328,7 @@ function slipMarketMatch(mKey,sel){
 let pendingFrozenPred = null;
 
 async function analyze(){
+  prepareNavigation();
   if(currentSport==='football'&&pendingMeta){const L=afState.leagues[pendingMeta.lid];if(L&&L._presentation){const f=L.upcoming.find(x=>x.fxid===pendingMeta.fxid);pendingMeta=null;if(f)showPublishedFixture(L,f);return;}}
   const analysisTurn=++_analysisGeneration;
   const credential=credentialContext();
@@ -17688,7 +17789,17 @@ const NAV_VIEWS = ['scores','predict','tips','favs','data','detail','legal'];   
 let lastTab = 'scores';
 let scrollPos = {};        // remembered scroll offset per view
 let curView = 'scores';    // the view currently shown
-function navTo(t){
+function navTo(t,options={}){
+  if(!NAV_VIEWS.includes(t))return;
+  const changed=t!==curView;
+  if(options.history!==false && !_navPrepared)captureNavigation();
+  _navRestored=null;
+  ++_navScrollEpoch;
+  if(options.history!==false && _navActive && (changed||options.replace||_navPrepared)){
+    const next=navigationState(t,options.replace?_navActive.index:_navActive.index+1);
+    try{if(options.replace)history.replaceState(next,'');else history.pushState(next,'');_navActive=next;}catch{}
+  }
+  _navPrepared=false;
   try{ scrollPos[curView] = window.scrollY || 0; }catch(e){}   // save where we were on the view we're leaving
   if(t !== 'detail' && t !== 'legal'){ lastTab = t; try{ localStorage.setItem('mm_tab', t); }catch(e){} }   // remember tab so refresh stays put; build 354 - a legal page is not a tab
   if(t !== 'predict' && t !== 'detail' && t !== 'legal') discoverPinned = false;   // un-pin Discover when leaving Predict (#15); build 354 - reading the Terms is not leaving Predict
@@ -17705,9 +17816,12 @@ function navTo(t){
   // restore scroll: returning to a feed brings you back to where you tapped; detail/first-visit start at top
   const target = (t!=='detail' && (t in scrollPos)) ? scrollPos[t] : 0;
   curView = t;
-  requestAnimationFrame(()=>{ try{ window.scrollTo(0, target); }catch(e){ try{ window.scrollTo({top:target}); }catch(_){} } });
+  navigationScroll(target);
 }
-function showFeed(){ navTo(lastTab); }
+function showFeed(){
+  if(_navActive && _navActive.index>0){history.back();return;}
+  navTo(lastTab,{replace:true});
+}
 function prepAnalysisView(){
   for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.add('hidden');
   for(const id of ['acc-result','acc-form','acc-analysis']) $(id).classList.remove('hidden');
@@ -17736,6 +17850,7 @@ function showAnalysis(){
    showing this page without clearing them would leave the previous fixture's form, scorers and
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
+  prepareNavigation();
   $('results').classList.remove('published-detail');
   $('analysisText').classList.remove('published');
   ++_analysisGeneration;
@@ -17853,6 +17968,7 @@ function historyLeagues(){
   return out;
 }
 function renderFavs(){
+  if(navigationRetains('favs'))return;
   const tabsBox=$('favTabs');
   const tabs=[['matches','⭐ Matches'],['leagues','🏆 Leagues & teams']];
   tabsBox.innerHTML=tabs.map(([v,l])=>`<button class="sfchip${afState.favTab===v?' active':''}" data-ft="${v}">${l}</button>`).join('');
@@ -17934,6 +18050,7 @@ function renderFavLeagues(){
    ================================================================ */
 let curDetail = null;
 async function matchDetail(s){
+  prepareNavigation();
   const credential=credentialContext();
   curDetail = s;
   resetMatchPanels();
@@ -21851,6 +21968,7 @@ function renderScoresDateBar(){
 }
 
 function renderScores(){
+  if(navigationRetains('scores'))return;
   const box = $('scoresList');
   // default to today, and don't strand the user on a date that has scrolled out of the window
   const days = scoresDayList();
@@ -22417,6 +22535,7 @@ function renderLegal(key){
    `navTo` refreshes the record card on the More tab: a figure a reader is being asked to trust
    should not be the one this device happened to load an hour ago. */
 function openLegal(key){
+  prepareNavigation();
   if(!LEGAL_PAGES[key]) return;
   if(key === 'play' && _engineRecord.state !== 'pending'
      && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();
@@ -22601,6 +22720,7 @@ function buildCompsDrop(boxId){
 }
 
 function renderFixtures(){
+  if(navigationRetains('predict'))return;
   if(afState.archiveDate){ showPredictDate(afState.archiveDate); return; }
   const wrap = $('fixturesWrap');
   const Ls = visibleLeagues();
@@ -22896,7 +23016,10 @@ function openDatePicker(onPick){
   inp.click();
 }
 
+let _predictDateRead=0;
 async function showPredictDate(d){
+  const read=++_predictDateRead;
+  const current=()=>read===_predictDateRead && afState.archiveDate===d && afState.selectedDate===d;
   const today = todayStrLocal();
   const dp = daysPast(d);
   // inside the normal window there is nothing to fetch — just move the strip
@@ -22916,11 +23039,14 @@ async function showPredictDate(d){
        `renderArchiveDay` already threw on their OWN prediction read, at lines 10920 and
        16783; this call site simply never captured it. Their RESULT reads discarded the error
        in the same way this one did, and are corrected in the same change. */
+    if(!current())return;
     if(predErr) throw predErr;
     const retiredHere = await retiredCount(d);   // build 326
+    if(!current())return;
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
     const { data: fx, error: fxErr } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    if(!current())return;
     if(fxErr) throw fxErr;   // build 357 - an unreadable result read is reported, not shown as an ungraded pick
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
     let hits=0, graded=0, html='', lastL='';
@@ -22946,6 +23072,7 @@ async function showPredictDate(d){
       (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html + retiredNoteDay(retiredHere);
     bindStatusChips($('fixtureList'));
   }catch(e){
+    if(!current())return;
     $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
   }
 }
@@ -24884,9 +25011,9 @@ try{ setTimeout(fillLongShotLeagues, 4000); }catch(e){}
 /* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
    cloud leagues to arrive before looking the fixture up, or it will never be found. */
 try{ const m = (location.hash||'').match(/match=(\d+)/);
-     if(m) setTimeout(()=>{ openFixtureById(+m[1]); history.replaceState(null,'',location.pathname); }, 2500); }catch(e){}
+     if(m) setTimeout(()=>{ openFixtureById(+m[1]); history.replaceState(history.state,'',location.pathname); }, 2500); }catch(e){}
 // stay on the tab you were on before a refresh (#refresh keeps page)
-try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
+try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st,{replace:true}); }catch(e){}
 setTimeout(()=>{
   const k = afState.key;
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
