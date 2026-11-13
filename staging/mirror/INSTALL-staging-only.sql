@@ -10,8 +10,11 @@ create role mm_preview_mirror_owner nologin noinherit nosuperuser nobypassrls;
 -- A PostgreSQL CREATEROLE session receives ADMIN, but not SET, membership by default.
 -- Explicitly allow the staging SQL administrator to create owner-role objects without inheriting privileges.
 grant mm_preview_mirror_owner to postgres with admin false, inherit false, set true;
-create schema mm_preview_mirror authorization mm_preview_mirror_owner;
+-- The staging SQL administrator owns the schema so it can snapshot the existing QA data;
+-- only the scoped owner role creates the runtime tables and SECURITY DEFINER routines.
+create schema mm_preview_mirror authorization postgres;
 revoke all on schema mm_preview_mirror from public,anon,authenticated,service_role;
+grant usage, create on schema mm_preview_mirror to mm_preview_mirror_owner;
 create table mm_preview_mirror.qa_backup(
  relation_name text primary key,snapshot jsonb not null,row_count int not null,fingerprint text not null,
  verified boolean not null default false,backed_up_at timestamptz not null default statement_timestamp()
@@ -87,6 +90,9 @@ create function mm_preview_mirror.status() returns jsonb language sql stable sec
  from mm_preview_mirror.editions where (select enabled from mm_preview_mirror.configuration) and as_of<=statement_timestamp() and expires_at>statement_timestamp() order by as_of desc,edition_id desc limit 1;
 $$;
 revoke all on all functions in schema mm_preview_mirror from public,anon,authenticated,service_role;
+-- Grant EXECUTE while acting as the function owner; PostgreSQL's staging postgres
+-- administrator cannot grant privileges on functions created under SET ROLE.
+grant execute on function mm_preview_mirror.publish(jsonb),mm_preview_mirror.display(text),mm_preview_mirror.status() to anon,authenticated,service_role;
 reset role;
 -- Do not inherit project-wide default table grants when schema usage is opened for RPCs.
 revoke all on all tables in schema mm_preview_mirror from public,anon,authenticated,service_role;
@@ -94,7 +100,6 @@ revoke all on all sequences in schema mm_preview_mirror from public,anon,authent
 grant usage on schema mm_fixture_delivery to mm_preview_mirror_owner;
 grant execute on function mm_fixture_delivery.payload_valid(jsonb),mm_fixture_delivery.schema_valid(jsonb,jsonb,integer),mm_fixture_delivery.prediction_count(jsonb) to mm_preview_mirror_owner;
 grant usage on schema mm_preview_mirror to anon,authenticated,service_role;
-grant execute on function mm_preview_mirror.publish(jsonb),mm_preview_mirror.display(text),mm_preview_mirror.status() to anon,authenticated,service_role;
 create function public.mm_preview_publish_v1(document jsonb) returns jsonb language sql security invoker set search_path=pg_catalog as $$select mm_preview_mirror.publish(document)$$;
 create function public.mm_preview_display_v1(screen text) returns jsonb language sql stable security invoker set search_path=pg_catalog as $$select mm_preview_mirror.display(screen)$$;
 create function public.mm_preview_status_v1() returns jsonb language sql stable security invoker set search_path=pg_catalog as $$select mm_preview_mirror.status()$$;
