@@ -27,17 +27,17 @@ try{
   await page.waitForFunction(()=>Object.keys(afState.leagues||{}).length>0,null,{timeout:30000});
   const state=await page.evaluate(async()=>{
    await loadCloudLeagues(true);await afScoresFromCloud();
-   const all=Object.values(afState.leagues),L=all.find(l=>l.upcoming.some(f=>f.pick&&f.prob!=null&&!f.gated)),f=L?.upcoming.find(f=>f.pick&&f.prob!=null&&!f.gated);
+   afState.filter='all';const all=visibleLeagues(),L=all.find(l=>l.upcoming.some(f=>f.pick&&f.prob!=null&&!f.gated)),f=L?.upcoming.find(f=>f.pick&&f.prob!=null&&!f.gated);
    const scoreIds=afState.scores.list.map(s=>s.fxid);
    if(!f)return{missing:true,scoreIds};
    const before=JSON.stringify(afState.archive);showPublishedFixture(L,f);
-   const detail={id:f.fxid,probability:f.prob,home:$('heroHome').textContent,away:$('heroAway').textContent,bars:$('outcomeRows').textContent,resultVisible:!$('acc-result').classList.contains('hidden'),note:$('analysisText').textContent};
-   afState.filter=String(L.id);navTo('predict');renderFixtures();const filtered=$('fixtureList').textContent;
+   const detail={id:f.fxid,probability:f.prob,home:f.home,away:f.away,heroIdentity:$('heroHome').textContent.includes(f.home)&&$('heroAway').textContent.includes(f.away),bars:$('outcomeRows').textContent,resultVisible:!$('acc-result').classList.contains('hidden'),note:$('analysisText').textContent};
+   afState.filter=String(L.id);afState.selectedDate=f.date;afState.archiveDate=null;navTo('predict');renderFixtures();const filtered=$('fixtureList').textContent;
    const row=afState.scores.list.find(s=>['NS','TBD'].includes(s.status));if(row){const item=ensureLeagueFromScore(row);await openFixture(item.L.id,item.f);}
    const badControls=[...document.querySelectorAll('input,button,select,textarea')].filter(e=>['afKey','aiKeyInput','afSaveKey','aiSaveBtn','afKeyUse','aiKeyUse'].includes(e.id));
    return{scoreIds,detail,filtered,archivePreserved:before===JSON.stringify(afState.archive),guest:authUser===null,apiControls:badControls.length,bar:$('stagingBar').textContent,overflow:document.documentElement.scrollWidth>innerWidth+1};
   });
-  check(!state.missing,width+'px source-backed published detail available');
+  check(!state.missing&&state.detail.heroIdentity,width+'px source-backed published detail available');
   const original=history.cards.find(c=>c.fxid===state.detail.id)?.prediction;
   check(original&&state.detail.resultVisible&&state.detail.probability===original.pick_prob,width+'px original published probability unchanged');
   check(state.scoreIds.length===scores.cards.length&&state.scoreIds.every(id=>scores.cards.some(c=>c.fxid===id)),width+'px Scores inventory matches reader');
