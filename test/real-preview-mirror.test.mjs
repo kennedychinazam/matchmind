@@ -100,7 +100,7 @@ test('server rejects checksum, coverage, synthetic and unpublished changes witho
 async function open(t,width){
  const browser=await chromium.launch({executablePath:process.env.MM_TEST_CHROMIUM||'/usr/bin/chromium',args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
  const ctx=await browser.newContext({serviceWorkers:'block',viewport:{width,height:844},timezoneId:'Africa/Lagos'});
- await ctx.addInitScript(()=>{localStorage.setItem('mm_state','production-state-sentinel');localStorage.setItem('sb-production-auth-token','production-auth-sentinel');});
+ await ctx.addInitScript(()=>{localStorage.setItem('mm_state','production-state-sentinel');localStorage.setItem('sb-production-auth-token','production-auth-sentinel');localStorage.setItem('mm-real-preview:mm_intro','1');});
  const page=await ctx.newPage(),network=[];page.on('request',r=>network.push({url:r.url(),method:r.method()}));
  const f=fixture(),stamp=new Date(Date.now()-60000).toISOString(),expires=new Date(Date.now()+3600000).toISOString();
  await ctx.route('**/*',async route=>{
@@ -133,12 +133,15 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   afState.archive[id]={kickoff:date,ktime:'12:30',pick:'1D',pick_prob:.807,build:355};
   const archive=JSON.stringify(afState.archive),predicate=forecastDisplayExpired(old);showPublishedFixture(L,old);
   const retained={predicate,headline:$('heroPick').textContent,probability:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,vector:$('outcomeRows').textContent,archiveUnchanged:archive===JSON.stringify(afState.archive)};
-  delete afState.archive[id];
-  L.upcoming.push({...f,fxid:id,home:'A deliberately long football team name',away:'Another long football club name'});
+  L.upcoming.push({...old,fxid:id,home:'A deliberately long football team name',away:'Another long football club name'});
   afState.selectedDate=f.date;afState.filter='all';navTo('predict');renderFixtures();
   const names=[...$('fixtureList').querySelectorAll('.tline')];
-  return{retained,namesReadable:names.every(e=>e.scrollWidth<=e.clientWidth+1),hasNames:names.some(e=>e.textContent.includes('deliberately long')),originalArchive:original===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};
+  const restored={...afState.archive};delete restored[id];
+  return{retained,namesReadable:names.every(e=>e.scrollWidth<=e.clientWidth+1),hasNames:names.some(e=>e.textContent.includes('deliberately long')),originalArchive:original===JSON.stringify(restored),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
+ await page.locator('#fixtureList .fxrow').last().locator('.tline').nth(1).click();
+ assert.equal(await page.evaluate(()=>curView),'detail','away-team tap opens retained detail instead of intercepted status');
+ await page.evaluate(()=>{delete afState.archive[990890];});
  assert.ok(presentation.retained.predicate);assert.match(presentation.retained.headline,/DNB|draw no bet/i);assert.match(presentation.retained.probability,/80.7%/);assert.equal(presentation.retained.status,'Earlier forecast retained');assert.match(presentation.retained.note,/Status unresolved/);assert.doesNotMatch(presentation.retained.note,/confirmed|non-play|expired/i);assert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.retained.archiveUnchanged&&presentation.originalArchive);assert.ok(presentation.namesReadable&&presentation.hasNames);assert.equal(presentation.overflow,false);
  for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display|status)_v1$/);}
 });

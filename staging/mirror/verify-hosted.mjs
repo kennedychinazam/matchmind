@@ -50,10 +50,12 @@ try{
   check(errors.length===0,width+'px no runtime errors');
   await page.evaluate(()=>{afState.filter='all';afState.scoreFilter='all';navTo('scores');renderScores();scrollTo(0,0);});
   await page.screenshot({path:`real-preview-${width}-scores.png`});
-  await page.evaluate(()=>{navTo('predict');renderFixtures();scrollTo(0,0);});
+  await page.evaluate(day=>{navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.fxid===1570019)?.date);
   const readable=await page.evaluate(()=>[...$('fixtureList').querySelectorAll('.tline')].filter(e=>e.offsetHeight).every(e=>e.scrollWidth<=e.clientWidth+1));
   check(readable,width+'px Analysis team names wrap without clipping');
   await page.screenshot({path:`real-preview-${width}-analysis.png`});
+  await page.locator('#fixtureList .fxrow .tline').nth(1).click();
+  check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
   for(const [id,label] of [[1570019,'published'],[1594900,'retained']]){
    const source=history.cards.find(c=>c.fxid===id);if(!source?.prediction)continue;
    const shown=await page.evaluate(async id=>{const before=JSON.stringify(afState.archive);openFixtureById(id);scrollTo(0,0);const a=afState.archive[id];return{prob:afState.leagues[afState.activeLeagueId]?.upcoming?.find(f=>f.fxid===id)?.prob,hero:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,archiveUnchanged:before===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};},id);

@@ -13,6 +13,10 @@ export const PRESENTATION_CSS=`<style id="presentation355">
 #fixtureList .fxrow>.fxtime{grid-column:2;grid-row:1 / span 2;align-self:center}
 #fixtureList .fxrow>.fxteams{grid-column:3;grid-row:1}
 #fixtureList .fxrow>.predchip{grid-column:3;grid-row:2;justify-self:start;max-width:100%;white-space:normal;padding:2px 6px;font-size:.66rem;line-height:1.3}
+/* Keep the 44px status target below its label, clear of both team-name lines.
+   The 24px label + adjacent 10px row paddings leave 44px without stealing name taps. */
+#fixtureList .fxrow>.statuschip{min-height:24px}
+#fixtureList .fxrow>.statuschip::after{top:0;transform:none;height:44px;left:0;right:0}
 #fixtureList .fxrow>.formflag{grid-column:2;grid-row:2}
 #view-detail .hero .tname{min-width:0;overflow-wrap:anywhere}
 #view-detail .hero{padding:18px 16px}
