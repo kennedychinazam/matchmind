@@ -94,10 +94,10 @@ for(const width of [320,390])test('published Analysis is concise, aligned and un
   footballEngine.predict=()=>{throw Error('must not recompute');};showPublishedFixture(L,f);
   $('acc-analysis').classList.remove('collapsed');
   const el=$('analysisText'),style=getComputedStyle(el);
-  return{text:el.textContent,align:style.textAlign,hyphens:style.hyphens,bars:$('outcomeRows').textContent,
+  return{text:el.textContent,table:$('standingsBox').textContent,align:style.textAlign,hyphens:style.hyphens,bars:$('outcomeRows').textContent,
    preserved:before===JSON.stringify({f,archive:afState.archive}),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
- assert.ok(r.text.length<250);assert.match(r.text,/league table.*unavailable/);assert.match(r.text,/independent AI analysis.*unavailable/);
+ assert.ok(r.text.length<100);assert.match(r.table,/League table not published/);assert.match(r.text,/AI write-up not published/);
  assert.equal(r.align,'left');assert.equal(r.hyphens,'none');assert.match(r.bars,/64\.0%/);assert.equal(r.preserved,true);assert.equal(r.overflow,false);
  await p.evaluate(()=>{document.documentElement.dir='rtl';});
  assert.equal(await p.locator('#analysisText').evaluate(el=>getComputedStyle(el).textAlign),'right');
@@ -157,7 +157,7 @@ test('missing predictions are explained without inventing a pick; a 64% listing 
  });
  assert.match(r.empty,/No eligible slip legs.*selected dates, leagues and markets/);assert.match(r.risk,/minimum published probability 25%/);
  assert.equal(r.before,0);assert.equal(r.wrongMarket,0);assert.equal(r.after,1);assert.equal(r.preserved,true);
- assert.equal(r.label,'No published prediction');assert.match(r.missing,/No published prediction/);assert.doesNotMatch(r.missing,/Original published prediction/);
+ assert.equal(r.label,'No published prediction');assert.match(r.missing,/AI write-up not published/);assert.doesNotMatch(r.missing,/Original published prediction/);
 });
 
 test('public client cannot become publisher and exposes no active provider-key controls',async t=>{

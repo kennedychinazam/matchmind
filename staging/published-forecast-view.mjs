@@ -20,10 +20,10 @@ function showPublishedFixture(L,f,context=null){
  hero.dataset.selectionKind=kind;hero.dataset.selectionKey=p?publishedSelectionKey(p,f.fxid,kind,origin):'';
  hero.dataset.originalKickoff=p?String(p.kickoff||'')+'T'+String(p.ktime||''):'';
  hero.dataset.originalProbability=p?String(p.pick_prob):'';hero.dataset.publishedAt=p&&p.made_at||'';hero.dataset.market=p&&p.market||'';
- $('heroPick').innerHTML=publishedBadge(p,f.fxid,kind,origin);$('heroConf').textContent='';$('heroStrong').textContent='';$('heroStrong').classList.add('hidden');$('heroDnb').classList.add('hidden');
+ $('heroPick').innerHTML=p?publishedBadge(p,f.fxid,kind,origin):'<span class="predchip muted-chip">No qualifying pick</span>';$('heroConf').textContent='';$('heroStrong').textContent='';$('heroStrong').classList.add('hidden');$('heroDnb').classList.add('hidden');
  const v=p&&kind==='prediction'?probabilityVector(p.p_home,p.p_draw,p.p_away):null;
  $('outcomeRows').innerHTML=v?probRow(p.home,v.pW)+probRow('Draw',v.pD)+probRow(p.away,v.pL):'';
- $('acc-result').classList.toggle('hidden',!v);$('analysisText').textContent='';$('verdictBox').textContent='';$('acc-analysis').classList.add('hidden');
+ renderPublishedAnalysis(L,f,p,kind);
  const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';line.textContent='90-minute score '+result.gh+'–'+result.ga;$('heroMeta').appendChild(line);}
  setShareCard(false,null);navTo('detail');
 }

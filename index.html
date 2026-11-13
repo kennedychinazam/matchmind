@@ -534,6 +534,29 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   .slipleg .lgscore{margin-left:auto; flex:none; font-size:.82rem; font-weight:800;
                     color:var(--text); background:var(--line); border-radius:7px;
                     padding:2px 8px; letter-spacing:.02em;}
+
+/* Published match details retain Build 355 shells, spacing and palette. Text is concise
+   at source; no line clamps conceal probabilities or supporting data. */
+#results.published-detail .tname{min-width:0;overflow-wrap:anywhere}
+#results.published-detail .hero .pick{font-size:1.12rem;line-height:1.3}
+#results.published-detail .plabel{min-width:0;overflow-wrap:anywhere;font-size:.84rem;line-height:1.3}
+#results.published-detail .pval{flex:0 0 56px;width:56px}
+#results.published-detail .prow{gap:8px}
+#results.published-detail .subnote{line-height:1.35}
+#results.published-detail .published-form{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem;line-height:1.3}
+#results.published-detail .published-meeting{padding:8px 0;border-bottom:1px solid var(--border);font-size:.78rem}
+#results.published-detail .published-meeting>div{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;line-height:1.3}
+#results.published-detail .published-meeting>div>span:last-child{text-align:right}
+#results.published-detail .published-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:.74rem}
+#results.published-detail .published-table th,#results.published-detail .published-table td{padding:7px 3px;text-align:right;border-bottom:1px solid var(--border)}
+#results.published-detail .published-table th:first-child{width:25px}
+#results.published-detail .published-table th:nth-child(2){width:48%}
+#results.published-detail .published-table td:nth-child(2),#results.published-detail .published-table th:nth-child(2){text-align:left;overflow-wrap:anywhere}
+#results.published-detail .published-table .selected{color:var(--gold);font-weight:700}
+#results.published-detail #analysisText:not(.published-writeup){font-size:.78rem;line-height:1.35;padding-top:10px}
+#results.published-detail #verdictBox{font-size:.72rem;line-height:1.35}
+@media(max-width:360px){#results.published-detail .acc-head{gap:7px;padding:14px 12px}#results.published-detail .acc-head .t{font-size:.88rem}#results.published-detail .acc-body{padding-inline:12px}#results.published-detail .hero .tname{font-size:.9rem}}
+
 </style>
 </head>
 <body>
@@ -3229,25 +3252,64 @@ async function loadFixturePresentation(){
    :'Matches temporarily unavailable. Please try again.';
  }
 }
+/* Public detail panels consume only the bounded published edition. They never fit a model,
+   read protected source tables, or start an AI/provider request. An unissued selection does
+   not suppress informational football analysis. Missing markets stay explicit per panel. */
+function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
+ const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
+ const original=same&&p?probabilityVector(p.p_home,p.p_draw,p.p_away):null;
+ const informational=same&&!p?(a.result?probabilityVector(a.result.p_home,a.result.p_draw,a.result.p_away):probabilityVector(f.pW,f.pD,f.pL)):null;
+ const v=original||informational,esc=escapeHtml;
+ const empty=text=>'<div class="subnote published-note">'+esc(text)+'</div>';
+ const rows=list=>(list||[]).filter(r=>r&&typeof r.label==='string'&&validProbability(r.prob)).map(r=>probRow(esc(r.label),r.prob)).join('');
+ const panel=(id,box,content,note)=>{$(id).classList.remove('hidden');$(box).innerHTML=content||empty(note);};
+ $('results').classList.add('published-detail');
+ $('analysisText').classList.add('published');
+ $('outcomeRows').innerHTML=v?probRow(esc(p?p.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(p?p.away:f.away),v.pL):empty('Result probabilities not published.');
+ $('acc-result').classList.remove('hidden');
+ $('resultSide').textContent='';$('formNote').classList.add('hidden');
+ const xh=p?p.xg_home:a.xg_home,xa=p?p.xg_away:a.xg_away;
+ $('xgInfo').textContent=typeof xh==='number'&&typeof xa==='number'?'Expected goals · '+xh.toFixed(2)+' – '+xa.toFixed(2):'';
+ $('xgInfo').classList.toggle('hidden',!$('xgInfo').textContent);
+ if(v)$('outcomeRows').insertAdjacentHTML('beforeend',empty(original?'Original published 1X2 probabilities.':'Informational model analysis · no issued pick.'));
+ panel('acc-goals','goalsRows',rows(same?a.goals:null),'Goals probabilities not published.');
+ panel('acc-combo','comboRows',rows(same?a.combos:null),'Combo probabilities not published.');
+ panel('acc-htft','htftBox',rows(same?a.htft:null),'Half-time/full-time probabilities not published.');
+ panel('acc-score','scoreRows',rows(same?a.correct_scores:null),'Correct-score probabilities not published.');
+ panel('acc-scorers','scorerRows',rows(same?a.scorers:null),'Scorer probabilities not published.');
+ const form=a.form||{},formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'Form not published.')+'</span></div>';
+ panel('acc-form','formBox',formLine(f.home,form.home)+formLine(f.away,form.away),'Recent form not published.');
+ $('h2hBox').innerHTML=Array.isArray(a.h2h)&&a.h2h.length?a.h2h.map(m=>'<div class="published-meeting"><span class="muted">'+esc(m.date)+'</span><div><span>'+esc(m.home)+'</span><b>'+esc(m.gh)+'–'+esc(m.ga)+'</b><span>'+esc(m.away)+'</span></div></div>').join(''):empty('Head-to-head meetings not published.');
+ const table=a.standings;
+ const tableHTML=table&&Array.isArray(table.rows)&&table.rows.length?'<div class="subnote">Season '+esc(table.season)+'</div><table class="published-table"><thead><tr><th>#</th><th>Team</th><th>P</th><th>GD</th><th>Pts</th></tr></thead><tbody>'+table.rows.map(r=>'<tr'+([f.home,f.away].includes(r.team)?' class="selected"':'')+'><td>'+esc(r.rank)+'</td><td>'+esc(r.team)+'</td><td>'+esc(r.played)+'</td><td>'+esc(r.gf-r.ga)+'</td><td>'+esc(r.points)+'</td></tr>').join('')+'</tbody></table>':'';
+ panel('acc-standings','standingsBox',tableHTML,'League table not published.');
+ $('analysisHeading').textContent='Professional AI Write-up';
+ $('acc-analysis').classList.remove('hidden');$('aiStatus').classList.add('hidden');
+ $('analysisText').textContent=a.writeup&&a.writeup.text||'AI write-up not published.';
+ $('analysisText').classList.toggle('published-writeup',!!(a.writeup&&a.writeup.text));
+ $('verdictBox').textContent='';
+ if(a.writeup&&a.writeup.source_at)$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10)+' · '+(a.writeup.source||'approved AI analysis');
+ $('heroStrong').textContent='';$('heroStrong').classList.add('hidden');
+ // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
+ const dnb=p&&['1D','2D'].includes(p.pick);
+ $('heroDnb').textContent=dnb?'DNB probability excludes draws.':'';
+ $('heroDnb').classList.toggle('hidden',!dnb);
+ const comp=$('heroMeta').querySelector('.hm-comp');if(comp)comp.innerHTML=competitionBadge(L)+' '+esc(p&&p.lname||L.name);
+}
+
 function showPublishedFixture(L,f){
  showNoAnalysis(f.home,f.away);
- $('analysisHeading').textContent='Published statistical prediction';
- $('analysisText').classList.add('published');
+ const p=f._displayCard&&f._displayCard.prediction;
  $('heroHome').innerHTML=heroSide(f.home,'Home');$('heroAway').innerHTML=heroSide(f.away,'Away');setFavRow(f.home,f.away);
  setHeroMeta({comp:L.name,country:L.country,date:f.date,time:f.time,fxid:f.fxid,home:f.home,away:f.away,status:f.status});
  const expired=forecastDisplayExpired(f);
- const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(f.pick&&f.prob!=null),available=issued&&!f.gated&&!expired&&!fixtureExceptionalStatus(f);
- $('heroPick').textContent=expired?'Pick expired':issued?pickLabel(f.pick,f.home,f.away):'Statistical prediction unavailable';
- $('heroConf').textContent=expired?'Original published forecast retained in history':issued?pct(f.prob)+' published probability':'';
- $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
+ const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(p&&p.pick&&p.pick_prob!=null),available=issued&&!f.gated&&!expired&&!fixtureExceptionalStatus(f);
+ $('heroPick').textContent=issued?pickLabel(p.pick,p.home,p.away):'No qualifying pick';
+ $('heroConf').textContent=issued?pct(p.pick_prob)+' published probability':'';
  setHeroDnb(available?f.pick:null,v);
- $('analysisText').innerHTML=(issued?'<p>Original published prediction; not recalculated on this device.</p>':'<p>No published prediction for this match.</p>')+(issued&&!available?'<p>Retained for history; no longer a current recommendation.</p>':'')+'<p>Team history, league table and independent AI analysis are unavailable in this published edition.</p>';
- const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
- const resultLine=document.createElement('div');resultLine.className='hm-dt';
- const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
- resultLine.textContent=complete?'90-minute score '+result.gh+'–'+result.ga:pending?'90-minute result pending':'90-minute result unavailable';
- $('heroMeta').appendChild(resultLine);
- if(expired){const note=document.createElement('p');note.textContent='The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff; the original forecast is preserved. This match may still be scheduled.';$('analysisText').prepend(note);}
+ renderPublishedAnalysis(L,f,issued?p:null);
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());
+ if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';line.textContent='90-minute score '+result.gh+'–'+result.ga;$('heroMeta').appendChild(line);}
  setShareCard(false,null);navTo('detail');
 }
 
@@ -17651,6 +17713,7 @@ function prepAnalysisView(){
   $('heroStrong').classList.remove('hidden');
 }
 function showAnalysis(){
+  $('results').classList.remove('published-detail');
   $('analysisText').classList.remove('published');
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
   prepAnalysisView();
@@ -17672,6 +17735,7 @@ function showAnalysis(){
    showing this page without clearing them would leave the previous fixture's form, scorers and
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
+  $('results').classList.remove('published-detail');
   $('analysisText').classList.remove('published');
   ++_analysisGeneration;
   $('analysisHeading').textContent = 'Statistical analysis';
