@@ -1,5 +1,6 @@
 // Production transport is GET-only, anonymous and fixed-host; only mapped public fields leave the runner.
 import {createHash} from 'node:crypto';
+import {projectFixtureAnalysis,HISTORY_COLUMNS,HISTORY_DAYS} from './analysis-projection.mjs';
 import {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {CARD_SCHEMA,PAYLOAD_SCHEMA,validatePresentationPayload} from '../../backend/fixture-delivery/contract.mjs';
@@ -16,11 +17,11 @@ export function project(value,schema){
  return value;
 }
 export function windowFor(now){const d=new Date(now);const day=d.toISOString().slice(0,10);return{from:new Date(Date.parse(day)-6*86400000).toISOString().slice(0,10),to:new Date(Date.parse(day)+7*86400000).toISOString().slice(0,10),day};}
-const fixtureCols=Object.keys(CARD_SCHEMA.properties).filter(x=>x!=='prediction').join(',');
+const fixtureCols=Object.keys(CARD_SCHEMA.properties).filter(x=>!['prediction','analysis'].includes(x)).join(',');
 const predictionCols=['fxid',...Object.keys(CARD_SCHEMA.properties.prediction.properties)].join(',');
 const columnsByTable={fixtures:fixtureCols,predictions:predictionCols,shared_records:'key,payload,build,computed_at',daily_slips:'day,tier,odds,build,step,legs'};
 export async function readPages(table,columns,filters,order,fetcher=fetch){
- if(!Object.hasOwn(columnsByTable,table)||!columns||columns.split(',').some(c=>!columnsByTable[table].split(',').includes(c)))throw Error('Unapproved source reader');
+ if(!Object.hasOwn(columnsByTable,table)||!columns||columns.split(',').some(c=>!(table==='fixtures'?new Set((fixtureCols+','+HISTORY_COLUMNS).split(',')):new Set(columnsByTable[table].split(','))).has(c)))throw Error('Unapproved source reader');
  const rows=[];let total=null;
  for(let offset=0;offset<=1000;offset+=200){
   const u=new URL('/rest/v1/'+table,SOURCE);u.searchParams.set('select',columns);u.searchParams.set('order',order);u.searchParams.set('limit','200');u.searchParams.set('offset',String(offset));
@@ -58,13 +59,26 @@ export async function collect(now=new Date(),fetcher=fetch){
   predictions.push(...await readPages('predictions',predictionCols,[['fxid','in.('+fixtures.slice(i,i+150).map(f=>f.fxid).join(',')+')'],['made_at','not.is.null'],['made_at','lte.'+now.toISOString()],['pick','not.is.null'],['pick_prob','not.is.null'],['build','gte.62']],'fxid.asc',fetcher));
  }
  const preds=new Map(predictions.map(p=>[p.fxid,p]));if(preds.size!==predictions.length)throw Error('Duplicate prediction identity');
+ // These are bounded GET reads of existing approved records, never provider/AI requests.
+ const histories=new Map(),analysis_warnings=[];
+ const lids=[...new Set(fixtures.map(f=>f.lid))];if(lids.length>100)throw Error('Analysis competition inventory exceeds reviewed bound');
+ for(const lid of lids){
+  const group=fixtures.filter(f=>f.lid===lid),first=group.map(f=>f.date).sort()[0],last=group.map(f=>f.date).sort().at(-1);
+  const from=new Date(Date.parse(first)-HISTORY_DAYS*86400000).toISOString().slice(0,10);
+  const quoted=x=>'"'+x.replaceAll('\\','\\\\').replaceAll('"','\\"')+'"';
+  const teams=[...new Set(group.flatMap(f=>[f.home,f.away]))].map(quoted).join(',');
+  try{histories.set(lid,await readPages('fixtures',HISTORY_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['or','(home.in.('+teams+'),away.in.('+teams+'))'],['date','gte.'+from],['date','lt.'+last],['status','in.(FT,AET,PEN)']],'fxid.asc',fetcher));}catch(e){analysis_warnings.push({lid,state:'history-unavailable',reason:e.message});}
+ }
+ // Raw arbitrary-prompt AI cache is deliberately neither read nor published.
+
  const payload={cards:fixtures.map(f=>({...project(f,CARD_SCHEMA),prediction:preds.has(f.fxid)?project(preds.get(f.fxid),CARD_SCHEMA.properties.prediction):null})),
   board:board===null?null:project(board,PAYLOAD_SCHEMA.properties.board),
   records:{engine:byKey.engine?project(byKey.engine,PAYLOAD_SCHEMA.properties.records.properties.engine):null,clv:byKey.clv?project(byKey.clv,PAYLOAD_SCHEMA.properties.records.properties.clv):null},
   slips:slips.map(s=>project(s,PAYLOAD_SCHEMA.properties.slips.items))};
+ for(const c of payload.cards){const analysis=projectFixtureAnalysis(c,{board,history:histories.get(c.lid),now});if(analysis)c.analysis=analysis;}
  validatePresentationPayload(payload);
  const stamps=fixtures.map(f=>f.updated_at).filter(x=>x&&Number.isFinite(Date.parse(x))).sort((a,b)=>Date.parse(a)-Date.parse(b));
- return{payload,captured_at:now.toISOString(),from:w.from,to:w.to,window_cards:windowCount,cards:fixtures.length,predictions:predictions.length,latest_source_update:stamps.at(-1)??null};
+ return{payload,analysis_warnings,captured_at:now.toISOString(),from:w.from,to:w.to,window_cards:windowCount,cards:fixtures.length,predictions:predictions.length,latest_source_update:stamps.at(-1)??null};
 }
 export async function stableCollect(now=new Date(),fetcher=fetch){
  const a=await collect(now,fetcher),b=await collect(now,fetcher);
@@ -107,7 +121,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const extract=process.argv[2]==='--extract';
   if(!extract&&!process.env.MM_STAGING_MIRROR_TOKEN)throw Error('Protected MM_STAGING_MIRROR_TOKEN binding required');
   const snapshot=await stableCollect();const request=requestFor(snapshot);
-  if(extract){if(!process.argv[3])throw Error('Private output path required');writeFileSync(process.argv[3],JSON.stringify(request),{mode:0o600});console.log(JSON.stringify({...request,payload_text:undefined}));}
-  else {const receipt=await publish(request,process.env.MM_STAGING_MIRROR_TOKEN);const verified=await verifyDestination(request,receipt);console.log(JSON.stringify({...receipt,...verified}));}
+  if(extract){if(!process.argv[3])throw Error('Private output path required');writeFileSync(process.argv[3],JSON.stringify(request),{mode:0o600});console.log(JSON.stringify({...request,payload_text:undefined,analysis_warnings:snapshot.analysis_warnings}));}
+  else {const receipt=await publish(request,process.env.MM_STAGING_MIRROR_TOKEN);const verified=await verifyDestination(request,receipt);console.log(JSON.stringify({...receipt,...verified,analysis_warnings:snapshot.analysis_warnings}));}
  }catch(e){console.error(e.message);process.exitCode=1;}
 }
