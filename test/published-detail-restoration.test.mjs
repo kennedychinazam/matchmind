@@ -16,7 +16,7 @@ async function open(t,html,width){
  await context.addInitScript(()=>{localStorage.setItem('mm_intro','1');localStorage.setItem('mm-real-preview:mm_intro','1');});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));t.after(()=>assert.deepEqual(errors,[]));await page.goto('http://detail-restore.test/');return page;
 }
-async function show(page,{issued=true,full=true,finished=false,dnb=false}={}){return page.evaluate(({issued,full,finished,dnb})=>{
+async function show(page,{issued=true,full=true,finished=false,dnb=false,selectionKind='prediction',originalInputs=true}={}){return page.evaluate(({issued,full,finished,dnb,selectionKind,originalInputs})=>{
  const source_at='2026-11-13T12:00:00Z';
  const analysis={source:'published-football-analysis',source_at,xg_home:1.8,xg_away:.9,result:{p_home:.51,p_draw:.29,p_away:.2},
   goals:[{label:'Over 2.5',prob:.56}],combos:[{label:'1 & Over 2.5',prob:.34}],htft:[{label:'1/1',prob:.32}],correct_scores:[{label:'2–0',prob:.12}],scorers:[{label:'Verified player',prob:.38}],
@@ -24,18 +24,24 @@ async function show(page,{issued=true,full=true,finished=false,dnb=false}={}){re
   standings:{season:2026,rows:[{rank:1,team:'Leganes',played:10,won:6,drawn:2,lost:2,gf:17,ga:9,points:20},{rank:8,team:'Burgos',played:10,won:3,drawn:3,lost:4,gf:11,ga:14,points:12}]},
   writeup:{text:'Approved cached AI write-up. Leganes have three wins in their last five matches; Burgos have one. This text is deliberately longer than two lines to verify that only the Professional AI Write-up is exempt.',source:'Approved AI',source_at}};
  const p=issued?{lid:140,lname:'La Liga 2',home:'Leganes',away:'Burgos',pick:dnb?'1D':'1',pick_prob:dnb?.75:.6,market:dnb?'DNB':'Winner',p_home:.6,p_draw:.2,p_away:.2,xg_home:1.7,xg_away:.8,kickoff:'2026-11-14',ktime:'20:00',made_at:source_at,withheld_at:null,final_pick:null,build:355}:null;
+ if(p&&!originalInputs){p.p_home=null;p.p_draw=null;p.p_away=null;p.xg_home=null;p.xg_away=null;}
  const card={fxid:990999,lid:140,lname:'La Liga 2',lcountry:'Spain',date:'2026-11-14',time:'20:00',status:finished?'FT':'NS',home:'Leganes',away:'Burgos',gh:finished?2:null,ga:finished?1:null,ft_h:finished?2:null,ft_a:finished?1:null,prediction:p,analysis:full?analysis:null};
  const f=fixturePresentationRow(card,null),L={id:140,name:'La Liga 2',country:'Spain',matches:[],upcoming:[f],_presentation:true};afState.leagues={140:L};
  const before=JSON.stringify({card,f,archive:afState.archive});footballEngine.predict=()=>{throw Error('no refit');};footballEngine.marketsFor=()=>{throw Error('no new market calculation');};
- showPublishedFixture(L,f);document.querySelectorAll('#view-detail .acc').forEach(x=>x.classList.add('open'));scrollTo(0,0);
+ if(selectionKind==='prediction')showPublishedFixture(L,f);
+ else if(typeof openIssuedForecast==='function'){const leg={fxid:f.fxid,d:card.date,t:card.time,h:card.home,a:card.away,code:'1X',p:.88,market:'Double Chance'};_sharedSlips={loaded:true,rows:[{day:card.date,tier:'banker',build:358,step:'issued',legs:[leg]}]};openIssuedForecast(leg);}
+ else {showPublishedFixture(L,f);renderPublishedAnalysis(L,f,{...p,pick:'1X',pick_prob:.88},selectionKind);}
+ document.querySelectorAll('#view-detail .acc').forEach(x=>x.classList.add('open'));scrollTo(0,0);
  const lineViolations=[...document.querySelectorAll('#view-detail .subnote,#view-detail .plabel,#view-detail .hm-comp,#view-detail .hm-dt,#view-detail .tname>div:not(.venue),#view-detail #heroDnb,#view-detail #verdictBox')].filter(el=>el.getClientRects().length&&el.textContent.trim()).map(el=>{const s=getComputedStyle(el);return{id:el.id||el.className,text:el.textContent,lines:(el.getBoundingClientRect().height-parseFloat(s.paddingTop)-parseFloat(s.paddingBottom)-parseFloat(s.borderTopWidth)-parseFloat(s.borderBottomWidth))/(parseFloat(s.lineHeight)||parseFloat(s.fontSize)*1.2)}}).filter(x=>x.lines>2.1);
  return{sections:[...document.querySelectorAll('#view-detail .acc:not(.hidden)')].map(x=>x.id),bars:$('outcomeRows').textContent,goals:$('goalsRows').textContent,form:$('formBox').textContent,h2h:$('h2hBox').textContent,table:$('standingsBox').textContent,ai:$('analysisText').textContent,heading:$('analysisHeading').textContent,pick:$('heroPick').textContent,dnb:$('heroDnb').textContent,xg:$('xgInfo').textContent,preserved:before===JSON.stringify({card,f,archive:afState.archive}),overflow:document.documentElement.scrollWidth>innerWidth+1,lineViolations};
- },{issued,full,finished,dnb});}
+ },{issued,full,finished,dnb,selectionKind,originalInputs});}
 for(const [mode,html] of [['source',source],['real-preview',generated]])for(const width of [320,390]){
  for(const issued of [true,false])test(`${mode} ${width}px: ${issued?'issued pick':'no qualifying pick'} shows every supported panel`,async t=>{
   const page=await open(t,html,width),r=await show(page,{issued});assert.deepEqual(r.sections,expected);assert.match(r.bars,issued?/60.0%/:/51.0%/);assert.match(r.goals,/56.0%/);assert.match(r.form,/WDWLW/);assert.match(r.h2h,/2–1/);assert.match(r.table,/20/);assert.match(r.ai,/Approved cached/);assert.equal(r.heading,'Professional AI Write-up');assert.equal(r.preserved,true);assert.equal(r.overflow,false);assert.deepEqual(r.lineViolations,[]);
   if(process.env.MM_UI_SCREENSHOTS){mkdirSync(process.env.MM_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.MM_UI_SCREENSHOTS+`/${mode}-${width}-${issued?'issued':'no-pick'}.png`,fullPage:true});}
  });
+ test(`${mode} ${width}px: issued-slip keeps available fixture analysis separate from selection`,async t=>{const page=await open(t,html,width),r=await show(page,{selectionKind:'issued-slip'});assert.deepEqual(r.sections,expected);assert.match(r.goals,/56.0%/);assert.match(r.bars,/60.0%/);assert.doesNotMatch(r.bars,/88.0%/);assert.match(r.bars,/separate from this pick/);assert.equal(r.preserved,true);assert.deepEqual(r.lineViolations,[]);});
+ test(`${mode} ${width}px: issued pick without original inputs keeps separately published analysis`,async t=>{const page=await open(t,html,width),r=await show(page,{originalInputs:false});assert.match(r.bars,/51.0%/);assert.match(r.bars,/published separately/);assert.match(r.xg,/1.80.*0.90/);assert.equal(r.preserved,true);assert.deepEqual(r.lineViolations,[]);});
  test(`${mode} ${width}px: missing inputs are honest, concise and clear previous fixture`,async t=>{const page=await open(t,html,width);await show(page);const r=await show(page,{issued:false,full:false});assert.deepEqual(r.sections,expected);assert.match(r.goals,/not published/);assert.doesNotMatch(r.form,/WDWLW/);assert.doesNotMatch(r.ai,/Approved cached/);assert.deepEqual(r.lineViolations,[]);assert.equal(r.overflow,false);});
  test(`${mode} ${width}px: completed DNB preserves original unconditional 1X2`,async t=>{const page=await open(t,html,width),r=await show(page,{finished:true,dnb:true});assert.match(r.bars,/60.0%/);assert.doesNotMatch(r.bars,/75.0%|51.0%/);assert.match(r.dnb,/excludes draws/);assert.equal(r.preserved,true);assert.deepEqual(r.lineViolations,[]);});
 }

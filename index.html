@@ -3257,26 +3257,27 @@ async function loadFixturePresentation(){
    not suppress informational football analysis. Missing markets stay explicit per panel. */
 function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
- const original=same&&p?probabilityVector(p.p_home,p.p_draw,p.p_away):null;
- const informational=same&&!p?(a.result?probabilityVector(a.result.p_home,a.result.p_draw,a.result.p_away):probabilityVector(f.pW,f.pD,f.pL)):null;
+ const fixturePrediction=same?p:f._displayCard&&f._displayCard.prediction;
+ const original=fixturePrediction?probabilityVector(fixturePrediction.p_home,fixturePrediction.p_draw,fixturePrediction.p_away):null;
+ const informational=!original?(a.result?probabilityVector(a.result.p_home,a.result.p_draw,a.result.p_away):probabilityVector(f.pW,f.pD,f.pL)):null;
  const v=original||informational,esc=escapeHtml;
  const empty=text=>'<div class="subnote published-note">'+esc(text)+'</div>';
  const rows=list=>(list||[]).filter(r=>r&&typeof r.label==='string'&&validProbability(r.prob)).map(r=>probRow(esc(r.label),r.prob)).join('');
  const panel=(id,box,content,note)=>{$(id).classList.remove('hidden');$(box).innerHTML=content||empty(note);};
  $('results').classList.add('published-detail');
  $('analysisText').classList.add('published');
- $('outcomeRows').innerHTML=v?probRow(esc(p?p.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(p?p.away:f.away),v.pL):empty('Result probabilities not published.');
+ $('outcomeRows').innerHTML=v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.');
  $('acc-result').classList.remove('hidden');
  $('resultSide').textContent='';$('formNote').classList.add('hidden');
- const xh=p?p.xg_home:a.xg_home,xa=p?p.xg_away:a.xg_away;
+ const xh=fixturePrediction&&typeof fixturePrediction.xg_home==='number'?fixturePrediction.xg_home:a.xg_home,xa=fixturePrediction&&typeof fixturePrediction.xg_away==='number'?fixturePrediction.xg_away:a.xg_away;
  $('xgInfo').textContent=typeof xh==='number'&&typeof xa==='number'?'Expected goals · '+xh.toFixed(2)+' – '+xa.toFixed(2):'';
  $('xgInfo').classList.toggle('hidden',!$('xgInfo').textContent);
- if(v)$('outcomeRows').insertAdjacentHTML('beforeend',empty(original?'Original published 1X2 probabilities.':'Informational model analysis · no issued pick.'));
- panel('acc-goals','goalsRows',rows(same?a.goals:null),'Goals probabilities not published.');
- panel('acc-combo','comboRows',rows(same?a.combos:null),'Combo probabilities not published.');
- panel('acc-htft','htftBox',rows(same?a.htft:null),'Half-time/full-time probabilities not published.');
- panel('acc-score','scoreRows',rows(same?a.correct_scores:null),'Correct-score probabilities not published.');
- panel('acc-scorers','scorerRows',rows(same?a.scorers:null),'Scorer probabilities not published.');
+ if(v)$('outcomeRows').insertAdjacentHTML('beforeend',empty(!same?'Fixture analysis · separate from this pick.':original?'Original published 1X2 probabilities.':p?'Informational 1X2 · published separately.':'Informational model analysis · no issued pick.'));
+ panel('acc-goals','goalsRows',rows(a.goals),'Goals probabilities not published.');
+ panel('acc-combo','comboRows',rows(a.combos),'Combo probabilities not published.');
+ panel('acc-htft','htftBox',rows(a.htft),'Half-time/full-time probabilities not published.');
+ panel('acc-score','scoreRows',rows(a.correct_scores),'Correct-score probabilities not published.');
+ panel('acc-scorers','scorerRows',rows(a.scorers),'Scorer probabilities not published.');
  const form=a.form||{},formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'Form not published.')+'</span></div>';
  panel('acc-form','formBox',formLine(f.home,form.home)+formLine(f.away,form.away),'Recent form not published.');
  $('h2hBox').innerHTML=Array.isArray(a.h2h)&&a.h2h.length?a.h2h.map(m=>'<div class="published-meeting"><span class="muted">'+esc(m.date)+'</span><div><span>'+esc(m.home)+'</span><b>'+esc(m.gh)+'–'+esc(m.ga)+'</b><span>'+esc(m.away)+'</span></div></div>').join(''):empty('Head-to-head meetings not published.');

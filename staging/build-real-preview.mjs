@@ -20,7 +20,7 @@ export const REAL_GUARD=`<script id="realPreviewGuard">(()=>{
  const allowed=(url,method)=>{
   let u;try{u=new URL(url,location.href);}catch{return false;}
   if(u.origin===location.origin&&u.pathname.startsWith(base.pathname))return ['GET','HEAD'].includes(method);
-  return u.origin===stage&&method==='POST'&&['/rest/v1/rpc/mm_preview_display_v1','/rest/v1/rpc/mm_preview_status_v1'].includes(u.pathname)&&!u.search;
+  return u.origin===stage&&method==='POST'&&['/rest/v1/rpc/mm_preview_display_v2','/rest/v1/rpc/mm_preview_status_v1'].includes(u.pathname)&&!u.search;
  };
  window.fetch=(input,options={})=>{
   const u=typeof input==='string'?input:input.url||String(input),m=String(options.method||input.method||'GET').toUpperCase();
@@ -46,7 +46,7 @@ const GUEST_INIT=`function initSupabase(){
  supa={from:chain,auth:{getSession:async()=>({data:{session:null},error:null}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})},rpc:async(name,args={})=>{
   if(name==='matchmind_fixture_access_v1')return{data:{version:'matchmind-fixture-access/1',raw_allowed:false,expires_at:null},error:null};
   if(name!=='matchmind_display_v1')return deny();
-  try{const r=await fetch(SUPA_URL+'/rest/v1/rpc/mm_preview_display_v1',{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify(args)});return r.ok?{data:await r.json(),error:null}:deny();}catch{return deny();}
+  try{const r=await fetch(SUPA_URL+'/rest/v1/rpc/mm_preview_display_v2',{method:'POST',headers:{apikey:SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify(args)});return r.ok?{data:await r.json(),error:null}:deny();}catch{return deny();}
  }};
  renderAccount();
 }`;
