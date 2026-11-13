@@ -131,6 +131,8 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
  const branding=await page.evaluate(()=>{afState.selectedDate=Object.values(afState.leagues)[0].upcoming[0].date;navTo('predict');afState.filter='all';renderFixtures();const row=$('fixtureList').querySelector('.fxrow'),teams=row.querySelector('.fxteams').getBoundingClientRect(),pick=row.querySelector('.predchip').getBoundingClientRect();return{images:row.querySelectorAll('img.crest').length,right:pick.left>=teams.right-1,edge:skillBadge({id:39}),pick:row.querySelector('.predchip').textContent};});
  assert.equal(branding.images,2);assert.ok(branding.right);assert.equal(branding.edge,'');assert.match(branding.pick,/64%/);
  assert.match(r.scores,/Harbor Athletic/);assert.match(r.scores,/Cedar City/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
+ await page.evaluate(async()=>{await loadCloudLeagues(true);const f=Object.values(afState.leagues)[0].upcoming[0];afState.archiveDate=null;afState.selectedDate=forecastDate(f);afState.filter='all';navTo('predict');renderFixtures();});
+ await page.locator('#fixtureList .fxrow .tline').nth(1).click();assert.equal(await page.evaluate(()=>curView),'detail');
  const presentation=await page.evaluate(()=>{
   const L=Object.values(afState.leagues)[0],f=L.upcoming[0],original=JSON.stringify(afState.archive),date=new Date(Date.now()-7*86400000).toISOString().slice(0,10),id=990890;
   const p={...f._displayCard.prediction,home:'Haras El Hodood',away:'El Dakhleya',pick:'1D',pick_prob:.807,kickoff:date,ktime:'12:30',made_at:new Date(Date.now()-10*86400000).toISOString(),p_home:.589,p_draw:.2728,p_away:.1382};
@@ -153,8 +155,6 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
  });
  assert.match(archiveView.badge,/1 DNB.*81%/);assert.equal(archiveView.time,archiveView.expected);assert.equal(archiveView.status,0);
  const missing=await page.evaluate(()=>{const L=Object.values(afState.leagues)[0],f=L.upcoming[0],saved=f._displayCard;f._displayCard=null;showPublishedFixture(L,f);const text=$('heroPick').textContent;f._displayCard=saved;return text;});assert.equal(missing,'–');
- await page.evaluate(async()=>{await loadCloudLeagues(true);const f=Object.values(afState.leagues)[0].upcoming[0];afState.archiveDate=null;afState.selectedDate=forecastDate(f);afState.filter='all';navTo('predict');renderFixtures();});
- await page.locator('#fixtureList .fxrow .tline').nth(1).click();assert.equal(await page.evaluate(()=>curView),'detail');
  for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display|status)_v1$/);}
 });
 test('real service worker preserves other applications caches and synthetic builder stays independent',()=>{
