@@ -24,6 +24,7 @@ function showPublishedFixture(L,f,context=null){
  const v=p&&kind==='prediction'?probabilityVector(p.p_home,p.p_draw,p.p_away):null;
  $('outcomeRows').innerHTML=v?probRow(p.home,v.pW)+probRow('Draw',v.pD)+probRow(p.away,v.pL):'';
  $('acc-result').classList.toggle('hidden',!v);$('analysisText').textContent='';$('verdictBox').textContent='';$('acc-analysis').classList.add('hidden');
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';line.textContent='90-minute score '+result.gh+'–'+result.ga;$('heroMeta').appendChild(line);}
  setShareCard(false,null);navTo('detail');
 }
 function openIssuedForecast(leg){
@@ -51,7 +52,7 @@ export function restorePublishedForecastView(html){
  const as=html.indexOf('async function showPredictDate('),ae=html.indexOf('/* ---------- persistence',as);if(as<0||ae<as)throw Error('Archive presentation anchor changed');let archive=html.slice(as,ae);
  const cs=archive.indexOf('      const chip = done'),ce=archive.indexOf('      html += ',cs);if(cs<0||ce<cs)throw Error('Archive badge anchor changed');archive=archive.slice(0,cs)+"      const displayChip=publishedBadge(p,p.fxid);\n"+archive.slice(ce);
  archive=once(archive,"${exceptional?fixtureExceptionalTime(f):(done?`${f.gh}–${f.ga}<br><span class=\"ftl\">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(f&&f.date||d, f&&f.time||p.ktime))}","${localHM(p.kickoff,p.ktime)}");
- archive=once(archive,'${crest(p.home)}','${crest(p.home,p.fxid)}');archive=once(archive,'${crest(p.away)}','${crest(p.away,p.fxid)}');html=html.slice(0,as)+archive+html.slice(ae);
+ archive=once(archive,'${crest(p.home)}','${crest(p.home,false,p.fxid)}');archive=once(archive,'${crest(p.away)}','${crest(p.away,false,p.fxid)}');html=html.slice(0,as)+archive+html.slice(ae);
  html=once(html,"const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openFixture(r.L.id, r.f));","const btn = $('bankerOpen'); if(btn && r) btn.addEventListener('click', () => openIssuedForecast(l));");
  const ts=html.indexOf('function renderTipListFrozen('),te=html.indexOf('function renderTipList(market)',ts);const tips=once(html.slice(ts,te),"const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f);","const r = refs[+row.dataset.i]; if(r) openIssuedForecast(legs[+row.dataset.i]);");html=html.slice(0,ts)+tips+html.slice(te);
  html=once(html,"const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));","const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openIssuedForecast({fxid:f.fxid,h:f.home,a:f.away,d:f.date,t:f.time,code:b.pick,p:b.prob}));");
