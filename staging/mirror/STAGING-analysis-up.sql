@@ -38,4 +38,13 @@ begin
  return true;
 exception when others then return false;
 end $$;
+-- The old public endpoint permanently retains its original closed card shape for open tabs/SW clients.
+create or replace function public.mm_preview_display_v1(screen text) returns jsonb language sql stable security invoker set search_path=pg_catalog as $$
+ with result as materialized(select mm_preview_mirror.display(screen) as document)
+ select jsonb_set(document,'{cards}',coalesce((select jsonb_agg(card-'analysis' order by ordinal) from jsonb_array_elements(document->'cards') with ordinality as c(card,ordinal)),'[]'::jsonb)) from result
+$$;
+create or replace function public.mm_preview_display_v2(screen text) returns jsonb language sql stable security invoker set search_path=pg_catalog as $$select mm_preview_mirror.display(screen)$$;
+revoke all on function public.mm_preview_display_v2(text) from public;
+grant execute on function public.mm_preview_display_v2(text) to anon,authenticated,service_role;
+
 commit;

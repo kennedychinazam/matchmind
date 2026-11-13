@@ -67,7 +67,7 @@ export async function collect(now=new Date(),fetcher=fetch){
   const from=new Date(Date.parse(first)-HISTORY_DAYS*86400000).toISOString().slice(0,10);
   const quoted=x=>'"'+x.replaceAll('\\','\\\\').replaceAll('"','\\"')+'"';
   const teams=[...new Set(group.flatMap(f=>[f.home,f.away]))].map(quoted).join(',');
-  try{histories.set(lid,await readPages('fixtures',HISTORY_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['or','(home.in.('+teams+'),away.in.('+teams+'))'],['date','gte.'+from],['date','lt.'+last],['status','in.(FT,AET,PEN)']],'fxid.asc',fetcher));}catch(e){analysis_warnings.push({lid,state:'history-unavailable',reason:e.message});}
+  try{histories.set(lid,await readPages('fixtures',HISTORY_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['or','(home.in.('+teams+'),away.in.('+teams+'))'],['date','gte.'+from],['date','lt.'+last],['status','in.(FT,FINISHED,AET,PEN)']],'fxid.asc',fetcher));}catch(e){analysis_warnings.push({lid,state:'history-unavailable',reason:e.message});}
  }
  // Raw arbitrary-prompt AI cache is deliberately neither read nor published.
 

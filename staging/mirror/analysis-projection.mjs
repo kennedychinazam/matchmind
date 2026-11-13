@@ -18,7 +18,7 @@ export function projectFixtureAnalysis(card,{board=null,history=[],writeup=null,
   if(validVector([b.pw,b.pd,b.pq]))a.result={p_home:b.pw,p_draw:b.pd,p_away:b.pq};
   if(validXg(b.xh)&&validXg(b.xa)){a.xg_home=b.xh;a.xg_away=b.xa;}
  }
- const before=history.filter(h=>h.fxid!==card.fxid&&h.provider==='af'&&h.lid===card.lid&&h.date<card.date&&h.date>=new Date(Date.parse(card.date)-HISTORY_DAYS*86400000).toISOString().slice(0,10)&&['FT','AET','PEN'].includes(h.status)&&timed(h.updated_at,now)).map(h=>({...h,gh:h.status==='FT'?h.gh:h.ft_h,ga:h.status==='FT'?h.ga:h.ft_a})).filter(h=>Number.isInteger(h.gh)&&h.gh>=0&&Number.isInteger(h.ga)&&h.ga>=0).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.fxid-a.fxid);
+ const before=history.filter(h=>h.fxid!==card.fxid&&h.provider==='af'&&h.lid===card.lid&&h.date<card.date&&h.date>=new Date(Date.parse(card.date)-HISTORY_DAYS*86400000).toISOString().slice(0,10)&&['FT','FINISHED','AET','PEN'].includes(h.status)&&timed(h.updated_at,now)).map(h=>({...h,gh:['FT','FINISHED'].includes(h.status)?h.gh:h.ft_h,ga:['FT','FINISHED'].includes(h.status)?h.ga:h.ft_a})).filter(h=>Number.isInteger(h.gh)&&h.gh>=0&&Number.isInteger(h.ga)&&h.ga>=0).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.fxid-a.fxid);
  const form=team=>before.filter(h=>h.home===team||h.away===team).slice(0,5).reverse().map(h=>h.gh===h.ga?'D':((h.home===team?h.gh>h.ga:h.ga>h.gh)?'W':'L'));
  const home=form(card.home),away=form(card.away);
  const stamps=before.map(h=>h.updated_at).sort((a,b)=>Date.parse(a)-Date.parse(b));
