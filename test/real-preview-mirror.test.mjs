@@ -108,7 +108,7 @@ async function open(t,width){
   if(u.origin==='http://preview.test')return route.fulfill({status:200,contentType:'text/html',body:html});
   if(u.pathname==='/rest/v1/rpc/mm_preview_status_v1')return route.fulfill({json:{mode:'real-read-only',edition_id:'11111111-2222-4333-8444-555555555555',published_at:stamp,expires_at:expires,source_updated_at:stamp}});
   if(u.pathname==='/rest/v1/rpc/mm_preview_display_v1'){
-   const screen=r.postDataJSON().screen;return route.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?[screen==='scores'?{...f,prediction:null}:f]:[],board:null,records:{engine:null,clv:null},slips:[]}});
+   const screen=r.postDataJSON().screen;return route.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:screen==='scores'?[{...f,prediction:null},{...f,fxid:990889,home:'Cedar City',updated_at:new Date(Date.now()-72*3600000).toISOString(),prediction:null}]:['predictions','history'].includes(screen)?[f]:[],board:null,records:{engine:null,clv:null},slips:[]}});
   }
   return route.abort();
  });
@@ -125,7 +125,7 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   showPublishedFixture(L,f);let blocked=0;for(const [u,m]of [[SUPA_URL+'/auth/v1/token','POST'],[SUPA_URL+'/rest/v1/fixtures','GET'],[SUPA_URL+'/rest/v1/rpc/mm_preview_publish_v1','POST'],['https://example.com/','GET']])try{await fetch(u,{method:m});}catch{blocked++;}
   return{scores,filtered,text:$('outcomeRows').textContent,visible:!$('acc-result').classList.contains('hidden'),prob:f.prob,blocked,user:authUser,bar:$('stagingBar').textContent,account:$('acctBox').textContent,storage:window.localStorage.getItem('mm_state'),auth:window.localStorage.getItem('sb-production-auth-token'),overflow:document.documentElement.scrollWidth>innerWidth+1,controls:['afKey','aiKeyInput'].some(id=>$(id)?.matches('input,button,select'))};
  });
- assert.match(r.scores,/Harbor Athletic/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
+ assert.match(r.scores,/Harbor Athletic/);assert.match(r.scores,/Cedar City/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
  for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display|status)_v1$/);}
 });
 test('real service worker preserves other applications caches and synthetic builder stays independent',()=>{

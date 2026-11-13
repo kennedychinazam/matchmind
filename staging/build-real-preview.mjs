@@ -57,6 +57,9 @@ export function realTransform(index,manifest){
  html=html.slice(0,start)+GUEST_INIT+'\n'+html.slice(end);
  html=once(html,'function renderAccount(){',"function renderAccount(){ $('acctBox').textContent='Read-only development preview · guest mode'; return; ");
  html=once(html,"computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;","computedAt:p.board?.builtAt||null,build:null,at:Date.now()};_boardIx=null;");
+ // The verified mirror already bounds and approves fixture membership. Preserve old-source
+ // NS/postponed rows too; their original timestamps remain unchanged and are not labelled live.
+ html=once(html,'const rows = dedupeProviders(freshRows(data||[])).map(settledRow);','const rows = dedupeProviders(data||[]).map(settledRow);');
  html=once(html,' setHeroDnb(available?f.pick:null,v);'," setHeroDnb(available?f.pick:null,v); $('acc-result').classList.toggle('hidden',!(available&&v));");
  // Issued slip projection covers today, not a complete financial/history tracker.
  html=once(html,'</head>','<style>#dailyTracker,#valueLadder{display:none!important}</style></head>');
