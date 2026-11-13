@@ -1,0 +1,105 @@
+{
+  "version": "matchmind-international-research/1",
+  "researched_on": "2026-11-13",
+  "baseline": "d624081f87cd441ea339ac8fdafcc72e2748c130",
+  "purpose": "Research citations only; not an ingestion allowlist or API coverage receipt",
+  "provider_requests_made": 0,
+  "paid_requests_made": 0,
+  "live_inventory_verified": false,
+  "prediction_activation_authorized": false,
+  "coverage_catalog": {
+    "url": "https://www.api-football.com/coverage/",
+    "reported_update_date": "2026-11-13",
+    "capability_indicators_readable": false,
+    "season_registry_retrieved": false
+  },
+  "competition_identity_evidence": [
+    {
+      "id": 1,
+      "name": "World Cup",
+      "documented_seasons": [2026],
+      "source": "https://www.api-football.com/news/post/fifa-world-cup-2026-guide-to-using-data-with-api-sports",
+      "source_date": "2026-04-13",
+      "evidence_kind": "official_provider_article_example",
+      "actual_odds_verified": false,
+      "actual_statistics_verified": false,
+      "confirmed_squads_verified": false
+    },
+    {
+      "id": 5,
+      "name": "UEFA Nations League",
+      "documented_seasons": [2018],
+      "source": "https://www.api-football.com/news/post/fifa-world-cup-2026-guide-to-using-data-with-api-sports",
+      "source_date": "2026-04-13",
+      "evidence_kind": "official_provider_historical_h2h_example",
+      "current_provider_season": null,
+      "actual_odds_verified": false,
+      "actual_statistics_verified": false,
+      "confirmed_squads_verified": false
+    },
+    {
+      "id": 32,
+      "name": "World Cup - Qualification Europe",
+      "documented_seasons": [2024],
+      "source": "https://www.api-football.com/news/post/2026-ballon-dor-how-to-retrieve-podium-statistics-using-api-football",
+      "evidence_kind": "official_provider_article_example",
+      "actual_odds_verified": false,
+      "actual_statistics_verified": false,
+      "confirmed_squads_verified": false
+    },
+    {
+      "id": 10,
+      "name": "Friendlies",
+      "documented_seasons": [2026],
+      "source": "https://www.api-football.com/news/post/2026-ballon-dor-how-to-retrieve-podium-statistics-using-api-football",
+      "evidence_kind": "official_provider_article_example",
+      "actual_odds_verified": false,
+      "actual_statistics_verified": false,
+      "confirmed_squads_verified": false
+    },
+    {
+      "id": 667,
+      "name": "Friendlies Clubs",
+      "documented_seasons": [],
+      "source": "https://www.api-football.com/news/post/2026-ballon-dor-how-to-retrieve-podium-statistics-using-api-football",
+      "evidence_kind": "official_provider_identity_distinction",
+      "current_provider_season": null,
+      "actual_odds_verified": false,
+      "actual_statistics_verified": false,
+      "confirmed_squads_verified": false
+    }
+  ],
+  "fifa_publication_evidence": {
+    "source": "https://inside.fifa.com/associations/ENG",
+    "men_last_official_publication_date": "2026-10-07",
+    "women_last_official_publication_date": "2026-10-20",
+    "publication_timestamp_precision": "date_only",
+    "complete_rank_points_edition_retrieved": false,
+    "current_dataset_certified": false
+  },
+  "excluded_identifier_examples": [
+    {
+      "id": 403,
+      "reason": "Euro article from 2019 does not establish a current v3 identifier",
+      "source": "https://www.api-football.com/news/post/euro-championship-2020"
+    },
+    {
+      "id": 2000,
+      "reason": "MatchMind legacy Football-Data World Cup identifier; not an API-Football mapping"
+    },
+    {
+      "id": 2018,
+      "reason": "MatchMind legacy Football-Data Euro identifier; not an API-Football mapping"
+    }
+  ],
+  "open_evidence": [
+    "Remaining v3 competition IDs and returned season keys",
+    "Authorized dated complete leagues, fixtures and national-team identity responses",
+    "Per-season capability flags and actual fixture-level payloads",
+    "Named bookmaker prices with quotes and capture timestamps",
+    "Confirmed squads, eligibility, lineup and absence sources",
+    "Full official FIFA rankings with points and publication precision",
+    "Actual account quotas, historical access and publication rights",
+    "Independent cohort model validation and Director activation decision"
+  ]
+}
