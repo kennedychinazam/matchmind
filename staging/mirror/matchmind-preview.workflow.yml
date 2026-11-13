@@ -40,6 +40,14 @@ jobs:
         env:
           MM_STAGING_MIRROR_TOKEN: ${{ secrets.MM_STAGING_MIRROR_TOKEN }}
         run: node staging/mirror/refresh.mjs
+      - name: Read original Build 355 logo mappings for current staging membership
+        working-directory: source
+        run: node staging/original-logos.mjs "$RUNNER_TEMP/original-logos.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: original-logo-catalog
+          path: ${{ runner.temp }}/original-logos.json
+          retention-days: 1
 
   build:
     needs: refresh
@@ -55,6 +63,11 @@ jobs:
           path: source
           persist-credentials: false
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: original-logo-catalog
+          path: source/staging
+
       - name: Check whether source changed
         id: freshness
         env:
@@ -63,7 +76,9 @@ jobs:
           set -euo pipefail
           current="$(git -C source rev-parse HEAD)"
           published="$(curl -fsSL --connect-timeout 5 --max-time 12 "$PREVIEW_MARKER" 2>/dev/null || true)"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$current" != "$published" ]; then
+          catalog="$(node -p "require('./source/staging/original-logos.json').content_sha256")"
+          prior_catalog="$(curl -fsSL --connect-timeout 5 --max-time 12 https://kennedychinazam.github.io/matchmind-preview/LOGO-MANIFEST.json 2>/dev/null | node -e "let s='';process.stdin.on('data',x=>s+=x).on('end',()=>{try{console.log(JSON.parse(s).content_sha256||'')}catch{}})" || true)"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$current" != "$published" ] || [ "$catalog" != "$prior_catalog" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Development source changed or manual refresh requested."
           else
@@ -82,7 +97,7 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          node staging/build-real-preview.mjs staging/dist
+          node staging/build-real-preview.mjs staging/dist --logos staging/original-logos.json
           test -s staging/dist/index.html
           test -s staging/dist/sw.js
           test -s staging/dist/manifest.webmanifest

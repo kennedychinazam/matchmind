@@ -4,20 +4,19 @@ const replace=(html,from,to)=>{if(html.split(from).length!==2)throw Error('Build
 export const PRESENTATION_CSS=`<style id="presentation355">
 /* Original Build 355 dimensions and palette; retain safe wrapping at narrow widths. */
 #scoresList .scrow{padding:11px 0;gap:7px}
-#scoresList .tline,#fixtureList .tline{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:22px;padding:0}
-#scoresList .crest,#fixtureList .crest{width:16px;height:16px;vertical-align:middle;margin-right:5px;line-height:16px}
+#scoresList .tline,#fixtureList .tline{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.5;padding:1px 0}
+#scoresList .crest,#fixtureList .crest{width:20px;height:20px;vertical-align:-5px;margin-right:7px}
 #scoresList .fxteams,#fixtureList .fxteams{min-width:0}
-/* Put status below the team names instead of consuming their horizontal space. */
-#fixtureList .fxrow{display:grid;grid-template-columns:15px 42px minmax(0,1fr);column-gap:7px;row-gap:3px;padding:10px 0}
-#fixtureList .fxrow>.mstar{grid-column:1;grid-row:1 / span 2;align-self:center}
-#fixtureList .fxrow>.fxtime{grid-column:2;grid-row:1 / span 2;align-self:center}
-#fixtureList .fxrow>.fxteams{grid-column:3;grid-row:1}
-#fixtureList .fxrow>.predchip{grid-column:3;grid-row:2;justify-self:start;max-width:100%;white-space:normal;padding:2px 6px;font-size:.66rem;line-height:1.3}
-/* Keep the 44px status target below its label, clear of both team-name lines.
-   The 24px label + adjacent 10px row paddings leave 44px without stealing name taps. */
-#fixtureList .fxrow>.statuschip{min-height:24px}
-#fixtureList .fxrow>.statuschip::after{top:0;transform:none;height:44px;left:0;right:0}
-#fixtureList .fxrow>.formflag{grid-column:2;grid-row:2}
+/* Restore Build 355's original inline row and right-hand pick badge. */
+#fixtureList .fxrow{display:flex;align-items:center;gap:7px;padding:12px 0}
+#fixtureList .fxrow>.mstar{flex:0 0 15px}
+#fixtureList .fxrow>.fxtime{flex:0 0 42px}
+#fixtureList .fxrow>.fxteams{flex:1;min-width:0}
+#fixtureList .fxrow>.predchip{flex:0 0 auto;max-width:none;white-space:nowrap;padding:5px 9px;font-size:.74rem;line-height:1.3}
+#fixtureList .fxrow>.predchip.muted-chip{max-width:34%;white-space:normal;font-size:.64rem;min-width:0}
+#fixtureList .fxrow>.statuschip{max-width:34%;white-space:normal;font-size:.64rem}
+#fixtureList .fxrow>.statuschip::after{top:50%;transform:translateY(-50%);height:44px;left:-3px;right:-3px}
+@media(max-width:360px){#fixtureList .fxrow{gap:5px}#fixtureList .fxrow>.fxtime{flex-basis:36px;width:36px}#fixtureList .fxrow>.predchip{padding:4px 6px;font-size:.68rem}#fixtureList .fxrow>.predchip.muted-chip{max-width:28%;font-size:.62rem}#fixtureList .fxteams{font-size:.86rem}}
 #view-detail .hero .tname{min-width:0;overflow-wrap:anywhere}
 #view-detail .hero{padding:18px 16px}
 #view-detail .hero .conf{margin-bottom:6px}
@@ -33,6 +32,7 @@ export const PRESENTATION_CSS=`<style id="presentation355">
 </style>`;
 export function restore355Presentation(html){
  html=replace(html,'</head>',PRESENTATION_CSS+'</head>');
+ html=replace(html,'function skillBadge(L){',"function skillBadge(L){ return ''; // Director: no EDGE/ranking decorations.\n");
  html=replace(html,"expired?'Pick expired':issued?pickLabel(f.pick,f.home,f.away)","issued?pickLabel(f.pick,f.home,f.away)");
  html=replace(html,"expired?'Original published forecast retained in history':issued?pct(f.prob)+' published probability':''","issued?pct(f.prob)+' published probability':''");
  html=replace(html,"$('acc-result').classList.toggle('hidden',!(available&&v));","$('acc-result').classList.toggle('hidden',!(issued&&v));");

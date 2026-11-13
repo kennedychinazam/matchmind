@@ -1,5 +1,6 @@
 // Separate mode: preserve build-preview.mjs and its synthetic regression artifacts unchanged.
 import {transform,STAGING_REF,STAGING_URL,STAGING_KEY} from './build-preview.mjs';
+import {restoreOriginalLogos} from './original-logo-renderer.mjs';
 import {restore355Presentation} from './presentation-355.mjs';
 import {readFileSync,writeFileSync,mkdirSync,copyFileSync} from 'node:fs';
 import {resolve,join,dirname} from 'node:path';
@@ -49,7 +50,7 @@ const GUEST_INIT=`function initSupabase(){
  }};
  renderAccount();
 }`;
-export function realTransform(index,manifest){
+export function realTransform(index,manifest,logos=null){
  let {html}=transform(index,manifest);
  html=html.replaceAll('window.localStorage','window.__MM_REAL_STORAGE__').replace(/\blocalStorage\b/g,'window.__MM_REAL_STORAGE__').replace(/\bindexedDB\b/g,'window.__MM_REAL_IDB__');
  html=once(html,'<head>',"<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rdcbnvfnxenrpnnwxszs.supabase.co; form-action 'none'; object-src 'none'; base-uri 'self'\">"+REAL_GUARD);
@@ -65,10 +66,11 @@ export function realTransform(index,manifest){
  // Issued slip projection covers today, not a complete financial/history tracker.
  html=once(html,'</head>','<style>#dailyTracker,#valueLadder{display:none!important}</style></head>');
  html=restore355Presentation(html);
+ if(logos){html=restoreOriginalLogos(html,logos);html=html.replace("img-src 'self' data: blob:;","img-src 'self' data: blob: https://media.api-sports.io;");}
  const man=JSON.parse(manifest);man.name='MatchMind Read-only Preview';man.short_name='MM Preview';
  return{html,manifest:JSON.stringify(man,null,2)+'\n'};
 }
-export const REAL_SW=`const CACHE='mm-real-preview-v358-p355';
+export const REAL_SW=`const CACHE='mm-real-preview-v358-original-logos';
 const ROOT=new URL('./',self.registration.scope);const SHELL=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('mm-real-preview-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
@@ -78,11 +80,15 @@ self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==R
 });`;
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const out=resolve(process.argv[2]||join(root,'staging/real-dist'));mkdirSync(out,{recursive:true});
- const t=realTransform(readFileSync(join(root,'index.html'),'utf8'),readFileSync(join(root,'manifest.webmanifest'),'utf8'));
+ const logoArg=process.argv.indexOf('--logos'),qa=process.argv.includes('--qa-no-logos');
+ if(logoArg<0&&!qa)throw Error('Original logo catalog required; QA must explicitly opt out');
+ const logos=logoArg<0?null:JSON.parse(readFileSync(resolve(process.argv[logoArg+1]),'utf8'));
+ const t=realTransform(readFileSync(join(root,'index.html'),'utf8'),readFileSync(join(root,'manifest.webmanifest'),'utf8'),logos);
+ if(logos)writeFileSync(join(out,'LOGO-MANIFEST.json'),JSON.stringify(logos)+'\n');
  for(const bad of ['toqfdrcjzwnlydqekude','sb_secret_','service_role'])if(t.html.includes(bad))throw Error('Unsafe real preview binding');
  writeFileSync(join(out,'index.html'),t.html);writeFileSync(join(out,'manifest.webmanifest'),t.manifest);writeFileSync(join(out,'sw.js'),REAL_SW);
  for(const f of ['icon-192.png','icon-512.png'])copyFileSync(join(root,f),join(out,f));
- const hashes=Object.fromEntries(['index.html','manifest.webmanifest','sw.js','icon-192.png','icon-512.png'].map(f=>[f,createHash('sha256').update(readFileSync(join(out,f))).digest('hex')]));
+ const hashes=Object.fromEntries(['index.html','manifest.webmanifest','sw.js','icon-192.png','icon-512.png',...(logos?['LOGO-MANIFEST.json']:[])].map(f=>[f,createHash('sha256').update(readFileSync(join(out,f))).digest('hex')]));
  writeFileSync(join(out,'BUILD-INFO.json'),JSON.stringify({build:358,mode:'real-read-only',staging_project:STAGING_REF,output_sha256:hashes},null,2)+'\n');
- console.log(JSON.stringify({mode:'real-read-only',files:6,index_sha256:hashes['index.html']}));
+ console.log(JSON.stringify({mode:'real-read-only',files:logos?7:6,index_sha256:hashes['index.html']}));
 }

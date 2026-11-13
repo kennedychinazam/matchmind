@@ -1,7 +1,7 @@
 // Synthetic regression inputs only. The real source is never contacted by this suite.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,mkdtempSync} from 'node:fs';
+import {readFileSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -11,7 +11,9 @@ import {CARD_SCHEMA} from '../backend/fixture-delivery/contract.mjs';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
 const root=new URL('../',import.meta.url),R=f=>readFileSync(new URL(f,root),'utf8');
 const dir=mkdtempSync(join(tmpdir(),'mm-real-test-'));
-execFileSync(process.execPath,[new URL('../staging/build-real-preview.mjs',import.meta.url).pathname,dir]);
+const logoFixtures=[{fxid:990888,lid:39,home:'Harbor Athletic',away:'Granite United',home_logo:'https://media.api-sports.io/football/teams/1.png',away_logo:'https://media.api-sports.io/football/teams/2.png',llogo:'https://media.api-sports.io/football/leagues/39.png'}];
+writeFileSync(join(dir,'logos.json'),JSON.stringify({version:'matchmind-original-logos/1',fixtures:logoFixtures,content_sha256:digest(logoFixtures)}));
+execFileSync(process.execPath,[new URL('../staging/build-real-preview.mjs',import.meta.url).pathname,dir,'--logos',join(dir,'logos.json')]);
 const html=readFileSync(join(dir,'index.html'),'utf8');
 const fixtureClock=Date.now();
 function fixture(){
@@ -106,6 +108,7 @@ async function open(t,width){
  await ctx.route('**/*',async route=>{
   const r=route.request(),u=new URL(r.url());
   if(u.origin==='http://preview.test')return route.fulfill({status:200,contentType:'text/html',body:html});
+  if(u.hostname==='media.api-sports.io')return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jM0cAAAAASUVORK5CYII=','base64')});
   if(u.pathname==='/rest/v1/rpc/mm_preview_status_v1')return route.fulfill({json:{mode:'real-read-only',edition_id:'11111111-2222-4333-8444-555555555555',published_at:stamp,expires_at:expires,source_updated_at:stamp}});
   if(u.pathname==='/rest/v1/rpc/mm_preview_display_v1'){
    const screen=r.postDataJSON().screen;return route.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:screen==='scores'?[{...f,prediction:null},{...f,fxid:990889,home:'Cedar City',updated_at:new Date(Date.now()-72*3600000).toISOString(),prediction:null}]:['predictions','history'].includes(screen)?[f]:[],board:null,records:{engine:null,clv:null},slips:[]}});
@@ -125,6 +128,8 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   showPublishedFixture(L,f);let blocked=0;for(const [u,m]of [[SUPA_URL+'/auth/v1/token','POST'],[SUPA_URL+'/rest/v1/fixtures','GET'],[SUPA_URL+'/rest/v1/rpc/mm_preview_publish_v1','POST'],['https://example.com/','GET']])try{await fetch(u,{method:m});}catch{blocked++;}
   return{scores,filtered,text:$('outcomeRows').textContent,visible:!$('acc-result').classList.contains('hidden'),prob:f.prob,blocked,user:authUser,bar:$('stagingBar').textContent,account:$('acctBox').textContent,storage:window.localStorage.getItem('mm_state'),auth:window.localStorage.getItem('sb-production-auth-token'),overflow:document.documentElement.scrollWidth>innerWidth+1,controls:['afKey','aiKeyInput'].some(id=>$(id)?.matches('input,button,select'))};
  });
+ const branding=await page.evaluate(()=>{afState.selectedDate=Object.values(afState.leagues)[0].upcoming[0].date;navTo('predict');afState.filter='all';renderFixtures();const row=$('fixtureList').querySelector('.fxrow'),teams=row.querySelector('.fxteams').getBoundingClientRect(),pick=row.querySelector('.predchip').getBoundingClientRect();return{images:row.querySelectorAll('img.crest').length,right:pick.left>=teams.right-1,edge:skillBadge({id:39}),pick:row.querySelector('.predchip').textContent};});
+ assert.equal(branding.images,2);assert.ok(branding.right);assert.equal(branding.edge,'');assert.match(branding.pick,/64%/);
  assert.match(r.scores,/Harbor Athletic/);assert.match(r.scores,/Cedar City/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
  const presentation=await page.evaluate(()=>{
   const L=Object.values(afState.leagues)[0],f=L.upcoming[0],original=JSON.stringify(afState.archive);

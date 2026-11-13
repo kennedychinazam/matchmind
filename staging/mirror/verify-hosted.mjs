@@ -14,6 +14,8 @@ const scores=await rpc('mm_preview_display_v1',{screen:'scores'}),history=await 
 const predictions=await rpc('mm_preview_display_v1',{screen:'predictions'});
 const union=new Map([...scores.cards,...history.cards,...predictions.cards].map(c=>[c.fxid,c]));
 check(union.size===status.cards,'approved fixture inventory count represented across public screens');
+const logos=await(await fetch(URL_BASE+'LOGO-MANIFEST.json')).json();
+check(logos.fixtures.length===union.size&&logos.fixtures.every(f=>{const c=union.get(f.fxid);return c&&c.lid===f.lid&&c.home===f.home&&c.away===f.away;}),'original image catalog matches approved fixture identities');
 check(history.cards.filter(c=>c.prediction).length===status.predictions,'linked published prediction count preserved');
 check(![...union.values()].some(c=>/^(QA\b|Synthetic\b)/i.test(c.home+' ')||/^(QA\b|Synthetic\b)/i.test(c.away+' ')),'no fictional QA fixtures in real mirror');
 check(scores.cards.some(c=>['NS','TBD'].includes(c.status)&&Date.parse(c.date+'T'+c.time+':00Z')>Date.now()),'real upcoming football fixtures present');
@@ -49,11 +51,20 @@ try{
   check(requests.filter(r=>r.url.includes('.supabase.co')).every(r=>r.method==='POST'&&/^https:\/\/rdcbnvfnxenrpnnwxszs\.supabase\.co\/rest\/v1\/rpc\/mm_preview_(display|status)_v1$/.test(r.url)),width+'px network limited to staging read RPCs');
   check(errors.length===0,width+'px no runtime errors');
   await page.evaluate(()=>{afState.filter='all';afState.scoreFilter='all';navTo('scores');renderScores();scrollTo(0,0);});
+  await page.waitForFunction(()=>[...document.querySelectorAll('#scoresList img.crest,#scoresList img.competition-logo')].filter(e=>{const r=e.getBoundingClientRect();return r.top<innerHeight&&r.bottom>0;}).every(e=>e.complete&&e.naturalWidth>0));
+  check(await page.locator('#scoresList img.crest').count()>0,width+'px original club crests render in Scores');
   await page.screenshot({path:`real-preview-${width}-scores.png`});
   await page.evaluate(day=>{navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.fxid===1570019)?.date);
   const readable=await page.evaluate(()=>[...$('fixtureList').querySelectorAll('.tline')].filter(e=>e.offsetHeight).every(e=>e.scrollWidth<=e.clientWidth+1));
   check(readable,width+'px Analysis team names wrap without clipping');
+  const originalStyle=await page.evaluate(()=>({edge: /EDGE\s*\+\d/.test($('fixtureList').textContent),rows:[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const t=r.querySelector('.fxteams').getBoundingClientRect(),p=r.querySelector('.predchip')?.getBoundingClientRect();return!p||p.left>=t.right-1;}),logos:$('fixtureList').querySelectorAll('img.crest').length}));
+  check(!originalStyle.edge&&originalStyle.rows.every(Boolean)&&originalStyle.logos>0,width+'px original right-hand badges and crests, no EDGE decorations');
+  await page.waitForFunction(()=>[...document.querySelectorAll('#fixtureList img.crest,#fixtureList img.competition-logo')].filter(e=>{const r=e.getBoundingClientRect();return r.top<innerHeight&&r.bottom>0;}).every(e=>e.complete&&e.naturalWidth>0));
   await page.screenshot({path:`real-preview-${width}-analysis.png`});
+  const publishedRow=page.locator('#fixtureList .fxrow').filter({hasText:'Ospitaletto'}).first();if(await publishedRow.count()){await publishedRow.scrollIntoViewIfNeeded();await page.waitForTimeout(300);await page.screenshot({path:`real-preview-${width}-analysis-picks.png`});}
+
+  const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null};}).filter(x=>x.text?.includes('%')),history.cards);
+  check(publishedBadges.length>0&&publishedBadges.every(b=>b.text.trim()===b.expected),width+'px green pick badges match original published selections and probabilities');
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
   for(const [id,label] of [[1570019,'published'],[1594900,'retained']]){
@@ -62,6 +73,8 @@ try{
    check(shown.archiveUnchanged&&!shown.overflow,width+'px '+label+' detail preserves archive and mobile layout');
    check(shown.hero.includes((100*source.prediction.pick_prob).toFixed(1)+'%'),width+'px '+label+' original selection probability visible');
    if(label==='retained')check(shown.status==='Earlier forecast retained'&&!/confirmed postponement|non-play beyond|Pick expired/.test(shown.note),width+'px earlier forecast uses neutral provenance wording');
+   await page.waitForFunction(()=>[...document.querySelectorAll('#heroHome img,#heroAway img')].every(e=>e.complete&&e.naturalWidth>0));
+   check(await page.locator('#heroHome img,#heroAway img').count()===2,width+'px '+label+' genuine match-detail crests');
    await page.screenshot({path:`real-preview-${width}-detail-${label}.png`});
   }
   await page.screenshot({path:`real-preview-${width}.png`,fullPage:false});
