@@ -7,6 +7,9 @@ do $$begin
 end$$;
 lock table public.fixtures,public.predictions,public.shared_records,public.daily_slips,mm_fixture_delivery.editions in share mode;
 create role mm_preview_mirror_owner nologin noinherit nosuperuser nobypassrls;
+-- A PostgreSQL CREATEROLE session receives ADMIN, but not SET, membership by default.
+-- Explicitly allow the staging SQL administrator to create owner-role objects without inheriting privileges.
+grant mm_preview_mirror_owner to postgres with admin false, inherit false, set true;
 create schema mm_preview_mirror authorization mm_preview_mirror_owner;
 revoke all on schema mm_preview_mirror from public,anon,authenticated,service_role;
 create table mm_preview_mirror.qa_backup(
