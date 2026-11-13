@@ -1,5 +1,6 @@
 // Separate mode: preserve build-preview.mjs and its synthetic regression artifacts unchanged.
 import {transform,STAGING_REF,STAGING_URL,STAGING_KEY} from './build-preview.mjs';
+import {restore355Presentation} from './presentation-355.mjs';
 import {readFileSync,writeFileSync,mkdirSync,copyFileSync} from 'node:fs';
 import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -63,10 +64,11 @@ export function realTransform(index,manifest){
  html=once(html,' setHeroDnb(available?f.pick:null,v);'," setHeroDnb(available?f.pick:null,v); $('acc-result').classList.toggle('hidden',!(available&&v));");
  // Issued slip projection covers today, not a complete financial/history tracker.
  html=once(html,'</head>','<style>#dailyTracker,#valueLadder{display:none!important}</style></head>');
+ html=restore355Presentation(html);
  const man=JSON.parse(manifest);man.name='MatchMind Read-only Preview';man.short_name='MM Preview';
  return{html,manifest:JSON.stringify(man,null,2)+'\n'};
 }
-export const REAL_SW=`const CACHE='mm-real-preview-v358';
+export const REAL_SW=`const CACHE='mm-real-preview-v358-p355';
 const ROOT=new URL('./',self.registration.scope);const SHELL=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('mm-real-preview-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

@@ -126,9 +126,24 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   return{scores,filtered,text:$('outcomeRows').textContent,visible:!$('acc-result').classList.contains('hidden'),prob:f.prob,blocked,user:authUser,bar:$('stagingBar').textContent,account:$('acctBox').textContent,storage:window.localStorage.getItem('mm_state'),auth:window.localStorage.getItem('sb-production-auth-token'),overflow:document.documentElement.scrollWidth>innerWidth+1,controls:['afKey','aiKeyInput'].some(id=>$(id)?.matches('input,button,select'))};
  });
  assert.match(r.scores,/Harbor Athletic/);assert.match(r.scores,/Cedar City/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
+ const presentation=await page.evaluate(()=>{
+  const L=Object.values(afState.leagues)[0],f=L.upcoming[0],original=JSON.stringify(afState.archive);
+  const date=new Date(Date.now()-7*86400000).toISOString().slice(0,10),id=990890;
+  const old={...f,fxid:id,home:'Haras El Hodood',away:'El Dakhleya',pick:'1D',prob:.807,pW:.589,pD:.2728,pL:.1382,status:'NS'};
+  afState.archive[id]={kickoff:date,ktime:'12:30',pick:'1D',pick_prob:.807,build:355};
+  const archive=JSON.stringify(afState.archive),predicate=forecastDisplayExpired(old);showPublishedFixture(L,old);
+  const retained={predicate,headline:$('heroPick').textContent,probability:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,vector:$('outcomeRows').textContent,archiveUnchanged:archive===JSON.stringify(afState.archive)};
+  delete afState.archive[id];
+  L.upcoming.push({...f,fxid:id,home:'A deliberately long football team name',away:'Another long football club name'});
+  afState.selectedDate=f.date;afState.filter='all';navTo('predict');renderFixtures();
+  const names=[...$('fixtureList').querySelectorAll('.tline')];
+  return{retained,namesReadable:names.every(e=>e.scrollWidth<=e.clientWidth+1),hasNames:names.some(e=>e.textContent.includes('deliberately long')),originalArchive:original===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};
+ });
+ assert.ok(presentation.retained.predicate);assert.match(presentation.retained.headline,/DNB|draw no bet/i);assert.match(presentation.retained.probability,/80.7%/);assert.equal(presentation.retained.status,'Earlier forecast retained');assert.match(presentation.retained.note,/Status unresolved/);assert.doesNotMatch(presentation.retained.note,/confirmed|non-play|expired/i);assert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.retained.archiveUnchanged&&presentation.originalArchive);assert.ok(presentation.namesReadable&&presentation.hasNames);assert.equal(presentation.overflow,false);
  for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display|status)_v1$/);}
 });
 test('real service worker preserves other applications caches and synthetic builder stays independent',()=>{
  const sw=readFileSync(join(dir,'sw.js'),'utf8');assert.match(sw,/startsWith\('mm-real-preview-'\)/);assert.doesNotMatch(sw,/filter\(k=>k!==CACHE\)/);assert.match(R('staging/build-preview.mjs'),/synthetic data/);
  assert.doesNotMatch(html,/toqfdrcjzwnlydqekude|sb_secret_|service_role/);
+ const source=R('index.html');for(const [first,next]of [['pickVerdict','pickPhrase'],['pickPlayState','pickVerdict'],['forecastDisplayExpired','forecastStatusChip'],['boardForwardRows','boardGoalsSel'],['slipCandidatesFromBoard','slipCandidates']]){const start=source.indexOf('function '+first+'('),end=source.indexOf('function '+next+'(',start);assert.ok(start>=0&&end>start&&html.includes(source.slice(start,end)),first+' business rule unchanged');}
 });

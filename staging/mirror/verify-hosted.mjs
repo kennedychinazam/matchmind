@@ -48,6 +48,20 @@ try{
   check(!requests.some(r=>r.url.includes('toqfdrcjzwnlydqekude')||r.url.includes('/auth/')||r.url.includes('/functions/')),width+'px no production/auth/Edge requests');
   check(requests.filter(r=>r.url.includes('.supabase.co')).every(r=>r.method==='POST'&&/^https:\/\/rdcbnvfnxenrpnnwxszs\.supabase\.co\/rest\/v1\/rpc\/mm_preview_(display|status)_v1$/.test(r.url)),width+'px network limited to staging read RPCs');
   check(errors.length===0,width+'px no runtime errors');
+  await page.evaluate(()=>{afState.filter='all';afState.scoreFilter='all';navTo('scores');renderScores();scrollTo(0,0);});
+  await page.screenshot({path:`real-preview-${width}-scores.png`});
+  await page.evaluate(()=>{navTo('predict');renderFixtures();scrollTo(0,0);});
+  const readable=await page.evaluate(()=>[...$('fixtureList').querySelectorAll('.tline')].filter(e=>e.offsetHeight).every(e=>e.scrollWidth<=e.clientWidth+1));
+  check(readable,width+'px Analysis team names wrap without clipping');
+  await page.screenshot({path:`real-preview-${width}-analysis.png`});
+  for(const [id,label] of [[1570019,'published'],[1594900,'retained']]){
+   const source=history.cards.find(c=>c.fxid===id);if(!source?.prediction)continue;
+   const shown=await page.evaluate(async id=>{const before=JSON.stringify(afState.archive);openFixtureById(id);scrollTo(0,0);const a=afState.archive[id];return{prob:afState.leagues[afState.activeLeagueId]?.upcoming?.find(f=>f.fxid===id)?.prob,hero:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,archiveUnchanged:before===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};},id);
+   check(shown.archiveUnchanged&&!shown.overflow,width+'px '+label+' detail preserves archive and mobile layout');
+   check(shown.hero.includes((100*source.prediction.pick_prob).toFixed(1)+'%'),width+'px '+label+' original selection probability visible');
+   if(label==='retained')check(shown.status==='Earlier forecast retained'&&!/confirmed postponement|non-play beyond|Pick expired/.test(shown.note),width+'px earlier forecast uses neutral provenance wording');
+   await page.screenshot({path:`real-preview-${width}-detail-${label}.png`});
+  }
   await page.screenshot({path:`real-preview-${width}.png`,fullPage:false});
   writeFileSync(`real-preview-${width}.json`,JSON.stringify({commit:marker,status,fixture:state.detail,network:requests},null,2));await context.close();
  }
