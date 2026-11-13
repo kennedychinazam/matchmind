@@ -17,7 +17,9 @@
     {
       "id": 1,
       "name": "World Cup",
-      "documented_seasons": [2026],
+      "documented_seasons": [
+        2026
+      ],
       "source": "https://www.api-football.com/news/post/fifa-world-cup-2026-guide-to-using-data-with-api-sports",
       "source_date": "2026-04-13",
       "evidence_kind": "official_provider_article_example",
@@ -28,7 +30,9 @@
     {
       "id": 5,
       "name": "UEFA Nations League",
-      "documented_seasons": [2018],
+      "documented_seasons": [
+        2018
+      ],
       "source": "https://www.api-football.com/news/post/fifa-world-cup-2026-guide-to-using-data-with-api-sports",
       "source_date": "2026-04-13",
       "evidence_kind": "official_provider_historical_h2h_example",
@@ -40,7 +44,9 @@
     {
       "id": 32,
       "name": "World Cup - Qualification Europe",
-      "documented_seasons": [2024],
+      "documented_seasons": [
+        2024
+      ],
       "source": "https://www.api-football.com/news/post/2026-ballon-dor-how-to-retrieve-podium-statistics-using-api-football",
       "evidence_kind": "official_provider_article_example",
       "actual_odds_verified": false,
@@ -50,7 +56,9 @@
     {
       "id": 10,
       "name": "Friendlies",
-      "documented_seasons": [2026],
+      "documented_seasons": [
+        2026
+      ],
       "source": "https://www.api-football.com/news/post/2026-ballon-dor-how-to-retrieve-podium-statistics-using-api-football",
       "evidence_kind": "official_provider_article_example",
       "actual_odds_verified": false,
@@ -101,5 +109,39 @@
     "Full official FIFA rankings with points and publication precision",
     "Actual account quotas, historical access and publication rights",
     "Independent cohort model validation and Director activation decision"
-  ]
+  ],
+  "public_pricing_evidence": {
+    "source": "https://www.api-football.com/pricing",
+    "retrieved_on": "2026-11-13",
+    "evidence_kind": "direct_official_public_page_extraction",
+    "displayed_currency_symbol": "$",
+    "currency_code": null,
+    "vat_included": false,
+    "plans": [
+      {
+        "name": "Free",
+        "displayed_monthly_price": 0,
+        "requests_per_day": 100
+      },
+      {
+        "name": "Pro",
+        "displayed_monthly_price": 16,
+        "requests_per_day": 7500
+      },
+      {
+        "name": "Ultra",
+        "displayed_monthly_price": 26,
+        "requests_per_day": 75000
+      },
+      {
+        "name": "Mega",
+        "displayed_monthly_price": 36,
+        "requests_per_day": 150000
+      }
+    ],
+    "account_terms_verified": false,
+    "regional_terms_verified": false,
+    "subscription_duration_terms_verified": false,
+    "note": "Older official tutorials and tracked pricing extraction showed different prices; direct public page is the dated observation, not an account quote."
+  }
 }
