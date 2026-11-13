@@ -29,12 +29,12 @@ try{
   await page.waitForFunction(()=>Object.keys(afState.leagues||{}).length>0,null,{timeout:30000});
   const state=await page.evaluate(async()=>{
    await loadCloudLeagues(true);await afScoresFromCloud();
-   afState.filter='all';const all=visibleLeagues(),L=all.find(l=>l.upcoming.some(f=>f.pick&&f.prob!=null&&!f.gated)),f=L?.upcoming.find(f=>f.pick&&f.prob!=null&&!f.gated);
+   afState.filter='all';const all=visibleLeagues(),L=all.find(l=>l.upcoming.some(f=>publishedPrediction(f))),f=L?.upcoming.find(f=>publishedPrediction(f));
    const scoreIds=afState.scores.list.map(s=>s.fxid);
    if(!f)return{missing:true,scoreIds};
    const before=JSON.stringify(afState.archive);showPublishedFixture(L,f);
-   const detail={id:f.fxid,probability:f.prob,home:f.home,away:f.away,heroIdentity:$('heroHome').textContent.includes(f.home)&&$('heroAway').textContent.includes(f.away),bars:$('outcomeRows').textContent,resultVisible:!$('acc-result').classList.contains('hidden'),note:$('analysisText').textContent};
-   afState.filter=String(L.id);afState.selectedDate=f.date;afState.archiveDate=null;navTo('predict');renderFixtures();const filtered=$('fixtureList').textContent;
+   const detail={id:f.fxid,probability:publishedPrediction(f).pick_prob,home:f.home,away:f.away,heroIdentity:$('heroHome').textContent.includes(f.home)&&$('heroAway').textContent.includes(f.away),bars:$('outcomeRows').textContent,resultVisible:!$('acc-result').classList.contains('hidden'),note:$('analysisText').textContent};
+   afState.filter=String(L.id);afState.selectedDate=forecastDate(f);afState.archiveDate=null;navTo('predict');renderFixtures();const filtered=$('fixtureList').textContent;
    const row=afState.scores.list.find(s=>['NS','TBD'].includes(s.status));if(row){const item=ensureLeagueFromScore(row);await openFixture(item.L.id,item.f);}
    const badControls=[...document.querySelectorAll('input,button,select,textarea')].filter(e=>['afKey','aiKeyInput','afSaveKey','aiSaveBtn','afKeyUse','aiKeyUse'].includes(e.id));
    return{scoreIds,detail,filtered,archivePreserved:before===JSON.stringify(afState.archive),guest:authUser===null,apiControls:badControls.length,bar:$('stagingBar').textContent,overflow:document.documentElement.scrollWidth>innerWidth+1};
@@ -45,7 +45,7 @@ try{
   check(state.scoreIds.length===scores.cards.length&&state.scoreIds.every(id=>scores.cards.some(c=>c.fxid===id)),width+'px Scores inventory matches reader');
   check(state.filtered.includes(state.detail.home)&&state.filtered.includes(state.detail.away),width+'px competition filter retains selected real fixture');
   check(state.archivePreserved&&state.guest&&!state.apiControls&&!state.overflow,width+'px guest/privacy/archive/mobile checks');
-  check(state.detail.note.toLowerCase().includes('league table')&&state.detail.note.toLowerCase().includes('unavailable'),width+'px standings limitation stated without fabrication');
+  check(state.detail.note==='',width+'px no explanatory forecast-status paragraphs');
   check(/REAL DATA.*READ-ONLY/.test(state.bar),width+'px real-data indicator verified');
   check(!requests.some(r=>r.url.includes('toqfdrcjzwnlydqekude')||r.url.includes('/auth/')||r.url.includes('/functions/')),width+'px no production/auth/Edge requests');
   check(requests.filter(r=>r.url.includes('.supabase.co')).every(r=>r.method==='POST'&&/^https:\/\/rdcbnvfnxenrpnnwxszs\.supabase\.co\/rest\/v1\/rpc\/mm_preview_(display|status)_v1$/.test(r.url)),width+'px network limited to staging read RPCs');
@@ -63,20 +63,35 @@ try{
   await page.screenshot({path:`real-preview-${width}-analysis.png`});
   const publishedRow=page.locator('#fixtureList .fxrow').filter({hasText:'Ospitaletto'}).first();if(await publishedRow.count()){await publishedRow.scrollIntoViewIfNeeded();await page.waitForTimeout(300);await page.screenshot({path:`real-preview-${width}-analysis-picks.png`});}
 
-  const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null};}).filter(x=>x.text?.includes('%')),history.cards);
+  const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&c.prediction.kickoff===afState.selectedDate&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null};}).filter(x=>x.text?.includes('%')),history.cards);
   check(publishedBadges.length>0&&publishedBadges.every(b=>b.text.trim()===b.expected),width+'px green pick badges match original published selections and probabilities');
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
   for(const [id,label] of [[1570019,'published'],[1594900,'retained']]){
    const source=history.cards.find(c=>c.fxid===id);if(!source?.prediction)continue;
-   const shown=await page.evaluate(async id=>{const before=JSON.stringify(afState.archive);openFixtureById(id);scrollTo(0,0);const a=afState.archive[id];return{prob:afState.leagues[afState.activeLeagueId]?.upcoming?.find(f=>f.fxid===id)?.prob,hero:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,archiveUnchanged:before===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};},id);
+   const shown=await page.evaluate(async id=>{const before=JSON.stringify(afState.archive);openFixtureById(id);scrollTo(0,0);const a=afState.archive[id];return{prob:afState.leagues[afState.activeLeagueId]?.upcoming?.find(f=>f.fxid===id)?.prob,hero:$('heroPick').textContent,raw:$('heroPick').closest('.hero').dataset.originalProbability,date:$('heroPick').closest('.hero').dataset.originalKickoff,publishedAt:$('heroPick').closest('.hero').dataset.publishedAt,status:$('heroStrong').textContent,note:$('analysisText').textContent,archiveUnchanged:before===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};},id);
    check(shown.archiveUnchanged&&!shown.overflow,width+'px '+label+' detail preserves archive and mobile layout');
-   check(shown.hero.includes((100*source.prediction.pick_prob).toFixed(1)+'%'),width+'px '+label+' original selection probability visible');
-   if(label==='retained')check(shown.status==='Earlier forecast retained'&&!/confirmed postponement|non-play beyond|Pick expired/.test(shown.note),width+'px earlier forecast uses neutral provenance wording');
+   check(shown.hero.includes(Math.round(100*source.prediction.pick_prob)+'%')&&shown.raw===String(source.prediction.pick_prob),width+'px '+label+' original selection probability visible');
+   check(shown.status===''&&shown.note===''&&shown.date===source.prediction.kickoff+'T'+(source.prediction.ktime||'')&&shown.publishedAt===source.prediction.made_at,width+'px '+label+' original dated context without forecast-status messages');
    await page.waitForFunction(()=>[...document.querySelectorAll('#heroHome img,#heroAway img')].every(e=>e.complete&&e.naturalWidth>0));
    check(await page.locator('#heroHome img,#heroAway img').count()===2,width+'px '+label+' genuine match-detail crests');
    await page.screenshot({path:`real-preview-${width}-detail-${label}.png`});
   }
+  const dated=await page.evaluate(async()=>{
+   await dailySharedLoad(todayStrLocal(),true);
+   const id=1594900;let pair;for(const L of Object.values(afState.leagues)){const f=L.upcoming.find(f=>f.fxid===id);if(f){pair={L,f};break;}}
+   if(!pair||!publishedPrediction(pair.f))return null;const {f}=pair,p=publishedPrediction(f),snapshot=JSON.stringify(afState.archive);
+   afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=f.date;renderFixtures();
+   const absent=p.kickoff===f.date||![...$('fixtureList').querySelectorAll('.fxrow')].some(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
+   afState.selectedDate=p.kickoff;renderFixtures();const oldRow=[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
+   const badge=oldRow?.querySelector('.predchip')?.textContent;showPublishedFixture(pair.L,f);const oldKey=$('heroPick').closest('.hero').dataset.selectionKey;
+   const row=(_sharedSlips.rows||[]).find(r=>r.legs?.some(l=>l.fxid===id&&l.code!==p.pick)),leg=row?.legs.find(l=>l.fxid===id&&l.code!==p.pick);let issued=null;
+   if(leg){openIssuedForecast(leg);const hero=$('heroPick').closest('.hero');issued={matches:$('heroPick').textContent===chipCode(leg.code)+' · '+probabilityPercent(leg.p,0),distinct:hero.dataset.selectionKey!==oldKey,original:hero.dataset.originalProbability===String(leg.p),date:hero.dataset.originalKickoff===leg.d+'T'+(leg.t||'')};}
+   return{absent,dated:badge===chipCode(p.pick)+' · '+probabilityPercent(p.pick_prob,0),issued,unchanged:snapshot===JSON.stringify(afState.archive)};
+  });
+  check(dated&&dated.absent&&dated.dated&&dated.unchanged,width+'px older published forecast stays on original date without replacing issued selections');
+  check(dated.issued&&Object.values(dated.issued).every(Boolean),width+'px separate issued selection opens its own original probability and dated identity');
+  await page.screenshot({path:`real-preview-${width}-detail-issued.png`});
   await page.screenshot({path:`real-preview-${width}.png`,fullPage:false});
   writeFileSync(`real-preview-${width}.json`,JSON.stringify({commit:marker,status,fixture:state.detail,network:requests},null,2));await context.close();
  }

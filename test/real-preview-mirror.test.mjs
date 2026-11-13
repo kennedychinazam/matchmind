@@ -126,28 +126,35 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   afState.scoresDate=localDateOf(afState.scores.list[0]);renderScores();const scores=$('scoresList').textContent;
   afState.filter='999';renderFixtures();const filtered=$('fixtureList').textContent;afState.filter='all';renderFixtures();
   showPublishedFixture(L,f);let blocked=0;for(const [u,m]of [[SUPA_URL+'/auth/v1/token','POST'],[SUPA_URL+'/rest/v1/fixtures','GET'],[SUPA_URL+'/rest/v1/rpc/mm_preview_publish_v1','POST'],['https://example.com/','GET']])try{await fetch(u,{method:m});}catch{blocked++;}
-  return{scores,filtered,text:$('outcomeRows').textContent,visible:!$('acc-result').classList.contains('hidden'),prob:f.prob,blocked,user:authUser,bar:$('stagingBar').textContent,account:$('acctBox').textContent,storage:window.localStorage.getItem('mm_state'),auth:window.localStorage.getItem('sb-production-auth-token'),overflow:document.documentElement.scrollWidth>innerWidth+1,controls:['afKey','aiKeyInput'].some(id=>$(id)?.matches('input,button,select'))};
+  return{scores,filtered,badge:$('heroPick').textContent,text:$('outcomeRows').textContent,visible:!$('acc-result').classList.contains('hidden'),prob:f.prob,blocked,user:authUser,bar:$('stagingBar').textContent,account:$('acctBox').textContent,storage:window.localStorage.getItem('mm_state'),auth:window.localStorage.getItem('sb-production-auth-token'),overflow:document.documentElement.scrollWidth>innerWidth+1,controls:['afKey','aiKeyInput'].some(id=>$(id)?.matches('input,button,select'))};
  });
  const branding=await page.evaluate(()=>{afState.selectedDate=Object.values(afState.leagues)[0].upcoming[0].date;navTo('predict');afState.filter='all';renderFixtures();const row=$('fixtureList').querySelector('.fxrow'),teams=row.querySelector('.fxteams').getBoundingClientRect(),pick=row.querySelector('.predchip').getBoundingClientRect();return{images:row.querySelectorAll('img.crest').length,right:pick.left>=teams.right-1,edge:skillBadge({id:39}),pick:row.querySelector('.predchip').textContent};});
  assert.equal(branding.images,2);assert.ok(branding.right);assert.equal(branding.edge,'');assert.match(branding.pick,/64%/);
  assert.match(r.scores,/Harbor Athletic/);assert.match(r.scores,/Cedar City/);assert.match(r.filtered,/No predictions/);assert.match(r.text,/64.0%/);assert.equal(r.prob,.64);assert.ok(r.visible);assert.equal(r.blocked,4);assert.equal(r.user,null);assert.equal(r.controls,false);assert.match(r.bar,/REAL DATA.*READ-ONLY/);assert.match(r.account,/guest/);assert.equal(r.storage,'production-state-sentinel');assert.equal(r.auth,'production-auth-sentinel');assert.equal(r.overflow,false);
  const presentation=await page.evaluate(()=>{
-  const L=Object.values(afState.leagues)[0],f=L.upcoming[0],original=JSON.stringify(afState.archive);
-  const date=new Date(Date.now()-7*86400000).toISOString().slice(0,10),id=990890;
-  const old={...f,fxid:id,home:'Haras El Hodood',away:'El Dakhleya',pick:'1D',prob:.807,pW:.589,pD:.2728,pL:.1382,status:'NS'};
-  afState.archive[id]={kickoff:date,ktime:'12:30',pick:'1D',pick_prob:.807,build:355};
-  const archive=JSON.stringify(afState.archive),predicate=forecastDisplayExpired(old);showPublishedFixture(L,old);
-  const retained={predicate,headline:$('heroPick').textContent,probability:$('heroConf').textContent,status:$('heroStrong').textContent,note:$('analysisText').textContent,vector:$('outcomeRows').textContent,archiveUnchanged:archive===JSON.stringify(afState.archive)};
-  L.upcoming.push({...old,fxid:id,home:'A deliberately long football team name',away:'Another long football club name'});
-  afState.selectedDate=f.date;afState.filter='all';navTo('predict');renderFixtures();
-  const names=[...$('fixtureList').querySelectorAll('.tline')];
-  const restored={...afState.archive};delete restored[id];
-  return{retained,namesReadable:names.every(e=>e.scrollWidth<=e.clientWidth+1),hasNames:names.some(e=>e.textContent.includes('deliberately long')),originalArchive:original===JSON.stringify(restored),overflow:document.documentElement.scrollWidth>innerWidth+1};
+  const L=Object.values(afState.leagues)[0],f=L.upcoming[0],original=JSON.stringify(afState.archive),date=new Date(Date.now()-7*86400000).toISOString().slice(0,10),id=990890;
+  const p={...f._displayCard.prediction,home:'Haras El Hodood',away:'El Dakhleya',pick:'1D',pick_prob:.807,kickoff:date,ktime:'12:30',made_at:new Date(Date.now()-10*86400000).toISOString(),p_home:.589,p_draw:.2728,p_away:.1382};
+  const old={...f,fxid:id,home:p.home,away:p.away,pick:p.pick,prob:p.pick_prob,status:'NS',_displayCard:{...f._displayCard,fxid:id,home:p.home,away:p.away,prediction:p}};
+  afState.archive[id]=archiveRow(p);L.upcoming.push(old);const archive=JSON.stringify(afState.archive),predicate=forecastDisplayExpired(old);showPublishedFixture(L,old);
+  const retained={predicate,badge:$('heroPick').textContent,probability:$('heroPick').closest('.hero').dataset.originalProbability,status:$('heroStrong').textContent,note:$('analysisText').textContent,vector:$('outcomeRows').textContent,kickoff:$('heroPick').closest('.hero').dataset.originalKickoff,publishedAt:$('heroPick').closest('.hero').dataset.publishedAt,key:$('heroPick').closest('.hero').dataset.selectionKey};
+  afState.selectedDate=f.date;afState.filter='all';navTo('predict');renderFixtures();const notReissued=!$('fixtureList').textContent.includes(p.home);
+  afState.selectedDate=date;renderFixtures();const dated=$('fixtureList').textContent.includes(p.home)&&$('fixtureList').textContent.includes('1 DNB');
+  const leg={fxid:id,d:f.date,t:f.time,h:p.home,a:p.away,code:'1X',p:.8618,market:'Double Chance'},shared=_sharedSlips;
+  _sharedSlips={loaded:true,rows:[{day:f.date,tier:'banker',build:358,step:'issued',legs:[leg]}]};const opened=openIssuedForecast(leg),hero=$('heroPick').closest('.hero'),issued={opened,badge:$('heroPick').textContent,key:hero.dataset.selectionKey,kickoff:hero.dataset.originalKickoff,probability:hero.dataset.originalProbability};_sharedSlips=shared;
+  const names=[$('fixtureList').textContent];const unchanged=archive===JSON.stringify(afState.archive);delete afState.archive[id];
+  afState.selectedDate=date;navTo('predict');renderFixtures();
+  return{retained,issued,notReissued,dated,unchanged,originalArchive:original===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
- await page.locator('#fixtureList .fxrow').last().locator('.tline').nth(1).click();
- assert.equal(await page.evaluate(()=>curView),'detail','away-team tap opens retained detail instead of intercepted status');
- await page.evaluate(()=>{delete afState.archive[990890];});
- assert.ok(presentation.retained.predicate);assert.match(presentation.retained.headline,/DNB|draw no bet/i);assert.match(presentation.retained.probability,/80.7%/);assert.equal(presentation.retained.status,'Earlier forecast retained');assert.match(presentation.retained.note,/Status unresolved/);assert.doesNotMatch(presentation.retained.note,/confirmed|non-play|expired/i);assert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.retained.archiveUnchanged&&presentation.originalArchive);assert.ok(presentation.namesReadable&&presentation.hasNames);assert.equal(presentation.overflow,false);
+ assert.ok(presentation.retained.predicate);assert.match(presentation.retained.badge,/1 DNB.*81%/);assert.equal(presentation.retained.probability,'0.807');assert.equal(presentation.retained.status,'');assert.equal(presentation.retained.note,'');assert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.notReissued&&presentation.dated&&presentation.unchanged&&presentation.originalArchive);assert.ok(presentation.issued.opened);assert.match(presentation.issued.badge,/1X.*86%/);assert.equal(presentation.issued.probability,'0.8618');assert.notEqual(presentation.issued.key,presentation.retained.key);assert.notEqual(presentation.issued.kickoff,presentation.retained.kickoff);assert.equal(presentation.overflow,false);
+ const archiveView=await page.evaluate(async()=>{
+  const original=fixtureTable,date=new Date(Date.now()-12*86400000).toISOString().slice(0,10),p={fxid:990888,lname:'Example League',kickoff:date,ktime:'20:00',home:'Harbor Athletic',away:'Granite United',pick:'1D',pick_prob:.807};
+  fixtureTable=name=>{const q={select(){return q},eq(){return q},order(){return Promise.resolve({data:[p],error:null})},in(){return Promise.resolve({data:[{fxid:p.fxid,date:todayStrLocal(),time:'20:00',status:'PST'}],error:null})}};return q;};
+  try{await showPredictDate(date);const row=$('fixtureList').querySelector('.fxrow');return{badge:row.querySelector('.predchip').textContent,time:row.querySelector('.fxtime').textContent,expected:localHM(date,'20:00'),status:row.querySelectorAll('[data-statuswhy]').length};}finally{fixtureTable=original;}
+ });
+ assert.match(archiveView.badge,/1 DNB.*81%/);assert.equal(archiveView.time,archiveView.expected);assert.equal(archiveView.status,0);
+ const missing=await page.evaluate(()=>{const L=Object.values(afState.leagues)[0],f=L.upcoming[0],saved=f._displayCard;f._displayCard=null;showPublishedFixture(L,f);const text=$('heroPick').textContent;f._displayCard=saved;return text;});assert.equal(missing,'–');
+ await page.evaluate(async()=>{await loadCloudLeagues(true);const f=Object.values(afState.leagues)[0].upcoming[0];afState.archiveDate=null;afState.selectedDate=forecastDate(f);afState.filter='all';navTo('predict');renderFixtures();});
+ await page.locator('#fixtureList .fxrow .tline').nth(1).click();assert.equal(await page.evaluate(()=>curView),'detail');
  for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display|status)_v1$/);}
 });
 test('real service worker preserves other applications caches and synthetic builder stays independent',()=>{
