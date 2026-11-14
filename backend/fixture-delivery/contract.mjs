@@ -32,7 +32,7 @@ const clv=object({v:num(1,1,false,true),raw:stat,devig:stat,beat:count,tie:count
 const record=payload=>object({key:str(8),payload,build:num(0,1e6,false,true),computed_at:stamp},undefined,true);
 const legProperties={fxid:id,d:date,t:str(12,true),h:text,a:text,lid:{...id,nullable:true},code:str(40),market:str(60),p:probability,o:num(1,1e6,true),tab:str(30),rank:count,sel:str(240)};
 const leg=object(legProperties,['fxid','d','h','a','code','p']);
-const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,40)});
+const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,90)});
 export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1000),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128)});
 // RFC3339 subset shared with PostgreSQL: explicit zone, calendar-valid, no leap seconds;
 // offset displacement is limited to PostgreSQL's supported +/-15:59. Never rewrite the input.
@@ -55,11 +55,23 @@ function walk(value,s,path,depth){
  for(const k of keys)walk(value[k],s.properties[k],path+'.'+k,depth+1);
 }
 function vector(v){if(v.every(x=>x===null))return;if(v.some(x=>x===null)||Math.abs(v.reduce((a,b)=>a+b,0)-1)>0.0002)throw Error('Invalid published probability vector');}
+export function legacyPresentationPayload(value){
+ return {...value,cards:value.cards.map(({analysis,...c})=>c),slips:value.slips.filter(s=>s.legs.length<=40)};
+}
+export function validateIssuedSlip(s){
+ if(s.tier!=='tips'){if(s.legs.length>40)throw Error('Issued slip exceeds40leg bound');return;}
+ const seen=new Set(),counts=new Map();for(const l of s.legs){
+  if(!['winner','ou','btts'].includes(l.tab)||!Number.isInteger(l.rank)||l.rank<0||l.rank>=30)throw Error('Invalid issued tip tab/rank');
+  const key=l.tab+':'+l.rank;if(seen.has(key))throw Error('Duplicate issued tip tab/rank');seen.add(key);
+  counts.set(l.tab,(counts.get(l.tab)||0)+1);if(counts.get(l.tab)>30)throw Error('Issued tip tab exceeds30rows');
+ }
+}
 export function validatePresentationPayload(value){
  const bytes=Buffer.byteLength(JSON.stringify(value));if(bytes>MAX_DOCUMENT_BYTES)throw Error('Display payload exceeds byte limit');walk(value,PAYLOAD_SCHEMA,'display',0);
- const legacy={...value,cards:value.cards.map(({analysis,...c})=>c)};if(Buffer.byteLength(JSON.stringify(legacy))>MAX_LEGACY_DOCUMENT_BYTES)throw Error('Legacy display payload exceeds byte limit');
+ const legacy=legacyPresentationPayload(value);if(Buffer.byteLength(JSON.stringify(legacy))>MAX_LEGACY_DOCUMENT_BYTES)throw Error('Legacy display payload exceeds byte limit');
  const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}if(c.analysis?.result)vector(Object.values(c.analysis.result));}
  if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a||c.date!==row.d||c.time!==row.t)throw Error('Board fixture identity mismatch');}}
+ for(const slip of value.slips)validateIssuedSlip(slip);
  for(const slip of value.slips)for(const leg of slip.legs)if(!ids.has(leg.fxid))throw Error('Unaccounted issued slip fixture inventory');
  if(value.records.engine&&value.records.engine.key!=='engine'||value.records.clv&&value.records.clv.key!=='clv')throw Error('Record identity mismatch');
  return value;

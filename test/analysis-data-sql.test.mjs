@@ -38,6 +38,14 @@ test('staging analysis SQL keeps old readers compatible and rollback preserves i
  bad.cards[0].analysis.result.p_home=.5;bad.cards[0].analysis.raw='private';check(sql('select mm_fixture_delivery.payload_valid('+literal(bad)+');')==='f','raw extras refused');
  check(sql("select md5(payload::text) from mm_preview_mirror.editions order by as_of;")===before,'old immutable edition preserved');
  sql('insert into mm_preview_mirror.editions(payload,manifest) values('+literal(expanded)+",'{}');");
+ sql(read('staging/mirror/STAGING-issued-tips-up.sql'));
+ const fullTips=structuredClone(expanded);fullTips.slips=[{day,tier:'tips',odds:0,build:355,step:'tips',legs:['winner','ou','btts'].flatMap(tab=>Array.from({length:30},(_,rank)=>({fxid:1,d:day,h:'Synthetic Home',a:'Synthetic Away',code:'1',p:.75,tab,rank})))}];
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(fullTips)+');')==='t','all90 original issued tips admitted');
+ const invalidTips=structuredClone(fullTips);invalidTips.slips[0].legs[0].rank=1;check(sql('select mm_fixture_delivery.payload_valid('+literal(invalidTips)+');')==='f','duplicate original tip ranks refused');
+ const accumulator=structuredClone(fullTips);accumulator.slips[0].tier='safe';accumulator.slips[0].legs=accumulator.slips[0].legs.slice(0,41);check(sql('select mm_fixture_delivery.payload_valid('+literal(accumulator)+');')==='f','ordinary slip remains40legs');
+ sql('insert into mm_preview_mirror.editions(payload,manifest) values('+literal(fullTips)+",'{}');");
+ const v2Tips=JSON.parse(sql("select public.mm_preview_display_v2('slips');",'anon')),v1Tips=JSON.parse(sql("select public.mm_preview_display_v1('slips');",'anon'));
+ assert.deepEqual(v2Tips.slips,fullTips.slips,'v2 preserves complete original90leg row');checks++;check(v1Tips.slips.length===0,'v1 omits whole unsupported tips bundle');
  let hashes=sql("select string_agg(md5(payload::text),',' order by as_of) from mm_preview_mirror.editions;");
  const v1=JSON.parse(sql("select public.mm_preview_display_v1('scores');",'anon')),v2=JSON.parse(sql("select public.mm_preview_display_v2('scores');",'anon'));
  check(!Object.hasOwn(v1.cards[0],'analysis'),'v1 strips expanded analysis');check(!!v2.cards[0].analysis,'v2 returns expanded analysis');

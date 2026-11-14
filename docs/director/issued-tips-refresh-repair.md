@@ -1,0 +1,21 @@
+# Existing issued-tip bundle refresh repair
+
+The November 14 scheduled preview refresh failed before the new HTML build because `display.slips[2].legs` exceeded the original 40-leg array bound. This was a projection mismatch, not a new forecast or a financial-source defect.
+
+Read-only source metadata on November 14 showed the current issued rows: banker 1 leg, safe 3 legs, tips 90 legs (17,336 bytes of source JSONB). The tips row contains exactly 30 winner, 30 over/under and 30 BTTS selections, each with unique ranks 0–29. Existing Build 355 producer code defines `TIPS_FREEZE_TABS = ['winner','ou','btts']` and `TIPS_FREEZE_TOP = 30`, then stores all three frozen lists in one `tier='tips'` row. The old projection incorrectly applied an accumulator's 40-leg bound to that combined list.
+
+The corrected closed contract admits at most 90 entries **only for tier tips**, requires the three recognized tab names and unique `(tab,rank)` pairs with ranks 0–29, and retains the 40-leg maximum for other tiers. Every original selection, probability, identity, order and row attribute remains unchanged. The collector does not trim, regenerate, re-rank or modify source records.
+
+Only legacy v1 HTML was hosted when this defect occurred; the new v2 HTML had not deployed because its workflow failed at refresh. New v2 clients receive the complete 90-entry source row. Permanently compatible v1 responses omit a whole tips row when its length exceeds 40; they never truncate its selections or alter cards, the board, supported slips or bookmaker prices. Existing v1 tabs cannot render that full tips bundle until reloaded into the new UI. Full Tips availability is not claimed for those old tabs.
+
+`legacyPresentationPayload` uses the identical whole-row omission for the permanent 512 KiB legacy byte check. Expanded v2 remains limited to 1 MiB, 1,000 fixture cards and the existing closed fields. The preview's publish/readback verifies full v2 source equality and separately verifies exact v1 slip omission. A truncated 40-entry representation of the original 90-entry row is rejected.
+
+`STAGING-issued-tips-up.sql` updates only the isolated staging pure payload validator and v1 read facade. It requires the existing mirror configuration/QA-backup schema, retains existing function owners and grants, and adds no source-table, production, publisher or financial-write authority. It retains the existing token-gated staging publication path, rolling expiry and immutable editions. `STAGING-analysis-up.sql` incorporates the same definitions for new isolated installations.
+
+`STAGING-issued-tips-down.sql` makes v2 delegate to permanently compatible v1. It retains the additive validator and immutable editions rather than invalidating already stored source-backed 90-entry rows. It does not delete or rewrite archives. Install or rollback on staging only after independent review.
+
+The updated UTF-8 browser regression compares browser acceptance with the actual typed server validator for three cases: a legacy payload whose characters fit but UTF-8 bytes exceed 512 KiB; expanded multibyte analysis between 512 KiB and 1 MiB with a valid legacy projection; and expanded analysis whose characters fit but bytes exceed 1 MiB.
+
+Focused evidence: 34 pure/contract regressions passed, the updated offline Chromium UTF-8 regression passed, and one isolated PostgreSQL integration test passed 29 focused assertions. Its v2 read returns all 90 tip entries with exact original field values; v1 omits the complete unsupported row. No truncation or source-table changes occur.
+
+A GET-only stable capture at `2026-11-14T13:54:07.141Z` passed two identical collection passes with zero optional-analysis warnings: 776 fixture cards, 168 original predictions, banker 1 leg, safe 3 legs and tips 90 entries. Full payload size was 643,264 bytes; exact legacy projection was 391,752 bytes. The source-wire SHA256 was `58ba2568f28cb1551257671b94a861c78bff7deecf88337e1e386c30d00afe16`. Both final JavaScript and isolated PostgreSQL validators accepted that actual source capture; complete payload comparison after SQL JSONB round-trip preserved every forecast/tip identity and probability. This is dated source evidence, not a hosted-deployment claim.

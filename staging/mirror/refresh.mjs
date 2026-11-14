@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {projectFixtureAnalysis,HISTORY_COLUMNS,HISTORY_DAYS} from './analysis-projection.mjs';
 import {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {CARD_SCHEMA,PAYLOAD_SCHEMA,validatePresentationPayload} from '../../backend/fixture-delivery/contract.mjs';
+import {CARD_SCHEMA,PAYLOAD_SCHEMA,validatePresentationPayload,legacyPresentationPayload} from '../../backend/fixture-delivery/contract.mjs';
 export const SOURCE='https://toqfdrcjzwnlydqekude.supabase.co';
 export const TARGET='https://rdcbnvfnxenrpnnwxszs.supabase.co';
 const SOURCE_KEY='sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';
@@ -109,6 +109,7 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
  const legacy=await rpc('mm_preview_display_v1',{screen:'scores'});
  if(legacy.edition_id!==receipt.edition_id)throw Error('Legacy staging edition changed during readback');
  for(const c of legacy.cards){const source=original.cards.find(s=>s.fxid===c.fxid);if(!source)throw Error('Legacy fixture identity mismatch');const {analysis,...old}=source;if(canonical(c)!==canonical({...old,prediction:null}))throw Error('Legacy closed fixture shape changed');}
+ const legacySlips=await rpc('mm_preview_display_v1',{screen:'slips'});if(legacySlips.edition_id!==receipt.edition_id||canonical(legacySlips.slips)!==canonical(legacyPresentationPayload(original).slips))throw Error('Legacy whole issued bundle projection mismatch');
  if(seen.size!==original.cards.length||canonical(screens[1].board)!==canonical(original.board)||canonical(screens[3].records)!==canonical(original.records)||canonical(screens[4].slips)!==canonical(original.slips))throw Error('Staging complete projection readback mismatch');
  return{verified_cards:seen.size,verified_predictions:original.cards.filter(c=>c.prediction).length};
 }
