@@ -1,6 +1,7 @@
 /* Versioned private materialization boundary. No network, credentials, model fitting, or SQL execution. */
 export const CONTRACT_VERSION='matchmind-display/1';
 export const MAX_DOCUMENT_BYTES=1048576;
+export const MAX_LEGACY_DOCUMENT_BYTES=524288;
 const str=(max=160,nullable=false,pattern)=>({type:'string',max,nullable,...(pattern?{pattern}:{})});
 const num=(min=0,max=1e9,nullable=false,integer=false)=>({type:'number',min,max,nullable,integer});
 const bool={type:'boolean'};
@@ -56,6 +57,7 @@ function walk(value,s,path,depth){
 function vector(v){if(v.every(x=>x===null))return;if(v.some(x=>x===null)||Math.abs(v.reduce((a,b)=>a+b,0)-1)>0.0002)throw Error('Invalid published probability vector');}
 export function validatePresentationPayload(value){
  const bytes=Buffer.byteLength(JSON.stringify(value));if(bytes>MAX_DOCUMENT_BYTES)throw Error('Display payload exceeds byte limit');walk(value,PAYLOAD_SCHEMA,'display',0);
+ const legacy={...value,cards:value.cards.map(({analysis,...c})=>c)};if(Buffer.byteLength(JSON.stringify(legacy))>MAX_LEGACY_DOCUMENT_BYTES)throw Error('Legacy display payload exceeds byte limit');
  const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}if(c.analysis?.result)vector(Object.values(c.analysis.result));}
  if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a||c.date!==row.d||c.time!==row.t)throw Error('Board fixture identity mismatch');}}
  for(const slip of value.slips)for(const leg of slip.legs)if(!ids.has(leg.fxid))throw Error('Unaccounted issued slip fixture inventory');

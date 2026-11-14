@@ -7,7 +7,7 @@ import {requestFor,windowFor} from '../staging/mirror/refresh.mjs';
 import {buildPresentationPayload} from '../backend/fixture-delivery/contract.mjs';
 const root=new URL('../',import.meta.url),read=f=>readFileSync(new URL(f,root),'utf8');
 const db='mm-analysis-sql-'+process.pid;
-const docker=(args,input)=>execFileSync('docker',args,{input,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe']}).trim();
+const docker=(args,input)=>execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe']}).trim();
 const sql=(s,role)=>docker(['exec','-i',db,'psql','-X','-qAt','-U','postgres','-v','ON_ERROR_STOP=1'],(role?'set role '+role+';':'')+s);
 const literal=x=>"'"+JSON.stringify(x).replaceAll("'","''")+"'::jsonb";
 const now=new Date(),day=now.toISOString().slice(0,10),stamp=new Date(+now-60000).toISOString();
@@ -48,6 +48,7 @@ test('staging analysis SQL keeps old readers compatible and rollback preserves i
  const wire=JSON.stringify(large);check(Buffer.byteLength(wire)>524288&&Buffer.byteLength(wire)<1048576,'large fixture analysis exercises increased bound');
  const w=windowFor(now),request=requestFor({payload:large,from:w.from,to:w.to,captured_at:now.toISOString(),window_cards:20,cards:20,predictions:0,latest_source_update:stamp});
  const oversized=structuredClone(large);oversized.cards=Array.from({length:36},(_,i)=>({...large.cards[0],fxid:1000+i}));check(sql('select mm_fixture_delivery.payload_valid('+literal(oversized)+');')==='f','over1MiB refused');
+ const legacyOversized=structuredClone(old);legacyOversized.cards=Array.from({length:700},(_,i)=>({...old.cards[0],fxid:2000+i,home:'H'.repeat(160),away:'A'.repeat(160),lname:'L'.repeat(160),lcountry:'C'.repeat(100)}));check(Buffer.byteLength(JSON.stringify(legacyOversized))>524288&&Buffer.byteLength(JSON.stringify(legacyOversized))<1048576,'original-schema test is within expanded bound');check(sql('select mm_fixture_delivery.payload_valid('+literal(legacyOversized)+');')==='f','legacy original512KiB cap enforced');
  const token='local-test-only-'.repeat(3);sql("set role mm_preview_mirror_owner;update mm_preview_mirror.configuration set token_sha256=sha256(convert_to('"+token+"','UTF8'));reset role;");
  const published=JSON.parse(sql("set request.headers='"+JSON.stringify({'x-mm-preview-token':token})+"';select public.mm_preview_publish_v1("+literal(request)+");",'anon'));
  check(published.cards===20,'publisher accepts reviewed >512KiB wire');

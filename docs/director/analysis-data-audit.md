@@ -41,7 +41,7 @@ Optional history read failures preserve the existing core refresh and emit `anal
 
 A GET-only private local capture at `2026-11-13T22:03:33.298Z` contained752cards and238original issued predictions. Its SHA256 is `e4e2ac4af552461f3144b513665767cef13782d0557326de9b44e6f9760cb787`. The expanded wire payload was620887bytes, above the old524288byte budget. It included293board-result/expected-goal analyses,708form panels and367H2H panels. Of514fixtures without qualifying immutable picks,207had informational board result probabilities and478had form. No AI text or new market forecast was emitted.
 
-Removing optional analysis yielded398213bytes for that same capture, within the old reader limit. Staging v2/storage therefore use a reviewed **1048576byte (1MiB)** limit; old v1 readers permanently strip only `analysis`. The source capture is dated evidence, not a claim of current freshness or hosted publication. Private snapshots are intentionally outside Git.
+Removing optional analysis yielded398213bytes for that same capture, within the old reader limit. Staging v2/storage therefore use a reviewed **1048576byte (1MiB)** limit; old v1 readers permanently strip only `analysis`. JavaScript prepublication and the staging SQL validator independently enforce a second524288byte limit on that complete stripped payload; a future expanded payload cannot silently admit an oversized legacy response. The source capture is dated evidence, not a claim of current freshness or hosted publication. Private snapshots are intentionally outside Git.
 
 ## Staging rollout and rollback
 
@@ -56,8 +56,8 @@ Removing optional analysis yielded398213bytes for that same capture, within the 
 
 ## Focused verification
 
-`node --test --test-isolation=none test/analysis-data-projection.test.mjs test/fixture-delivery-backend.test.mjs`:27tests passed. Node's default isolated runner in this environment reports file-level counts; isolation=none gives actual registered test counts.
+`node --test --test-isolation=none test/analysis-data-projection.test.mjs test/fixture-delivery-backend.test.mjs`:28tests passed. Node's default isolated runner in this environment reports file-level counts; isolation=none gives actual registered test counts.
 
-`node --test --test-isolation=none test/analysis-data-sql.test.mjs`:1isolated PostgreSQL integration test,22focused SQL assertions passed. It uses the repository's pinned PostgreSQL16.6 image with `--network none` and removes its own synthetic container. Checks include installation refusal outside staging prerequisites, old/new closed schemas, vector/private-field rejection, repeat installation,1MiB admission/refusal, v1/v2 edition identity and privacy, raw-table denial and rollback with unchanged edition hashes. The private master, production publisher and forecast archives are not test targets.
+`node --test --test-isolation=none test/analysis-data-sql.test.mjs`:1isolated PostgreSQL integration test,24focused SQL assertions passed. It uses the repository's pinned PostgreSQL16.6 image with `--network none` and removes its own synthetic container. Checks include installation refusal outside staging prerequisites, old/new closed schemas, vector/private-field rejection, repeat installation,1MiB admission/refusal, v1/v2 edition identity and privacy, raw-table denial and rollback with unchanged edition hashes. The private master, production publisher and forecast archives are not test targets.
 
 The remaining supported-market publication gaps, complete standings and source-grounded AI approval prevent declaring the full Director request complete.
