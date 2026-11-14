@@ -22,20 +22,20 @@ test('bounded public match detail states standings unavailable without inventing
   // A previously viewed private table must not leak into this bounded public fixture.
   $('acc-standings').classList.remove('hidden');$('standingsBox').textContent='Previous private table';
   showPublishedFixture(L,f);
-  return{copy:$('view-detail').innerText,analysis:$('analysisText').textContent,
+  return{copy:$('view-detail').innerText,analysis:$('standingsBox').textContent,
    tableHidden:$('acc-standings').classList.contains('hidden'),
    preserved:before===JSON.stringify({L,f}),probabilities:$('outcomeRows').textContent};
  });
  assert.match(observed.analysis,/\b(?:league table|standings)\b[^.\n]*(?:unavailable|not supplied|not published)/i,
   'Public detail hides standings without explaining that this edition does not supply them');
- assert.match(observed.analysis,/published edition|published view|public edition|public view/i);
+ assert.match(observed.analysis,/League table not published/i);
  assert.doesNotMatch(observed.analysis,/reload.*(?:table|standings)|(?:table|standings).*reload/i,'reload cannot recover undistributed source history');
- assert.equal(observed.tableHidden,true,'do not derive a partial table from bounded publication rows');
+ assert.equal(observed.tableHidden,false,'the table panel explains unavailable published input without deriving a partial table');
  assert.doesNotMatch(observed.copy,/Previous private table/);
  assert.equal(observed.preserved,true,'published prediction and source objects remain unchanged');
  assert.match(observed.probabilities,/50/);assert.match(observed.probabilities,/30/);assert.match(observed.probabilities,/20/);
  if(process.env.MM_STANDINGS_SCREENSHOT){
-  await page.locator('#analysisText p').filter({hasText:'league table'}).evaluate(el=>el.scrollIntoView({block:'center'}));
+  await page.locator('#acc-standings').evaluate(el=>{el.classList.add('open');el.scrollIntoView({block:'center'});});
   await page.screenshot({path:process.env.MM_STANDINGS_SCREENSHOT,fullPage:false});
  }
 });

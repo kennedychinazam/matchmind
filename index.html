@@ -557,6 +557,11 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
 #results.published-detail #verdictBox{font-size:.72rem;line-height:1.35}
 @media(max-width:360px){#results.published-detail .acc-head{gap:7px;padding:14px 12px}#results.published-detail .acc-head .t{font-size:.88rem}#results.published-detail .acc-body{padding-inline:12px}#results.published-detail .hero .tname{font-size:.9rem}}
 
+@media(max-width:360px){
+ #results.published-detail .tname .published-long-name{font-size:.74rem;line-height:1.3}
+ #results.published-detail .prow.published-long-label{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:6px 8px}
+ #results.published-detail .prow.published-long-label .plabel{grid-column:1/-1;width:auto}
+}
 </style>
 </head>
 <body>
@@ -3290,7 +3295,7 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  $('analysisText').classList.toggle('published-writeup',!!(a.writeup&&a.writeup.text));
  $('verdictBox').textContent='';$('verdictBox').removeAttribute('title');$('verdictBox').removeAttribute('aria-label');
  if(a.writeup&&a.writeup.source_at){$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10);$('verdictBox').title='Source: '+a.writeup.source;$('verdictBox').setAttribute('aria-label','Published '+a.writeup.source_at+' · Source '+a.writeup.source);}
- $('heroStrong').textContent='';$('heroStrong').classList.add('hidden');
+ $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':'';$('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
  // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
  const dnb=p&&['1D','2D'].includes(p.pick);
  $('heroDnb').textContent=dnb?'DNB probability excludes draws.':'';
@@ -3298,6 +3303,15 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const comp=$('heroMeta').querySelector('.hm-comp'),competition=p&&p.lname||L.name;
  const country=L.country&&!competition.toLowerCase().includes(L.country.toLowerCase())?' · '+L.country:'';
  if(comp)comp.innerHTML=competitionBadge(L)+' '+esc(competition+country);
+ for(const id of ['heroHome','heroAway']){const name=$(id).querySelector('div:not(.venue)');if(name)name.classList.toggle('published-long-name',name.textContent.length>18);}
+ document.querySelectorAll('#view-detail .prow .plabel').forEach(label=>label.closest('.prow').classList.toggle('published-long-label',label.textContent.length>18));
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());
+ if(!result||!Number.isInteger(result.gh)||!Number.isInteger(result.ga)){
+   const line=document.createElement('div');line.className='hm-dt published-result-state';
+   line.textContent=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status))?'90-minute result pending':'90-minute result unavailable';
+   $('heroMeta').appendChild(line);
+ }
+
 }
 
 function showPublishedFixture(L,f){
