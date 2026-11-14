@@ -5,19 +5,22 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {realTransform} from '../staging/build-real-preview.mjs';
-const require=createRequire(import.meta.url),{chromium}=require('playwright-core');
+const require=createRequire(import.meta.url),driver=require('playwright-core');
+const browserName=process.env.MM_NAV_BROWSER||'chromium';
+assert.ok(['chromium','firefox'].includes(browserName),'MM_NAV_BROWSER must name Chromium or Firefox');
 const html=realTransform(readFileSync(new URL('../index.html',import.meta.url),'utf8'),readFileSync(new URL('../manifest.webmanifest',import.meta.url),'utf8')).html;
 const now=Date.now(),stamp=new Date(now-60000).toISOString(),expires=new Date(now+3600000).toISOString();
 const day=new Date(now+86400000).toISOString().slice(0,10);
 const cards=Array.from({length:48},(_,i)=>({fxid:910000+i,lid:39,lname:'Navigation QA League',lcountry:'England',date:day,time:'20:00',status:'NS',elapsed:null,home:'Home '+i,away:'Away '+i,gh:null,ga:null,ft_h:null,ft_a:null,ht_h:null,ht_a:null,updated_at:stamp,provider:'af',prediction:{lid:39,lname:'Navigation QA League',home:'Home '+i,away:'Away '+i,pick:'1',pick_prob:.64,market:'Winner',p_home:.64,p_draw:.2,p_away:.16,xg_home:1.8,xg_away:.9,kickoff:day,ktime:'20:00',made_at:stamp,withheld_at:null,final_pick:null,build:358}}));
 async function open(t,width=390){
- const browser=await chromium.launch({executablePath:process.env.MM_TEST_CHROMIUM||'/usr/bin/chromium',args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
+ const options=browserName==='chromium'?{executablePath:process.env.MM_TEST_CHROMIUM||'/usr/bin/chromium',args:['--no-sandbox','--disable-background-networking']}:{headless:true,...(process.env.MM_TEST_FIREFOX?{executablePath:process.env.MM_TEST_FIREFOX}:{})};
+ const browser=await driver[browserName].launch(options);t.after(()=>browser.close());
  const context=await browser.newContext({serviceWorkers:'block',viewport:{width,height:844},timezoneId:'UTC'});
  await context.addInitScript(()=>localStorage.setItem('mm-real-preview:mm_intro','1'));
  await context.route('**/*',r=>{const u=new URL(r.request().url());
   if(u.origin==='http://navigation.test')return r.fulfill({contentType:'text/html',body:u.pathname==='/outside'?'<title>Outside MatchMind</title><p>Previous website</p>':html});
   if(u.pathname.endsWith('mm_preview_status_v1'))return r.fulfill({json:{mode:'real-read-only',edition_id:'11111111-2222-4333-8444-555555555555',published_at:stamp,expires_at:expires,source_updated_at:stamp}});
-  if(u.pathname.endsWith('mm_preview_display_v1')){const {screen}=r.request().postDataJSON();return r.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?cards.map(c=>screen==='scores'?{...c,prediction:null}:c):[],board:null,records:{engine:null,clv:null},slips:[]}});}
+  if(u.pathname.endsWith('mm_preview_display_v2')){const {screen}=r.request().postDataJSON();return r.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?cards.map(c=>screen==='scores'?{...c,prediction:null}:c):[],board:null,records:{engine:null,clv:null},slips:[]}});}
   return r.abort();
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -101,7 +104,7 @@ for(const width of [320,390,1280])for(const tab of ['scores','predict','tips','f
  await page.goBack();await waitView(page,tab);await frames(page);
  const after=await page.evaluate(selector=>({y:scrollY,date:afState.selectedDate,scoresDate:afState.scoresDate,filter:afState.filter,scoreFilter:afState.scoreFilter,order:[...document.querySelectorAll(selector)].map(e=>e.textContent),length:history.length}),selector);
  assert.equal(after.date,before.date);assert.equal(after.scoresDate,before.scoresDate);assert.equal(after.filter,before.filter);assert.equal(after.scoreFilter,before.scoreFilter);assert.deepEqual(after.order,before.order);assert.ok(Math.abs(after.y-before.y)<=1,`scroll ${before.y} -> ${after.y}`);assert.equal(after.length,detailLength);
- if(process.env.MM_NAV_SCREENSHOT_DIR)await page.screenshot({path:process.env.MM_NAV_SCREENSHOT_DIR+'/'+tab+'-back-'+width+'.png'});
+ if(process.env.MM_NAV_SCREENSHOT_DIR)await page.screenshot({path:process.env.MM_NAV_SCREENSHOT_DIR+'/'+browserName+'-'+tab+'-back-'+width+'.png'});
  await page.goForward();await waitView(page,'detail');await frames(page);assert.equal(await page.locator('#heroPick').textContent(),detail);
  await page.locator('#backToFeed').click();await waitView(page,tab);await frames(page);assert.ok(Math.abs(await page.evaluate(()=>scrollY)-before.y)<=1);assert.equal(await page.evaluate(()=>history.length),detailLength);
  // Original rows retain their listeners after backward/forward restoration.
