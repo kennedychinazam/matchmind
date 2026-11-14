@@ -81,7 +81,7 @@ for(const [mode,html]of [['source',source],['real-preview',generated]]){
 
 for(const [mode,html]of [['source',source],['real-preview',generated]])for(const width of [320,390])test(`${mode} ${width}px: long genuine team identities fit without clipping names or probabilities`,async t=>{
  const page=await open(t,html,width);
- const violations=await page.evaluate(()=>{const out=[];for(const home of ['Brighton & Hove Albion','Chongqing Tongliang Long','SG Sonnenhof Grossaspach','Western Sydney Wanderers','Guidonia Montecelio 1937','Strasbourg Koenigshoffen']){
+ const violations=await page.evaluate(()=>{const out=[];for(const home of ['Brighton & Hove Albion','Chongqing Tongliang Long','SG Sonnenhof Grossaspach','Western Sydney Wanderers','Guidonia Montecelio 1937','Strasbourg Koenigshoffen','Borussia Mönchengladbach','Hemel Hempstead Town']){
   const card={fxid:990997,lid:39,lname:'Example League',lcountry:'Example',home,away:'Away Club',date:todayStrLocal(),time:'20:00',status:'NS',prediction:{home,away:'Away Club',lname:'Example League',pick:'1',pick_prob:.6,p_home:.6,p_draw:.2,p_away:.2,xg_home:1.7,xg_away:.8,kickoff:todayStrLocal(),ktime:'20:00',made_at:new Date().toISOString(),withheld_at:null}};
   const f=fixturePresentationRow(card,null),L={id:39,name:card.lname,country:card.lcountry,_presentation:true,matches:[],upcoming:[f]};showPublishedFixture(L,f);
   if(!$('heroHome').textContent.includes(home)||!$('outcomeRows').textContent.includes(home)||!$('outcomeRows').textContent.includes('60.0%'))out.push({home,missing:true});
