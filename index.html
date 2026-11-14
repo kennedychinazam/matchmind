@@ -3295,7 +3295,9 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const dnb=p&&['1D','2D'].includes(p.pick);
  $('heroDnb').textContent=dnb?'DNB probability excludes draws.':'';
  $('heroDnb').classList.toggle('hidden',!dnb);
- const comp=$('heroMeta').querySelector('.hm-comp');if(comp)comp.innerHTML=competitionBadge(L)+' '+esc(p&&p.lname||L.name);
+ const comp=$('heroMeta').querySelector('.hm-comp'),competition=p&&p.lname||L.name;
+ const country=L.country&&!competition.toLowerCase().includes(L.country.toLowerCase())?' · '+L.country:'';
+ if(comp)comp.innerHTML=competitionBadge(L)+' '+esc(competition+country);
 }
 
 function showPublishedFixture(L,f){
@@ -18054,9 +18056,12 @@ async function matchDetail(s){
   // Scores uses the same bounded football analysis as Analysis, including finished/live
   // fixtures. A history read retrieves its issued record; it never invokes a private reader.
   if(!fixtureRawCurrent()){
+    const detailTurn=++_analysisGeneration,originView=curView;
+    const requestContext={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+    const navigationTurn=typeof _navScrollEpoch==='number'?_navScrollEpoch:null;
     let {L,f}=ensureLeagueFromScore(s);
     try{
-      const history=await fixtureDisplayLoad('history'),scores=_fixtureDelivery.screens.get('scores');
+      const scores=_fixtureDelivery.screens.get('scores'),history=await fixtureDisplayLoad('history');
       if(scores&&(history.edition_id!==scores.edition_id||history.as_of!==scores.as_of))throw Error('Display edition changed');
       const original=history.cards.find(c=>c.fxid===s.fxid);
       if(original&&original.home===s.home&&original.away===s.away){
@@ -18065,6 +18070,8 @@ async function matchDetail(s){
         const i=L.upcoming.findIndex(x=>x.fxid===f.fxid);if(i>=0)L.upcoming[i]=f;
       }
     }catch{f={...f,_pickUnavailable:!f._displayCard?.prediction};}
+    if(detailTurn!==_analysisGeneration||curView!==originView||!fixtureDeliveryCurrent(requestContext)
+      ||navigationTurn!==null&&_navScrollEpoch!==navigationTurn)return;
     showPublishedFixture(L,f);return;
   }
   const credential=credentialContext();
