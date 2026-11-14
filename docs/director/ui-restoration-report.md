@@ -24,14 +24,16 @@ No prediction engine execution, market generation, historical forecast regenerat
 | H4: finished/live Scores used a separate route that hid analysis | Preserve the bounded Scores card and route public detail through the published renderer; added actual row-click tests. |
 | M5: a long AI-source identifier exceeded two displayed lines | Concise publication caption; full provenance in accessible metadata, without text clamping. |
 | H6: delayed history read reopened detail after navigation | Added request, navigation and account-context guards; reject cross-edition identity mixing. |
+| H7: long genuine team names exceeded two lines at 320px | Compact long hero names; full-width long probability labels above the unchanged track and probability. No names or values are clipped. |
+| Broader CI: withdrawn and pending/unresolved status was lost | Show concise withdrawal status beside the original badge and accurate pending/unavailable regulation-time state in the hero. |
 
 Final independent acceptance belongs to the reviewer and integration lead.
 
 ## Focused verification
 
-`test/published-detail-restoration.test.mjs` contains **40 tests**, covering source and generated real-preview HTML at 320px and 390px. The integration lead reported **40/40 passing** on integrated candidate `55a3256`. Cases cover issued/no-pick/missing/completed-DNB states, issued-slip analysis, informational fallback, actual finished/live Scores row clicks, concise text, long AI-source identifiers, overflow, unchanged source values, no model refit, delayed navigation/account cancellation, repeated clicks and cross-edition reads.
+`test/published-detail-restoration.test.mjs` contains **44 tests**, covering source and generated real-preview HTML at 320px and 390px. The integration lead reported **40/40 passing** on earlier integrated candidate `55a3256`; the four subsequently added long-name cases passed separately on `c85bc28`. The final combined candidate result supersedes these checkpoints. Cases cover issued/no-pick/missing/completed-DNB states, issued-slip analysis, informational fallback, actual finished/live Scores row clicks, concise text, long AI-source identifiers, overflow, unchanged source values, no model refit, delayed navigation/account cancellation, repeated clicks and cross-edition reads.
 
-The updated existing `director-mobile-display` and `public-analysis-visibility` suites passed **14/14** during this agent's focused verification. Later 16-case, 8-case and 4-case targeted runs are subsets of the 40-case suite and must not be added as extra unique tests. The integration lead owns the final combined test and CI counts.
+The updated existing `director-mobile-display` and `public-analysis-visibility` suites passed **14/14** during this agent's earlier focused verification. After broader CI exposed additional state/layout issues, the legacy `fixture-delivery-consumers` and `fixture-delivery-ui` suites passed **30/30**, the panel-specific standings test passed **1/1**, and the independent source/generated light/dark theme suite passed **4/4** against the corrected isolated UI. Actual captured long-name fixtures with the original Inter font also produced zero line violations at 320px and 390px. Later 16-case, 8-case and 4-case targeted runs are subsets of the restoration suite and must not be added as extra unique tests. The integration lead owns the final combined test and CI counts.
 
 Browser evidence is offline Chromium on `/usr/bin/chromium`. It is not physical Android Chrome, Samsung Internet or Firefox acceptance.
 
@@ -65,4 +67,4 @@ Full Build 355 analysis restoration therefore remains incomplete at the data/pub
 
 ## Implementation commits
 
-Agent 1 changes: `db020d2`, `d969c66`, `4dda6df`, `6eadfd6`. The integration lead cherry-picked these into the development branch. This documentation commit is separate; no application behavior changes accompany it.
+Agent 1 changes: `db020d2`, `d969c66`, `4dda6df`, `6eadfd6`, `c85bc28`. The integration lead cherry-picked these into the development branch. This documentation commit is separate; no application behavior changes accompany it.
