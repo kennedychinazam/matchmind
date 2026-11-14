@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {verifyDestination,requestFor} from '../staging/mirror/refresh.mjs';
 import {projectFixtureAnalysis} from '../staging/mirror/analysis-projection.mjs';
 import {buildPresentationPayload,validatePresentationPayload,PAYLOAD_SCHEMA} from '../backend/fixture-delivery/contract.mjs';
 const now=new Date('2026-11-13T10:00:00Z'),stamp='2026-11-13T09:00:00Z';
@@ -20,3 +21,9 @@ test('nested analysis probability vectors validated independently of prediction'
 test('browser and staging schema equal closed source schema; source proposal remains unchanged',()=>{const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');assert.deepEqual(JSON.parse(html.match(/const FIXTURE_DISPLAY_SCHEMA=(.*);\r?\n/)[1]),PAYLOAD_SCHEMA);const up=readFileSync(new URL('../staging/mirror/STAGING-analysis-up.sql',import.meta.url),'utf8');assert.deepEqual(JSON.parse(up.split('$schema$')[1]),PAYLOAD_SCHEMA);assert.match(up,/Isolated real-data preview required/);});
 
 test('collector FINISHED alias retains genuine source history',()=>{const a=project({history:[h({status:'FINISHED'})]});assert.deepEqual(a.form,{home:['W'],away:['L']});assert.equal(a.h2h[0].gh,2);});
+
+test('mirror readback verifies expanded v2 plus permanent closed v1 independently',async()=>{
+ const p=buildPresentationPayload({fixtures:[{...fixture(),analysis:project({board:board()})}]}),request=requestFor({payload:p,from:'2026-11-07',to:'2026-11-20',window_cards:1,cards:1,predictions:0,latest_source_update:stamp}),receipt={edition_id:'test'},paths=[];
+ const fetcher=async(u,o)=>{paths.push(u.pathname);if(u.pathname.endsWith('status_v1'))return{ok:true,json:async()=>({...receipt,payload_sha256:request.payload_sha256,cards:1,predictions:0})};const screen=JSON.parse(o.body).screen,cards=['scores','predictions','history'].includes(screen)?structuredClone(p.cards):[];if(screen==='scores')cards.forEach(c=>c.prediction=null);if(u.pathname.endsWith('display_v1'))cards.forEach(c=>delete c.analysis);return{ok:true,json:async()=>({...receipt,screen,cards,board:null,records:{engine:null,clv:null},slips:[]})};};
+ assert.deepEqual(await verifyDestination(request,receipt,fetcher),{verified_cards:1,verified_predictions:0});assert.ok(paths.some(p=>p.endsWith('display_v2'))&&paths.some(p=>p.endsWith('display_v1')));
+});

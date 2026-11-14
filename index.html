@@ -3081,7 +3081,7 @@ function fixtureEnvelope(value,screen){
     rule is now exactly those terms: accept while `as_of <= now` (+30s skew) and `now < expires_at`,
     with a hard 24-hour ceiling on the window. Fails closed on any unparseable timestamp. */
  if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
- if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>524288)throw Error('Display inventory exceeds limit');
+ if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>1048576)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
  const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
  const seen=new Set();

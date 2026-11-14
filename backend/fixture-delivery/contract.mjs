@@ -1,6 +1,6 @@
 /* Versioned private materialization boundary. No network, credentials, model fitting, or SQL execution. */
 export const CONTRACT_VERSION='matchmind-display/1';
-export const MAX_DOCUMENT_BYTES=524288;
+export const MAX_DOCUMENT_BYTES=1048576;
 const str=(max=160,nullable=false,pattern)=>({type:'string',max,nullable,...(pattern?{pattern}:{})});
 const num=(min=0,max=1e9,nullable=false,integer=false)=>({type:'number',min,max,nullable,integer});
 const bool={type:'boolean'};

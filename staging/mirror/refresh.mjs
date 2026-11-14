@@ -98,7 +98,7 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
  };
  const status=await rpc('mm_preview_status_v1',{});
  if(status?.edition_id!==receipt.edition_id||status.payload_sha256!==request.payload_sha256||status.cards!==request.cards||status.predictions!==request.predictions)throw Error('Staging edition readback mismatch');
- const screens=await Promise.all(['scores','predictions','history','records','slips'].map(screen=>rpc('mm_preview_display_v1',{screen})));
+ const screens=await Promise.all(['scores','predictions','history','records','slips'].map(screen=>rpc('mm_preview_display_v2',{screen})));
  if(screens.some(s=>s.edition_id!==receipt.edition_id))throw Error('Staging edition changed during readback');
  const original=JSON.parse(request.payload_text),seen=new Map();
  for(const s of screens)for(const c of s.cards){
@@ -106,6 +106,9 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
   if(!source||canonical(c)!==canonical(s.screen==='scores'?{...source,prediction:null}:source))throw Error('Staging fixture/forecast identity or original value mismatch');
   seen.set(c.fxid,c);
  }
+ const legacy=await rpc('mm_preview_display_v1',{screen:'scores'});
+ if(legacy.edition_id!==receipt.edition_id)throw Error('Legacy staging edition changed during readback');
+ for(const c of legacy.cards){const source=original.cards.find(s=>s.fxid===c.fxid);if(!source)throw Error('Legacy fixture identity mismatch');const {analysis,...old}=source;if(canonical(c)!==canonical({...old,prediction:null}))throw Error('Legacy closed fixture shape changed');}
  if(seen.size!==original.cards.length||canonical(screens[1].board)!==canonical(original.board)||canonical(screens[3].records)!==canonical(original.records)||canonical(screens[4].slips)!==canonical(original.slips))throw Error('Staging complete projection readback mismatch');
  return{verified_cards:seen.size,verified_predictions:original.cards.filter(c=>c.prediction).length};
 }
