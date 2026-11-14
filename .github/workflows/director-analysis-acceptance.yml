@@ -37,3 +37,15 @@ jobs:
           test/search-accessibility.test.mjs
           test/public-standings-availability.test.mjs
           test/independent-detail-theme.test.mjs
+  firefox-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.19.0'}
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - run: node node_modules/playwright-core/cli.js install --with-deps firefox
+      - name: Verify native Firefox history with intercepted data
+        run: MM_NAV_BROWSER=firefox node --test test/navigation-history.test.mjs
