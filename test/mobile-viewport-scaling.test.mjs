@@ -156,6 +156,8 @@ test('browser mode at S23 Ultra metrics, at 100% and at 130% text scaling',{time
       viewport:{width:d.width,height:d.height},deviceScaleFactor:d.dpr,isMobile:true,hasTouch:true});
     await context.route('**/*',r=>r.request().url()==='http://viewport-scaling.test/'
       ? r.fulfill({status:200,contentType:'text/html',body:html}) : r.abort());
+    // Returning-user layout; first-run behavior has dedicated WO62B tests.
+    await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
     const page=await context.newPage();
     const errors=[]; page.on('pageerror',e=>errors.push(e.message));
     await page.goto('http://viewport-scaling.test/');
@@ -214,6 +216,9 @@ test('installed-PWA display mode at S23 Ultra metrics, at 100% and at 130% text 
         if(!page) await new Promise(r=>setTimeout(r,100));
       }
       assert.ok(page,d.name+': the Chromium app window never opened the shell');
+      // The app window opened before an init script could be installed. Reload as a returning user.
+      await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
+      await page.reload({waitUntil:'load'});
       const errors=[]; page.on('pageerror',e=>errors.push(e.message));
       await page.waitForLoadState('load');
       /* The app window's inner size is whatever the window manager gave it; force the CSS viewport

@@ -12,7 +12,16 @@ async function open(t,legacy){
  const context=await browser.newContext({serviceWorkers:'block'});
  if(legacy)await context.addInitScript(value=>localStorage.setItem('mm_state',value),legacy);
  await context.route('**/*',r=>r.request().url()==='http://combined.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
- const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto('http://combined.test/');return page;
+ // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+ await context.addInitScript(()=>{
+  localStorage.setItem('mm_intro','1');
+  // The real 800ms boot refresh must finish before this test installs its account-only
+  // client stub. Otherwise that unrelated refresh consumes the stub and clears the seeded
+  // public corpus mid-Search. Observe completion instead of relying on browser speed.
+  const schedule=window.setTimeout;
+  window.setTimeout=(fn,ms,...args)=>schedule(()=>{try{fn(...args);}finally{if(ms===800)window.__mmBootRefreshComplete=true;}},ms);
+ });
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto('http://combined.test/');await page.waitForFunction(()=>window.__mmBootRefreshComplete===true);return page;
 }
 async function seed(page){await page.evaluate(async()=>{
  cloudEnabled=()=>true;aiShadowGate=async()=>{};window.writes=[];

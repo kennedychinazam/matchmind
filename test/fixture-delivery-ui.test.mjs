@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
+import {validatePresentationPayload} from '../backend/fixture-delivery/contract.mjs';
 const require=createRequire(import.meta.url),{chromium}=require('playwright-core');
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 async function open(t){
@@ -51,10 +52,18 @@ test('a partial published vector is rejected rather than completed from another 
  const result=await page.evaluate(async()=>{const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});data.cards[0].prediction.p_home=null;try{fixtureEnvelope(data,'predictions');return false;}catch{return true;}});
  assert.equal(result,true,'unknown and incomplete probabilities must not become an accepted issued vector');
 });
-test('multibyte display payloads obey the same UTF8 byte bound as the server',async t=>{
+test('multibyte display payloads enforce both actual server byte budgets',async t=>{
  const page=await open(t);await synthetic(page);
- const result=await page.evaluate(async()=>{const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'}),base=data.cards[0];data.board=null;data.cards=Array.from({length:300},(_,i)=>({...base,fxid:i+1,home:'界'.repeat(160),away:'外'.repeat(160),lname:'競'.repeat(160),lcountry:'国'.repeat(100),prediction:null}));const chars=JSON.stringify(data).length,bytes=new TextEncoder().encode(JSON.stringify(data)).length;try{fixtureEnvelope(data,'predictions');return{chars,bytes,rejected:false};}catch{return{chars,bytes,rejected:true};}});
- assert.ok(result.chars<524288&&result.bytes>524288,'control must distinguish characters from bytes');assert.equal(result.rejected,true);
+ const cases=await page.evaluate(async()=>{
+  const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'}),base=data.cards[0],out=[];
+  const run=(kind,n)=>{const d={...data,board:null,cards:Array.from({length:n},(_,i)=>({...base,fxid:i+1,prediction:null,...(kind==='legacy'?{home:'界'.repeat(160),away:'外'.repeat(160),lname:'競'.repeat(160),lcountry:'国'.repeat(100)}:{analysis:{source:'synthetic-approved',source_at:data.as_of,writeup:{text:'界'.repeat(4000),source:'synthetic-approved',source_at:data.as_of}}})}))};const payload={cards:d.cards,board:d.board,records:d.records,slips:d.slips},wire=JSON.stringify(payload),legacy=JSON.stringify({...payload,cards:payload.cards.map(({analysis,...c})=>c)});let rejected=false;try{fixtureEnvelope(d,'predictions');}catch{rejected=true;}out.push({kind,payload,chars:wire.length,bytes:new TextEncoder().encode(wire).length,legacyBytes:new TextEncoder().encode(legacy).length,rejected});};
+  run('legacy',300);run('expanded-accepted',70);run('expanded-rejected',100);return out;
+ });
+ for(const c of cases){let serverRejected=false;try{validatePresentationPayload(c.payload);}catch{serverRejected=true;}assert.equal(c.rejected,serverRejected,c.kind+' browser agrees with actual typed server validator');}
+ const [legacy,accepted,expanded]=cases;
+ assert.ok(legacy.chars<524288&&legacy.bytes>524288&&legacy.bytes<1048576);assert.equal(legacy.rejected,true);
+ assert.ok(accepted.legacyBytes<524288&&accepted.bytes>524288&&accepted.bytes<1048576);assert.equal(accepted.rejected,false);
+ assert.ok(expanded.chars<1048576&&expanded.bytes>1048576);assert.equal(expanded.rejected,true);
 });
 test('calendar, board authority and record identity follow the same semantic contract as the server',async t=>{
  const page=await open(t);await synthetic(page);
@@ -100,10 +109,10 @@ test('old-day and excessive-lived editions cannot be accepted as current display
  const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});return[x=>{x.as_of='2020-01-01T00:00:00.000Z';},x=>{x.expires_at='2099-01-01T00:00:00.000Z';}].map(fn=>{const c=JSON.parse(JSON.stringify(data));fn(c);try{fixtureEnvelope(c,'predictions');return false;}catch{return true;}});});
  assert.deepEqual(result,[true,true]);
 });
-test('published rows retain original issued identity and kickoff while score cards remain current',async t=>{
+test('published rows use current fixture schedule while history retains original issued identity and kickoff',async t=>{
  const page=await open(t);await synthetic(page);
- const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});const c=data.cards[0];c.home='Current Home';c.away='Current Away';c.date='2099-11-03';c.prediction.home='Original Home';c.prediction.away='Original Away';c.prediction.lname='Original League';c.prediction.kickoff='2026-01-01';c.prediction.ktime='12:00';const row=fixturePresentationRow(c,null),history=fixturePublicRows('predictions',data)[0];return{row:{home:row.home,away:row.away,date:row.date,time:row.time},history:{home:history.home,away:history.away,lname:history.lname},card:{home:c.home,date:c.date}};});
- assert.deepEqual(result,{row:{home:'Original Home',away:'Original Away',date:'2026-01-01',time:'12:00'},history:{home:'Original Home',away:'Original Away',lname:'Original League'},card:{home:'Current Home',date:'2099-11-03'}});
+ const result=await page.evaluate(async()=>{const{data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});const c=data.cards[0];c.home='Current Home';c.away='Current Away';c.date='2099-11-03';c.prediction.home='Original Home';c.prediction.away='Original Away';c.prediction.lname='Original League';c.prediction.kickoff='2026-01-01';c.prediction.ktime='12:00';const row=fixturePresentationRow(c,null),history=fixturePublicRows('predictions',data)[0];return{row:{home:row.home,away:row.away,date:row.date,time:row.time},history:{home:history.home,away:history.away,lname:history.lname,kickoff:history.kickoff,ktime:history.ktime},card:{home:c.home,date:c.date}};});
+ assert.deepEqual(result,{row:{home:'Original Home',away:'Original Away',date:'2099-11-03',time:'23:59'},history:{home:'Original Home',away:'Original Away',lname:'Original League',kickoff:'2026-01-01',ktime:'12:00'},card:{home:'Current Home',date:'2099-11-03'}});
 });
 test('obsolete same-account capability responses cannot detach a newer valid delivery state',async t=>{
  const page=await open(t);await synthetic(page);

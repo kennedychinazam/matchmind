@@ -7,7 +7,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23070c18'/%3E%3Crect x='20.5' y='6' width='7' height='5' rx='1.6' fill='%23f6c344'/%3E%3Ccircle cx='24' cy='28' r='15' fill='none' stroke='%23f6c344' stroke-width='3.2'/%3E%3Cpath d='M16 35 V21 L24 29 L32 21 V35' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<title>MatchMind PRO — Statistical Football Forecasts</title>
+<title>MatchMind PRO: Statistical Football Forecasts</title>
+<script>
+const APP_NAME = 'MatchMind';
+const APP_NAME_FULL = APP_NAME + ' PRO';
+document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
+</script>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -165,6 +170,8 @@
   .setsel{max-width:38%; min-width:96px; text-align:right; text-align-last:right; padding-right:6px;}
   .analysis{line-height:1.75; font-size:.92rem; white-space:pre-wrap; padding-top:10px;
     text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto; overflow-wrap:break-word;}
+  .analysis.published{text-align:left; text-align-last:auto; hyphens:none; -webkit-hyphens:none;}
+  html[dir="rtl"] .analysis.published{text-align:right;}
   .ctxprose{text-align:justify; text-align-last:left; hyphens:auto; -webkit-hyphens:auto;}
   .verdict{border-left:3px solid var(--gold); background:var(--card2); padding:12px 14px; border-radius:0 12px 12px 0; margin-top:12px; font-size:.9rem;}
   .spinner{display:inline-block; width:13px; height:13px; border:2px solid var(--border2); border-top-color:var(--gold); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:7px;}
@@ -380,6 +387,19 @@
   .predchip.statuschip::after{content:''; position:absolute; left:-3px; right:-3px; top:50%;
     transform:translateY(-50%); height:44px;}
   .predchip.statuschip:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+  /* Director 5 approved fixture state: the provider status occupies the prediction slot while
+     the left column remains a real kickoff/minute. The quiet solid pill mirrors the public UI
+     reference and the 44px pseudo hit area preserves touch accessibility without growing rows. */
+  .predchip.exceptional-chip{display:inline-flex;align-items:center;justify-content:center;gap:4px;
+    flex:0 0 auto;min-width:0;max-width:none;padding:6px 8px;border-radius:11px;white-space:nowrap;
+    background:rgba(148,163,184,.09);border:1px solid rgba(148,163,184,.42);
+    color:#aab4c8;font-size:.64rem;font-weight:700;overflow-wrap:normal;}
+  .predchip.exceptional-chip svg{width:10px;height:10px;flex:0 0 auto;fill:currentColor;opacity:.85;}
+  .scscore.exceptional-status-slot{width:auto;}
+  .scscore .exceptional-chip{width:auto;}
+  .fxrow>.fxteams{min-width:0;}
+  .fxrow>.fxteams .tline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  @media(max-width:340px){.predchip.exceptional-chip{gap:4px;padding:6px 7px;font-size:.64rem;}}
   /* compact left-aligned star for Scores & Predict rows (keeps room for team names) */
   .mstar.lft{width:15px; font-size:.92rem; flex-shrink:0;}
   /* slip summary note: readable on the green background (was faint grey) */
@@ -407,6 +427,24 @@
   .cghead.sub{margin-top:4px; background:var(--card); font-size:.82rem;}
 
   /* toast */
+  .introwrap{position:fixed; inset:0; z-index:300; background:var(--overlay); backdrop-filter:blur(14px);
+             overflow-y:auto; display:flex; justify-content:center;}
+  .introwrap[hidden]{display:none;}
+  .introbox{width:100%; max-width:520px; padding:26px 20px 30px; display:flex; flex-direction:column; gap:14px;}
+  .intronm{font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--text);}
+  .introlead{font-size:.95rem; font-weight:600; color:var(--muted); line-height:1.5;}
+  .introsec{border:1px solid var(--border); border-radius:14px; background:var(--card); padding:13px 14px;}
+  .introsec h4{margin:0 0 7px; font-size:.72rem; font-weight:800; letter-spacing:.07em;
+               text-transform:uppercase; color:var(--muted2);}
+  .introsec p{margin:0 0 5px; font-size:.9rem; line-height:1.45; color:var(--text);}
+  .introsec p:last-child{margin-bottom:0;}
+  .introrec{font-size:.9rem; font-weight:700; color:var(--green2); line-height:1.45;}
+  .introage{display:inline-block; margin-top:4px; padding:2px 9px; border-radius:11px;
+            background:var(--card3); border:1px solid var(--border2); font-size:.78rem; font-weight:800;}
+  .introlinks{display:flex; flex-wrap:wrap; gap:14px; font-size:.84rem; font-weight:700;}
+  .introlinks a{color:var(--gold); text-decoration:none;}
+  .introgo{width:100%; padding:14px; border:none; border-radius:14px; background:var(--gold);
+           color:#1a1203; font-size:1rem; font-weight:900; cursor:pointer;}
   .toast{position:fixed; bottom:92px; left:50%; transform:translateX(-50%); background:var(--card3); color:var(--text); border:1px solid var(--border2); border-radius:22px; padding:11px 20px; font-size:.86rem; font-weight:700; z-index:200; box-shadow:0 8px 30px rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none;}
   .toast.show{opacity:1;}
 
@@ -496,6 +534,35 @@
   .slipleg .lgscore{margin-left:auto; flex:none; font-size:.82rem; font-weight:800;
                     color:var(--text); background:var(--line); border-radius:7px;
                     padding:2px 8px; letter-spacing:.02em;}
+
+/* Published match details retain Build 355 shells, spacing and palette. Text is concise
+   at source; no line clamps conceal probabilities or supporting data. */
+#results.published-detail .tname{min-width:0;overflow-wrap:anywhere}
+#results.published-detail .tname .published-long-name,#results.published-detail .published-long-label .plabel{word-break:break-all}
+#results.published-detail .hero .pick{font-size:1.12rem;line-height:1.3}
+#results.published-detail .plabel{min-width:0;overflow-wrap:anywhere;font-size:.84rem;line-height:1.3}
+#results.published-detail .pval{flex:0 0 56px;width:56px}
+#results.published-detail .prow{gap:8px}
+#results.published-detail .subnote{line-height:1.35}
+#results.published-detail .published-form{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem;line-height:1.3}
+#results.published-detail .published-meeting{padding:8px 0;border-bottom:1px solid var(--border);font-size:.78rem}
+#results.published-detail .published-meeting>div{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;line-height:1.3}
+#results.published-detail .published-meeting>div>span:last-child{text-align:right}
+#results.published-detail .published-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:.74rem}
+#results.published-detail .published-table th,#results.published-detail .published-table td{padding:7px 3px;text-align:right;border-bottom:1px solid var(--border)}
+#results.published-detail .published-table th:first-child{width:25px}
+#results.published-detail .published-table th:nth-child(2){width:48%}
+#results.published-detail .published-table td:nth-child(2),#results.published-detail .published-table th:nth-child(2){text-align:left;overflow-wrap:anywhere}
+#results.published-detail .published-table .selected{color:var(--gold);font-weight:700}
+#results.published-detail #analysisText:not(.published-writeup){font-size:.78rem;line-height:1.35;padding-top:10px}
+#results.published-detail #verdictBox{font-size:.72rem;line-height:1.35}
+@media(max-width:360px){#results.published-detail .acc-head{gap:7px;padding:14px 12px}#results.published-detail .acc-head .t{font-size:.88rem}#results.published-detail .acc-body{padding-inline:12px}#results.published-detail .hero .tname{font-size:.9rem}}
+
+@media(max-width:360px){
+ #results.published-detail .tname .published-long-name{font-size:.74rem;line-height:1.3}
+ #results.published-detail .prow.published-long-label{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:6px 8px}
+ #results.published-detail .prow.published-long-label .plabel{grid-column:1/-1;width:auto}
+}
 </style>
 </head>
 <body>
@@ -537,7 +604,7 @@
 <div class="app">
 
   <div class="topbar">
-    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>MatchMind <span class="pro">PRO</span></div>
+    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span id="brandName"></span> <span class="pro">PRO</span></div>
     <div class="topright">
       <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
       <button class="iconbtn" id="searchOpen" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;display:block"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
@@ -582,11 +649,11 @@
       <div class="datebar" id="dateBar"></div>
       <div class="card" id="fixtureList"></div>
     </div>
+    <div class="status" id="fixturesMeta" role="status">Matches temporarily unavailable. Please try again.</div>
 
-    <div class="card hidden" id="discoverCard">
-      <div class="muted" style="margin-bottom:10px;">Find what's playing <b>right now</b> — World Cup, friendlies, qualifiers, any active competition worldwide.</div>
-      <button class="btn gold" id="discoverBtn">🔍 Discover competitions</button>
-      <div class="status" id="discoverStatus"></div>
+    <!-- Compatibility-only discovery nodes. Public provider discovery is disabled by policy. -->
+    <div hidden aria-hidden="true" id="discoverCard">
+      <div id="discoverBtn"></div><div id="discoverStatus"></div>
     </div>
 
   </div>
@@ -903,21 +970,17 @@
         <button class="btn" id="goFavs">Open</button>
       </div>
       <div class="setrow aboutrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd">MatchMind PRO · <span id="verLabel">v0.9</span></div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5"/><circle cx="12" cy="7.8" r="0.9" fill="var(--gold)" stroke="none"/></svg></span><div><div class="sl" data-i18n="About">About</div><div class="sd"><span id="aboutName"></span> · <span id="verLabel">App v0.9</span></div></div></div>
         <span class="muted" style="font-size:.72rem">Statistical football forecasts</span>
       </div>
     </div>
 
-    <div class="sec-label">Personal provider keys</div>
-    <div class="card">
-      <p>Keys saved for an account stay on this device. Guest keys last only for this session. Existing unassigned keys are retained and are not used.</p>
-      <label for="afKey">API-Football key</label><input id="afKey" type="password" autocomplete="off">
-      <button class="btn" id="afSaveKey">Save key for this account / use for this guest session</button><div id="afKeyStatus" role="status"></div>
-      <label><input type="checkbox" id="afKeyUse"> Allow API-Football requests this session</label>
-      <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiServerStatus"></div>
-      <label id="aiKeyLabel" for="aiKeyInput">AI API key</label><input id="aiKeyInput" type="password" autocomplete="off">
-      <button class="btn" id="aiSaveBtn">Save key for this account / use for this guest session</button><div id="keyStatus" role="status"></div>
-      <label><input type="checkbox" id="aiKeyUse"> Allow personal AI key fallback this session</label>
+    <!-- Non-input compatibility nodes only. They cannot save or activate provider credentials. -->
+    <div hidden aria-hidden="true" id="personalProviderStubs">
+      <div id="aiServerStatus" role="status"></div>
+      <div id="afKey"></div><div id="aiKeyInput"></div><div id="afKeyUse"></div><div id="aiKeyUse"></div>
+      <div id="afSaveKey"></div><div id="aiSaveBtn"></div><div id="afKeyStatus"></div><div id="keyStatus"></div>
+      <div id="aiProviderChips"></div><div id="aiCompareChips"></div><div id="aiKeyLabel"></div>
     </div>
     <div class="sec-label" data-i18n="Your data">Your data</div>
     <div class="card">
@@ -1019,6 +1082,40 @@
 </div>
 
 <!-- Supabase SDK (accounts + sync). Fails silently offline → app stays in guest mode. -->
+<div class="introwrap" id="introScreen" role="dialog" aria-modal="true" aria-labelledby="introName" tabindex="-1" hidden>
+  <div class="introbox">
+    <div class="intronm" id="introName"></div>
+    <div class="introlead">Football predictions from a model, published before kick-off and counted afterwards.</div>
+
+    <div class="introsec">
+      <h4>How it works</h4>
+      <p>A pick is published before the match kicks off.</p>
+      <p>It is then frozen. Nobody can change it afterwards.</p>
+      <p>Every pick is counted when the match ends, the wrong ones too.</p>
+    </div>
+
+    <div class="introsec">
+      <h4>The record so far</h4>
+      <div class="introrec" id="introRecord"></div>
+    </div>
+
+    <div class="introsec">
+      <h4>What this is not</h4>
+      <p>Not a bookmaker. It takes no stake and pays no winnings.</p>
+      <p>Nothing here is advice to bet.</p>
+      <p><span class="introage">18+</span></p>
+    </div>
+
+    <div class="introlinks">
+      <a href="#" id="introTerms">Terms</a>
+      <a href="#" id="introPrivacy">Privacy</a>
+      <a href="#" id="introPlay">Responsible play</a>
+    </div>
+
+    <button class="introgo" id="introGo">Open the app</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
@@ -1030,6 +1127,13 @@
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
 const APP_BUILD = 358;   // bump every release; shown in More → About and matches the service-worker version
+const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
+function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
+function applyAppName(){
+ for(const [id,text] of [['brandName',APP_NAME],['aboutName',APP_NAME_FULL],['introName',APP_NAME]]){const el=document.getElementById(id);if(el)el.textContent=text;}
+}
+applyAppName();
+
 let supa = null, authUser = null, _cloudPushT = null, authMode = 'login';   // authMode: 'login' | 'signup'
 let _authAttempt = 0, _cloudAccountEpoch = 0, _cloudPushVersion = 0, _analysisGeneration = 0;
 let _cloudSync = {owner:null,status:'idle'};
@@ -2513,6 +2617,7 @@ function deLatex(s){
     .trim();
 }
 async function callClaude(payload, key, credential){
+  personalProviderCheck();
   credentialCheck(credential);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
@@ -2526,6 +2631,7 @@ async function callClaude(payload, key, credential){
 // OpenAI-compatible chat/completions (DeepSeek, Kimi/Moonshot, etc.)
 function openAICompat(url, model){
   return async (payload, key, credential)=>{
+    personalProviderCheck();
     credentialCheck(credential);
     const res = await fetch(url, {
       method:'POST',
@@ -2624,7 +2730,7 @@ async function refreshServerProviders(){
    Returns {text, via} or throws with a message already fit to show the user. */
 async function runAIWriter(providerId, payload, credential=credentialContext()){
   credentialCheck(credential);
-  const p = aiProviderById(providerId), ownKey = aiKeys[providerId];
+  const p = aiProviderById(providerId), ownKey = PERSONAL_PROVIDER_INPUTS_ENABLED ? aiKeys[providerId] : null;
   let serverErr = null;
   if(supa){
     try{ const j = await callProxy(payload, providerId, credential); return { text:j.text, via:'server', label:j.providerLabel || p.name }; }
@@ -2637,11 +2743,10 @@ async function runAIWriter(providerId, payload, credential=credentialContext()){
     }
   }
   credentialCheck(credential);
-  if(ownKey && p.run && $('aiKeyUse') && $('aiKeyUse').checked){ const text=await p.run(payload, ownKey, credential); credentialCheck(credential); return { text, via:'own', label:p.name }; }
-  if(ownKey && p.run) throw new Error('Enable personal AI key fallback for this session to use the saved key.');
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED && ownKey && p.run && $('aiKeyUse') && $('aiKeyUse').checked){ const text=await p.run(payload, ownKey, credential); credentialCheck(credential); return { text, via:'own', label:p.name }; }
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED && ownKey && p.run) throw new Error('Enable personal AI key fallback for this session to use the saved key.');
   if(serverErr) throw serverErr;
-  throw new Error(p.run ? 'Add a '+p.name+' key in More → Settings, or sign in to use the shared allowance.'
-                        : p.name+' needs the server — sign in to use it.');
+  throw new Error('AI analysis requires an authorized server session; personal provider fallback is unavailable.');
 }
 function syncAIKeyField(){
   const p = aiProviderById(aiProvider);
@@ -2655,6 +2760,10 @@ function quotaNote(via){
   return `  (${u} of ${aiQuota.limit} free analyses used today.)`;
 }
 function renderAISettings(){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){
+    if($('aiServerStatus')) $('aiServerStatus').textContent='AI analysis availability is managed by MatchMind.';
+    return;
+  }
   const pc = $('aiProviderChips'); if(!pc) return;
   // ● marks a provider the server can write with — no personal key needed
   const onServer = (id)=> aiServerProviders && aiServerProviders.includes(id);
@@ -2732,8 +2841,10 @@ const afRate = [];   // timestamps of recent requests — free plan allows 10/mi
      • Manual buttons (Load leagues, Discover) are untouched; they only run when pressed. */
 let afExtras = false;
 function afCloudOwnsFixtures(){ return !!supa; }
-function afExtrasOn(){ return !!afState.key && !!($('afKeyUse') && $('afKeyUse').checked) && (afExtras || !supa); }
-const AF_OFF_MSG = 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).';
+function afExtrasOn(){ return PERSONAL_PROVIDER_INPUTS_ENABLED && !!afState.key && !!($('afKeyUse') && $('afKeyUse').checked) && (afExtras || !supa); }
+const AF_OFF_MSG = PERSONAL_PROVIDER_INPUTS_ENABLED
+  ? 'API-Football extras are off — switch them on in More → Data to use this (it spends your API-Football requests).'
+  : 'These football details are unavailable in this public version.';
 async function afAuto(path, base, credential=credentialContext()){
   credentialCheck(credential);
   if(!afExtrasOn()) throw new Error(AF_OFF_MSG);
@@ -2741,6 +2852,7 @@ async function afAuto(path, base, credential=credentialContext()){
 }
 
 async function afFetch(path, base, credential=credentialContext()){
+  personalProviderCheck();
   credentialCheck(credential);
   const key=afState.key;
   if(!key || !$('afKeyUse') || !$('afKeyUse').checked) throw Error('Enable API-Football requests for this session first.');
@@ -2834,6 +2946,7 @@ async function afLoadAll(){
 
 // scan the whole football world for live competitions (≈13 requests)
 async function afDiscover(){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){$('discoverStatus').textContent='Competitions are managed by the server and appear after the next normal refresh.';return;}
   const credential=credentialContext();
   /* use only the currently assigned credential */
   if(!afState.key){ alert('Add your API-Football key in the Data tab first.'); return; }
@@ -2945,7 +3058,7 @@ function fixtureTimestamp(value){
  const date=value.slice(0,10),parsed=new Date(date+'T00:00:00.000Z');
  return Number.isFinite(+parsed)&&parsed.toISOString().slice(0,10)===date;
 }
-const FIXTURE_DISPLAY_SCHEMA={"type":"object","properties":{"cards":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"lcountry":{"type":"string","max":100,"nullable":false},"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"time":{"type":"string","max":12,"nullable":true},"status":{"type":"string","max":24,"nullable":false},"elapsed":{"type":"number","min":0,"max":200,"nullable":true,"integer":true},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"updated_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"provider":{"type":"string","max":80,"nullable":true},"prediction":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"pick":{"type":"string","max":160,"nullable":true},"pick_prob":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"market":{"type":"string","max":160,"nullable":true},"p_home":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xg_home":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"kickoff":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"ktime":{"type":"string","max":12,"nullable":true},"made_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"withheld_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"final_pick":{"type":"string","max":160,"nullable":true},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true}},"required":["lid","lname","home","away","pick","pick_prob","market","p_home","p_draw","p_away","xg_home","xg_away","kickoff","ktime","made_at","withheld_at","final_pick","build"],"nullable":true}},"required":["fxid","lid","lname","lcountry","date","time","status","elapsed","home","away","gh","ga","ft_h","ft_a","ht_h","ht_a","updated_at","provider","prediction"],"nullable":false},"max":1000},"board":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"ahead":{"type":"number","min":7,"max":7,"nullable":false,"integer":true},"builtAt":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"notPassed":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"noBars":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"f":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"l":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"n":{"type":"string","max":160,"nullable":false},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"p":{"type":"string","max":160,"nullable":true},"q":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"m":{"type":"string","max":160,"nullable":true},"g":{"type":"string","max":160,"nullable":true},"z":{"type":"boolean"},"pw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pd":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pq":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xh":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xa":{"type":"number","min":0,"max":100,"nullable":true,"integer":false}},"required":["f","l","n","d","t","h","a","p","q","m","g","z","pw","pd","pq","xh","xa"],"nullable":false},"max":1000}},"required":["v","ahead","builtAt","n","notPassed","noBars","rows"],"nullable":true},"records":{"type":"object","properties":{"engine":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"days":{"type":"map","max":5000,"key":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","values":{"type":"map","max":32,"key":"^[A-Za-z0-9 /.+_-]{1,60}$","values":{"type":"array","items":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"min":3,"max":3}}},"total":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"graded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"withheld":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"excluded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"pending":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"orphan":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"off":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ungradeable":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"voidLate":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["v","days","total","graded","withheld","excluded","pending","orphan","off","ungradeable","voidLate"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true},"clv":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"raw":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"devig":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"beat":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"tie":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"from":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"}},"required":["v","raw","devig","beat","tie","lost","from","to"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true}},"required":["engine","clv"],"nullable":false},"slips":{"type":"array","items":{"type":"object","properties":{"day":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"tier":{"type":"string","max":40,"nullable":false},"odds":{"type":"number","min":0,"max":1000000000000,"nullable":false,"integer":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"step":{"type":"string","max":80,"nullable":false},"legs":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":true,"integer":true},"code":{"type":"string","max":40,"nullable":false},"market":{"type":"string","max":60,"nullable":false},"p":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"o":{"type":"number","min":1,"max":1000000,"nullable":true,"integer":false},"tab":{"type":"string","max":30,"nullable":false},"rank":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"sel":{"type":"string","max":240,"nullable":false}},"required":["fxid","d","h","a","code","p"],"nullable":false},"max":40}},"required":["day","tier","odds","build","step","legs"],"nullable":false},"max":128}},"required":["cards","board","records","slips"],"nullable":false};
+const FIXTURE_DISPLAY_SCHEMA={"type":"object","properties":{"cards":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"lcountry":{"type":"string","max":100,"nullable":false},"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"time":{"type":"string","max":12,"nullable":true},"status":{"type":"string","max":24,"nullable":false},"elapsed":{"type":"number","min":0,"max":200,"nullable":true,"integer":true},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"updated_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"provider":{"type":"string","max":80,"nullable":true},"prediction":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"pick":{"type":"string","max":160,"nullable":true},"pick_prob":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"market":{"type":"string","max":160,"nullable":true},"p_home":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xg_home":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"kickoff":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"ktime":{"type":"string","max":12,"nullable":true},"made_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"withheld_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"final_pick":{"type":"string","max":160,"nullable":true},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true}},"required":["lid","lname","home","away","pick","pick_prob","market","p_home","p_draw","p_away","xg_home","xg_away","kickoff","ktime","made_at","withheld_at","final_pick","build"],"nullable":true},"analysis":{"type":"object","properties":{"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"history_source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"xg_home":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"result":{"type":"object","properties":{"p_home":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["p_home","p_draw","p_away"],"nullable":false},"goals":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":8},"combos":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"htft":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":9},"correct_scores":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"scorers":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":16},"form":{"type":"object","properties":{"home":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5},"away":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5}},"required":["home","away"],"nullable":false},"h2h":{"type":"array","items":{"type":"object","properties":{"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":false,"integer":true}},"required":["date","home","away","gh","ga"],"nullable":false},"max":5},"standings":{"type":"object","properties":{"season":{"type":"number","min":1900,"max":2200,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"rank":{"type":"number","min":1,"max":100,"nullable":false,"integer":true},"team":{"type":"string","max":160,"nullable":false},"played":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"won":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"drawn":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"gf":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"points":{"type":"number","min":-100,"max":1000,"nullable":false,"integer":true}},"required":["rank","team","played","won","drawn","lost","gf","ga","points"],"nullable":false},"max":64}},"required":["season","rows"],"nullable":false},"writeup":{"type":"object","properties":{"text":{"type":"string","max":32768,"nullable":false},"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["text","source","source_at"],"nullable":false}},"required":["source","source_at"],"nullable":false}},"required":["fxid","lid","lname","lcountry","date","time","status","elapsed","home","away","gh","ga","ft_h","ft_a","ht_h","ht_a","updated_at","provider","prediction"],"nullable":false},"max":1000},"board":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"ahead":{"type":"number","min":7,"max":7,"nullable":false,"integer":true},"builtAt":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"notPassed":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"noBars":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"f":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"l":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"n":{"type":"string","max":160,"nullable":false},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"p":{"type":"string","max":160,"nullable":true},"q":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"m":{"type":"string","max":160,"nullable":true},"g":{"type":"string","max":160,"nullable":true},"z":{"type":"boolean"},"pw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pd":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pq":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xh":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xa":{"type":"number","min":0,"max":100,"nullable":true,"integer":false}},"required":["f","l","n","d","t","h","a","p","q","m","g","z","pw","pd","pq","xh","xa"],"nullable":false},"max":1000}},"required":["v","ahead","builtAt","n","notPassed","noBars","rows"],"nullable":true},"records":{"type":"object","properties":{"engine":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"days":{"type":"map","max":5000,"key":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","values":{"type":"map","max":32,"key":"^[A-Za-z0-9 /.+_-]{1,60}$","values":{"type":"array","items":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"min":3,"max":3}}},"total":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"graded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"withheld":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"excluded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"pending":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"orphan":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"off":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ungradeable":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"voidLate":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["v","days","total","graded","withheld","excluded","pending","orphan","off","ungradeable","voidLate"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true},"clv":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"raw":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"devig":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"beat":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"tie":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"from":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"}},"required":["v","raw","devig","beat","tie","lost","from","to"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true}},"required":["engine","clv"],"nullable":false},"slips":{"type":"array","items":{"type":"object","properties":{"day":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"tier":{"type":"string","max":40,"nullable":false},"odds":{"type":"number","min":0,"max":1000000000000,"nullable":false,"integer":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"step":{"type":"string","max":80,"nullable":false},"legs":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":true,"integer":true},"code":{"type":"string","max":40,"nullable":false},"market":{"type":"string","max":60,"nullable":false},"p":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"o":{"type":"number","min":1,"max":1000000,"nullable":true,"integer":false},"tab":{"type":"string","max":30,"nullable":false},"rank":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"sel":{"type":"string","max":240,"nullable":false}},"required":["fxid","d","h","a","code","p"],"nullable":false},"max":90}},"required":["day","tier","odds","build","step","legs"],"nullable":false},"max":128}},"required":["cards","board","records","slips"],"nullable":false};
 function fixtureProjection(value,s,path='display',depth=0){
  if(depth>12)throw Error('Display nesting exceeds limit');
  if(value===null){if(s.nullable)return;throw Error(path+': null not permitted');}
@@ -2974,17 +3087,20 @@ function fixtureEnvelope(value,screen){
     rule is now exactly those terms: accept while `as_of <= now` (+30s skew) and `now < expires_at`,
     with a hard 24-hour ceiling on the window. Fails closed on any unparseable timestamp. */
  if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
- if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>524288)throw Error('Display inventory exceeds limit');
+ if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>1048576)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
+ const legacyPayload={cards:value.cards.map(({analysis,...c})=>c),board:value.board,records:value.records,slips:value.slips.filter(s=>s.legs.length<=40)};if(new TextEncoder().encode(JSON.stringify(legacyPayload)).byteLength>524288)throw Error('Legacy display inventory exceeds limit');
  const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
  const seen=new Set();
  for(const r of value.cards){
-  if(!r||typeof r!=='object'||Object.keys(r).sort().join(',')!==allowed.slice().sort().join(',')||!Number.isSafeInteger(r.fxid)||r.fxid<=0||!Number.isSafeInteger(r.lid)||r.lid<=0||seen.has(r.fxid))throw Error('Invalid display fixture');
+  if(!r||typeof r!=='object'||Object.keys(r).some(k=>!allowed.includes(k)&&k!=='analysis')||allowed.some(k=>!Object.hasOwn(r,k))||!Number.isSafeInteger(r.fxid)||r.fxid<=0||!Number.isSafeInteger(r.lid)||r.lid<=0||seen.has(r.fxid))throw Error('Invalid display fixture');
   seen.add(r.fxid);
   for(const k of ['home','away','lname','lcountry','date','status'])if(!fixtureText(r[k],k==='lcountry'?100:160))throw Error('Invalid fixture identity');
   for(const k of ['gh','ga','ft_h','ft_a','ht_h','ht_a'])if(r[k]!==null&&(!Number.isInteger(r[k])||r[k]<0||r[k]>100))throw Error('Invalid display score');
+  if(r.analysis?.result){const v=Object.values(r.analysis.result);if(Math.abs(v.reduce((a,b)=>a+b,0)-1)>.0002)throw Error('Invalid analysis probability vector');}
   if(r.prediction){const p=r.prediction,v=[p.p_home,p.p_draw,p.p_away];if(v.some(x=>x===null)&&v.some(x=>x!==null)||v.some(x=>x!==null&&(typeof x!=='number'||!Number.isFinite(x)||x<0||x>1))||v.every(x=>x!==null)&&Math.abs(v.reduce((a,b)=>a+b,0)-1)>.0002)throw Error('Invalid issued probability vector');}
  }
+ for(const s of value.slips){if(s.tier!=='tips'){if(s.legs.length>40)throw Error('Issued slip exceeds40leg bound');continue;}const seen=new Set();for(const l of s.legs){if(!['winner','ou','btts'].includes(l.tab)||!Number.isInteger(l.rank)||l.rank<0||l.rank>=30||seen.has(l.tab+':'+l.rank))throw Error('Invalid issued tip tab/rank');seen.add(l.tab+':'+l.rank);}}
  if(!value.records||Object.keys(value.records).sort().join(',')!=='clv,engine')throw Error('Invalid display records');
  if(value.board){
   if(!Array.isArray(value.board.rows)||value.board.rows.length>1000||value.board.n!==value.board.rows.length)throw Error('Invalid display board');
@@ -3064,12 +3180,12 @@ function fixtureTable(table){
   count=rows.length;
   if(columns!=='*'){const keys=columns.split(',');if(keys.some(k=>!/^\w+$/.test(k)))throw Error('Unsupported display field selector');rows=rows.map(r=>Object.fromEntries(keys.filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]])));}
   return {data:head?null:single?(rows[0]||null):rows,error:null,count};
- }catch(e){return{data:null,error:{message:'Bounded fixture display unavailable',code:'MM_DISPLAY_UNAVAILABLE'},count:null};}}
+ }catch(e){return{data:null,error:{message:'Matches temporarily unavailable. Please try again.',code:'MM_DISPLAY_UNAVAILABLE'},count:null};}}
  return query;
 }
 function fixturePresentationRow(r,board){
  const p=r.prediction,b=board&&board.rows.find(x=>x.f===r.fxid),v=p?probabilityVector(p.p_home,p.p_draw,p.p_away):b?probabilityVector(b.pw,b.pd,b.pq):null;
- return {fxid:r.fxid,date:p?p.kickoff:r.date,time:p?p.ktime:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
+ return {fxid:r.fxid,date:r.date,time:r.time,home:p?p.home:r.home,away:p?p.away:r.away,status:r.status,elapsed:r.elapsed,_presentation:true,_displayCard:r,
    _fin:FINISHED.includes(normStatus(r.status)),pick:p?p.pick:b?b.p:null,prob:p?p.pick_prob:b?b.q:null,market:p?p.market:b?b.m:null,gated:p?(p.withheld_at?'withheld':null):b?b.g:null,
    /* ANALYSIS-STATUS AMENDMENT - `_boardRow` records WHICH source answered, because the two prove
       different things. A published prediction row is insert-once and never deleted, so its ABSENCE
@@ -3105,7 +3221,7 @@ async function loadFixturePresentation(){
   const cards=new Map();for(const r of [...h.cards,...p.cards])cards.set(r.fxid,r);
   const leagues={},archive={},cloudFix={};
   for(const r of cards.values()){
-   const lid=r.prediction?r.prediction.lid:r.lid,lname=r.prediction?r.prediction.lname:r.lname;
+   const lid=r.lid,lname=r.lname; // Current fixture grouping; original identity remains in archive.
    const L=leagues[lid]||(leagues[lid]={id:lid,name:lname,country:r.lcountry,logo:'',flag:'',sport:'football',matches:[],upcoming:[],teamIds:{},scorerText:'',histTried:true,_presentation:true});
    L.upcoming.push(fixturePresentationRow(r,p.board));if(r.prediction)archive[r.fxid]=archiveRow(r.prediction);
    const settled=settledRow({...r});if(unsettled90(settled)||(isFinishedScore(settled)&&Number.isInteger(settled.gh)&&Number.isInteger(settled.ga)))cloudFix[r.fxid]=settled;
@@ -3115,6 +3231,7 @@ async function loadFixturePresentation(){
   _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
   _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
+  if($('fixturesMeta'))$('fixturesMeta').textContent='';
  }catch(e){
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
      This catch used to clear afState.leagues on ANY failure. One of those failures is the
@@ -3134,30 +3251,86 @@ async function loadFixturePresentation(){
   const keep = _presentationUntil > Date.now()
     && Object.values(afState.leagues||{}).some(L=>L&&L._presentation);
   if(!keep){afState.leagues={};afState.leagueOrder=[];_presentationUntil=0;_presentationAsOf=0;
+   setDataChip('Unavailable');
    _boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};}
   renderFixtures();
   const el=$('fixturesMeta')||$('discoverStatus');
   if(el)el.textContent=keep
    ?'Showing the published edition already loaded; a newer one could not be read just now.'
-   :'Published fixtures unavailable. Please try again.';
+   :'Matches temporarily unavailable. Please try again.';
  }
 }
+/* Public detail panels consume only the bounded published edition. They never fit a model,
+   read protected source tables, or start an AI/provider request. An unissued selection does
+   not suppress informational football analysis. Missing markets stay explicit per panel. */
+function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
+ const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
+ const fixturePrediction=same?p:f._displayCard&&f._displayCard.prediction;
+ const original=fixturePrediction?probabilityVector(fixturePrediction.p_home,fixturePrediction.p_draw,fixturePrediction.p_away):null;
+ const informational=!original?(a.result?probabilityVector(a.result.p_home,a.result.p_draw,a.result.p_away):probabilityVector(f.pW,f.pD,f.pL)):null;
+ const v=original||informational,esc=escapeHtml;
+ const empty=text=>'<div class="subnote published-note">'+esc(text)+'</div>';
+ const rows=list=>(list||[]).filter(r=>r&&typeof r.label==='string'&&validProbability(r.prob)).map(r=>probRow(esc(r.label),r.prob)).join('');
+ const panel=(id,box,content,note)=>{$(id).classList.remove('hidden');$(box).innerHTML=content||empty(note);};
+ $('results').classList.add('published-detail');
+ $('analysisText').classList.add('published');
+ $('outcomeRows').innerHTML=v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.');
+ $('acc-result').classList.remove('hidden');
+ $('resultSide').textContent='';$('formNote').classList.add('hidden');
+ const xh=fixturePrediction&&typeof fixturePrediction.xg_home==='number'?fixturePrediction.xg_home:a.xg_home,xa=fixturePrediction&&typeof fixturePrediction.xg_away==='number'?fixturePrediction.xg_away:a.xg_away;
+ $('xgInfo').textContent=typeof xh==='number'&&typeof xa==='number'?'Expected goals · '+xh.toFixed(2)+' – '+xa.toFixed(2):'';
+ $('xgInfo').classList.toggle('hidden',!$('xgInfo').textContent);
+ if(v)$('outcomeRows').insertAdjacentHTML('beforeend',empty(!same?'Fixture analysis · separate from this pick.':original?'Original published 1X2 probabilities.':p?'Informational 1X2 · published separately.':'Informational model analysis · no issued pick.'));
+ panel('acc-goals','goalsRows',rows(a.goals),'Goals probabilities not published.');
+ panel('acc-combo','comboRows',rows(a.combos),'Combo probabilities not published.');
+ panel('acc-htft','htftBox',rows(a.htft),'Half-time/full-time probabilities not published.');
+ panel('acc-score','scoreRows',rows(a.correct_scores),'Correct-score probabilities not published.');
+ panel('acc-scorers','scorerRows',rows(a.scorers),'Scorer probabilities not published.');
+ const form=a.form||{},formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'Form not published.')+'</span></div>';
+ panel('acc-form','formBox',formLine(f.home,form.home)+formLine(f.away,form.away),'Recent form not published.');
+ $('h2hBox').innerHTML=Array.isArray(a.h2h)&&a.h2h.length?a.h2h.map(m=>'<div class="published-meeting"><span class="muted">'+esc(m.date)+'</span><div><span>'+esc(m.home)+'</span><b>'+esc(m.gh)+'–'+esc(m.ga)+'</b><span>'+esc(m.away)+'</span></div></div>').join(''):empty('Head-to-head meetings not published.');
+ const table=a.standings;
+ const tableHTML=table&&Array.isArray(table.rows)&&table.rows.length?'<div class="subnote">Season '+esc(table.season)+'</div><table class="published-table"><thead><tr><th>#</th><th>Team</th><th>P</th><th>GD</th><th>Pts</th></tr></thead><tbody>'+table.rows.map(r=>'<tr'+([f.home,f.away].includes(r.team)?' class="selected"':'')+'><td>'+esc(r.rank)+'</td><td>'+esc(r.team)+'</td><td>'+esc(r.played)+'</td><td>'+esc(r.gf-r.ga)+'</td><td>'+esc(r.points)+'</td></tr>').join('')+'</tbody></table>':'';
+ panel('acc-standings','standingsBox',tableHTML,'League table not published.');
+ $('analysisHeading').textContent='Professional AI Write-up';
+ $('acc-analysis').classList.remove('hidden');$('aiStatus').classList.add('hidden');
+ $('analysisText').textContent=a.writeup&&a.writeup.text||'AI write-up not published.';
+ $('analysisText').classList.toggle('published-writeup',!!(a.writeup&&a.writeup.text));
+ $('verdictBox').textContent='';$('verdictBox').removeAttribute('title');$('verdictBox').removeAttribute('aria-label');
+ if(a.writeup&&a.writeup.source_at){$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10);$('verdictBox').title='Source: '+a.writeup.source;$('verdictBox').setAttribute('aria-label','Published '+a.writeup.source_at+' · Source '+a.writeup.source);}
+ $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':'';$('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
+ // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
+ const dnb=p&&['1D','2D'].includes(p.pick);
+ $('heroDnb').textContent=dnb?'DNB probability excludes draws.':'';
+ $('heroDnb').classList.toggle('hidden',!dnb);
+ const comp=$('heroMeta').querySelector('.hm-comp'),competition=p&&p.lname||L.name;
+ const country=L.country&&!competition.toLowerCase().includes(L.country.toLowerCase())?' · '+L.country:'';
+ if(comp)comp.innerHTML=competitionBadge(L)+' '+esc(competition+country);
+ for(const id of ['heroHome','heroAway']){const name=$(id).querySelector('div:not(.venue)');if(name)name.classList.toggle('published-long-name',name.textContent.length>18);}
+ document.querySelectorAll('#view-detail .prow .plabel').forEach(label=>label.closest('.prow').classList.toggle('published-long-label',label.textContent.length>18));
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());
+ if(!result||!Number.isInteger(result.gh)||!Number.isInteger(result.ga)){
+   const line=document.createElement('div');line.className='hm-dt published-result-state';
+   line.textContent=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status))?'90-minute result pending':'90-minute result unavailable';
+   $('heroMeta').appendChild(line);
+ }
+
+}
+
 function showPublishedFixture(L,f){
+  prepareNavigation();
  showNoAnalysis(f.home,f.away);
- $('analysisHeading').textContent='Published statistical prediction';
+ const p=f._displayCard&&f._displayCard.prediction;
  $('heroHome').innerHTML=heroSide(f.home,'Home');$('heroAway').innerHTML=heroSide(f.away,'Away');setFavRow(f.home,f.away);
  setHeroMeta({comp:L.name,country:L.country,date:f.date,time:f.time,fxid:f.fxid,home:f.home,away:f.away,status:f.status});
- const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(f.pick&&f.prob!=null),available=issued&&!f.gated;
- $('heroPick').textContent=issued?pickLabel(f.pick,f.home,f.away):'Statistical prediction unavailable';
- $('heroConf').textContent=issued?pct(f.prob)+' published probability':'';
- $('outcomeRows').innerHTML=v?probRow(f.home,v.pW)+probRow('Draw',v.pD)+probRow(f.away,v.pL)+'<div class="subnote">Stored published probabilities; not a device re-estimate.</div>':'';
+ const expired=forecastDisplayExpired(f);
+ const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(p&&p.pick&&p.pick_prob!=null),available=issued&&!f.gated&&!expired&&!fixtureExceptionalStatus(f);
+ $('heroPick').textContent=issued?pickLabel(p.pick,p.home,p.away):f._pickUnavailable?'Published pick unavailable':'No qualifying pick';
+ $('heroConf').textContent=issued?pct(p.pick_prob)+' published probability':'';
  setHeroDnb(available?f.pick:null,v);
- $('analysisText').innerHTML='<p>This screen preserves the published statistical result. The private source history is not distributed to this device and is not approximated from a limited display window.</p>'+(!issued?'<p>No issued prediction is available for this fixture. This is not an AI abstention.</p>':available?'':'<p>The original issued prediction is preserved above. MatchMind is no longer backing it; it is not a current recommendation.</p>')+'<p>League Table unavailable in this published edition. Full competition standings are not supplied; no table is inferred from the limited display window.</p><p>Independent AI analysis: UNAVAILABLE. No AI request is made by opening this match.</p>';
- const result=fixtureResult(L,f,scoreMap()),complete=!!(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga));
- const resultLine=document.createElement('div');resultLine.className='hm-dt';
- const pending=['NS','TBD','SCHEDULED'].includes(normStatus(f.status))||LIVE_CODES.includes(normStatus(f.status));
- resultLine.textContent=complete?'90-minute score '+result.gh+'–'+result.ga:pending?'90-minute result pending':'90-minute result unavailable';
- $('heroMeta').appendChild(resultLine);
+ renderPublishedAnalysis(L,f,issued?p:null);
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());
+ if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';line.textContent='90-minute score '+result.gh+'–'+result.ga;$('heroMeta').appendChild(line);}
  setShareCard(false,null);navTo('detail');
 }
 
@@ -3214,6 +3387,7 @@ function credentialDetach(){
 }
 function credentialSelect(owner){
   credentialDetach(); _credentialOwner=owner; _credentialReady=true; _credentialStoredRaw=null;
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED) return; // Preserve all stored credentials without reading or assigning them.
   if(!_personalReady){_credentialReady=false;if($('afKeyStatus'))$('afKeyStatus').textContent='Credentials unavailable while local data needs attention.';return;}
   if(owner===null)return;
   if(typeof owner!=='string' || !owner){_credentialReady=false;return;}
@@ -3228,6 +3402,7 @@ function credentialSelect(owner){
   }catch(e){_credentialReady=false; if($('afKeyStatus')) $('afKeyStatus').textContent='Credentials could not be read; use is paused.';}
 }
 function credentialSave(slot,value){
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED) return false;
   const owner=authUser&&authUser.id||null, status=$(slot==='af'?'afKeyStatus':'keyStatus');
   if(!['af','ai:gemini','ai:claude','ai:deepseek','ai:kimi'].includes(slot) || typeof value!=='string'){if(status)status.textContent='Invalid key selection.';return false;}
   if(!_credentialReady || !_personalReady || owner!==_credentialOwner || _personalOwner!==owner){if(status)status.textContent='Credentials unavailable; retry after signing in.';return false;}
@@ -3264,10 +3439,7 @@ function loadScorers(text, isSample){
   }).filter(s=>s.name && s.team);
 }
 
-/* A rolling edition is current for up to 24 hours, so "Live" in the header said nothing true about
-   the age of the published predictions: at 22.7 hours it still read Live. Past 7 hours the chip
-   states the edition's age instead. Live SCORE state is not touched: Scores keeps its own live
-   markers on live matches. The count is dropped from the chip because 132px does not hold it. */
+/* A publication timestamp describes an edition, not live score coverage or source freshness. */
 const EDITION_STALE_MS = 7*3600000;
 let _chipBase = '';
 function editionAgeHours(){
@@ -3277,17 +3449,18 @@ function editionAgeHours(){
 }
 function setDataChip(text){
   _chipBase = text;
-  const el = $('dataChip'), h = /^Live/.test(text) ? editionAgeHours() : -1;
-  if(h >= 0){
-    el.innerHTML = '● <b>Updated '+h+'h ago</b>';
+  const el = $('dataChip'), h = editionAgeHours();
+  if(/^(Live|Published)/.test(text) && _presentationAsOf){
+    const expired = _presentationUntil <= Date.now();
+    el.textContent = '● ' + (expired ? 'Edition expired' : h >= 0 ? 'Edition · '+h+'h old' : 'Published');
     el.style.whiteSpace = 'nowrap';
-    el.title = 'Predictions published '+new Date(_presentationAsOf).toISOString().slice(0,16).replace('T',' ')+' UTC. '+text.replace(/^Live · /,'');
+    el.title = 'Edition published '+new Date(_presentationAsOf).toISOString().slice(0,16).replace('T',' ')+' UTC. '+Object.keys(afState.leagues||{}).length+' competitions in this edition.'+(expired?' Refresh required.':' Source freshness is shown in Scores.');
     return;
   }
   el.innerHTML = '● <b>'+text+'</b>';
   el.removeAttribute('title');
 }
-setInterval(()=>{ if(_chipBase && /^Live/.test(_chipBase)) setDataChip(_chipBase); }, 300000);
+setInterval(()=>{ if(_chipBase && /^(Live|Published)/.test(_chipBase)) setDataChip(_chipBase); }, 300000);
 
 /* ══ BUILD 214 — THE HEADER BADGE SAID "Sample data" ON TOP OF 23,033 REAL MATCHES ═══════════════
    Read from a live device on 2026-08-26: the chip in the global header read **"● Sample data"**
@@ -3306,6 +3479,7 @@ setInterval(()=>{ if(_chipBase && /^Live/.test(_chipBase)) setDataChip(_chipBase
 let _dataSourceExplicit = false;
 function refreshDataChip(){
   if(_dataSourceExplicit) return;                       // the user said what they wanted
+  if(_presentationAsOf){setDataChip('Published');return;}
   if(afState.activeLeagueId && afState.leagues && afState.leagues[afState.activeLeagueId]) return;   // activateLeague owns the label
   const n = Object.keys(afState.leagues || {}).length;
   if(!n) return;                                        // nothing loaded: the default is honest
@@ -4170,7 +4344,7 @@ function renderStandings(L, homeTeam, awayTeam){
   const maxLeague = 2 * (tbl.rows.length - 1);
   const over = tbl.rows.filter(r => r.pl > maxLeague).length;
   const caveat =
-    (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name MatchMind does not yet classify.</div>` : '') +
+    (over ? `<div class="subnote"><b style="color:var(--gold)">This table may include matches that are not league fixtures.</b> ${over} side${over>1?'s have':' has'} played more than the ${maxLeague} a ${tbl.rows.length}-team league phase contains, which means this competition uses a round name ${APP_NAME} does not yet classify.</div>` : '') +
     /* ══ BUILD 358 — THE DEDUCTION CAVEAT IS NOW SCOPED TO THE COMPETITION IT IS ABOUT ═══════
        The else branch of this ternary printed the 2026-08-23 sweep's Championship finding under EVERY
        table: a reader looking at Bayern and Dortmund was told about Sheffield Wednesday, Leicester and
@@ -4418,13 +4592,13 @@ function gateEdgeFor(L){
    the publisher account (the database enforces it - SQL ledger), and read by every device before its
    gate pass. A competition with no shared row, or a session in which the table could not be read,
    publishes nothing and withholds nothing. It never falls back on a guess. */
-const PUBLISHER_EMAIL = 'kennedychinazam+robot@gmail.com';
 const MEASURES_TABLE  = 'competition_measures';
 const SHARED_MEASURES = {};            // lid -> the shared row, filled ONLY from the server
 let _measuresState = 'pending';        // 'pending' | 'loaded' | 'failed'
 let _measuresWritten = 0, _measuresWriteFailed = 0, _measuresPassDone = 0;   // the publisher's pass, for verification
 function isPublisher(){
-  return !!(authUser && String(authUser.email || '').toLowerCase() === PUBLISHER_EMAIL);
+  // Public clients read published records; publisher authority stays on the server.
+  return false;
 }
 function sharedBarKnown(L){
   return _measuresState === 'loaded' && !!(L && SHARED_MEASURES[String(L.id)]);
@@ -4665,7 +4839,7 @@ const GATE_WHY = {
   nobase: p => `The engine can price this match, but at ${pct(p)} it is not saying anything an average match in this competition would not already say. A pick that only repeats the league's own base rate is not a prediction, so it is withheld.`,
   unpriced: () => `There is not enough history behind these two teams for the engine to price this fixture.`,
   /* build 324 — the bar is one shared fact, so a device that has not got it says so rather than guessing one. */
-  outofscope: () => `MatchMind does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
+  outofscope: () => `${APP_NAME} does not predict this competition. Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two elsewhere, and the cups. Scores and results here still update.`,   // build 327
   unmeasured: () => `This competition's publishing bar has not loaded from the shared record, so nothing is published here yet. Every device reads the same bar, and none guesses one.`,
   /* The published record stamped this one, so the reason is read rather than recomputed. */
   withheld: () => `The published forecast record stamps this pick as withheld before kick-off, so it was never offered here. It is not re-judged after the whistle.`,
@@ -5217,7 +5391,7 @@ const PICK_STATUS = {
     why:'The published forecast record for this match issued no pick, so there is nothing to grade. Nothing is filled in after the whistle.' },
   boardgate: { label:'Board: no pick',
     why:'' },
-  norow: { label:'No record',
+  norow: { label:'No published prediction',
     why:'No published forecast record exists for this match. The data does not say why, and the possible reasons cannot be told apart, so none is named.' },
   norecord: { label:'Not archived',
     why:'This competition is fitted on this device and its archive holds no forecast for this match. The archive cannot establish why, so no reason is claimed.' },
@@ -5307,18 +5481,62 @@ function bindStatusChips(root){
   }));
 }
 // time-cell + chip for a fixture row, grading the AI chip once the match has finished (#4)
+/* Director 5: read-only forecast presentation. Missing results/NS are not evidence of
+   non-play. The historical settlement functions remain unchanged pending Director approval. */
+function fixtureExceptionalStatus(f){
+  const code=normStatus(f&&f.status);
+  return ['PST','ABD','CANC','SUSP','INT'].includes(code) ? statusWord(code) : '';
+}
+function fixtureExceptionalLabel(f){
+  const word=fixtureExceptionalStatus(f);
+  return word ? word.charAt(0)+word.slice(1).toLowerCase() : '';
+}
+function fixtureExceptionalTime(f){
+  const code=normStatus(f&&f.status),elapsed=Number(f&&f.elapsed);
+  if(f&&f.elapsed!=null&&['ABD','SUSP','INT'].includes(code)&&Number.isInteger(elapsed)&&elapsed>=0&&elapsed<=200) return elapsed+"'";
+  return localHM(f&&f.date,f&&f.time);
+}
+function exceptionalStatusChip(f){
+  const label=fixtureExceptionalLabel(f);
+  if(!label)return '';
+  const why='Latest accepted provider status: '+label+'. The original locked prediction remains preserved in its record.';
+  const pause='<svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"><rect x="1" y="1" width="3" height="8" rx=".7"></rect><rect x="6" y="1" width="3" height="8" rx=".7"></rect></svg>';
+  return `<button type="button" class="predchip statuschip exceptional-chip" data-statuswhy="${escapeHtml(why)}" title="${escapeHtml(why)}" aria-label="${escapeHtml('Fixture status: '+label+'. '+why)}">${pause}<span>${escapeHtml(label)}</span></button>`;
+}
+function forecastDisplayExpired(f,nowMs,originalPrediction){
+  const a=originalPrediction||(f&&f.pick&&afState.archive&&afState.archive[f.fxid]);
+  if(!a||!f)return false;
+  const original=pickOriginalKick(a),current=fixtureCurrentKick(f);
+  if(original==null)return false;
+  const now=nowMs==null?Date.now():nowMs,windowMs=VOID_AFTER_HOURS*3600000;
+  if(now-original<windowMs)return false;
+  const status=normStatus(f.status);
+  // ABD/SUSP/INT alone say nothing about the approved settlement condition.
+  if(['ABD','SUSP','INT'].includes(status))return false;
+  return ['PST','CANC'].includes(status) || (current!=null&&current-original>=windowMs);
+}
+function forecastStatusChip(label,why){
+  return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(why)}" title="${escapeHtml(why)}" aria-label="${escapeHtml(label+'. '+why)}">${escapeHtml(label)}</button>`;
+}
+function expiredForecastChip(){
+  return forecastStatusChip('Pick expired','The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff. The original forecast is preserved; this match may still be scheduled.');
+}
+function dnbVoidChip(pick){
+  return forecastStatusChip(chipCode(pick)+' · Void','The completed match was a draw. This DNB prediction is neither a hit nor a miss. A bookmaker returns the stake; MatchMind processes no stake.');
+}
 function fxCells(L,f,smap){
   smap=smap||scoreMap();
+  const exceptional=fixtureExceptionalStatus(f);
   /* build 357 - a played tie whose 90-minute score is unavailable would otherwise fall to the
      "upcoming" branch below and read as if it had not kicked off. It shows its real result and
      says what is missing, and it carries NO grade chip, because there is nothing to grade on. */
   { const u = (f && f.fxid!=null) ? smap[f.fxid] : null;
-    if(u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
+    if(!exceptional && u && unsettled90(u) && u.raw_gh != null && u.raw_ga != null)
       /* No grade, because there is nothing to grade on. A fixture with no pick still says what is
          known about its pick rather than leaving a blank where a chip goes. */
       return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`,
               chip: f && f.pick ? '' : pickStatusChip(L, f), finished:true}; }
-  const res=fixtureResult(L,f,smap);
+  const res=exceptional?null:fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
     let chip='';
@@ -5335,7 +5553,7 @@ function fxCells(L,f,smap){
     /* build 119 — a drawn Draw No Bet is a VOID, not a loss. Grading it ✗ would understate the
        record against a bet that actually returned the stake. */
     if(f.pick && _lateVoid){
-                chip=`<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`; }
+                chip=expiredForecastChip(); }
     /* ANALYSIS-STATUS AMENDMENT - A HINDSIGHT REBUILD IS NOT A GRADED CLAIM. `backfillPredictions`
        writes prediction rows for matches ALREADY PLAYED, stamped build = RECONSTRUCTED, and both
        `renderLedger` and `engineRecordPayload` exclude exactly those rows. This branch did not, so
@@ -5345,8 +5563,8 @@ function fxCells(L,f,smap){
     else if(f.pick && pickIsRebuilt(f)){ chip = rebuiltChip(f); }
     else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
-                const mark = g==='hit'?'✓' : g==='void'?'void' : '✗';
-                chip=`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
+                const mark = g==='hit'?'✓' : g==='void'?'· Void' : '✗';
+                chip=g==='void'?dnbVoidChip(f.pick):`<span class="predchip ${cls}">${chipCode(f.pick)} ${mark}</span>`; }
     /* BUILD 164 — a played match with no frozen pick says so, rather than showing a blank space
        where a result chip goes.
        ⚠ ANALYSIS-STATUS AMENDMENT — THE ORIGINAL REASONING NAMED A CAUSE THAT CANNOT OCCUR. It
@@ -5377,13 +5595,14 @@ function fxCells(L,f,smap){
      that function is pinned byte-identical to build 344 (verify-board-345.js) because it is the
      robot's own issuing path, and a display rule has no business moving it. */
   const _arch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
-  const _void = !!(_arch && _arch.kickoff
-                   && pickPlayState({ kickoff: _arch.kickoff, ktime: _arch.ktime }, null, null) === 'void');
-  const chip = _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
-             : _void  ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${chipCode(f.pick)} void</span>`
+  const _void = forecastDisplayExpired(f);
+  const chip = exceptional ? exceptionalStatusChip(f)
+             : !f.pick&&f._presentation ? pickStatusChip(L,f)
+             : _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
+             : _void  ? expiredForecastChip()
              : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${probabilityPercent(f.prob,0)}</span>`
-             : '';
-  return {timeCell:`<span class="fxtime">${localHM(f.date, f.time)}</span>`, chip, finished:false};
+             : f._presentation||exceptional ? pickStatusChip(L,f) : '';
+  return {timeCell:`<span class="fxtime">${exceptional?fixtureExceptionalTime(f):localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
 let _toastT=null;
 function toast(msg){ const el=$('toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),1900); }
@@ -5723,7 +5942,8 @@ function setHeroMeta(meta){
   if(!meta || (!meta.comp && !meta.date)){ box.classList.add('hidden'); box.innerHTML=''; return; }
   box.classList.remove('hidden');
   const comp = meta.comp ? `${meta.comp}${meta.country && !(meta.comp||'').toLowerCase().includes((meta.country||'').toLowerCase()) ? ` · ${meta.country}` : ''}` : '';
-  const dt = meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '';
+  const exceptional=fixtureExceptionalStatus(meta);
+  const dt = exceptional || (meta.date ? `${favDateHeader(meta.date)}${meta.time?` · ${localHM(meta.date, meta.time)}`:''}` : '');
   let sc='';
   if(meta.score) sc = meta.live ? ` · <b style="color:var(--green2)">● ${meta.score}</b>` : ` · <b style="color:var(--text)">${meta.score} ${meta.aet ? meta.aet : 'FT'}</b>`;
   box.innerHTML = `${comp?`<div class="hm-comp">🏆 ${comp}</div>`:''}${(dt||sc)?`<div class="hm-dt">${dt}${sc}</div>`:''}`;
@@ -5883,7 +6103,7 @@ async function shareCard(){
     try{ file = new File([blob], name, {type:'image/png'}); }catch(e){}
     if(file && navigator.canShare && navigator.canShare({files:[file]})){
       try{
-        await navigator.share({files:[file], title:'MatchMind prediction'});
+        await navigator.share({files:[file], title:APP_NAME + ' prediction'});
         return;
       }catch(e){
         // AbortError is the user closing the share sheet. That is a decision, not a fault, and
@@ -5993,25 +6213,149 @@ function renderThemeChips(){ const box=$('themeChips'); if(!box) return;
   box.innerHTML=[['dark','🌙 Dark'],['light','☀️ Light'],['auto','🅰 Auto']].map(([v,l])=>`<button class="sfchip${themeMode===v?' active':''}" data-th="${v}">${l}</button>`).join('');
   box.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.th))); }
 
-/* ---------- in-app / Android back (#5) ---------- */
-let _exitArmed=false;
-function setupBackHandler(){ try{ history.replaceState({mm:'root'},''); history.pushState({mm:'app'},''); }catch(e){} window.addEventListener('popstate', onBack); }
-function onBack(){
-  const so=$('searchOverlay');
-  if(so && !so.classList.contains('hidden')){ closeSearch(); history.pushState({mm:'app'},''); return; }
-  const drop=$('compsDrop');
-  if(drop && !drop.classList.contains('hidden')){ drop.classList.add('hidden'); history.pushState({mm:'app'},''); return; }
-  if(!$('view-detail').classList.contains('hidden')){ navTo(lastTab); history.pushState({mm:'app'},''); return; }
-  if(lastTab!=='scores'){ navTo('scores'); history.pushState({mm:'app'},''); return; }
-  if(_exitArmed){ window.removeEventListener('popstate', onBack); history.back(); return; }
-  _exitArmed=true; toast('Press back again to exit'); setTimeout(()=>_exitArmed=false,2000); history.pushState({mm:'app'},'');
+/* ---------- native browser / Android navigation ---------- */
+// The browser owns the stack. History contains only opaque UI entry identifiers;
+// node references stay in bounded session memory, never storage or public payloads.
+const _navSession = String(Date.now())+'-'+Math.random().toString(36).slice(2);
+const _navEntries = new Map();
+let _navActive = null, _navSerial = 0, _navScrollEpoch = 0, _navPrepared = false, _navRestored = null;
+const NAV_STATE_FIELDS = ['selectedDate','scoresDate','archiveDate','filter','scoreFilter','favTab','activeLeagueId'];
+function navigationOwner(){ return authUser && authUser.id || null; }
+function navigationProvenance(){
+  const screen=_fixtureDelivery.screens.get('predictions')||_fixtureDelivery.screens.get('scores');
+  return {epoch:_cloudAccountEpoch,edition:screen&&screen.edition_id||null,
+    asof:screen&&screen.as_of||null,until:screen?Date.parse(screen.expires_at):null};
+}
+function navigationProvenanceCurrent(saved){
+  const current=navigationProvenance();
+  return saved && saved.epoch===current.epoch && saved.edition===current.edition
+    && saved.asof===current.asof && (saved.until===null||saved.until>Date.now());
+}
+function navigationTree(root){
+  const tree=[];
+  const visit=node=>{
+    const element=node.nodeType===1;
+    tree.push({node,children:[...node.childNodes],text:node.nodeType===3?node.data:null,
+      attrs:element?[...node.attributes].map(a=>[a.name,a.value]):null,
+      value:element && /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName)?node.value:null,
+      checked:element && node.tagName==='INPUT'?node.checked:null,
+      x:element?node.scrollLeft:0,y:element?node.scrollTop:0});
+    for(const child of node.childNodes)visit(child);
+  };
+  visit(root);return tree;
+}
+function restoreNavigationTree(tree){
+  for(const saved of tree){
+    const node=saved.node;
+    if(saved.attrs){for(const a of [...node.attributes])node.removeAttribute(a.name);for(const [k,v]of saved.attrs)node.setAttribute(k,v);}
+    if(saved.text!==null)node.data=saved.text;
+    if(saved.children.length || node.childNodes.length)node.replaceChildren(...saved.children);
+    if(saved.value!==null)node.value=saved.value;
+    if(saved.checked!==null)node.checked=saved.checked;
+    if(saved.attrs){node.scrollLeft=saved.x;node.scrollTop=saved.y;}
+  }
+}
+function prepareNavigation(){
+  if(!_navPrepared && (curView==='detail'||curView==='legal')){captureNavigation();_navPrepared=true;}
+}
+function navigationRetains(view){
+  if(!_navRestored || !_navActive || _navRestored!==_navActive.id || curView!==view)return false;
+  const saved=_navEntries.get(_navRestored);
+  if(!saved || saved.owner!==navigationOwner() || !navigationProvenanceCurrent(saved.provenance)){_navRestored=null;return false;}
+  return true;
+}
+function captureNavigation(){
+  if(!_navActive) return;
+  const view=$('view-'+curView), state={};
+  for(const key of NAV_STATE_FIELDS) state[key]=afState[key];
+  _navEntries.set(_navActive.id,{view:curView,lastTab,owner:navigationOwner(),provenance:navigationProvenance(),state,
+    y:window.scrollY||0,sport:currentSport,discover:discoverPinned,tips:{...tipState},
+    // Preserve actual nodes, including their row listeners, ordering and accordion state.
+    // More contains account/credential controls, so it is always rendered afresh.
+    tree:view && curView!=='data'?navigationTree(view):null,
+    detail:curDetail,context:ctxFixture,share:shareCtx,favHome:curFavHome,favAway:curFavAway});
+  while(_navEntries.size>24){const id=_navEntries.keys().next().value;if(id===_navActive.id)break;_navEntries.delete(id);}
+}
+function navigationState(view,index){ return {mmNavigation:1,session:_navSession,id:++_navSerial,index,view}; }
+function navigationScroll(y){
+  const epoch=++_navScrollEpoch;
+  // The retained nodes must be laid out before restoring an exact list offset.
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(epoch!==_navScrollEpoch)return;
+    window.scrollTo(0,y);
+  }));
+}
+function setupBackHandler(){
+  try{history.scrollRestoration='manual';_navActive=navigationState(curView,0);history.replaceState(_navActive,'');}catch{_navActive=null;}
+  window.addEventListener('popstate',onBack);
+  document.addEventListener('click',()=>{_navRestored=null;},{capture:true});
+  document.addEventListener('change',()=>{_navRestored=null;},{capture:true});
+  // Cancel a pending restore when the reader deliberately starts scrolling.
+  for(const event of ['wheel','touchstart'])window.addEventListener(event,()=>{++_navScrollEpoch;},{passive:true});
+}
+function onBack(event){
+  const destination=event && event.state;
+  if(!destination || destination.mmNavigation!==1 || destination.session!==_navSession)return;
+  if(destination.overlay==='search'){
+    closeSearch({history:false});
+    searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+    // Forward may jump across the base entry; restore it through the same authority checks.
+    if(!_navActive || _navActive.id!==destination.base.id)onBack({state:destination.base});
+    searchHistory=destination;
+    _navActive=destination.base;openSearch({history:false});return;
+  }
+  if(searchHistory && destination.id===searchHistory.base.id){
+    const next=searchHistoryNext;
+    searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+    _navActive=destination;closeSearch({history:false});
+    if(next)next();return;
+  }
+  // A multi-entry jump can skip Search's parent; remove modal inertness first.
+  closeSearch({history:false});
+  captureNavigation();++_navScrollEpoch;_navPrepared=false;_navRestored=null;++_predictDateRead;
+  const saved=_navEntries.get(destination.id);_navActive=destination;
+  searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+  for(const id of ['compsDrop','compsDropS']){const box=$(id);if(box)box.classList.add('hidden');}
+  if(!saved || saved.owner!==navigationOwner()){
+    navTo(destination.view==='detail'||destination.view==='legal'?'scores':destination.view,{history:false});return;
+  }
+  for(const key of NAV_STATE_FIELDS)afState[key]=saved.state[key];
+  currentSport=saved.sport;discoverPinned=saved.discover;Object.assign(tipState,saved.tips);
+  if(!navigationProvenanceCurrent(saved.provenance)){
+    // A changed/expired edition is revalidated by the existing delivery path. UI
+    // history must never revive an older selection or an earlier account grant.
+    const target=saved.view==='detail'||saved.view==='legal'?saved.lastTab:saved.view;
+    navTo(target,{history:false});navigationScroll(saved.y);return;
+  }
+  lastTab=saved.lastTab;curView=saved.view;
+  curDetail=saved.detail;ctxFixture=saved.context;shareCtx=saved.share;curFavHome=saved.favHome;curFavAway=saved.favAway;
+  ++_analysisGeneration; // an analysis started after this entry must not overwrite it later.
+  const view=$('view-'+curView);
+  if(saved.tree && view)restoreNavigationTree(saved.tree);
+  else if(curView==='data')renderMoreRecord();
+  for(const v of NAV_VIEWS){const el=$('view-'+v);if(el)el.classList.toggle('hidden',v!==curView);}
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===curView));
+  _navRestored=destination.id;
+  scrollPos[curView]=saved.y;
+  try{localStorage.setItem('mm_tab',lastTab);}catch{}
+  navigationScroll(saved.y);
 }
 
 /* ---------- on-device search (#12) ---------- */
 let searchOpener=null, searchFocusTimer=null, searchBackground=[];
-function openSearch(){
+let searchHistory=null, searchHistoryClosing=false, searchHistoryNext=null;
+function openSearch(options={}){
   const overlay=$('searchOverlay');
   if(overlay.classList.contains('hidden')){
+    if(searchHistoryClosing){
+      const opener=document.activeElement;
+      searchHistoryNext=()=>{if(opener&&opener.isConnected)opener.focus();openSearch(options);};return;
+    }
+    if(options.history!==false && _navActive){
+      captureNavigation();
+      const entry={...navigationState(curView,_navActive.index+1),overlay:'search',base:_navActive};
+      try{history.pushState(entry,'');searchHistory=entry;}catch{}
+    }
     searchOpener=document.activeElement instanceof HTMLElement && document.activeElement!==document.body && !overlay.contains(document.activeElement)
       ? document.activeElement : $('searchOpen');
     // Isolate siblings at each ancestor level without making the dialog itself inert.
@@ -6034,7 +6378,7 @@ function clearSearchForIdentity(){
   input.value=''; renderSearch('');
   if(moveFocus) input.focus();
 }
-function closeSearch(){
+function closeSearch(options={}){
   clearTimeout(searchFocusTimer); searchFocusTimer=null;
   const overlay=$('searchOverlay'); if(overlay.classList.contains('hidden')) return;
   overlay.classList.add('hidden');
@@ -6043,6 +6387,10 @@ function closeSearch(){
   const opener=searchOpener; searchOpener=null;
   for(const target of [opener,$('searchOpen')]){
     if(target && target.isConnected && !target.matches(':disabled') && !target.closest('[inert]') && target.getClientRects().length){ target.focus(); break; }
+  }
+  // Consume the real overlay entry; view navigation waits for this native pop.
+  if(options.history!==false && searchHistory && history.state?.id===searchHistory.id){
+    searchHistoryClosing=true;history.back();
   }
 }
 function searchKeydown(event){
@@ -6851,6 +7199,62 @@ function dailyFloorFor(c, floors){
   const F = floors || DAILY_FLOOR_PRIMARY;
   const v = F[c.code];
   return (v === undefined) ? null : v;      // unknown code -> not eligible, rather than undefined
+}
+
+// WO62B: approved Build356 daily-card selection policy; no grading/formula changes.
+const CARD_MAX_CARDS_PER_FIXTURE = 2;      // Ken: one match, "one more card". Never a third.
+const CARD_PICK_CONFLICTS = {
+  /* the home side wins */
+  '1'  :['1X','1D','1/1','X/1','2/1'],
+  '1D' :['1','1X','1/1','X/1','2/1'],
+  '1/1':['1','1X','1D'],
+  'X/1':['1','1X','1D'],
+  '2/1':['1','1X','1D'],
+  /* the match is drawn */
+  'X'  :['1X','X2','1/X','X/X','2/X'],
+  '1/X':['X','1X','X2'],
+  'X/X':['X','1X','X2'],
+  '2/X':['X','1X','X2'],
+  /* the away side wins */
+  '2'  :['X2','2D','1/2','X/2','2/2'],
+  '2D' :['2','X2','1/2','X/2','2/2'],
+  '1/2':['2','X2','2D'],
+  'X/2':['2','X2','2D'],
+  '2/2':['2','X2','2D'],
+  /* the double chances, which each cover two of the three results above */
+  '1X' :['1','X','1D','1/1','1/X','X/1','X/X','2/1','2/X'],
+  'X2' :['X','2','2D','1/X','1/2','X/X','X/2','2/X','2/2'],
+  /* goals: the Over lines are nested in one another, and BTTS yes pulls with them */
+  'O15':['BTS','O25','O35'],
+  'O25':['BTS','O15','O35'],
+  'O35':['BTS','O15','O25'],
+  'BTS':['O15','O25','O35'],
+  /* goals: the Under lines likewise, with BTTS no */
+  'U15':['NBT','U25','U35'],
+  'U25':['NBT','U15','U35'],
+  'U35':['NBT','U15','U25'],
+  'NBT':['U15','U25','U35']
+};
+/* Two picks on one fixture. The SAME code is the plainest conflict there is and is tested first
+   rather than being left to the table, so an entry missing from the table can never let a
+   straight repeat of yesterday's complaint through. */
+function cardPicksConflict(a, b){
+  if(!a || !b) return true;                // an unknown pick is treated as conflicting, not as safe
+  if(String(a) === String(b)) return true;
+  const row = CARD_PICK_CONFLICTS[String(a)];
+  return !!(row && row.indexOf(String(b)) >= 0);
+}
+/* The one question the card loop asks of every candidate: may this fixture carry this pick, given
+   what the day's earlier cards already hold? `placed` is fixture id -> the codes already shown.
+   COUNTED BY CARD, WHICH IS THE SAME AS BY LEG HERE: `dailyEligible` returns at most one selection
+   per fixture, so no single card can hold two legs of one match. If that ever changes this count
+   has to change with it, and the comment is here so the next reader knows. */
+function cardLegAllowed(placed, fxid, code){
+  if(fxid == null || fxid === '') return true;          // no id -> no way to track it, so no block
+  const prior = (placed && placed[String(fxid)]) || [];
+  if(prior.length >= CARD_MAX_CARDS_PER_FIXTURE) return false;
+  for(const p of prior) if(cardPicksConflict(p, code)) return false;
+  return true;
 }
 
 /* ══ BUILD 272 — THE TIER NUMBER IS A MINIMUM, NOT A MIDPOINT ═══════════════════════════════════
@@ -8631,7 +9035,7 @@ function renderValueLadder(){
     + escapeHtml(String(st.unit)) + '"></div>'
     + grid
     + '<div class="subnote ctxprose"><b style="color:var(--gold)">Staking more after a loss creates no '
-    + 'edge.</b> A full cycle risks ' + money(cum) + '. MatchMind has no measured edge over the '
+    + 'edge.</b> A full cycle risks ' + money(cum) + '. ' + APP_NAME + ' has no measured edge over the '
     + 'bookmakers, so expect this to lose.</div>'
     + '</div>';
 
@@ -9188,10 +9592,12 @@ function renderDailySlips(){
      filled tier-days to 30. With Bold's 8-leg cap and the market cap as well it is 23, and the
      whole of that is reported in `wo61-harness-2026-10-18.txt` and in the WO-61 report. A tier that
      cannot be filled honestly is not issued, which is the existing rule and not a new one. */
-  const _taken = new Set();
+  // WO62B: each fixture may carry at most two distinct nonconflicting selections.
+  const _placed = Object.create(null);
   const _takeLegs = legs => { for(const l of (legs || [])){
       const fx = (l && l.fxid != null) ? l.fxid : (l && l.f && l.f.fxid != null ? l.f.fxid : null);
-      if(fx != null && fx !== '') _taken.add(String(fx));
+      const cd = (l && l.code != null) ? String(l.code) : '';
+      if(fx != null && fx !== '') (_placed[String(fx)] = _placed[String(fx)] || []).push(cd);
     } };
   /* The Banker first. Its ISSUED row, not `bankerOf()`: the card a reader is looking at is the one
      that must come out of the pool, and a live re-search can disagree with it. */
@@ -9250,11 +9656,9 @@ function renderDailySlips(){
              + '</div></div>';
       continue;
     }
-    /* build 355 (WO-61 scope 1) - the pool is what is LEFT. Filtered before `dailyEligible` runs,
-       so a fixture an earlier card took cannot even reach the per-fixture selection step, and a
-       fixture whose best market is gone does not silently fall through to a second market of the
-       same match. */
-    const _free = cands.filter(c => !(c.f && c.f.fxid != null && _taken.has(String(c.f.fxid))));
+    /* WO62B: reject conflicting selections before dailyEligible chooses one per fixture.
+       An approved distinct second selection may reach another card; never a third. */
+    const _free = cands.filter(c => cardLegAllowed(_placed, c.f && c.f.fxid, c.code));
     const pools = DAILY_FLOOR_STEPS.map(st => dailyEligible(_free, floorsForTier(st.floors, tier)));
     /* THE LADDER. Primary floors, then the calibrated fallback, then best-effort. Which step
        answered is carried through to the card, because a slip built from the wider range is a
@@ -9524,12 +9928,9 @@ function renderBanker(){
   }
   if(!b){
     box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2>
-      <div class="subnote"><b style="color:var(--gold)">No pick clears the bar in this window.</b>
-      ${inWindow} fixture${inWindow===1?'':'s'} priced, none of them clearing the same bar a slip leg
-      must clear \u2014 enough history on both teams, a competition that has proven it beats
-      \u201chome or draw\u201d before making a directional call, and the measured floor for that market.
-      Picks already published and since withdrawn are excluded too.
-      MatchMind says nothing rather than picking the best of a bad set.</div></div>`;
+      <div class="subnote"><b style="color:var(--gold)">No eligible slip leg in this window.</b>
+       ${inWindow} fixture${inWindow===1?'':'s'} in this window. A listed prediction is not automatically a slip leg:
+       slip selections must also pass the competition and market checks.</div></div>`;
     return;
   }
   const {L,f} = b;
@@ -9553,6 +9954,7 @@ function renderTipTabs(){ const box=$('tipTabs'); if(!box) return;
   box.innerHTML=TIP_TABS().map(([v,l])=>`<button class="htab${tipState.tab===v?' active':''}" data-tt="${v}">${l}</button>`).join('');
   box.querySelectorAll('.htab').forEach(b=>b.addEventListener('click',()=>{ tipState.tab=b.dataset.tt; renderTips(); })); }
 function renderTips(){
+  if(navigationRetains('tips'))return;
   /* BUILD 299 - the issued rows are needed by the strongest-read card and by all three list tabs,
      not only by the Smart Bet tab that used to be their only reader. Kicked off here so the first
      paint of ANY tips tab has them; `loaded` is set even on failure, so an outage falls through to
@@ -9975,6 +10377,7 @@ function slipMarketMatch(mKey,sel){
 let pendingFrozenPred = null;
 
 async function analyze(){
+  prepareNavigation();
   if(currentSport==='football'&&pendingMeta){const L=afState.leagues[pendingMeta.lid];if(L&&L._presentation){const f=L.upcoming.find(x=>x.fxid===pendingMeta.fxid);pendingMeta=null;if(f)showPublishedFixture(L,f);return;}}
   const analysisTurn=++_analysisGeneration;
   const credential=credentialContext();
@@ -10659,7 +11062,7 @@ function resetMatchPanels(){
 // full words in the detail header — "PST" means nothing to a user (build 61)
 function statusWord(code){
   return ({ NS:'Not started', TBD:'Time to be confirmed', PST:'POSTPONED', SUSP:'SUSPENDED',
-            CANC:'CANCELLED', ABD:'ABANDONED', AWD:'AWARDED', FT:'Full time', AET:'After extra time',
+            CANC:'CANCELLED', ABD:'ABANDONED', INT:'INTERRUPTED', AWD:'AWARDED', FT:'Full time', AET:'After extra time',
             PEN:'After penalties', HT:'Half time', LIVE:'Live' })[code] || code;
 }
 
@@ -11395,7 +11798,7 @@ async function renderLedger(){
     }
 
     html += `<div class="subnote" style="margin-top:12px"><b>No profit figure is shown, and that is deliberate.</b> `
-          + `${mkKeys.length ? '' : ''}Of the picks in this window, roughly nine in ten are Double Chance, Draw No Bet or goals lines, and this app only stores closing prices for the straight 1X2 market. A return calculated from those would describe under a tenth of what MatchMind actually publishes while carrying the name of the whole record. It arrives when the odds history covers the markets the app really uses.</div>`;
+          + `${mkKeys.length ? '' : ''}Of the picks in this window, roughly nine in ten are Double Chance, Draw No Bet or goals lines, and this app only stores closing prices for the straight 1X2 market. A return calculated from those would describe under a tenth of what ${APP_NAME} actually publishes while carrying the name of the whole record. It arrives when the odds history covers the markets the app really uses.</div>`;
     if(orphans.length)
       html += `<div class="subnote"><b>${orphans.length} pick${orphans.length===1?'':'s'} can never be graded.</b> ${orphans.length===1?'Its':'Their'} fixture belongs to the data provider this app retired at Milestone 11. The row is still there and still reads "not started", because the job that updated those fixtures was switched off and nothing has touched them since. You can spot them in the list under the old competition names — <i>Primera Division</i> beside <i>La Liga</i> — alongside their modern twins. Shown rather than hidden, and counted in neither the hit rate nor what is still to come.</div>`;
     if(excluded.length)
@@ -17317,7 +17720,7 @@ async function apiAnalyze(f, L){
     $('analysisText').textContent =
 `${f.home} vs ${f.away} — ${L.name}${L.country?' ('+L.country+')':''}.
 
-Match history for this competition isn't available on your current API plan, so the MatchMind engine can't run its own model here. The probabilities above come from API-Football's prediction service instead. This is a view-only provider estimate, not a MatchMind forecast; it is not recorded in the engine history.` + (comment ? `
+Match history for this competition isn't available on your current API plan, so the ${APP_NAME} engine can't run its own model here. The probabilities above come from API-Football's prediction service instead. This is a view-only provider estimate, not a ${APP_NAME} forecast; it is not recorded in the engine history.` + (comment ? `
 
 Model note: ${comment}.` : '');
     $('verdictBox').textContent = advice ? `Verdict (API-Football): ${advice}` : `Verdict: ${arr[0][1]} (${pct(arr[0][0])}).`;
@@ -17435,7 +17838,19 @@ const NAV_VIEWS = ['scores','predict','tips','favs','data','detail','legal'];   
 let lastTab = 'scores';
 let scrollPos = {};        // remembered scroll offset per view
 let curView = 'scores';    // the view currently shown
-function navTo(t){
+function navTo(t,options={}){
+  if(!NAV_VIEWS.includes(t))return;
+  if(searchHistory && !$('searchOverlay').classList.contains('hidden'))closeSearch();
+  if(searchHistoryClosing){searchHistoryNext=()=>navTo(t,options);return;}
+  const changed=t!==curView;
+  if(options.history!==false && !_navPrepared)captureNavigation();
+  _navRestored=null;
+  ++_navScrollEpoch;
+  if(options.history!==false && _navActive && (changed||options.replace||_navPrepared)){
+    const next=navigationState(t,options.replace?_navActive.index:_navActive.index+1);
+    try{if(options.replace)history.replaceState(next,'');else history.pushState(next,'');_navActive=next;}catch{}
+  }
+  _navPrepared=false;
   try{ scrollPos[curView] = window.scrollY || 0; }catch(e){}   // save where we were on the view we're leaving
   if(t !== 'detail' && t !== 'legal'){ lastTab = t; try{ localStorage.setItem('mm_tab', t); }catch(e){} }   // remember tab so refresh stays put; build 354 - a legal page is not a tab
   if(t !== 'predict' && t !== 'detail' && t !== 'legal') discoverPinned = false;   // un-pin Discover when leaving Predict (#15); build 354 - reading the Terms is not leaving Predict
@@ -17445,19 +17860,27 @@ function navTo(t){
   if(t==='predict') renderFixtures();
   if(t==='tips') renderTips();
   if(t==='favs') renderFavs();
-  if(t==='data') renderMoreRecord();   // build 147 — the accuracy card, refreshed on open
+  if(t==='data'){
+    if(_engineRecord.state==='pending'||_engineRecord.state==='failed'||Date.now()-_engineRecord.at>RECORD_TTL_MS) loadSharedRecords();
+    renderMoreRecord();
+  }
   // restore scroll: returning to a feed brings you back to where you tapped; detail/first-visit start at top
   const target = (t!=='detail' && (t in scrollPos)) ? scrollPos[t] : 0;
   curView = t;
-  requestAnimationFrame(()=>{ try{ window.scrollTo(0, target); }catch(e){ try{ window.scrollTo({top:target}); }catch(_){} } });
+  navigationScroll(target);
 }
-function showFeed(){ navTo(lastTab); }
+function showFeed(){
+  if(_navActive && _navActive.index>0){history.back();return;}
+  navTo(lastTab,{replace:true});
+}
 function prepAnalysisView(){
   for(const id of ['acc-timeline','acc-stats','acc-lineups']) $(id).classList.add('hidden');
   for(const id of ['acc-result','acc-form','acc-analysis']) $(id).classList.remove('hidden');
   $('heroStrong').classList.remove('hidden');
 }
 function showAnalysis(){
+  $('results').classList.remove('published-detail');
+  $('analysisText').classList.remove('published');
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
   prepAnalysisView();
   navTo('detail');
@@ -17478,6 +17901,9 @@ function showAnalysis(){
    showing this page without clearing them would leave the previous fixture's form, scorers and
    Smart Bet sitting under a heading saying there is no analysis. */
 function showNoAnalysis(home, away, info){
+  prepareNavigation();
+  $('results').classList.remove('published-detail');
+  $('analysisText').classList.remove('published');
   ++_analysisGeneration;
   $('analysisHeading').textContent = 'Statistical analysis';
   for(const id of ['compsDrop','compsDropS']){ const b=$(id); if(b) b.classList.add('hidden'); }
@@ -17531,7 +17957,7 @@ function showNoAnalysis(home, away, info){
   if(box) box.innerHTML =
       `<p><b>There is no prediction for this fixture, and that is deliberate.</b></p>`
     + (info && info.outOfScope
-        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> is not a competition MatchMind predicts.</p>
+        ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> is not a competition ${APP_NAME} predicts.</p>
            <p>Predictions cover the top three divisions in England, Spain, Italy, Germany, France, the Netherlands and Portugal, the top two divisions elsewhere, and the cups. The fixture, kick-off time and result still work here.</p>`
       : info && info.thin
         ? `<p><b>${escapeHtml(String(info.comp||'This competition'))}</b> has only <b>${info.n}</b> completed match${info.n===1?'':'es'} loaded so far — the engine needs at least 15 before it will price a fixture. In early August that simply means the season has just started and the results have not arrived yet.</p>
@@ -17593,6 +18019,7 @@ function historyLeagues(){
   return out;
 }
 function renderFavs(){
+  if(navigationRetains('favs'))return;
   const tabsBox=$('favTabs');
   const tabs=[['matches','⭐ Matches'],['leagues','🏆 Leagues & teams']];
   tabsBox.innerHTML=tabs.map(([v,l])=>`<button class="sfchip${afState.favTab===v?' active':''}" data-ft="${v}">${l}</button>`).join('');
@@ -17674,6 +18101,28 @@ function renderFavLeagues(){
    ================================================================ */
 let curDetail = null;
 async function matchDetail(s){
+  prepareNavigation();
+  // Scores uses the same bounded football analysis as Analysis, including finished/live
+  // fixtures. A history read retrieves its issued record; it never invokes a private reader.
+  if(!fixtureRawCurrent()){
+    const detailTurn=++_analysisGeneration,originView=curView;
+    const requestContext={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+    const navigationTurn=typeof _navScrollEpoch==='number'?_navScrollEpoch:null;
+    let {L,f}=ensureLeagueFromScore(s);
+    try{
+      const scores=_fixtureDelivery.screens.get('scores'),history=await fixtureDisplayLoad('history');
+      if(scores&&(history.edition_id!==scores.edition_id||history.as_of!==scores.as_of))throw Error('Display edition changed');
+      const original=history.cards.find(c=>c.fxid===s.fxid);
+      if(original&&original.home===s.home&&original.away===s.away){
+        const current=f._displayCard||original;
+        f=fixturePresentationRow({...current,prediction:original.prediction},null);
+        const i=L.upcoming.findIndex(x=>x.fxid===f.fxid);if(i>=0)L.upcoming[i]=f;
+      }
+    }catch{f={...f,_pickUnavailable:!f._displayCard?.prediction};}
+    if(detailTurn!==_analysisGeneration||curView!==originView||!fixtureDeliveryCurrent(requestContext)
+      ||navigationTurn!==null&&_navScrollEpoch!==navigationTurn)return;
+    showPublishedFixture(L,f);return;
+  }
   const credential=credentialContext();
   curDetail = s;
   resetMatchPanels();
@@ -17819,7 +18268,7 @@ function renderSlipUI(){
   }
   // risk slider (target risk = 100 − win probability)
   const sl=$('riskSlider'); sl.value=slipState.riskPct;
-  const upd=()=>{ $('riskLabel').textContent=`Max risk ${slipState.riskPct}% per match — every leg must win at least ${100-slipState.riskPct}%`; };
+  const upd=()=>{ $('riskLabel').textContent=`Max risk ${slipState.riskPct}% per match — minimum published probability ${100-slipState.riskPct}%`; };
   sl.oninput=()=>{ slipState.riskPct=+sl.value; upd(); };
   upd();
   // scope
@@ -17869,7 +18318,7 @@ function renderSlipUI(){
    Returns null when the board is not read, so the caller can say so instead of falling back to the phone. */
 const SLIP_BOARD_MARKETS = ['1X2', 'DC', 'DNB', 'OU35'];   // the markets the board carries: Winner, Double Chance, DNB, Goals U3.5
 const SLIP_BOARD_NOTE = "Only the robot's own picks are offered here, so markets it does not issue are not listed.";
-const SLIP_BOARD_EMPTY = 'The robot has not passed any fixture inside this limit yet. Picks appear up to 7 days ahead, once the engine clears the bar.';
+const SLIP_BOARD_EMPTY = 'No eligible slip legs for these settings. Listed predictions must also be passed board picks, still upcoming, in the selected dates, leagues and markets, within the per-match risk limit.';
 const SLIP_BOARD_UNREAD = "The robot's board could not be read, so no slip can be built. It returns when the board loads.";
 let _slipBoardSkipped = 0;   // board rows whose fixture is not loaded on this device, last build of a slip
 function slipCandidatesFromBoard(opt){
@@ -20009,7 +20458,7 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
      the decision that reads it. */
 }
 async function loadCloudLeagues(force){
-  if(supa && !(await fixtureAccess())){ await loadFixturePresentation(); return; }
+  if(supa && !(await fixtureAccess())){ loadSharedRecords(); await loadFixturePresentation(); return; }
   const fixtureSource={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(!supa) return;
@@ -21162,10 +21611,10 @@ function loadSharedRecords(){
       _engineRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
       _clvRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
     }
-    _engineRecordLoading = null;
-    try{ renderStrongPicks(); renderMoreRecord(); }catch(e){}
+    try{ renderStrongPicks(); }catch(e){}
+    try{ renderMoreRecord(); }catch(e){}
     return _engineRecord;
-  })();
+  })().finally(()=>{_engineRecordLoading=null;});
   return _engineRecordLoading;
 }
 /* ONE tally over the shared row: hits, misses and voids per day per market. A void returned the stake,
@@ -21499,13 +21948,11 @@ function scoresReadFailed(msg){
   renderScores();                     // repaint the last good list — or clear, if there never was one
   const el = $('scoresMeta');
   if(have){
-    const src = afState.scores.dataAt || afState.scores.at;
-    const mins = Math.max(0, Math.round((Date.now() - src)/60000));
-    const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
-              : mins < 60 ? mins + ' min ago' : Math.floor(mins/60) + 'h ago';
-    el.innerHTML = `<b style="color:var(--red)">Refresh failed</b> · showing scores from ${ago}`;
+    // renderScores already states source age, visible count and competition narrowing.
+    // Preserve that disclosure when the next read fails instead of hiding the full slate count.
+    el.innerHTML = '<b style="color:var(--red)">Refresh failed</b> · ' + el.innerHTML;
   } else {
-    el.textContent = 'Scores unavailable: ' + msg;
+    el.textContent = 'Matches temporarily unavailable. Please try again.';
   }
   return true;
 }
@@ -21527,8 +21974,11 @@ async function afScoresFromCloud(){
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
     let newest = 0;
     for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
-    afState.scores = { at: Date.now(), dataAt: newest || Date.now(), v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
+    const edition = fixtureDeliveryCurrent(_fixtureDelivery) && !fixtureRawCurrent() ? _fixtureDelivery.screens.get('scores') : null;
+    const publicCards=new Map((edition&&edition.cards||[]).map(c=>[c.fxid,c]));
+    afState.scores = { at: Date.now(), dataAt: newest || null, editionAsOf:edition?edition.as_of:null, editionUntil:edition?edition.expires_at:null, v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
+      _presentation:!!edition,_displayCard:publicCards.get(r.fxid)||null,
       date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
       home:r.home, away:r.away, gh:r.gh, ga:r.ga,
       /* build 357 - the marker and the raw final travel with the row so the feed can say the
@@ -21543,6 +21993,7 @@ async function afScores(silent){
   if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading matches…';
   // when the backend is connected, the cloud is authoritative — never fall back to stale device data
   if(supa){ await afScoresFromCloud(); return; }
+  if(!PERSONAL_PROVIDER_INPUTS_ENABLED){$('scoresMeta').textContent='Server-managed matches are unavailable. Please try again later.';return;}
   // legacy path: direct API-Football call (only when no backend is configured)
   /* use only the currently assigned credential */
   if(!afState.key){ $('scoresMeta').textContent = 'Add your API-Football key in the Data tab.'; return; }
@@ -21578,7 +22029,12 @@ function ensureLeagueFromScore(s){
   const L = afState.leagues[s.lid];
   if(!(fixtureRawCurrent()))L._presentation=true;
   let f = L.upcoming.find(x=>x.fxid===s.fxid);
-  if(!f){ f = {fxid:s.fxid, date:s.date, time:s.time, home:s.home, away:s.away}; L.upcoming.push(f); }
+  if(s._displayCard){
+    const card={...s._displayCard,prediction:s._displayCard.prediction||f?._displayCard?.prediction||null};
+    const published=fixturePresentationRow(card,null);
+    if(f){const i=L.upcoming.indexOf(f);L.upcoming[i]=published;}else L.upcoming.push(published);
+    f=published;
+  }else if(!f){f={fxid:s.fxid,date:s.date,time:s.time,home:s.home,away:s.away,status:s.status,_presentation:!fixtureRawCurrent()};L.upcoming.push(f);}
   return {L, f};
 }
 
@@ -21591,6 +22047,7 @@ function renderScoresDateBar(){
 }
 
 function renderScores(){
+  if(navigationRetains('scores'))return;
   const box = $('scoresList');
   // default to today, and don't strand the user on a date that has scrolled out of the window
   const days = scoresDayList();
@@ -21617,11 +22074,12 @@ function renderScores(){
      do the subtraction; "Updated 3 min ago" answers the real question — is this current? — and if the
      collector ever stops, that number climbs on screen instead of a stale clock time looking fine.
      Measured from the collector's own write, not from when this device happened to read it. */
-  const src = afState.scores.dataAt || afState.scores.at;
-  const mins = Math.max(0, Math.round((Date.now() - src)/60000));
-  const ago = mins < 1 ? 'just now' : mins === 1 ? '1 min ago'
-            : mins < 60 ? mins + ' min ago'
-            : mins < 120 ? 'over an hour ago' : Math.floor(mins/60) + ' hours ago';
+  const src = afState.scores.dataAt || (afState.scores.source==='cloud' ? 0 : afState.scores.at);
+  const mins = src ? Math.max(0, Math.round((Date.now() - src)/60000)) : null;
+  const age = ms => {const m=Math.max(0,Math.round((Date.now()-ms)/60000));return m<1?'just now':m===1?'1 min ago':m<60?m+' min ago':m<120?'over an hour ago':Math.floor(m/60)+' hours ago';};
+  const ago = src ? age(src) : 'unknown';
+  const editionAt = Date.parse(afState.scores.editionAsOf||'');
+  const editionLabel = Number.isFinite(editionAt) ? ' · Edition published '+age(editionAt)+(Date.parse(afState.scores.editionUntil||'')<=Date.now()?' (expired)':'') : '';
   const sf = afState.scoreFilter || 'all';
   let list = dayAll;
   const cf = afState.filter;   // shared competition setting (build 82)
@@ -21636,7 +22094,7 @@ function renderScores(){
      · 6 matches over two rows, or over none at all, on a screen that looks entirely settled. */
   const live = list.filter(s=>LIVE_CODES.includes(s.status)).length;
   syncCompsChips();   // the chip states which competition is on, on every repaint
-  $('scoresMeta').innerHTML = `Updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b> · ${list.length} matches`
+  $('scoresMeta').innerHTML = `Source updated <b${mins>25?' style="color:var(--red)"':''}>${ago}</b>${editionLabel} · ${list.length} matches`
     + (narrowed ? ` <span class="muted">of ${dayAll.length} — one competition</span>` : '')
     + (live?` · <b style="color:var(--red)">● ${live} live</b>`:'');
   // group by league, sorted by importance
@@ -21658,25 +22116,27 @@ function renderScores(){
   for(const g of ordered){
     const s0 = g[0];
     const badge = competitionBadge(s0);
-    html += `<div class="lghead">${badge} ${s0.lname} <span class="muted" style="font-size:.7rem;font-weight:600">${s0.lcountry}</span></div>`;
+    html += `<div class="lghead">${badge} ${escapeHtml(s0.lname)} <span class="muted" style="font-size:.7rem;font-weight:600">${escapeHtml(s0.lcountry)}</span></div>`;
     for(const s of g){
       const isLive = LIVE_CODES.includes(s.status);
       const done = ['FT','AET','PEN'].includes(s.status);
-      const stat = isLive ? `<span class="livedot">●</span>${s.elapsed?s.elapsed+"'":s.status}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : s.status;
+      const exceptional=fixtureExceptionalStatus(s);
+      const stat = exceptional ? fixtureExceptionalTime(s) : isLive ? `<span class="livedot">●</span>${s.elapsed?escapeHtml(s.elapsed)+"'":escapeHtml(statusWord(s.status))}` : done ? 'FT' : (s.status==='NS'||s.status==='TBD') ? localHM(s.date, s.time) : escapeHtml(statusWord(s.status));
       /* build 357 - an unresolved extra-time tie shows its real result and says plainly that the
          90-minute score, which is what every market here settles on, is not available. */
-      const score = unsettled90(s) ? `${s.raw_gh} – ${s.raw_ga}<span class="ftl">AET · 90' n/a</span>`
-        : (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${s.gh} – ${s.ga}${s.fgh!=null ? ' <span class="ftl">' + aetText(s) + '</span>' : ''}` : '–';
+      const score = exceptional ? '–' : unsettled90(s) ? `${escapeHtml(s.raw_gh)} – ${escapeHtml(s.raw_ga)}<span class="ftl">AET · 90' n/a</span>`
+        : (s.gh!=null && s.ga!=null && s.status!=='NS' && s.status!=='TBD') ? `${escapeHtml(s.gh)} – ${escapeHtml(s.ga)}${s.fgh!=null ? ' <span class="ftl">' + escapeHtml(aetText(s)) + '</span>' : ''}` : '–';
       const canOpen = true;
       const i = rowRefs.length; rowRefs.push(s);
       html += `<div class="scrow favrow${isLive?' islive':''}" data-i="${i}">
         <span class="mstar lft${isFavMatch(s.fxid)?'':' off'}" data-star="${i}">${isFavMatch(s.fxid)?'★':'☆'}</span>
         <span class="scstat">${stat}</span>
-        <span class="fxteams"><span class="tline">${crest(s.home)}${s.home}</span><span class="tline">${crest(s.away)}${s.away}</span></span>
-        <span class="scscore${done?' final':''}${isLive?' liven':''}">${score}</span></div>`;
+        <span class="fxteams"><span class="tline">${crest(s.home)}${escapeHtml(s.home)}</span><span class="tline">${crest(s.away)}${escapeHtml(s.away)}</span></span>
+        <span class="scscore${done?' final':''}${isLive?' liven':''}${exceptional?' exceptional-status-slot':''}">${exceptional?exceptionalStatusChip(s):score}</span></div>`;
     }
   }
   box.innerHTML = html;
+  bindStatusChips(box);
   box.querySelectorAll('.sfchip').forEach(c=>c.addEventListener('click',()=>{ afState.scoreFilter=c.dataset.sf; renderScores(); }));
   { const cl = $('scoresClearFilter'); if(cl) cl.onclick = e=>{ e.preventDefault();
       afState.filter='all'; afState.scoreFilter='all'; saveState(); renderCompsDrop(); renderScores(); }; }
@@ -21957,7 +22417,7 @@ function legalGap(what){ return '<div class="lgap">' + LEGAL_GAP_MARK + ' ' + wh
    nothing else: Ken struck the caveat, and a footer is not the place to re-introduce one. */
 function legalFooter(){
   return '<div class="subnote" style="border-top:1px solid var(--border); margin-top:16px">'
-    + 'Version ' + LEGAL_VERSION + ' · ' + LEGAL_UPDATED + '</div>';
+    + 'Legal text v' + LEGAL_VERSION + ' · ' + LEGAL_UPDATED + '</div>';
 }
 /* THE LANDED RATE, READ LIVE. The same `recordStats()` the record card and the Analysis tab read,
    so the trust page cannot disagree with either about the same picks — §60's lesson. A record that
@@ -21975,14 +22435,14 @@ function legalRecordLine(){
 }
 const LEGAL_PAGES = {
   terms: { title: 'Terms of Use', body: function(){ return `
-<div class="notice">These terms govern your use of MatchMind. By using the app you accept them. If you don’t accept them, don’t use the app.</div>
-<h3>1. What MatchMind is</h3>
-<p>MatchMind is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market. After the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
-<h3>2. What MatchMind is not</h3>
-<p>MatchMind is not a bookmaker, a betting exchange or a betting intermediary. It accepts no bets, takes no stake, holds no customer money, pays out nothing, and places no bet for you.</p>
+<div class="notice">These terms govern your use of ${APP_NAME}. By using the app you accept them. If you don’t accept them, don’t use the app.</div>
+<h3>1. What ${APP_NAME} is</h3>
+<p>${APP_NAME} is a football information app. Before a match kicks off it publishes the engine’s forecast of the most likely outcome in one market. After the match it shows whether that forecast was right. It keeps a public record of every forecast it has published.</p>
+<h3>2. What ${APP_NAME} is not</h3>
+<p>${APP_NAME} is not a bookmaker, a betting exchange or a betting intermediary. It accepts no bets, takes no stake, holds no customer money, pays out nothing, and places no bet for you.</p>
 <p>The app offers no gambling facility of any kind. There is nothing in it to stake money on, no account to fund and no payment of any sort. Nothing in the app is a recommendation to place a bet. Nothing in it is financial, investment, tax or legal advice.</p>
 <h3>3. Who may use it</h3>
-<p>You must be 18 or over to use MatchMind. The app does not check your age, and by using it you confirm that you are 18 or over. We don’t offer the app to anyone under 18. If we find that an account belongs to someone under 18, we close it and delete its data.</p>
+<p>You must be 18 or over to use ${APP_NAME}. The app does not check your age, and by using it you confirm that you are 18 or over. We don’t offer the app to anyone under 18. If we find that an account belongs to someone under 18, we close it and delete its data.</p>
 <h3>4. The forecasts, and the rules they are published under</h3>
 <p>These are the rules the app runs on. They are the same for every match and every user, and we don’t vary them case by case.</p>
 <ul>
@@ -21993,13 +22453,13 @@ const LEGAL_PAGES = {
 <li><b>Withheld forecasts.</b> Where the engine’s confidence for a match falls below the threshold measured for that competition, we publish no forecast for that match.</li>
 </ul>
 <h3>5. Accuracy: the only representation the app makes</h3>
-<p>MatchMind is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are often wrong.</p>
+<p>${APP_NAME} is provided on an “as is” and “as available” basis. A forecast is a statement of probability, not a statement of fact, and forecasts are often wrong.</p>
 <p>The app’s own published record is the only representation we make about accuracy, and it includes the shortfall. Across the picks in that record the engine’s average stated confidence was ${LEGAL_CLAIMED.toFixed(1)}% while ${LEGAL_LANDED.toFixed(1)}% actually landed, an over-statement of ${LEGAL_GAP.toFixed(1)} points. The current figures, and the test that tracks them, are on the Responsible play page. We give no other representation or warranty about accuracy, availability, continuity or results, and none is to be implied, except where one cannot lawfully be excluded.</p>
 <h3>6. Your account</h3>
 <p>An account is an email address and a password. It exists so that your favourites and your copy of the record reach your other devices. Keep your password confidential: you are responsible for what is done through your account. Accounts are personal, and you may not share or transfer one.</p>
 <p>You can request account deletion in More → Your data → Delete my account. The app reports the server’s acknowledgement; it does not independently verify completed server-side erasure or device sign-out. Device copies and backups are retained for separate review.</p>
 <h3>7. Acceptable use</h3>
-<p>MatchMind is for your own personal, non-commercial use. You must not:</p>
+<p>${APP_NAME} is for your own personal, non-commercial use. You must not:</p>
 <ul>
 <li>attempt to gain unauthorised access to the app, its database or its server functions, or to any account that is not yours;</li>
 <li>scrape, harvest or systematically extract its forecasts, record or data;</li>
@@ -22012,7 +22472,7 @@ const LEGAL_PAGES = {
 <h3>9. Data from third parties</h3>
 <p>Results, fixtures and bookmakers’ odds come from API-Football. We don’t control that data and we are not responsible for errors in it. Where a provider’s figure later turns out to be wrong, the published record keeps what was published rather than being rewritten.</p>
 <h3>10. Availability, changes, and ending the service</h3>
-<p>MatchMind is free to use. It may be unavailable at times, its features may change, and it may stop publishing forecasts or close entirely.</p>
+<p>${APP_NAME} is free to use. It may be unavailable at times, its features may change, and it may stop publishing forecasts or close entirely.</p>
 <p>We may amend these terms. The version number and date at the foot of this page identify the text that applies. If you carry on using the app after a change, you accept the amended terms. We may suspend or close an account that breaches clause 7.</p>
 <h3>11. Liability</h3>
 <p>Nothing in these terms excludes or limits our liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any other liability that cannot lawfully be excluded or limited.</p>
@@ -22028,7 +22488,7 @@ ${legalGap('An address for notices under these terms. The project has no domain 
 `; } },
 
   privacy: { title: 'Privacy notice', body: function(){ return `
-<div class="notice">This notice explains what MatchMind does with personal data: what is held, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies. If you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 8 are written to cover all three.</div>
+<div class="notice">This notice explains what ${APP_NAME} does with personal data: what is held, on what basis, for how long, and how to exercise your rights. Nigeria’s Data Protection Act 2023 is the home law. If you are in the European Union the GDPR applies. If you are in the United Kingdom the UK GDPR and the Data Protection Act 2018 apply. The rights in clause 8 are written to cover all three.</div>
 <h3>1. Who is responsible</h3>
 ${legalGap('The data controller’s legal name, country of registration and registered address.')}
 ${legalGap('An email address for privacy requests, on the project’s own domain. The domain does not exist yet, so there is nothing to publish. A personal address is deliberately not used in its place.')}
@@ -22059,7 +22519,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <li><b>API-Football</b>: supplies results, fixtures and odds. No personal data is sent to it.</li>
 <li><b>Google, Apple or Mozilla</b>, according to your browser: the push service that delivers a notification to your device, if you have switched notifications on.</li>
 <li><b>Google Fonts and jsDelivr</b>: serve the typeface and one software library. They receive your IP address when the app loads.</li>
-<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. The app’s own server function sends the request using the project’s key, so the provider receives the match data and nothing that identifies you. The count described above is what applies the shared allowance. If you enter your own Claude key in More → Data instead, that request goes from your device straight to Anthropic.</li>
+<li><b>An AI provider</b>: only when you ask for a written analysis of a match, and only if you are signed in. ${APP_NAME} sends the match data without information that identifies you. The count described above is what applies the shared allowance.</li>
 </ul>
 <p>No personal data is sold or rented. None is used for advertising. None is disclosed to anyone else except where the law requires it.</p>
 <h3>7. International transfers</h3>
@@ -22077,7 +22537,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <h3>9. No cookies, no tracking, no profiling</h3>
 <p>The app sets no cookies. It contains no analytics, advertising or tracking code. You are not profiled, and no decision about you is taken by automated means.</p>
 <h3>10. Children</h3>
-<p>MatchMind is not offered to anyone under 18, and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
+<p>${APP_NAME} is not offered to anyone under 18, and no account is knowingly created for a child. An account found to belong to someone under 18 is closed and its data deleted.</p>
 <h3>11. Security</h3>
 <p>Every connection the app makes is encrypted: to the database, to the authentication service and to the data provider. Database access is restricted by per-row policy, so a signed-in account can reach its own rows and nobody else’s. The published forecasts carry no update or delete permission at all, which is what makes the record unalterable. Account deletion is carried out by a server function. It takes your identity from your verified session, so it cannot delete any account but your own.</p>
 <h3>12. Changes to this notice</h3>
@@ -22087,14 +22547,14 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
   play: { title: 'Responsible play', body: function(){ return `
 <div class="notice">18 and over. The forecasts here are often wrong, and this page prints how often.</div>
 <h3>18 and over</h3>
-<p>MatchMind is for adults. The app does not check your age.</p>
+<p>${APP_NAME} is for adults. The app does not check your age.</p>
 <h3>The record, and the gap</h3>
 ${legalRecordLine()}
 <p>Across the picks in that record the engine’s own average stated confidence was <b>${LEGAL_CLAIMED.toFixed(1)}%</b> while <b>${LEGAL_LANDED.toFixed(1)}%</b> landed, so it <b>over-claims by ${LEGAL_GAP.toFixed(1)} points</b>. Measured on ${LEGAL_GAP_AT} over ${LEGAL_GAP_N} graded picks.</p>
 <p>The filed test that tracks this is PROSPECTIVE-318. At its first reading, on 10 October 2026, the gap stood at 3.5 points over 267 picks.</p>
 <p>Put plainly: about one pick in four does not land, and the engine is more confident than its results justify.</p>
 <h3>This is not a tip to bet</h3>
-<p>MatchMind takes no stake and pays nothing out. It cannot tell you what will happen in a football match. If you bet, the decision and the money are yours.</p>
+<p>${APP_NAME} takes no stake and pays nothing out. It cannot tell you what will happen in a football match. If you bet, the decision and the money are yours.</p>
 <h3>Keep it in proportion</h3>
 <p>Never stake money you need. Never try to win back a loss with a bigger bet. A run of correct forecasts does not make the next one correct. The record above exists so that nobody, including us, can pretend otherwise.</p>
 <h3>If it is becoming a problem</h3>
@@ -22138,7 +22598,7 @@ ${legalGap('A contact email on the project’s own domain. The domain does not e
 <li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
 </ul>
 <h3>Post</h3>
-<p>MatchMind is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
+<p>${APP_NAME} is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
 ${legalGap('The operator’s legal name, country of registration and registered address.')}
 `; } }
 };
@@ -22154,11 +22614,88 @@ function renderLegal(key){
    `navTo` refreshes the record card on the More tab: a figure a reader is being asked to trust
    should not be the one this device happened to load an hour ago. */
 function openLegal(key){
+  prepareNavigation();
   if(!LEGAL_PAGES[key]) return;
   if(key === 'play' && _engineRecord.state !== 'pending'
      && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();
   renderLegal(key);
   navTo('legal');
+}
+
+const INTRO_KEY = 'mm_intro';
+/* THE SESSION'S OWN MEMORY, which is the whole answer to a store that throws. A device in private
+   mode, or with site data blocked, or with a full quota, throws on `getItem` rather than returning
+   null - so without this flag the screen would reappear on every re-render of that session. The
+   order's rule is that a throwing store must not break the boot AND must not show the screen twice
+   in one session. */
+let _introShown = false;
+let _introReturnFocus = null, _introPriorInert = false, _introWired = false;
+function introSeen(){
+  if(_introShown) return true;
+  try{ return localStorage.getItem(INTRO_KEY) === '1'; }catch(e){ return _introShown; }
+}
+function introMark(){
+  _introShown = true;                     // set FIRST, so a throwing store still ends the session's showing
+  try{ localStorage.setItem(INTRO_KEY, '1'); }catch(e){ }
+}
+/* The one figure on the screen, read live. No literal: not the hits, not the total, not the
+   percentage, not the date. */
+function introRecordLine(){
+  const s = recordStats();
+  if(!s || !s.n) return 'The published record has not loaded on this device yet. It is on the More tab.';
+  return s.hits + ' of ' + s.n + ' published picks have landed since '
+       + escapeHtml(recordFromText()) + ', ' + s.pct + '%.';
+}
+function introShow(){
+  const el = document.getElementById('introScreen');
+  if(!el) return;
+  const r = document.getElementById('introRecord');
+  if(r) r.textContent = introRecordLine();
+  if(el.hidden){ _introReturnFocus = document.activeElement; const app=document.querySelector('.app'); _introPriorInert=!!app?.inert; if(app) app.inert=true; }
+  el.hidden = false;
+  el.scrollTop = 0; el.focus({preventScroll:true});
+}
+function introDismiss(){
+  introMark();
+  const el = document.getElementById('introScreen');
+  if(el) el.hidden = true;
+  const app=document.querySelector('.app'); if(app) app.inert=_introPriorInert;
+  const fallback=document.getElementById('searchOpen');
+  if(_introReturnFocus?.isConnected && _introReturnFocus!==document.body) _introReturnFocus.focus(); else fallback?.focus();
+}
+/* Every path out of the screen marks it seen, including the three links: a reader who leaves
+   through Terms has read the screen, and showing it again afterwards would be a wall rather than
+   an introduction. */
+function introWire(){
+  if(_introWired) return; _introWired=true;
+  document.getElementById('introScreen')?.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ e.preventDefault(); introDismiss(); return; }
+    if(e.key!=='Tab') return;
+    const els=[...document.getElementById('introScreen').querySelectorAll('a[href],button:not([disabled])')];
+    const first=els[0],last=els[els.length-1];
+    if(e.shiftKey && (document.activeElement===first || !els.includes(document.activeElement))){e.preventDefault();last?.focus();}
+    else if(!e.shiftKey && (document.activeElement===last || !els.includes(document.activeElement))){e.preventDefault();first?.focus();}
+  });
+  /* WO-62A: the button's id is written out beside .addEventListener, in the call itself, because
+     build-deploy.py's verify_controls_wired() recognises only two spellings of a listener (the dollar
+     helper or getElementById, each followed directly by .addEventListener) and nothing wired through a
+     local variable. Through one it reported this button as dead and refused to build the public copy.
+     This comment avoids those literal call shapes on purpose: verify_no_null_refs() scans comments too.
+     The null guard is kept: a missing node must not throw during boot. */
+  if(document.getElementById('introGo')) document.getElementById('introGo').addEventListener('click', introDismiss);
+  const L = [['introTerms','terms'], ['introPrivacy','privacy'], ['introPlay','play']];
+  for(const [id, key] of L){
+    const a = document.getElementById(id);
+    if(a) a.addEventListener('click', e => { e.preventDefault(); introDismiss(); openLegal(key); document.getElementById('legalBack')?.focus(); });
+  }
+}
+/* Wrapped whole. Nothing about a first-run screen is worth a white screen, which is why the order
+   asks for the flag to be wrapped and why the call is too. */
+function introBoot(){
+  try{
+    introWire();
+    if(!introSeen()) introShow();
+  }catch(e){ try{ console.warn('intro:', e); }catch(_){ } }
 }
 
 /* ---------- AI strong picks (Analysis tab) ---------- */
@@ -22203,9 +22740,8 @@ function renderCompsDrop(boxId){
 function buildCompsDrop(boxId){
   const box = $(boxId); if(!box) return;
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
-  /* Same rule as the feed: a competition with no history can't be predicted, so it doesn't belong in
-     Predict's own competition list either. The World Cup was still listed here with 20 fixtures and
-     no prediction behind any of them (build 84). */
+  /* Match the feed: published presentation fixtures need no private fitting corpus.
+     Locally fitted competitions retain the existing history minimum and prediction scope. */
   // Scores is an admitted fixture display, not a prediction-history inventory. Its menu must
   // include every competition on the selected local day, including unpriced fixtures and
   // competitions absent from the private prediction corpus. Never create or mutate that corpus.
@@ -22218,10 +22754,10 @@ function buildCompsDrop(boxId){
     scoreComps.get(key)._scoreCount++;
   }
   const all = isScores ? [...scoreComps.values()] : order.map(id=>afState.leagues[id])
-    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l.matches||[]).length >= 15 && predictsComp(l));   // build 327
+    .filter(l=>l && l.upcoming.length && (l.sport||'football')==='football' && (l._presentation || (l.matches||[]).length >= 15) && predictsComp(l));   // published fixtures need no private fitting corpus
   const fb = all.filter(l=>(l.sport||'football')==='football').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
   const bk = all.filter(l=>l.sport==='basketball').sort((a,b)=>leaguePriority(b)-leaguePriority(a));
-  const predicted = l => isScores ? l._scoreCount : (l.upcoming||[]).filter(f=>f.pick).length;
+  const predicted = l => isScores ? l._scoreCount : (l.upcoming||[]).filter(f=>l._presentation || f.pick).length;
   const cnt = ls => ls.reduce((s,l)=>s+predicted(l),0);
   const item = (val,label,count)=>`<div class="lgitem${String(afState.filter)===String(val)?' sel':''}" data-f="${val}"><span>${label}</span><span class="muted">${count}</span></div>`;
   // show country next to the competition name so generic names ("Cup", "Super Cup"…) are identifiable (#19)
@@ -22239,13 +22775,12 @@ function buildCompsDrop(boxId){
      it. A reader whose competition setting was a league id - set from Search, or left over after
      loadCloudLeagues rebuilt and dropped that league, or after sign-out cleared afState.leagues -
      then had no control anywhere able to widen the feed back out, on Scores or on Predict. In the
-     public presentation shape L.matches is empty, so the >=15 qualifying test leaves `all` empty
-     for EVERY public reader and this branch is the normal path, not an edge case. The note is
-     extra information, not a reason to remove the only way back. */
+     public presentation shape L.matches is empty; published competitions are now admitted above.
+     The empty state remains recoverable when no competition was published. */
   if(!all.length) html = item('all','🌍 All competitions', 0)
     + (isScores ? '<div class="subnote" style="margin-bottom:4px">No competitions on this date.</div>'
-                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet — tap “Discover more competitions” below to scan the football world.</div>');
-  html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
+                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet. Server-managed competitions appear after the next normal refresh.</div>');
+  if(PERSONAL_PROVIDER_INPUTS_ENABLED) html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
     const v = it.dataset.f;
@@ -22264,6 +22799,7 @@ function buildCompsDrop(boxId){
 }
 
 function renderFixtures(){
+  if(navigationRetains('predict'))return;
   if(afState.archiveDate){ showPredictDate(afState.archiveDate); return; }
   const wrap = $('fixturesWrap');
   const Ls = visibleLeagues();
@@ -22334,6 +22870,7 @@ function renderFixtures(){
     const feat = [];
     for(const L of Ls) for(const f of L.upcoming){
       if(f.date!==afState.selectedDate) continue;
+      if(fixtureExceptionalStatus(f)||forecastDisplayExpired(f)) continue;
       if(!f.pick) continue;   // Predict is for fixtures the engine has actually priced (build 84)
       if(f.gated) continue;   // build 118 — a withheld pick is not a tip. The fixture still appears
                               // in its competition below.
@@ -22400,7 +22937,7 @@ function renderFixtures(){
   for(const L of Ls){
     const todays = L.upcoming.filter(f=>{
       if(f.date !== afState.selectedDate) return false;
-      if(f.pick) return true;
+      if(f.pick||f._presentation||fixtureExceptionalStatus(f)) return true;
       if(!fixtureResult(L, f, smap)) return false;   // upcoming with no pick: unchanged, still hidden
       return true;                                   // played: the row stays and carries its own status
     });
@@ -22558,7 +23095,10 @@ function openDatePicker(onPick){
   inp.click();
 }
 
+let _predictDateRead=0;
 async function showPredictDate(d){
+  const read=++_predictDateRead;
+  const current=()=>read===_predictDateRead && afState.archiveDate===d && afState.selectedDate===d;
   const today = todayStrLocal();
   const dp = daysPast(d);
   // inside the normal window there is nothing to fetch — just move the strip
@@ -22578,32 +23118,40 @@ async function showPredictDate(d){
        `renderArchiveDay` already threw on their OWN prediction read, at lines 10920 and
        16783; this call site simply never captured it. Their RESULT reads discarded the error
        in the same way this one did, and are corrected in the same change. */
+    if(!current())return;
     if(predErr) throw predErr;
     const retiredHere = await retiredCount(d);   // build 326
+    if(!current())return;
     if(!preds || !preds.length){
       $('fixtureList').innerHTML = retiredNoteDay(retiredHere) + `<div class="subnote">No predictions stored for ${d}.</div>`; return; }
     const { data: fx, error: fxErr } = await fixtureTable('fixtures').select('fxid,date,time,gh,ga,ft_h,ft_a,status,provider').in('fxid', preds.map(p=>p.fxid));   // build 349 - provider, date and time, for the void function
+    if(!current())return;
     if(fxErr) throw fxErr;   // build 357 - an unreadable result read is reported, not shown as an ungraded pick
     const res = {}; for(const f of (fx||[])){ const s = settledRow(f); if(!unsettled90(s)) res[f.fxid] = s; }   // build 320; build 357
     let hits=0, graded=0, html='', lastL='';
     for(const p of preds){
       const f = res[p.fxid];
       const v = pickVerdict(p, f, null, today);   // build 349 - the one void function
-      const done = v.done;                        // build 160
+      const exceptional=fixtureExceptionalStatus(f);
+      const expired=forecastDisplayExpired(f,null,p);
+      const done = v.done&&!exceptional;                        // build 160
       const hit = done ? v.g === 'hit' : null;    // build 120
-      if(done){ graded++; if(hit) hits++; }
+      if(done&&v.g!=='void'){ graded++; if(hit) hits++; }
       if(p.lname !== lastL){ lastL = p.lname; html += `<div class="lghead">🏆 ${escapeHtml(p.lname||'')}</div>`; }
       const chip = done
-        ? `<span class="predchip ${hit?'hit':'miss'}">${p.pick} ${hit?'✓':'✗'}</span>`
-        : v.voidLate
-        ? `<span class="predchip muted-chip" title="${escapeHtml(VOID_WORDS)}">${p.pick} void</span>`   // build 349
-        : `<span class="predchip">${p.pick} · ${probabilityPercent(p.pick_prob,0)}</span>`;
-      html += `<div class="fxrow"><span class="fxtime">${done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(d, p.ktime)}</span>
-        <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${chip}</div>`;
+        ? (v.g==='void'?dnbVoidChip(p.pick):`<span class="predchip ${hit?'hit':'miss'}">${chipCode(p.pick)} ${hit?'✓':'✗'}</span>`)
+        : expired
+        ? expiredForecastChip()   // build 349
+        : `<span class="predchip">${chipCode(p.pick)} · ${probabilityPercent(p.pick_prob,0)}</span>`;
+      const displayChip=exceptional?exceptionalStatusChip(f):chip;
+      html += `<div class="fxrow"><span class="fxtime">${exceptional?fixtureExceptionalTime(f):(done?`${f.gh}–${f.ga}<br><span class="ftl">${f.fgh!=null?aetText(f):'FT'}</span>`:localHM(f&&f.date||d, f&&f.time||p.ktime))}</span>
+        <span class="fxteams"><span class="tline">${crest(p.home)}${escapeHtml(p.home)}</span><span class="tline">${crest(p.away)}${escapeHtml(p.away)}</span></span>${displayChip}</div>`;
     }
     $('fixtureList').innerHTML =
       (graded ? `<div class="lghead">${hits}/${graded} correct</div>` : '') + html + retiredNoteDay(retiredHere);
+    bindStatusChips($('fixtureList'));
   }catch(e){
+    if(!current())return;
     $('fixtureList').innerHTML = `<div class="subnote">Couldn't load that day: ${escapeHtml(e.message||String(e))}</div>`;
   }
 }
@@ -23297,7 +23845,7 @@ function renderAccount(){
   try{if(localStorage.getItem('mm_state_UNASSIGNED')!==null) quarantineNotice='<div class="notice">Existing local personal data retained unassigned; not imported into this account.</div>';}catch(e){}
   renderSyncBadge();
   if(!cloudEnabled()){
-    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">Sign-in is built and ready, but no backend is connected yet. Add your Supabase URL + anon key (see MatchMind-Backend-Setup.md) to turn on accounts and cross-device sync. Until then everything is saved on this device.</div>';
+    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">The account service is unavailable. Sign-in and cross-device sync will be available when the server connection is restored. Personal service keys are not required.</div>';
     return;
   }
   if(authUser){
@@ -23388,7 +23936,7 @@ $('legalBack').addEventListener('click', showFeed);
 /* The card names the version and the date, from the same two constants the footer reads, so the
    card and the pages cannot date differently. Ken, 2026-10-17: *"do not put any caveat saying so."*
    So this line says which text is on the pages and nothing about who has or has not read it. */
-$('legalDraftNote').textContent = 'Version ' + LEGAL_VERSION + ' \u00b7 ' + LEGAL_UPDATED + '.';
+$('legalDraftNote').textContent = 'Legal text v' + LEGAL_VERSION + ' \u00b7 ' + LEGAL_UPDATED + '.';
 
 /* v0.8 — search, tips fair-odds, settings */
 $('searchOpen').addEventListener('click', openSearch);
@@ -23446,11 +23994,11 @@ function pushSupport(){
   if(!('serviceWorker' in navigator)) return {ok:false, why:'This browser cannot show notifications.'};
   if(!('PushManager' in window)){
     return isIOS()
-      ? {ok:false, why:'On iPhone, notifications only work once MatchMind is added to your Home Screen. Tap the share button below, choose "Add to Home Screen", then open MatchMind from your home screen and try again.'}
+      ? {ok:false, why:'On iPhone, notifications only work once ' + APP_NAME + ' is added to your Home Screen. Tap the share button below, choose "Add to Home Screen", then open ' + APP_NAME + ' from your home screen and try again.'}
       : {ok:false, why:'This browser does not support notifications.'};
   }
   if(isIOS() && !isStandalone())
-    return {ok:false, why:'Add MatchMind to your Home Screen first (share button → "Add to Home Screen"), then open it from there. iPhone only delivers notifications to installed apps.'};
+    return {ok:false, why:'Add ' + APP_NAME + ' to your Home Screen first (share button → "Add to Home Screen"), then open it from there. iPhone only delivers notifications to installed apps.'};
   return {ok:true};
 }
 
@@ -23483,7 +24031,7 @@ async function enablePush(){
   if(!current()) return;
   if(perm !== 'granted'){
     $('notifNote').textContent = perm === 'denied'
-      ? 'Notifications are blocked for MatchMind in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
+      ? 'Notifications are blocked for ' + APP_NAME + ' in your browser settings. You will need to allow them there first — the app cannot re-ask once denied.'
       : 'Notifications were not enabled.';
     $('notifTypes').classList.remove('hidden');
     renderNotif(); return;
@@ -23594,10 +24142,9 @@ function renderTzSetting(){
   const sel = $('tzSel'); if(!sel) return;
   renderTzOptions(false);
   sel.value = prefs.tz || '';
-  const p = zoneParts(new Date());
+  const zone = prefs.tz || deviceZone();
   const hint = $('tzHint');
-  if(hint) hint.textContent = (prefs.tz ? 'Showing ' + prefs.tz.split('/').pop().replace(/_/g,' ') : 'Following this device')
-    + ' — right now that is ' + String(p.h).padStart(2,'0') + ':' + String(p.mi).padStart(2,'0');
+  if(hint) hint.textContent = 'Kick-off time zone: ' + (zone || 'device default') + (prefs.tz ? '' : ' (device)');
 }
 /* RESTORED in build 92. These listeners were destroyed in build 91 by a slice that ran from
    `function renderTzSetting(){` to the first `$('tzSel').addEventListener` — and this block sat
@@ -24516,7 +25063,7 @@ loadAISettings(); personalSelect(null); renderAISettings();   // keys remain dev
 loadAFExtras();                         // API-Football extras opt-in (build 40)
 if(supa) refreshServerProviders();      // ask the proxy which writers it has keys for (build 39)
 initSupabase();                          // accounts + sync (guest mode until configured)
-try{ if($('verLabel')) $('verLabel').textContent = 'v0.9 · build '+APP_BUILD; }catch(e){}   // visible version
+try{ if($('verLabel')) $('verLabel').textContent = 'App v0.9 · build '+APP_BUILD; }catch(e){}   // visible version
 /* BUILD 194 — KEN, 2026-08-20: "I WILL BE ADDING MORE LEAGUES. MANY MORE." Anything built from now
    on has to survive that without an edit, so a count that is TYPED is a count that goes stale the
    first time a competition is added. This one is read from COMP_IDS, which is the single list that
@@ -24543,9 +25090,9 @@ try{ setTimeout(fillLongShotLeagues, 4000); }catch(e){}
 /* Cold start from a tapped notification: the SW opened a fresh window with #match=NNN. Wait for
    cloud leagues to arrive before looking the fixture up, or it will never be found. */
 try{ const m = (location.hash||'').match(/match=(\d+)/);
-     if(m) setTimeout(()=>{ openFixtureById(+m[1]); history.replaceState(null,'',location.pathname); }, 2500); }catch(e){}
+     if(m) setTimeout(()=>{ openFixtureById(+m[1]); history.replaceState(history.state,'',location.pathname); }, 2500); }catch(e){}
 // stay on the tab you were on before a refresh (#refresh keeps page)
-try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st); }catch(e){}
+try{ const st=localStorage.getItem('mm_tab'); if(st && ['scores','predict','tips','favs','data'].includes(st)) navTo(st,{replace:true}); }catch(e){}
 setTimeout(()=>{
   const k = afState.key;
   // cloud scores work for everyone (no personal key needed); direct API is the fallback
@@ -24603,6 +25150,7 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState=
    size to the publisher. Both are awaited in that order so the count reports the swept store rather
    than the one it found. Neither can affect what the reader sees if it fails. */
 mmCacheSweep().then(() => mmStoreCountLabel()).catch(() => {});
+introBoot();
 /* end of app */
 
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){

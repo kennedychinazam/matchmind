@@ -45,6 +45,8 @@ async function open(t){
      accident, and the Google Fonts link in <head> cannot make it network-dependent. */
   await context.route('**/*',r=>r.request().url().startsWith('http://scores-slate.test/')
     ? r.fulfill({status:200,contentType:'text/html',body:html}) : r.abort());
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page=await context.newPage();
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://scores-slate.test/');

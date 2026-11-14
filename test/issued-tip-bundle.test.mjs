@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {buildPresentationPayload,validatePresentationPayload,legacyPresentationPayload} from '../backend/fixture-delivery/contract.mjs';
+const fixture=()=>({fxid:1,lid:1,lname:'Test',lcountry:'Test',date:'2026-11-14',time:'12:00',status:'NS',elapsed:null,home:'Home',away:'Away',gh:null,ga:null,ft_h:null,ft_a:null,ht_h:null,ht_a:null,updated_at:'2026-11-14T10:00:00Z',provider:'af'});
+const tips=()=>({day:'2026-11-14',tier:'tips',odds:0,build:355,step:'tips',legs:['winner','ou','btts'].flatMap(tab=>Array.from({length:30},(_,rank)=>({fxid:1,d:'2026-11-14',h:'Home',a:'Away',code:'1',p:.75,tab,rank})))});
+const payload=(slips=[tips()])=>buildPresentationPayload({fixtures:[fixture()],slips});
+test('complete existing3x30 issued tips publish unchanged and do not mutate their source',()=>{const source=tips(),before=JSON.stringify(source),p=payload([source]);assert.equal(p.slips[0].legs.length,90);assert.deepEqual(p.slips[0],source);assert.equal(JSON.stringify(source),before);});
+test('ordinary accumulator cap stays40 while tips cap is90',()=>{const s=tips();s.tier='safe';s.legs=s.legs.slice(0,41);assert.throws(()=>payload([s]),/slip|bound|40/i);assert.doesNotThrow(()=>payload([{...s,legs:s.legs.slice(0,40)}]));});
+test('issued tip bundles enforce30per tab with unique original ranks',()=>{for(const change of [s=>s.legs[0].tab='other',s=>s.legs[0].rank=30,s=>s.legs[0].rank=1,s=>delete s.legs[0].tab,s=>s.legs.push({...s.legs[0],rank:30})]){const s=tips();change(s);assert.throws(()=>payload([s]),/tip|array|field/i);}});
+test('legacy projection omits whole unsupported bundle and preserves bounded cards and slips',()=>{const tip=tips(),safe={...tips(),tier:'safe',legs:tips().legs.slice(0,3)},p=payload([tip,safe]),before=JSON.stringify(p),legacy=legacyPresentationPayload(p);assert.deepEqual(legacy.slips,[safe]);assert.equal(p.slips[0].legs.length,90);assert.equal(JSON.stringify(p),before);assert.deepEqual(legacy.cards,p.cards);});
+for(const corrupt of [false,true])test('readback '+(corrupt?'rejects truncated legacy tip bundles':'verifies every v2 tip and exact whole-row v1 omission'),async()=>{
+ const {verifyDestination,requestFor}=await import('../staging/mirror/refresh.mjs');
+ const original=payload(),request=requestFor({payload:original,from:'2026-11-08',to:'2026-11-21',window_cards:1,cards:1,predictions:0,latest_source_update:fixture().updated_at}),receipt={edition_id:'test'};
+ const fetcher=async(u,o)=>{if(u.pathname.endsWith('status_v1'))return{ok:true,json:async()=>({...receipt,payload_sha256:request.payload_sha256,cards:1,predictions:0})};const screen=JSON.parse(o.body).screen,legacy=u.pathname.endsWith('display_v1'),p=legacy?legacyPresentationPayload(original):original,slips=screen==='slips'?structuredClone(p.slips):[];if(corrupt&&legacy&&screen==='slips')slips.push({...original.slips[0],legs:original.slips[0].legs.slice(0,40)});return{ok:true,json:async()=>({...receipt,screen,cards:['scores','predictions','history'].includes(screen)?p.cards:[],board:null,records:{engine:null,clv:null},slips})};};
+ if(corrupt)await assert.rejects(verifyDestination(request,receipt,fetcher),/whole issued bundle/);else assert.deepEqual(await verifyDestination(request,receipt,fetcher),{verified_cards:1,verified_predictions:0});
+});
