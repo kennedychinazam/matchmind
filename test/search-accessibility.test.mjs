@@ -147,6 +147,28 @@ test('Search result navigation consumes its overlay before detail Back and Forwa
   await page.goForward();await page.waitForFunction(()=>curView==='detail');assert.equal(await page.locator('#searchOverlay').isVisible(),false);
   assert.match(await page.locator('#heroHome').textContent(),/Synthetic Search A/);
 });
+test('skipping Search with a history jump preserves an interactive Analysis view on Forward',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.evaluate(()=>{navTo('predict');$('fixturesWrap').classList.remove('hidden');});
+  await showSearch(page);await page.evaluate(()=>history.go(-2));await page.waitForFunction(()=>curView==='scores');
+  assert.equal(await page.locator('#searchOverlay').isVisible(),false);
+  await page.goForward();await page.waitForFunction(()=>curView==='predict');
+  assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);
+  await page.locator('#segComps').click();assert.equal(await page.locator('#compsDrop').isVisible(),true);
+  await page.goForward();await page.waitForFunction(()=>document.activeElement.id==='searchInput');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!history.state.overlay);
+  assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);assert.equal(await focused(page),'segComps');
+});
+test('jumping Forward directly into Search first restores its originating Analysis view',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.evaluate(()=>navTo('predict'));await showSearch(page);
+  await page.evaluate(()=>history.go(-2));await page.waitForFunction(()=>curView==='scores');
+  await page.evaluate(()=>history.go(2));await page.waitForFunction(()=>document.activeElement.id==='searchInput');
+  assert.equal(await page.evaluate(()=>curView),'predict');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!history.state.overlay);
+  assert.equal(await page.evaluate(()=>curView),'predict');assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);
+  assert.equal(await focused(page),'searchOpen');
+});
 test('a removed opener falls back to the visible Search button',async t=>{
   const page=await open(t);
   await page.evaluate(()=>{

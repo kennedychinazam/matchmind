@@ -6298,7 +6298,10 @@ function onBack(event){
   if(!destination || destination.mmNavigation!==1 || destination.session!==_navSession)return;
   if(destination.overlay==='search'){
     closeSearch({history:false});
-    searchHistory=destination;searchHistoryClosing=false;searchHistoryNext=null;
+    searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+    // Forward may jump across the base entry; restore it through the same authority checks.
+    if(!_navActive || _navActive.id!==destination.base.id)onBack({state:destination.base});
+    searchHistory=destination;
     _navActive=destination.base;openSearch({history:false});return;
   }
   if(searchHistory && destination.id===searchHistory.base.id){
@@ -6307,9 +6310,11 @@ function onBack(event){
     _navActive=destination;closeSearch({history:false});
     if(next)next();return;
   }
+  // A multi-entry jump can skip Search's parent; remove modal inertness first.
+  closeSearch({history:false});
   captureNavigation();++_navScrollEpoch;_navPrepared=false;_navRestored=null;++_predictDateRead;
   const saved=_navEntries.get(destination.id);_navActive=destination;
-  closeSearch({history:false});searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+  searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
   for(const id of ['compsDrop','compsDropS']){const box=$(id);if(box)box.classList.add('hidden');}
   if(!saved || saved.owner!==navigationOwner()){
     navTo(destination.view==='detail'||destination.view==='legal'?'scores':destination.view,{history:false});return;
