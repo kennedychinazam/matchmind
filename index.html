@@ -3288,8 +3288,8 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  $('acc-analysis').classList.remove('hidden');$('aiStatus').classList.add('hidden');
  $('analysisText').textContent=a.writeup&&a.writeup.text||'AI write-up not published.';
  $('analysisText').classList.toggle('published-writeup',!!(a.writeup&&a.writeup.text));
- $('verdictBox').textContent='';
- if(a.writeup&&a.writeup.source_at)$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10)+' · '+(a.writeup.source||'approved AI analysis');
+ $('verdictBox').textContent='';$('verdictBox').removeAttribute('title');$('verdictBox').removeAttribute('aria-label');
+ if(a.writeup&&a.writeup.source_at){$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10);$('verdictBox').title='Source: '+a.writeup.source;$('verdictBox').setAttribute('aria-label','Published '+a.writeup.source_at+' · Source '+a.writeup.source);}
  $('heroStrong').textContent='';$('heroStrong').classList.add('hidden');
  // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
  const dnb=p&&['1D','2D'].includes(p.pick);
@@ -3306,7 +3306,7 @@ function showPublishedFixture(L,f){
  setHeroMeta({comp:L.name,country:L.country,date:f.date,time:f.time,fxid:f.fxid,home:f.home,away:f.away,status:f.status});
  const expired=forecastDisplayExpired(f);
  const v=probabilityVector(f.pW,f.pD,f.pL),issued=!!(p&&p.pick&&p.pick_prob!=null),available=issued&&!f.gated&&!expired&&!fixtureExceptionalStatus(f);
- $('heroPick').textContent=issued?pickLabel(p.pick,p.home,p.away):'No qualifying pick';
+ $('heroPick').textContent=issued?pickLabel(p.pick,p.home,p.away):f._pickUnavailable?'Published pick unavailable':'No qualifying pick';
  $('heroConf').textContent=issued?pct(p.pick_prob)+' published probability':'';
  setHeroDnb(available?f.pick:null,v);
  renderPublishedAnalysis(L,f,issued?p:null);
@@ -18051,6 +18051,22 @@ function renderFavLeagues(){
 let curDetail = null;
 async function matchDetail(s){
   prepareNavigation();
+  // Scores uses the same bounded football analysis as Analysis, including finished/live
+  // fixtures. A history read retrieves its issued record; it never invokes a private reader.
+  if(!fixtureRawCurrent()){
+    let {L,f}=ensureLeagueFromScore(s);
+    try{
+      const history=await fixtureDisplayLoad('history'),scores=_fixtureDelivery.screens.get('scores');
+      if(scores&&(history.edition_id!==scores.edition_id||history.as_of!==scores.as_of))throw Error('Display edition changed');
+      const original=history.cards.find(c=>c.fxid===s.fxid);
+      if(original&&original.home===s.home&&original.away===s.away){
+        const current=f._displayCard||original;
+        f=fixturePresentationRow({...current,prediction:original.prediction},null);
+        const i=L.upcoming.findIndex(x=>x.fxid===f.fxid);if(i>=0)L.upcoming[i]=f;
+      }
+    }catch{f={...f,_pickUnavailable:!f._displayCard?.prediction};}
+    showPublishedFixture(L,f);return;
+  }
   const credential=credentialContext();
   curDetail = s;
   resetMatchPanels();
@@ -21903,8 +21919,10 @@ async function afScoresFromCloud(){
     let newest = 0;
     for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
     const edition = fixtureDeliveryCurrent(_fixtureDelivery) && !fixtureRawCurrent() ? _fixtureDelivery.screens.get('scores') : null;
+    const publicCards=new Map((edition&&edition.cards||[]).map(c=>[c.fxid,c]));
     afState.scores = { at: Date.now(), dataAt: newest || null, editionAsOf:edition?edition.as_of:null, editionUntil:edition?edition.expires_at:null, v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
+      _presentation:!!edition,_displayCard:publicCards.get(r.fxid)||null,
       date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
       home:r.home, away:r.away, gh:r.gh, ga:r.ga,
       /* build 357 - the marker and the raw final travel with the row so the feed can say the
@@ -21955,7 +21973,12 @@ function ensureLeagueFromScore(s){
   const L = afState.leagues[s.lid];
   if(!(fixtureRawCurrent()))L._presentation=true;
   let f = L.upcoming.find(x=>x.fxid===s.fxid);
-  if(!f){ f = {fxid:s.fxid, date:s.date, time:s.time, home:s.home, away:s.away}; L.upcoming.push(f); }
+  if(s._displayCard){
+    const card={...s._displayCard,prediction:s._displayCard.prediction||f?._displayCard?.prediction||null};
+    const published=fixturePresentationRow(card,null);
+    if(f){const i=L.upcoming.indexOf(f);L.upcoming[i]=published;}else L.upcoming.push(published);
+    f=published;
+  }else if(!f){f={fxid:s.fxid,date:s.date,time:s.time,home:s.home,away:s.away,status:s.status,_presentation:!fixtureRawCurrent()};L.upcoming.push(f);}
   return {L, f};
 }
 

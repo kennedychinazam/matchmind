@@ -22,7 +22,7 @@ async function show(page,{issued=true,full=true,finished=false,dnb=false,selecti
   goals:[{label:'Over 2.5',prob:.56}],combos:[{label:'1 & Over 2.5',prob:.34}],htft:[{label:'1/1',prob:.32}],correct_scores:[{label:'2–0',prob:.12}],scorers:[{label:'Verified player',prob:.38}],
   form:{home:['W','D','W','L','W'],away:['D','L','W','D','L']},h2h:[{date:'2026-08-10',home:'Leganes',away:'Burgos',gh:2,ga:1}],
   standings:{season:2026,rows:[{rank:1,team:'Leganes',played:10,won:6,drawn:2,lost:2,gf:17,ga:9,points:20},{rank:8,team:'Burgos',played:10,won:3,drawn:3,lost:4,gf:11,ga:14,points:12}]},
-  writeup:{text:'Approved cached AI write-up. Leganes have three wins in their last five matches; Burgos have one. This text is deliberately longer than two lines to verify that only the Professional AI Write-up is exempt.',source:'Approved AI',source_at}};
+  writeup:{text:'Approved cached AI write-up. Leganes have three wins in their last five matches; Burgos have one. This text is deliberately longer than two lines to verify that only the Professional AI Write-up is exempt.',source:'server-cache/openrouter/anthropic/claude-sonnet-4.5:thinking-20261101',source_at}};
  const p=issued?{lid:140,lname:'La Liga 2',home:'Leganes',away:'Burgos',pick:dnb?'1D':'1',pick_prob:dnb?.75:.6,market:dnb?'DNB':'Winner',p_home:.6,p_draw:.2,p_away:.2,xg_home:1.7,xg_away:.8,kickoff:'2026-11-14',ktime:'20:00',made_at:source_at,withheld_at:null,final_pick:null,build:355}:null;
  if(p&&!originalInputs){p.p_home=null;p.p_draw=null;p.p_away=null;p.xg_home=null;p.xg_away=null;}
  const card={fxid:990999,lid:140,lname:'La Liga 2',lcountry:'Spain',date:'2026-11-14',time:'20:00',status:finished?'FT':'NS',home:'Leganes',away:'Burgos',gh:finished?2:null,ga:finished?1:null,ft_h:finished?2:null,ft_a:finished?1:null,prediction:p,analysis:full?analysis:null};
@@ -45,3 +45,21 @@ for(const [mode,html] of [['source',source],['real-preview',generated]])for(cons
  test(`${mode} ${width}px: missing inputs are honest, concise and clear previous fixture`,async t=>{const page=await open(t,html,width);await show(page);const r=await show(page,{issued:false,full:false});assert.deepEqual(r.sections,expected);assert.match(r.goals,/not published/);assert.doesNotMatch(r.form,/WDWLW/);assert.doesNotMatch(r.ai,/Approved cached/);assert.deepEqual(r.lineViolations,[]);assert.equal(r.overflow,false);});
  test(`${mode} ${width}px: completed DNB preserves original unconditional 1X2`,async t=>{const page=await open(t,html,width),r=await show(page,{finished:true,dnb:true});assert.match(r.bars,/60.0%/);assert.doesNotMatch(r.bars,/75.0%|51.0%/);assert.match(r.dnb,/excludes draws/);assert.equal(r.preserved,true);assert.deepEqual(r.lineViolations,[]);});
 }
+
+for(const [mode,html] of [['source',source],['real-preview',generated]])for(const width of [320,390])for(const status of ['FT','2H'])test(`${mode} ${width}px: actual ${status} Scores click keeps bounded football analysis before leagues load`,async t=>{
+ const page=await open(t,html,width);
+ await page.evaluate(status=>{
+  const date=todayStrLocal(),asof=new Date(Date.now()-1000).toISOString(),expires=new Date(Date.now()+3600000).toISOString();
+  const prediction={lid:141,lname:'Segunda Division',home:'Leganes',away:'Burgos',pick:'1D',pick_prob:.75,market:'DNB',p_home:.6,p_draw:.2,p_away:.2,xg_home:1.7,xg_away:.8,kickoff:date,ktime:'20:00',made_at:asof,withheld_at:null,final_pick:null,build:355};
+  const card={fxid:990998,lid:141,lname:'Segunda Division',lcountry:'Spain',date,time:'20:00',status,elapsed:status==='2H'?60:null,home:'Leganes',away:'Burgos',gh:2,ga:1,ft_h:status==='FT'?2:null,ft_a:status==='FT'?1:null,ht_h:1,ht_a:0,updated_at:asof,provider:'af',prediction,analysis:{source:'published-board',source_at:asof,result:{p_home:.51,p_draw:.29,p_away:.2},xg_home:1.8,xg_away:.9,goals:[{label:'Over 2.5',prob:.56}],form:{home:['W','D'],away:['L','W']},h2h:[{date:'2026-08-10',home:'Leganes',away:'Burgos',gh:2,ga:1}]}};
+  window.expectedCard=card;window.rawScoreCalls=[];supa={auth:{getSession:async()=>({data:{session:null},error:null})},from:name=>{rawScoreCalls.push(name);throw Error('no raw reader');},rpc:async(name,args)=>{
+   if(name==='matchmind_fixture_access_v1')return{data:{version:'matchmind-fixture-access/1',raw_allowed:false},error:null};
+   const screen=args.screen;return{data:{version:'matchmind-display/1',edition_id:'55555555-1111-4555-8555-555555555555',as_of:asof,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?[{...card,prediction:screen==='scores'?null:prediction}]:[],board:null,records:{engine:null,clv:null},slips:[]},error:null};
+  }};fixtureDeliveryReset();afState.leagues={};afState.leagueOrder=[];afState.filter='all';afState.scoreFilter='all';afState.scoresDate=date;footballEngine.predict=()=>{throw Error('no refit');};footballEngine.marketsFor=()=>{throw Error('no generation');};
+ },status);
+ await page.evaluate(async()=>{await afScoresFromCloud();navTo('scores');renderScores();});
+ await page.locator('#scoresList .scrow .tline').first().click();
+ await page.waitForFunction(()=>$('view-detail').getClientRects().length&&$('outcomeRows').textContent.includes('60.0%'));
+ const r=await page.evaluate(()=>({sections:[...document.querySelectorAll('#view-detail .acc:not(.hidden)')].map(el=>el.id),raw:rawScoreCalls,bars:$('outcomeRows').textContent,goals:$('goalsRows').textContent,form:$('formBox').textContent,meta:$('heroMeta').textContent,pick:$('heroPick').textContent,card:afState.leagues[141].upcoming[0]._displayCard,overflow:document.documentElement.scrollWidth>innerWidth+1}));
+ assert.deepEqual(r.sections,expected);assert.deepEqual(r.raw,[]);assert.match(r.bars,/60.0%/);assert.match(r.goals,/56.0%/);assert.match(r.form,/WD/);assert.match(r.pick,/DNB|draw no bet/i);assert.equal(r.card.prediction.pick_prob,.75);assert.equal(r.card.analysis.xg_home,1.8);assert.equal(r.overflow,false);if(status==='FT')assert.match(r.meta,/90-minute score 2–1/);
+});
