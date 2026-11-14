@@ -39,7 +39,7 @@ jobs:
           npm install --no-save --no-audit --no-fund playwright-core@1.63.0
           docker pull postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
           export MM_TEST_CHROMIUM="$(command -v google-chrome || command -v chromium)"
-          node --test --test-isolation=none test/published-detail-restoration.test.mjs test/navigation-history.test.mjs test/analysis-data-projection.test.mjs test/analysis-data-sql.test.mjs test/international-display.test.mjs test/wo62b-engine-preservation.test.mjs test/wo62b-public-boundary.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/search-accessibility.test.mjs test/public-standings-availability.test.mjs test/independent-detail-theme.test.mjs
+          node --test --test-isolation=none test/published-detail-restoration.test.mjs test/navigation-history.test.mjs test/analysis-data-projection.test.mjs test/analysis-data-sql.test.mjs test/issued-tip-bundle.test.mjs test/international-display.test.mjs test/wo62b-engine-preservation.test.mjs test/wo62b-public-boundary.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/search-accessibility.test.mjs test/public-standings-availability.test.mjs test/independent-detail-theme.test.mjs
       - name: Record trusted development source
         id: source
         run: echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
