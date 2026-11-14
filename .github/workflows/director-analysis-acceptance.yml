@@ -23,10 +23,11 @@ jobs:
           echo "PWA_CHROMIUM=$chromium_path" >> "$GITHUB_ENV"
       - name: Verify restored presentation, history, and bounded source data
         run: >-
-          node --test
+          node --test --test-isolation=none
           test/published-detail-restoration.test.mjs
           test/navigation-history.test.mjs
           test/analysis-data-projection.test.mjs
+          test/analysis-data-sql.test.mjs
           test/international-display.test.mjs
           test/wo62b-engine-preservation.test.mjs
           test/wo62b-public-boundary.test.mjs
