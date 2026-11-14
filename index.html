@@ -6293,9 +6293,20 @@ function setupBackHandler(){
 function onBack(event){
   const destination=event && event.state;
   if(!destination || destination.mmNavigation!==1 || destination.session!==_navSession)return;
+  if(destination.overlay==='search'){
+    closeSearch({history:false});
+    searchHistory=destination;searchHistoryClosing=false;searchHistoryNext=null;
+    _navActive=destination.base;openSearch({history:false});return;
+  }
+  if(searchHistory && destination.id===searchHistory.base.id){
+    const next=searchHistoryNext;
+    searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
+    _navActive=destination;closeSearch({history:false});
+    if(next)next();return;
+  }
   captureNavigation();++_navScrollEpoch;_navPrepared=false;_navRestored=null;++_predictDateRead;
   const saved=_navEntries.get(destination.id);_navActive=destination;
-  closeSearch();
+  closeSearch({history:false});searchHistory=null;searchHistoryClosing=false;searchHistoryNext=null;
   for(const id of ['compsDrop','compsDropS']){const box=$(id);if(box)box.classList.add('hidden');}
   if(!saved || saved.owner!==navigationOwner()){
     navTo(destination.view==='detail'||destination.view==='legal'?'scores':destination.view,{history:false});return;
@@ -6324,9 +6335,19 @@ function onBack(event){
 
 /* ---------- on-device search (#12) ---------- */
 let searchOpener=null, searchFocusTimer=null, searchBackground=[];
-function openSearch(){
+let searchHistory=null, searchHistoryClosing=false, searchHistoryNext=null;
+function openSearch(options={}){
   const overlay=$('searchOverlay');
   if(overlay.classList.contains('hidden')){
+    if(searchHistoryClosing){
+      const opener=document.activeElement;
+      searchHistoryNext=()=>{if(opener&&opener.isConnected)opener.focus();openSearch(options);};return;
+    }
+    if(options.history!==false && _navActive){
+      captureNavigation();
+      const entry={...navigationState(curView,_navActive.index+1),overlay:'search',base:_navActive};
+      try{history.pushState(entry,'');searchHistory=entry;}catch{}
+    }
     searchOpener=document.activeElement instanceof HTMLElement && document.activeElement!==document.body && !overlay.contains(document.activeElement)
       ? document.activeElement : $('searchOpen');
     // Isolate siblings at each ancestor level without making the dialog itself inert.
@@ -6349,7 +6370,7 @@ function clearSearchForIdentity(){
   input.value=''; renderSearch('');
   if(moveFocus) input.focus();
 }
-function closeSearch(){
+function closeSearch(options={}){
   clearTimeout(searchFocusTimer); searchFocusTimer=null;
   const overlay=$('searchOverlay'); if(overlay.classList.contains('hidden')) return;
   overlay.classList.add('hidden');
@@ -6358,6 +6379,10 @@ function closeSearch(){
   const opener=searchOpener; searchOpener=null;
   for(const target of [opener,$('searchOpen')]){
     if(target && target.isConnected && !target.matches(':disabled') && !target.closest('[inert]') && target.getClientRects().length){ target.focus(); break; }
+  }
+  // Consume the real overlay entry; view navigation waits for this native pop.
+  if(options.history!==false && searchHistory && history.state?.id===searchHistory.id){
+    searchHistoryClosing=true;history.back();
   }
 }
 function searchKeydown(event){
@@ -17807,6 +17832,8 @@ let scrollPos = {};        // remembered scroll offset per view
 let curView = 'scores';    // the view currently shown
 function navTo(t,options={}){
   if(!NAV_VIEWS.includes(t))return;
+  if(searchHistory && !$('searchOverlay').classList.contains('hidden'))closeSearch();
+  if(searchHistoryClosing){searchHistoryNext=()=>navTo(t,options);return;}
   const changed=t!==curView;
   if(options.history!==false && !_navPrepared)captureNavigation();
   _navRestored=null;
