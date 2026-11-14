@@ -32,3 +32,8 @@ jobs:
           test/international-display.test.mjs
           test/wo62b-engine-preservation.test.mjs
           test/wo62b-public-boundary.test.mjs
+          test/fixture-delivery-consumers.test.mjs
+          test/fixture-delivery-ui.test.mjs
+          test/search-accessibility.test.mjs
+          test/public-standings-availability.test.mjs
+          test/independent-detail-theme.test.mjs
