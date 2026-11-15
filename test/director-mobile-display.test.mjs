@@ -52,7 +52,7 @@ test('opening More starts a pending read, renders the real Records aggregate, an
  await p.evaluate(()=>{window.recordBefore=JSON.stringify(mobileFixture.aggregate);releaseRecord();});
  await p.waitForFunction(()=>_engineRecord.state==='loaded'&&$('moreRecordLine').textContent.includes('7/10'));
  const r=await p.evaluate(()=>({text:$('moreRecordLine').textContent,calls:recordCalls,preserved:recordBefore===JSON.stringify(mobileFixture.aggregate)}));
- assert.equal(r.calls,1);assert.match(r.text,/70\.0%/);assert.match(r.text,/1 void/);assert.equal(r.preserved,true);
+ assert.equal(r.calls,1);assert.match(r.text,/70\.0%/);assert.match(r.text,/Voids excluded, updated .+\.$/);assert.doesNotMatch(r.text,/1 void|every device/);   // Director copy, 2026-11-16assert.equal(r.preserved,true);
 });
 
 test('public fixture boot also loads Records; an unrelated Tips render failure cannot leave Accuracy pending',async t=>{
