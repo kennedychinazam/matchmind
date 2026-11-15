@@ -40,24 +40,28 @@ async function open(t,width,options={}){
  return page;
 }
 const analysis=(page,day)=>page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=day;renderFixtures();
- return [...$('fixtureList').querySelectorAll('.fxrow')].map(r=>({teams:r.querySelector('.fxteams').textContent,time:r.querySelector('.fxtime').innerText.replace(/\s+/g,' ').trim(),badge:r.querySelector('.predchip')?.textContent||'',outcome:r.querySelector('.pick-outcome')?.textContent||'',
+ return [...$('fixtureList').querySelectorAll('.fxrow')].map(r=>({teams:r.querySelector('.fxteams').textContent,time:r.querySelector('.fxtime').innerText.replace(/\s+/g,' ').trim(),badge:r.querySelector('.predchip')?.textContent||'',outcome:r.querySelector('.predchip')?.dataset.outcome||'',prob:r.querySelector('.predchip')?.dataset.originalProbability||'',
   overflow:r.scrollWidth>r.clientWidth+1,badgeRight:!r.querySelector('.predchip')||r.querySelector('.predchip').getBoundingClientRect().left>=r.querySelector('.fxteams').getBoundingClientRect().right-1}));},day);
 const rowFor=(rows,c)=>rows.find(r=>r.teams.includes(c.home)&&r.teams.includes(c.away));
+const MARK={Won:' ✓',Lost:' ✗',Void:' · Void'};
+const codeOf=p=>({'1D':'1 DNB','2D':'2 DNB'}[p.pick]||p.pick);
 const badgeOf=p=>({'1D':'1 DNB','2D':'2 DNB'}[p.pick]||p.pick)+' · '+Math.round(p.pick_prob*100)+'%';
 
-for(const width of [320,390])test('Analysis rows carry the verified result, the unchanged badge and the outcome at '+width+'px',async t=>{
+for(const width of [320,390])test('Analysis rows carry the verified result and the Build 355 graded chip at '+width+'px',async t=>{
  const page=await open(t,width);
  const rows=[...await analysis(page,'2026-11-15'),...await analysis(page,'2026-11-14')];
  for(const c of ISSUED){
   const r=rowFor(rows,c);assert.ok(r,c.home+' row missing');
-  assert.equal(r.badge,badgeOf(c.prediction),c.home+' issued badge and probability changed');
+  // Build 355 chip: pick with a tick or cross once verified, pick with probability until then.
+  assert.equal(r.badge,MARK[EXPECTED[c.fxid]]?codeOf(c.prediction)+MARK[EXPECTED[c.fxid]]:badgeOf(c.prediction),c.home+' chip');
+  if(MARK[EXPECTED[c.fxid]])assert.equal(r.prob,String(c.prediction.pick_prob),c.home+' issued probability lost from the graded chip');
   assert.equal(r.outcome,EXPECTED[c.fxid],c.home+' outcome');
   assert.ok(!r.overflow&&r.badgeRight,c.home+' row layout at '+width+'px');
   if(c.status==='FINISHED')assert.equal(r.time,c.ft_h+'–'+c.ft_a+' FT',c.home+' full-time score');
   else assert.ok(!/FT/.test(r.time),c.home+' is not finished and must not read FT: '+r.time);
  }
  // The Director's example: Atlas Paillade 0-2 Cannes, 2 DNB issued at 84%.
- assert.deepEqual((({time,badge,outcome})=>({time,badge,outcome}))(rowFor(rows,ISSUED[0])),{time:'0–2 FT',badge:'2 DNB · 84%',outcome:'Won'});
+ assert.deepEqual((({time,badge,outcome})=>({time,badge,outcome}))(rowFor(rows,ISSUED[0])),{time:'0–2 FT',badge:'2 DNB ✓',outcome:'Won'});
  // In play: provider minute and score, never a final score. Row refreshed 4m34s before the clock.
  assert.match(rowFor(rows,ISSUED[5]).time,/^15:30.*62' 0-3$/);
  // Postponed: says so, keeps the pick, no result.

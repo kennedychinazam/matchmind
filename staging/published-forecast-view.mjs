@@ -24,9 +24,14 @@ function publishedOutcomeOf(L,f,p,smap){
  const g=gradePick(p.pick,actualCode(res.gh,res.ga),res.gh,res.ga);
  return g==='hit'?'Won':g==='miss'?'Lost':g==='void'?'Void':'Pending';
 }
-function publishedOutcome(L,f,p,smap){
+/* The Build 355 graded chip: the pick with a tick or a cross once the result is verified, and the
+   pick with its issued probability until then. The probability is never altered. It stays on the
+   chip as data and stays visible in the detail view. */
+function publishedRowChip(L,f,p,smap){
  const o=publishedOutcomeOf(L,f,p,smap);
- return o?'<span class="pick-outcome '+o.toLowerCase()+'">'+o+'</span>':'';
+ if(!o||o==='Pending')return publishedBadge(p,f.fxid).replace('<span class="predchip"','<span class="predchip" data-outcome="'+(o||'')+'"');
+ const cls=o==='Won'?'hit':o==='Lost'?'miss':'muted-chip',mark=o==='Won'?' ✓':o==='Lost'?' ✗':' · Void';
+ return '<span class="predchip '+cls+'" data-outcome="'+o+'" data-original-probability="'+escapeHtml(String(p.pick_prob))+'" data-selection-key="'+escapeHtml(publishedSelectionKey(p,f.fxid))+'" aria-label="'+escapeHtml(chipCode(p.pick)+', '+o)+'">'+escapeHtml(chipCode(p.pick))+mark+'</span>';
 }
 function publishedResultCell(L,f,smap){
  const dated=escapeHtml(localHM(forecastDate(f),forecastTime(f))),label=fixtureExceptionalLabel(f);
@@ -77,7 +82,7 @@ export function restorePublishedForecastView(html){
  const start=html.indexOf('function showPublishedFixture('),end=html.indexOf('// top scorers per league',start);if(start<0||end<start)throw Error('Published detail anchor changed');html=html.slice(0,start)+VIEW+'\n'+html.slice(end);
  const rs=html.indexOf('function renderFixtures(){'),re=html.indexOf('function renderDateNav(',rs);if(rs<0||re<rs)throw Error('Analysis render anchor changed');let render=html.slice(rs,re);
  render=render.replaceAll('f.date!==afState.selectedDate','forecastDate(f)!==afState.selectedDate').replaceAll('f.date !== afState.selectedDate','forecastDate(f) !== afState.selectedDate').replaceAll('f.date===afState.selectedDate','forecastDate(f)===afState.selectedDate');
- render=once(render,'const {timeCell, chip} = fxCells(L, f, smap);',"const p=publishedPrediction(f),timeCell=publishedResultCell(L,f,smap),chip='<span class=\"pickcol\">'+publishedBadge(p,f.fxid)+publishedOutcome(L,f,p,smap)+'</span>';");
+ render=once(render,'const {timeCell, chip} = fxCells(L, f, smap);',"const p=publishedPrediction(f),timeCell=publishedResultCell(L,f,smap),chip=publishedRowChip(L,f,p,smap);");
  html=html.slice(0,rs)+render+html.slice(re);
  html=once(html,"return forecastStatusChip('Pick expired','The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff. The original forecast is preserved; this match may still be scheduled.');",'return publishedBadge(arguments[0],arguments[1]);');
  html=once(html,'chip=expiredForecastChip();','chip=expiredForecastChip(publishedPrediction(f),f.fxid);');
@@ -98,7 +103,7 @@ export function restorePublishedForecastView(html){
  // A grade shown here is read from the verified result. It is not a persisted settlement record.
  tips=once(tips,"+ settled + ' of ' + graded.length + ' settled'","+ settled + ' of ' + graded.length + ' results verified'");
  html=html.slice(0,ts)+tips+html.slice(te);
- html=once(html,'</head>','<style id="publishedOutcomeStyle">.pickcol{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:0 0 auto}.pick-outcome{font-size:.62rem;font-weight:700;line-height:1.1;letter-spacing:.02em}.pick-outcome.won{color:var(--green2)}.pick-outcome.lost{color:var(--red)}.pick-outcome.void{color:var(--gold)}.pick-outcome.pending{color:var(--muted)}.tip-outcome{font-weight:700;white-space:nowrap}#tipList .fxrow .lname{white-space:normal;overflow:visible;text-overflow:clip}</style></head>');
+ html=once(html,'</head>','<style id="publishedOutcomeStyle">.tip-outcome{font-weight:700;white-space:nowrap}#tipList .fxrow .lname{white-space:normal;overflow:visible;text-overflow:clip}</style></head>');
  html=once(html,"const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openFixture(L.id,f));","const btn=$('bankerOpen'); if(btn) btn.addEventListener('click',()=>openIssuedForecast({fxid:f.fxid,h:f.home,a:f.away,d:f.date,t:f.time,code:b.pick,p:b.prob}));");
  return html;
 }

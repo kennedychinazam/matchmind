@@ -66,8 +66,8 @@ try{
   await page.screenshot({path:`real-preview-${width}-analysis.png`});
   const publishedRow=page.locator('#fixtureList .fxrow').filter({hasText:'Ospitaletto'}).first();if(await publishedRow.count()){await publishedRow.scrollIntoViewIfNeeded();await page.waitForTimeout(300);await page.screenshot({path:`real-preview-${width}-analysis-picks.png`});}
 
-  const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&c.prediction.kickoff===afState.selectedDate&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null};}).filter(x=>x.text?.includes('%')),history.cards);
-  check(publishedBadges.length>0&&publishedBadges.every(b=>b.text.trim()===b.expected),width+'px green pick badges match original published selections and probabilities');
+  const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&c.prediction.kickoff===afState.selectedDate&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null,graded:c?[chipCode(c.prediction.pick)+' ✓',chipCode(c.prediction.pick)+' ✗']:[]};}).filter(x=>x.text&&x.expected),history.cards);
+  check(publishedBadges.length>0&&publishedBadges.every(b=>b.text.trim()===b.expected||b.graded.includes(b.text.trim())),width+'px green pick badges match original published selections and probabilities');
   // Result and outcome agreement: reader record, Scores, Analysis row and match detail.
   const outcomeOf=c=>{const h=c.ft_h??c.gh,a=c.ft_a??c.ga,k=c.prediction.pick,r=h>a?'1':h===a?'X':'2';
    if(k==='1D'||k==='2D')return r==='X'?'Void':r===k[0]?'Won':'Lost';
@@ -80,10 +80,10 @@ try{
    const want=c.status==='FINISHED'?outcomeOf(c):'Pending',score=(c.ft_h??c.gh)+'–'+(c.ft_a??c.ga);
    const seen=await page.evaluate(c=>{afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=c.date;renderFixtures();
     const row=[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>{const t=r.querySelector('.fxteams').textContent;return t.includes(c.home)&&t.includes(c.away);});
-    const out={wantBadge:chipCode(c.prediction.pick)+' · '+probabilityPercent(c.prediction.pick_prob,0),time:row?.querySelector('.fxtime').innerText.replace(/\s+/g,' ').trim(),badge:row?.querySelector('.predchip')?.textContent,outcome:row?.querySelector('.pick-outcome')?.textContent,score:(s=>s&&s.gh!=null?s.gh+'–'+s.ga:null)(afState.scores.list.find(s=>s.fxid===c.fxid))};
+    const out={pending:chipCode(c.prediction.pick)+' · '+probabilityPercent(c.prediction.pick_prob,0),code:chipCode(c.prediction.pick),prob:row?.querySelector('.predchip')?.dataset.originalProbability,time:row?.querySelector('.fxtime').innerText.replace(/\s+/g,' ').trim(),badge:row?.querySelector('.predchip')?.textContent,outcome:row?.querySelector('.predchip')?.dataset.outcome,score:(s=>s&&s.gh!=null?s.gh+'–'+s.ga:null)(afState.scores.list.find(s=>s.fxid===c.fxid))};
     openFixtureById(c.fxid);const line=[...$('heroMeta').querySelectorAll('.hm-dt')].find(e=>/90-minute score/.test(e.textContent));
     return{...out,detail:line?.textContent||null,detailOutcome:line?.dataset.outcome||null};},c);
-   check(seen.badge===seen.wantBadge,width+'px '+c.fxid+' Analysis badge keeps issued pick and probability');
+   check(want==='Pending'?seen.badge===seen.pending:seen.badge===seen.code+{Won:' ✓',Lost:' ✗',Void:' · Void'}[want]&&seen.prob===String(c.prediction.pick_prob),width+'px '+c.fxid+' Analysis chip in Build 355 form with the issued pick');
    check(seen.outcome===want,width+'px '+c.fxid+' Analysis outcome '+want+' from verified result');
    if(c.status==='FINISHED'){check(seen.time===score+' FT'&&seen.score===score&&seen.detail==='90-minute score '+score+' · '+want&&seen.detailOutcome===want,width+'px '+c.fxid+' same final score and outcome in Scores, Analysis and detail');}
    else check(!/FT/.test(seen.time)&&seen.detail===null,width+'px '+c.fxid+' unfinished fixture carries no final score');
