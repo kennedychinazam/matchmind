@@ -3170,7 +3170,12 @@ function fixtureTable(table){
   let rows=publicRows,columns='*',head=false,count=null,single=false;
   for(const[name,a]of ops){const[k,v]=a;
    if(name==='select'){columns=k||'*';head=!!(v&&v.head);continue;}
-   if(['eq','neq','in','gte','gt','lte','lt','is'].includes(name))rows=rows.filter(r=>name==='eq'?r[k]===v:name==='neq'?r[k]!==v:name==='in'?Array.isArray(v)&&v.includes(r[k]):name==='gte'?r[k]>=v:name==='gt'?r[k]>v:name==='lte'?r[k]<=v:name==='lt'?r[k]<v:r[k]===v);
+   /* A fixture id is a number on a display card and a string wherever a caller built its list from
+      object keys, as `sharedResultsLoad` does. PostgREST coerces both to the column type, so the
+      private path matched them. This local filter compared with `includes`, matched nothing, and
+      every public reader saw each issued leg as never settled. Ids are compared as the server
+      compares them. Other columns keep the strict comparison. */
+   if(['eq','neq','in','gte','gt','lte','lt','is'].includes(name))rows=rows.filter(r=>name==='eq'?r[k]===v:name==='neq'?r[k]!==v:name==='in'?Array.isArray(v)&&(k==='fxid'?v.some(x=>String(x)===String(r[k])):v.includes(r[k])):name==='gte'?r[k]>=v:name==='gt'?r[k]>v:name==='lte'?r[k]<=v:name==='lt'?r[k]<v:r[k]===v);
    else if(name==='not'){if(a[1]!=='is')throw Error('Unsupported local display filter');rows=rows.filter(r=>r[k]!==a[2]);}
    else if(name==='order')rows=rows.slice().sort((x,y)=>(x[k]<y[k]?-1:x[k]>y[k]?1:0)*(v&&v.ascending===false?-1:1));
    else if(name==='limit')rows=rows.slice(0,Math.max(0,Math.min(1000,k)));
