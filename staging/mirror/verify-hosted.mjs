@@ -89,7 +89,12 @@ try{
    else check(!/FT/.test(seen.time)&&seen.detail===null,width+'px '+c.fxid+' unfinished fixture carries no final score');
   }
   if(!done.length)console.log('UNAVAILABLE CASE '+width+'px finished issued prediction inside the date strip');
-  const tipLegs=(slipsScreen.slips.find(x=>x.tier==='tips')?.legs||[]).filter(l=>l.tab==='winner');
+  /* Tips Today is keyed on the reader's local day. This context runs in Lagos time, so from 23:00
+     UTC its day is already the next one and the issued row for the mirror's UTC day is not today's.
+     The counter is checked only while the issued day is the reader's today. */
+  const tipsRow=slipsScreen.slips.find(x=>x.tier==='tips'),readerDay=await page.evaluate(()=>todayStrLocal());
+  if(tipsRow&&tipsRow.day!==readerDay)console.log('UNAVAILABLE CASE '+width+'px issued Tips are for '+tipsRow.day+' and the reader day is '+readerDay);
+  const tipLegs=(tipsRow&&tipsRow.day===readerDay?tipsRow.legs:[]).filter(l=>l.tab==='winner');
   if(tipLegs.length){
    const legCards=tipLegs.map(l=>union.get(l.fxid)),exact=legCards.every(c=>c&&!['AET','PEN'].includes(c.status));
    const verified=legCards.filter(c=>c&&['FINISHED','AET','PEN'].includes(c.status)&&Number.isInteger(c.gh)&&Number.isInteger(c.ga)).length;
@@ -100,7 +105,7 @@ try{
    check(m&&+m[2]===tipLegs.length&&(exact?+m[1]===verified:+m[1]>0||!verified),width+'px Tips counts '+verified+' of '+tipLegs.length+' issued Winner selections from verified results: '+foot);
    const marks=await page.evaluate(()=>[...$('tipList').querySelectorAll('.fxrow')].map(r=>r.querySelector('.tip-outcome')?.textContent.replace(/[^A-Za-z]/g,'')));
    check(marks.length===tipLegs.length&&marks.every(x=>['Won','Lost','Void','Pending'].includes(x))&&marks.filter(x=>x!=='Pending').length===+m[1],width+'px every Tips row states Won, Lost, Void or Pending');
-  }else console.log('UNAVAILABLE CASE '+width+'px issued Tips for today');
+  }else if(!tipsRow)console.log('UNAVAILABLE CASE '+width+'px issued Tips for today');
   await page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.prediction)?.prediction.kickoff);
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
