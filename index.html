@@ -18061,7 +18061,12 @@ function renderFavMatches(){
   // upcoming/live first (soonest), then finished (most recent first) — older sink to the bottom
   const fin=new Map(); for(const m of list){ const L=m.lid!=null?afState.leagues[m.lid]:null; fin.set(m, !!fixtureResult(L,m,smap)); }
   list.sort((a,b)=>{ if(fin.get(a)!==fin.get(b)) return fin.get(a)?1:-1;
-    const ka=a.date+(a.time||''), kb=b.date+(b.time||''); return fin.get(a) ? (ka<kb?1:-1) : (ka<kb?-1:1); });
+    /* Ties MUST return 0. This used to answer `ka<kb?-1:1`, which says "b first" for (a,b) AND for
+       (b,a) when two matches share a kick-off: an inconsistent comparator, whose result the
+       language leaves to the engine. Chromium kept the starred order; Firefox permuted it, so the
+       same Favourites list read in a different order per browser. With 0 the stable sort keeps
+       same-kick-off matches in the order they were starred, everywhere. */
+    const ka=a.date+(a.time||''), kb=b.date+(b.time||''); if(ka===kb) return 0; return fin.get(a) ? (ka<kb?1:-1) : (ka<kb?-1:1); });
   if(!list.length){ feed.innerHTML='<div class="subnote">No starred matches yet. Tap the ☆ on any fixture to follow it here — played matches stay for 7 days.</div>'; return; }
   const refs=[]; let html='', cur=null;
   for(const m of list){ if(m.date!==cur){ cur=m.date; html+=`<div class="lghead">${favDateHeader(m.date)}</div>`; }
