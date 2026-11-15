@@ -81,17 +81,30 @@ try{
   }
   const dated=await page.evaluate(async()=>{
    await dailySharedLoad(todayStrLocal(),true);
-   const candidate=Object.values(afState.leagues).flatMap(L=>L.upcoming).find(f=>{const p=publishedPrediction(f);return p&&p.kickoff!==f.date;});const id=candidate?.fxid;let pair;for(const L of Object.values(afState.leagues)){const f=L.upcoming.find(f=>f.fxid===id);if(f){pair={L,f};break;}}
+   /* The Analysis date strip is a rolling 14 days, today-7 to today+6, and renderFixtures moves any
+      other selectedDate back to today. A rescheduled forecast whose original or new date is outside
+      the strip cannot be opened by setting selectedDate. Prefer a fixture with both dates inside the
+      strip. Otherwise check each date where the app actually presents the forecast. */
+   const day=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10),inStrip=d=>d>=day(7)&&d<=day(-6);
+   const moved=Object.values(afState.leagues).flatMap(L=>L.upcoming).filter(f=>{const p=publishedPrediction(f);return p&&p.kickoff!==f.date;});
+   const candidate=moved.find(f=>inStrip(f.date)&&inStrip(publishedPrediction(f).kickoff))||moved[0];const id=candidate?.fxid;let pair;for(const L of Object.values(afState.leagues)){const f=L.upcoming.find(f=>f.fxid===id);if(f){pair={L,f};break;}}
    if(!pair||!publishedPrediction(pair.f))return null;const {f}=pair,p=publishedPrediction(f),snapshot=JSON.stringify(afState.archive);
    afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=f.date;renderFixtures();
-   const absent=p.kickoff===f.date||![...$('fixtureList').querySelectorAll('.fxrow')].some(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
-   afState.selectedDate=p.kickoff;renderFixtures();const oldRow=[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
-   const badge=oldRow?.querySelector('.predchip')?.textContent;showPublishedFixture(pair.L,f);const oldKey=$('heroPick').closest('.hero').dataset.selectionKey;
+   const newShown=afState.selectedDate===f.date;
+   const absent=!newShown||![...$('fixtureList').querySelectorAll('.fxrow')].some(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
+   afState.selectedDate=p.kickoff;renderFixtures();const oldShown=afState.selectedDate===p.kickoff;
+   const oldRow=oldShown?[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>r.querySelector('.fxteams')?.textContent.includes(p.home)):null;
+   const want=chipCode(p.pick)+' · '+probabilityPercent(p.pick_prob,0);
+   showPublishedFixture(pair.L,f);const oldHero=$('heroPick').closest('.hero'),oldKey=oldHero.dataset.selectionKey;
+   /* Original date outside the strip: the forecast has no feed row, so its detail must carry the
+      original pick, probability and kickoff. Inside the strip the feed row is still required. */
+   const badge=oldShown?oldRow?.querySelector('.predchip')?.textContent:($('heroPick').textContent===want&&oldHero.dataset.originalKickoff===p.kickoff+'T'+(p.ktime||'')&&oldHero.dataset.originalProbability===String(p.pick_prob)?want:null);
    const row=(_sharedSlips.rows||[]).find(r=>r.legs?.some(l=>l.fxid===id&&l.code!==p.pick)),leg=row?.legs.find(l=>l.fxid===id&&l.code!==p.pick);let issued=null;
    if(leg){openIssuedForecast(leg);const hero=$('heroPick').closest('.hero');issued={matches:$('heroPick').textContent===chipCode(leg.code)+' · '+probabilityPercent(leg.p,0),distinct:hero.dataset.selectionKey!==oldKey,original:hero.dataset.originalProbability===String(leg.p),date:hero.dataset.originalKickoff===leg.d+'T'+(leg.t||'')};}
-   return{absent,dated:badge===chipCode(p.pick)+' · '+probabilityPercent(p.pick_prob,0),issued,unchanged:snapshot===JSON.stringify(afState.archive)};
+   return{absent,dated:badge===want,issued,unchanged:snapshot===JSON.stringify(afState.archive),id,newShown,oldShown};
   });
   if(dated){
+   console.log('DATED CASE '+width+'px fixture '+dated.id+' new date '+(dated.newShown?'inside':'outside')+' strip, original date '+(dated.oldShown?'inside':'outside')+' strip');
    check(dated.absent&&dated.dated&&dated.unchanged,width+'px older published forecast stays on original date without replacing issued selections');
    if(dated.issued)check(Object.values(dated.issued).every(Boolean),width+'px separate issued selection opens its own original probability and dated identity');
    else console.log('UNAVAILABLE CASE '+width+'px separate issued selection for rescheduled fixture');
