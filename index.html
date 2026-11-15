@@ -22400,11 +22400,10 @@ function renderMoreRecord(){
       + `<div class="shcell"><span class="k">Rate</span><span class="v" style="color:${(+stats.pct)>=50?'var(--green2)':'var(--red)'}">${stats.pct}%</span></div>`
     + `</div>`
     + `<div class="sliphead" style="margin-top:1px">${shc('Yesterday', y)}${shc('Last 7 days', w)}</div>`
-    /* Director, 2026-11-16: the line is "Voids excluded, updated <time>." and nothing more. The start
-       date, the void count, the stake wording and the every-device promise are removed. Voids are
-       still excluded from the figures above and the line still says so when there are any. */
-    + (() => { const u = recordUpdatedText(), line = stats.voids ? 'Voids excluded' + u : u.replace(/^, u/, 'U');
-               return line ? `<div class="subnote" id="recordNote">${escapeHtml(line)}.</div>` : ''; })();
+    /* Director, 2026-11-16: the line is always "Voids excluded, updated <time>." and nothing more,
+       whatever the number of voids. The time is the record's own `computed_at`. The start date, the
+       void count, the stake wording and the every-device promise are removed. */
+    + `<div class="subnote" id="recordNote">${escapeHtml('Voids excluded' + recordUpdatedText())}.</div>`;
 
   const box = $('moreRecordBreak'); if(!box) return;
   /* BUILD 229 - THIS TABLE COUNTED EVERY PICK AS CORRECT, AND KEN FOUND IT ON HIS PHONE.

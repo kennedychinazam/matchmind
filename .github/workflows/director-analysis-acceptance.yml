@@ -28,6 +28,7 @@ jobs:
           test/published-detail-restoration.test.mjs
           test/published-results-outcomes.test.mjs
           test/tips-issue-continuity.test.mjs
+          test/tips-continuity-sql.test.mjs
           test/navigation-history.test.mjs
           test/analysis-data-projection.test.mjs
           test/analysis-data-sql.test.mjs
