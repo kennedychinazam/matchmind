@@ -12,6 +12,7 @@ check(!expected||marker===expected,'hosted source commit matches expected develo
 const status=await rpc('mm_preview_status_v1');check(status?.mode==='real-read-only'&&Date.parse(status.expires_at)>Date.now(),'current verified real mirror exists');
 const scores=await rpc('mm_preview_display_v2',{screen:'scores'}),history=await rpc('mm_preview_display_v2',{screen:'history'});
 const predictions=await rpc('mm_preview_display_v2',{screen:'predictions'});
+const slipsScreen=await rpc('mm_preview_display_v2',{screen:'slips'});
 const union=new Map([...scores.cards,...history.cards,...predictions.cards].map(c=>[c.fxid,c]));
 const legacy=await rpc('mm_preview_display_v1',{screen:'history'});
 check(legacy.cards.length===history.cards.length&&legacy.cards.every(c=>!Object.hasOwn(c,'analysis')&&JSON.stringify(c.prediction)===JSON.stringify(history.cards.find(h=>h.fxid===c.fxid)?.prediction)),'legacy preview reader strips optional analysis and preserves original predictions');
@@ -67,6 +68,40 @@ try{
 
   const publishedBadges=await page.evaluate(cards=>[...$('fixtureList').querySelectorAll('.fxrow')].map(r=>{const text=r.querySelector('.predchip:not(.muted-chip)')?.textContent,names=r.querySelector('.fxteams').textContent,c=cards.find(c=>c.prediction&&c.prediction.kickoff===afState.selectedDate&&names.includes(c.home)&&names.includes(c.away));return{text,expected:c?chipCode(c.prediction.pick)+' · '+Math.round(c.prediction.pick_prob*100)+'%':null};}).filter(x=>x.text?.includes('%')),history.cards);
   check(publishedBadges.length>0&&publishedBadges.every(b=>b.text.trim()===b.expected),width+'px green pick badges match original published selections and probabilities');
+  // Result and outcome agreement: reader record, Scores, Analysis row and match detail.
+  const outcomeOf=c=>{const h=c.ft_h??c.gh,a=c.ft_a??c.ga,k=c.prediction.pick,r=h>a?'1':h===a?'X':'2';
+   if(k==='1D'||k==='2D')return r==='X'?'Void':r===k[0]?'Won':'Lost';
+   return ['1','X','2','1X','X2','12'].includes(k)?(k.includes(r)?'Won':'Lost'):null;};
+  const day=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
+  const gradeable=history.cards.filter(c=>c.prediction&&!c.prediction.withheld_at&&c.prediction.kickoff===c.date&&c.date>=day(5)&&c.date<=day(-5)&&scores.cards.some(x=>x.fxid===c.fxid));
+  const done=gradeable.filter(c=>c.status==='FINISHED'&&Number.isInteger(c.ft_h??c.gh)&&Number.isInteger(c.ft_a??c.ga)&&outcomeOf(c));
+  const samples=[...['Won','Lost','Void'].map(o=>done.find(c=>outcomeOf(c)===o)).filter(Boolean),gradeable.find(c=>c.status==='NS'),gradeable.find(c=>c.status==='POSTPONED')].filter(Boolean);
+  for(const c of samples){
+   const want=c.status==='FINISHED'?outcomeOf(c):'Pending',score=(c.ft_h??c.gh)+'–'+(c.ft_a??c.ga);
+   const seen=await page.evaluate(c=>{afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=c.date;renderFixtures();
+    const row=[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>{const t=r.querySelector('.fxteams').textContent;return t.includes(c.home)&&t.includes(c.away);});
+    const out={wantBadge:chipCode(c.prediction.pick)+' · '+probabilityPercent(c.prediction.pick_prob,0),time:row?.querySelector('.fxtime').innerText.replace(/\s+/g,' ').trim(),badge:row?.querySelector('.predchip')?.textContent,outcome:row?.querySelector('.pick-outcome')?.textContent,score:(s=>s&&s.gh!=null?s.gh+'–'+s.ga:null)(afState.scores.list.find(s=>s.fxid===c.fxid))};
+    openFixtureById(c.fxid);const line=[...$('heroMeta').querySelectorAll('.hm-dt')].find(e=>/90-minute score/.test(e.textContent));
+    return{...out,detail:line?.textContent||null,detailOutcome:line?.dataset.outcome||null};},c);
+   check(seen.badge===seen.wantBadge,width+'px '+c.fxid+' Analysis badge keeps issued pick and probability');
+   check(seen.outcome===want,width+'px '+c.fxid+' Analysis outcome '+want+' from verified result');
+   if(c.status==='FINISHED'){check(seen.time===score+' FT'&&seen.score===score&&seen.detail==='90-minute score '+score+' · '+want&&seen.detailOutcome===want,width+'px '+c.fxid+' same final score and outcome in Scores, Analysis and detail');}
+   else check(!/FT/.test(seen.time)&&seen.detail===null,width+'px '+c.fxid+' unfinished fixture carries no final score');
+  }
+  if(!done.length)console.log('UNAVAILABLE CASE '+width+'px finished issued prediction inside the date strip');
+  const tipLegs=(slipsScreen.slips.find(x=>x.tier==='tips')?.legs||[]).filter(l=>l.tab==='winner');
+  if(tipLegs.length){
+   const legCards=tipLegs.map(l=>union.get(l.fxid)),exact=legCards.every(c=>c&&!['AET','PEN'].includes(c.status));
+   const verified=legCards.filter(c=>c&&['FINISHED','AET','PEN'].includes(c.status)&&Number.isInteger(c.gh)&&Number.isInteger(c.ga)).length;
+   const foot=await page.evaluate(async verified=>{navTo('tips');tipState.market='winner';renderTipList('winner');
+    for(let i=0;i<60;i++){const t=$('tipList').querySelector('.subnote')?.textContent||'';if(t.startsWith(verified+' of '))return t;await new Promise(r=>setTimeout(r,250));renderTipList('winner');}
+    return $('tipList').querySelector('.subnote')?.textContent||'';},verified);
+   const m=/^(\d+) of (\d+) results verified/.exec(foot);
+   check(m&&+m[2]===tipLegs.length&&(exact?+m[1]===verified:+m[1]>0||!verified),width+'px Tips counts '+verified+' of '+tipLegs.length+' issued Winner selections from verified results: '+foot);
+   const marks=await page.evaluate(()=>[...$('tipList').querySelectorAll('.fxrow')].map(r=>r.querySelector('.tip-outcome')?.textContent.replace(/[^A-Za-z]/g,'')));
+   check(marks.length===tipLegs.length&&marks.every(x=>['Won','Lost','Void','Pending'].includes(x))&&marks.filter(x=>x!=='Pending').length===+m[1],width+'px every Tips row states Won, Lost, Void or Pending');
+  }else console.log('UNAVAILABLE CASE '+width+'px issued Tips for today');
+  await page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.prediction)?.prediction.kickoff);
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
   for(const [id,label] of [[1570019,'published'],[1594900,'retained']]){
