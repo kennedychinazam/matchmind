@@ -36,11 +36,17 @@ export async function readPages(table,columns,filters,order,fetcher=fetch){
  }
  if(rows.length!==total)throw Error('Source inventory incomplete');return rows;
 }
-export async function collect(now=new Date(),fetcher=fetch){
- const w=windowFor(now);
+/* PREVIOUS-DAY ISSUE. The source read admitted issued slips for the current UTC day only, so from
+   00:00 UTC until the day's Tips were issued the mirror carried none. With `previousIssue` the read
+   is the current and the previous UTC day: whole rows, in source order, never truncated. It is OFF
+   unless MM_MIRROR_PREVIOUS_ISSUE=1, because the installed staging publisher refuses any slip whose
+   day is not the current one. Turn it on only after STAGING-tips-continuity-up.sql is installed. */
+export const previousIssueEnabled=(env=process.env)=>env.MM_MIRROR_PREVIOUS_ISSUE==='1';
+export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previousIssueEnabled()}={}){
+ const w=windowFor(now),prior=new Date(Date.parse(w.day)-86400000).toISOString().slice(0,10);
  const [fixtures,slips,records]=await Promise.all([
   readPages('fixtures',fixtureCols,[['provider','eq.af'],['date','gte.'+w.from],['date','lte.'+w.to]],'fxid.asc',fetcher),
-  readPages('daily_slips','day,tier,odds,build,step,legs',[['day','eq.'+w.day]],'day.asc,tier.asc',fetcher),
+  readPages('daily_slips','day,tier,odds,build,step,legs',[previousIssue?['day','in.('+prior+','+w.day+')']:['day','eq.'+w.day]],'day.asc,tier.asc',fetcher),
   readPages('shared_records','key,payload,build,computed_at',[['key','in.(board,engine,clv)']],'key.asc',fetcher)
  ]);
  if(!fixtures.length)throw Error('No genuine fixtures in accepted window');
@@ -80,8 +86,8 @@ export async function collect(now=new Date(),fetcher=fetch){
  const stamps=fixtures.map(f=>f.updated_at).filter(x=>x&&Number.isFinite(Date.parse(x))).sort((a,b)=>Date.parse(a)-Date.parse(b));
  return{payload,analysis_warnings,captured_at:now.toISOString(),from:w.from,to:w.to,window_cards:windowCount,cards:fixtures.length,predictions:predictions.length,latest_source_update:stamps.at(-1)??null};
 }
-export async function stableCollect(now=new Date(),fetcher=fetch){
- const a=await collect(now,fetcher),b=await collect(now,fetcher);
+export async function stableCollect(now=new Date(),fetcher=fetch,options={}){
+ const a=await collect(now,fetcher,options),b=await collect(now,fetcher,options);
  if(digest(a)!==digest(b))throw Error('Source changed between coverage passes; retain previous mirror');
  return b;
 }

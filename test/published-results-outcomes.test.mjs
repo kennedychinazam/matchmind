@@ -139,6 +139,29 @@ test('Tips grades every issued leg from its own fixture and market and counts th
  if(process.env.MM_SHOTS){await tab('winner');await page.evaluate(()=>$('tipList').scrollIntoView());await page.screenshot({path:process.env.MM_SHOTS+'/tips-ou-320.png'});}
 });
 
+test('the Accuracy note always reads "Voids excluded, updated <time>." and the small-sample line is gone',async t=>{
+ /* TEST EVIDENCE: the tallies are stand-in numbers, because the sample edition carries no engine
+    record. They exercise the rendering only. The update time is read from the record itself. */
+ const page=await open(t,320);
+ const render=(voids,computedAt)=>page.evaluate(({voids,computedAt})=>{
+  sharedTally=(from,to,market)=>market?{n:3,hits:2,voids:0,pct:'66.7'}:from?{n:39,hits:31,voids:0,pct:'79.5'}:{n:2436,hits:1831,voids,pct:'75.2'};
+  sharedRecordMarkets=()=>['Double Chance','Draw No Bet','BTTS'];
+  _engineRecord={state:'loaded',payload:{days:{}},computedAt,build:355,at:Date.now()};
+  renderMoreRecord();
+  return{note:$('recordNote')?.textContent,notes:[...$('moreRecordLine').querySelectorAll('.subnote')].map(e=>e.textContent),head:$('moreRecordLine').textContent,table:$('moreRecordBreak').textContent,tableNotes:$('moreRecordBreak').querySelectorAll('.subnote').length,rows:$('moreRecordBreak').querySelectorAll('.frow').length};},{voids,computedAt});
+ for(const voids of [182,1,0]){
+  const r=await render(voids,'2026-11-15T22:54:00Z');
+  assert.equal(r.note,'Voids excluded, updated Nov 15 10:54 PM.','with '+voids+' voids');
+  assert.deepEqual(r.notes,[r.note],'exactly one note under the figures');
+  assert.match(r.head,/1831\/2436/);assert.equal(r.rows,4,'the market table is still drawn: a header and three markets');
+  for(const gone of [/From /,/had the stake returned/,/same record on every device/,/182 void/,/\d+ voids? excluded/])assert.doesNotMatch(r.head,gone);
+  assert.equal(r.tableNotes,0,'no caution line under the market table');
+  assert.doesNotMatch(r.table,/handful of picks|read the count before the percentage/);
+ }
+ // The time is the record's own, not a constant.
+ assert.equal((await render(182,'2026-11-16T07:05:00Z')).note,'Voids excluded, updated Nov 16 07:05 AM.');
+});
+
 test('the public result lookup matches a fixture id given as a string or a number',async t=>{
  const page=await open(t,320);
  const got=await page.evaluate(async()=>{const q=v=>fixtureTable('fixtures').select('fxid,status,gh,ga').in('fxid',v).then(r=>r.data);
