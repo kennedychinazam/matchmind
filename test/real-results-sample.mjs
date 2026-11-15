@@ -47,11 +47,18 @@ export const TIPS_LEGS=[
 export const SLIPS=[
  {day:'2026-11-15',tier:'banker',step:'banker',build:355,odds:1.11,legs:[{fxid:1571207,d:'2026-11-15',t:'11:00',h:'Atlético Madrid II',a:'Teruel',code:'1X',market:'Double Chance',p:.8574,o:1.11}]},
  {day:'2026-11-15',tier:'tips',step:'tips',build:355,odds:0,legs:TIPS_LEGS}];
+/* ⚠ TEST EVIDENCE ONLY. NOT A PUBLISHED ISSUE. No authentic issue for 2026-11-16 existed when the
+   sample was read, so the "next day's issue has arrived" case needs a stand-in. These three rows
+   reuse genuine fixtures from the sample with made-up selections and probabilities, purely to give
+   the display a second issue day to switch to. They are never published anywhere. */
+export const TEST_ONLY_NEXT_ISSUE={day:'2026-11-16',tier:'tips',step:'tips',build:355,odds:0,legs:[
+ leg(eibar,'winner',0,'1X','TEST ONLY Eibar or Draw',.61),leg(lugo,'winner',1,'X2','TEST ONLY Draw or Mirandes',.6),
+ leg(eibar,'ou',0,'U25','TEST ONLY Under 2.5',.55),leg(eibar,'btts',0,'NBT','TEST ONLY BTTS No',.54)]};
 /* What each issued selection did, by the app's own grader on the provider's 90-minute score. */
 export const EXPECTED={1647925:'Won',1608748:'Void',1551879:'Lost',1570023:'Won',1570828:'Lost',1570830:'Pending',1564407:'Pending',1570016:'Pending'};
-export function envelope(screen,{withhold=[]}={}){
+export function envelope(screen,{withhold=[],nextIssue=false,noSlips=false}={}){
  const strip=c=>withhold.includes(c.fxid)?{...c,gh:n,ga:n,ft_h:n,ft_a:n,ht_h:n,ht_a:n}:c;
  const ALL=[...ISSUED,...RESCHEDULED],bare=ALL.map(c=>({...c,prediction:null}));
  const cards=(screen==='scores'||screen==='slips'||screen==='records'?[...bare,...OTHERS]:screen==='history'?ALL:[...ALL,...OTHERS]).map(strip);
- return {version:'matchmind-display/1',screen,edition_id:'64586c8e-1997-41f7-9d62-c1e00874d599',as_of:AS_OF,expires_at:EXPIRES,cards,board:null,records:{engine:null,clv:null},slips:screen==='slips'?SLIPS:[]};
+ return {version:'matchmind-display/1',screen,edition_id:'64586c8e-1997-41f7-9d62-c1e00874d599',as_of:AS_OF,expires_at:EXPIRES,cards,board:null,records:{engine:null,clv:null},slips:screen==='slips'&&!noSlips?[...SLIPS,...(nextIssue?[TEST_ONLY_NEXT_ISSUE]:[])]:[]};
 }

@@ -75,7 +75,7 @@ function showPublishedFixture(L,f,context=null){
  setShareCard(false,null);navTo('detail');
 }
 function openIssuedForecast(leg){
- const row=(_sharedSlips.rows||[]).find(r=>(r.legs||[]).includes(leg));
+ const row=(_sharedSlips.rows||[]).concat(_tipsPrev.rows||[]).find(r=>(r.legs||[]).includes(leg));
  const b=!row&&_boardRecord.payload&&(_boardRecord.payload.rows||[]).find(r=>r.f===leg.fxid&&r.p===leg.code&&r.q===leg.p&&r.d===leg.d&&r.t===(leg.t||''));
  if(!row&&!b)return false;
  let x;for(const L of Object.values(afState.leagues)){const f=L.upcoming.find(f=>f.fxid===leg.fxid);if(f){x={L,f};break;}}

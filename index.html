@@ -8314,7 +8314,7 @@ async function sharedResultsLoad(rows){
 function sharedResultsTick(rerender){
   if(Date.now() - _sharedResAt < SHARED_RES_TTL_MS) return;
   _sharedResAt = Date.now();
-  sharedResultsLoad((_sharedSlips.rows || []).concat(_slipHist.rows || []))
+  sharedResultsLoad((_sharedSlips.rows || []).concat(_tipsPrev.rows || [], _slipHist.rows || []))
     .then(n => { if(n && rerender){ try{ rerender(); }catch(e){} } })
     .catch(() => { _sharedResAt = Date.now() - SHARED_RES_TTL_MS + 30000; if(rerender){try{rerender();}catch(e){}} });
 }
@@ -8402,7 +8402,7 @@ function liveResultsTick(rerender){
   if(typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   if(Date.now() - _liveResAt < LIVE_RES_TTL_MS) return;
   _liveResAt = Date.now();
-  liveResultsLoad((_sharedSlips.rows || []).concat(_slipHist.rows || []))
+  liveResultsLoad((_sharedSlips.rows || []).concat(_tipsPrev.rows || [], _slipHist.rows || []))
     .then(sig => {
       /* RE-DRAWN ONLY WHEN SOMETHING ACTUALLY MOVED, which is how this avoids the risk the order
          names: the legs are buttons, and replacing a card's innerHTML under a reader's thumb is
@@ -8499,12 +8499,69 @@ const TIPS_FREEZE_TABS = ['winner','ou','btts'];   // Smart Bet's tab is the sli
 const TIPS_FREEZE_TOP  = 30;                       // exactly what the tab renders; more is waste
 let _tipsSeedTried = null;                         // the day a seed was attempted, so it is once
 
+/* ══ TIPS ISSUE CONTINUITY ══════════════════════════════════════════════════════════════════════
+   The Tips tab read only the row issued for the reader's LOCAL today. A reader in Lagos crosses
+   midnight an hour before UTC does, and the day's Tips are issued hours after that, so from local
+   midnight until the next issue the tab had nothing to show and yesterday's selections and their
+   results were unreachable.
+
+   The tab now shows an ISSUE, named by the day it was issued for. Today's issue is the default once
+   it exists. Until then the most recent issue is shown under its own date. With both available the
+   reader can switch. Nothing is merged: every list, grade and counter is read from the one selected
+   row, and a previous issue is never presented as today's.
+
+   `tipsSharedRow` is left exactly as it was. It answers "has TODAY been issued?", which is the
+   question the publisher's seed asks, and that answer must never be yesterday's row. */
+let _tipsPrev = { forDay: null, day: null, rows: [], loaded: false, error: null };
+async function tipsPrevLoad(){
+  const today = todayStrLocal(), prev = dayStrLocal(-1);
+  if(_tipsPrev.loaded && _tipsPrev.forDay === today) return _tipsPrev;
+  const r = await dailySharedFetch(prev);
+  try{ await sharedResultsLoad(r.rows); }catch(e){}
+  _tipsPrev = { forDay: today, day: prev, rows: r.rows, loaded: true, error: r.error };
+  return _tipsPrev;
+}
+function tipsIssues(){
+  const today = todayStrLocal(), out = [];
+  const add = (day, rows) => { if((rows || []).some(r => r && r.tier === 'tips' && Array.isArray(r.legs) && r.legs.length)) out.push({ day: day, rows: rows }); };
+  if(_sharedSlips.loaded && _sharedSlips.day === today) add(today, _sharedSlips.rows);
+  if(_tipsPrev.loaded && _tipsPrev.forDay === today) add(_tipsPrev.day, _tipsPrev.rows);
+  return out;                                       // newest first
+}
+function tipsIssue(){ const all = tipsIssues(); return all.filter(x => x.day === tipState.issue)[0] || all[0] || null; }
+function tipsIssueRow(tier){
+  const issue = tipsIssue();
+  if(!issue) return tipsSharedRow(tier);
+  return issue.rows.filter(r => r && r.tier === tier)[0] || null;
+}
+function tipsIssueDate(day){
+  const d = new Date(day + 'T12:00:00Z');
+  return isNaN(d) ? String(day) : d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+/* The bar above the list. One line naming the issue, and the switch only when there are two. */
+function renderTipIssueBar(){
+  const list = $('tipList'); if(!list) return;
+  let bar = $('tipIssueBar');
+  if(!bar){ bar = document.createElement('div'); bar.id = 'tipIssueBar'; bar.className = 'subnote'; bar.style.margin = '0 0 8px'; list.parentNode.insertBefore(bar, list); }
+  const issue = tipState.days === 0 ? tipsIssue() : null;
+  bar.classList.toggle('hidden', !issue);
+  if(!issue){ bar.innerHTML = ''; delete bar.dataset.issue; return; }
+  const today = todayStrLocal(), all = tipsIssues();
+  const name = d => d === today ? 'Today' : d === dayStrLocal(-1) ? 'Yesterday' : tipsIssueDate(d);
+  bar.dataset.issue = issue.day;
+  bar.innerHTML = '<span id="tipIssueLabel">Issued for <b>' + escapeHtml(tipsIssueDate(issue.day)) + '</b>'
+    + (issue.day === today ? '' : all.length > 1 ? ' · previous issue' : ' · latest available. Today’s Tips are not issued yet.') + '</span>'
+    + (all.length > 1 ? '<span class="sfilters" style="display:flex;gap:6px;margin-top:6px">' + all.map(x =>
+        '<button type="button" class="sfchip' + (x.day === issue.day ? ' active' : '') + '" data-issue="' + escapeHtml(x.day) + '" aria-pressed="' + (x.day === issue.day) + '">'
+        + escapeHtml(name(x.day) + ' · ' + tipsIssueDate(x.day).replace(/^\S+\s/, '')) + '</button>').join('') + '</span>' : '');
+  bar.querySelectorAll('[data-issue]').forEach(b => b.addEventListener('click', () => { tipState.issue = b.dataset.issue; renderTips(); }));
+}
 function tipsSharedRow(tier){
   return (_sharedSlips.loaded && _sharedSlips.rows)
     ? _sharedSlips.rows.filter(r => r.tier === tier)[0] || null : null;
 }
 function tipsFrozenLegs(tab){
-  const r = tipsSharedRow('tips');
+  const r = tipsIssueRow('tips');
   if(!r || !Array.isArray(r.legs)) return null;
   /* build 329 - a leg frozen before the division rule is dropped here, the one place all three
      frozen tab lists read. `engineBacksFixture` guards only the LIVE path. */
@@ -9913,8 +9970,11 @@ function renderBankerFrozen(row, label, box){
 function renderBanker(){
   const box=$('bankerCard'); if(!box) return;
   const label = tipState.days===0 ? t('Today') : (tipState.days===3 ? t('Next 3 days') : t('Next 7 days'));
-  const fz = (tipState.days === 0) ? tipsSharedRow('banker') : null;
-  if(fz && Array.isArray(fz.legs) && fz.legs.length){ renderBankerFrozen(fz, label, box); return; }
+  const _issue = (tipState.days === 0) ? tipsIssue() : null;
+  const fz = (tipState.days === 0) ? tipsIssueRow('banker') : null;
+  /* A previous issue's strongest read carries its own date, never the word Today. */
+  if(fz && Array.isArray(fz.legs) && fz.legs.length){ renderBankerFrozen(fz, _issue && _issue.day !== todayStrLocal() ? tipsIssueDate(_issue.day) : label, box); return; }
+  if(_issue && _issue.day !== todayStrLocal()){ box.innerHTML = ''; return; }   // no live card beside a previous issue
   if(tipState.days !== 0 && !boardReady()){   // build 345 - no board, no forward card; never the phone's
     box.innerHTML = `<div class="card"><h2>\u26A1 ${escapeHtml(label)}</h2><div class="subnote">${BOARD_UNREAD_TEXT}</div></div>`;
     return;
@@ -9967,6 +10027,10 @@ function renderTips(){
   if(!_sharedSlips.loaded || _sharedSlips.day !== todayStrLocal())
     dailySharedLoad(todayStrLocal()).then(() => { tipsFrozenEnsure(); renderTips(); }).catch(() => {});
   else tipsFrozenEnsure();
+  /* The previous issue, read once per local day. `loaded` is set even when the read fails, so this
+     cannot loop. */
+  if(!(_tipsPrev.loaded && _tipsPrev.forDay === todayStrLocal()))
+    tipsPrevLoad().then(() => renderTips()).catch(() => {});
   /* build 342 - today's prices, for every Tips view and not only Smart Bet. Started once the issued rows
      are in hand, so their legs are in the id list; the re-render cannot loop because `loaded` is set. */
   if(_sharedSlips.loaded && _sharedSlips.day === todayStrLocal()
@@ -10243,7 +10307,7 @@ function renderTipListFrozen(market, legs, box, footer){
       + '<span class="favright">' + val + star + '</span></div>';
   }).join('');
   const settled = graded.filter(g => g.grade).length;
-  const _row = tipsSharedRow('tips');
+  const _row = tipsIssueRow('tips');
   const _part = _row ? /^tips-partial-([0-9]+)$/.exec(String(_row.step || '')) : null;
   box.insertAdjacentHTML('beforeend', footer != null ? '<div class="subnote">' + footer + '</div>'   // build 345 - the forward list
     /* 🔑 BUILD 355 (WO-61 scope 6) — Ken, 2026-10-17: *"Remove that line from the tips list
@@ -10268,6 +10332,7 @@ function renderTipList(market){
      7-day settings are a forward look at fixtures nobody has issued a card for. Since build 345 (WO-38)
      they are the robot's board, not the phone's ranking: `renderTipListForward` below. The block above
      `TIPS_FREEZE_TABS` carries the measurement that makes re-pricing a played fixture unacceptable. */
+  renderTipIssueBar();
   const frozen = (tipState.days === 0) ? tipsFrozenLegs(market) : null;
   if(frozen){ renderTipListFrozen(market, frozen, box); return; }
   if(tipState.days !== 0){ renderTipListForward(market, box); return; }   // build 345 - the forward look is the robot's board
@@ -10276,6 +10341,11 @@ function renderTipList(market){
     /* Build 201 — this used to say "no priceable fixtures yet", which read as a broken app on any
        day the window simply had no football in it. The window is now a user choice, so the message
        names it. */
+    /* Today, with both issue reads complete and neither holding Tips: say exactly that. */
+    if(tipState.days === 0 && _sharedSlips.loaded && _sharedSlips.day === todayStrLocal() && !_sharedSlips.error
+       && _tipsPrev.loaded && _tipsPrev.forDay === todayStrLocal() && !_tipsPrev.error){
+      box.innerHTML = '<div class="subnote" id="tipIssueEmpty">No Tips have been issued for today or yesterday.</div>';
+      return; }
     box.innerHTML = `<div class="subnote">Nothing to rank in this window. Widen it above, or check
       back on a matchday \u2014 the engine prices fixtures as they are published.</div>`;
     return; }
@@ -22330,14 +22400,11 @@ function renderMoreRecord(){
       + `<div class="shcell"><span class="k">Rate</span><span class="v" style="color:${(+stats.pct)>=50?'var(--green2)':'var(--red)'}">${stats.pct}%</span></div>`
     + `</div>`
     + `<div class="sliphead" style="margin-top:1px">${shc('Yesterday', y)}${shc('Last 7 days', w)}</div>`
-    + `<div class="subnote">From ${escapeHtml(recordFromText())}`
-    /* Build 119's rule, kept: a void is disclosed WITH its reason. Dropping it from the denominator
-       silently would overstate nothing, but saying nothing about money that came back is the kind of
-       omission this record exists to avoid. Six words instead of a sentence. */
-    + (stats.voids ? ` · ${stats.voids} void${stats.voids===1?'':'s'} excluded, had the stake returned` : '')
-    /* The same record on every device — Ken's build-325 requirement, kept because it is a promise
-       about OTHER devices that a reader cannot infer from the numbers in front of them. */
-    + ` · the same record on every device${recordUpdatedText()}.</div>`;
+    /* Director, 2026-11-16: the line is "Voids excluded, updated <time>." and nothing more. The start
+       date, the void count, the stake wording and the every-device promise are removed. Voids are
+       still excluded from the figures above and the line still says so when there are any. */
+    + (() => { const u = recordUpdatedText(), line = stats.voids ? 'Voids excluded' + u : u.replace(/^, u/, 'U');
+               return line ? `<div class="subnote" id="recordNote">${escapeHtml(line)}.</div>` : ''; })();
 
   const box = $('moreRecordBreak'); if(!box) return;
   /* BUILD 229 - THIS TABLE COUNTED EVERY PICK AS CORRECT, AND KEN FOUND IT ON HIS PHONE.
@@ -22372,8 +22439,7 @@ function renderMoreRecord(){
         return `<div class="frow"><span style="flex:1">${escapeHtml(m)}</span>
           <span style="width:24%;text-align:right">${t.n}</span>
           <span style="width:28%;text-align:right;color:${pct>=50?'var(--green2)':'var(--red)'}"><b>${t.hits} · ${t.pct}%</b></span></div>`;
-      }).join('')
-    + `<div class="subnote">A market with only a handful of picks says nothing yet — read the count before the percentage.</div>`;
+      }).join('');   // Director, 2026-11-16: the small-sample caution under this table is removed
 }
 
 /* ══ 🔑 BUILD 354 (WO-13) — THE LEGAL AND TRUST PAGES ═══════════════════════════════════════════

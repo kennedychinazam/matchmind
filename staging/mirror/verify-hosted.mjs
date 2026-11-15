@@ -89,23 +89,43 @@ try{
    else check(!/FT/.test(seen.time)&&seen.detail===null,width+'px '+c.fxid+' unfinished fixture carries no final score');
   }
   if(!done.length)console.log('UNAVAILABLE CASE '+width+'px finished issued prediction inside the date strip');
-  /* Tips Today is keyed on the reader's local day. This context runs in Lagos time, so from 23:00
-     UTC its day is already the next one and the issued row for the mirror's UTC day is not today's.
-     The counter is checked only while the issued day is the reader's today. */
-  const tipsRow=slipsScreen.slips.find(x=>x.tier==='tips'),readerDay=await page.evaluate(()=>todayStrLocal());
-  if(tipsRow&&tipsRow.day!==readerDay)console.log('UNAVAILABLE CASE '+width+'px issued Tips are for '+tipsRow.day+' and the reader day is '+readerDay);
-  const tipLegs=(tipsRow&&tipsRow.day===readerDay?tipsRow.legs:[]).filter(l=>l.tab==='winner');
-  if(tipLegs.length){
-   const legCards=tipLegs.map(l=>union.get(l.fxid)),exact=legCards.every(c=>c&&!['AET','PEN'].includes(c.status));
-   const verified=legCards.filter(c=>c&&['FINISHED','AET','PEN'].includes(c.status)&&Number.isInteger(c.gh)&&Number.isInteger(c.ga)).length;
-   const foot=await page.evaluate(async verified=>{navTo('tips');tipState.market='winner';renderTipList('winner');
-    for(let i=0;i<60;i++){const t=$('tipList').querySelector('.subnote')?.textContent||'';if(t.startsWith(verified+' of '))return t;await new Promise(r=>setTimeout(r,250));renderTipList('winner');}
-    return $('tipList').querySelector('.subnote')?.textContent||'';},verified);
-   const m=/^(\d+) of (\d+) results verified/.exec(foot);
-   check(m&&+m[2]===tipLegs.length&&(exact?+m[1]===verified:+m[1]>0||!verified),width+'px Tips counts '+verified+' of '+tipLegs.length+' issued Winner selections from verified results: '+foot);
-   const marks=await page.evaluate(()=>[...$('tipList').querySelectorAll('.fxrow')].map(r=>r.querySelector('.tip-outcome')?.textContent.replace(/[^A-Za-z]/g,'')));
-   check(marks.length===tipLegs.length&&marks.every(x=>['Won','Lost','Void','Pending'].includes(x))&&marks.filter(x=>x!=='Pending').length===+m[1],width+'px every Tips row states Won, Lost, Void or Pending');
-  }else if(!tipsRow)console.log('UNAVAILABLE CASE '+width+'px issued Tips for today');
+  /* TIPS ISSUE CONTINUITY. The tab shows the issue for the reader's local today when the edition
+     holds one, otherwise the previous day's issue under its own date, otherwise an explicit empty
+     state. Whichever of the three the published edition supports is asserted. None is skipped. */
+  const tipsReady=await page.evaluate(async()=>{navTo('tips');tipState.days=0;renderTips();
+   for(let i=0;i<80&&!(_sharedSlips.loaded&&_sharedSlips.day===todayStrLocal()&&_tipsPrev.loaded&&_tipsPrev.forDay===todayStrLocal());i++)await new Promise(r=>setTimeout(r,250));
+   return{today:todayStrLocal(),prev:dayStrLocal(-1),loaded:_sharedSlips.loaded&&_tipsPrev.loaded&&!_sharedSlips.error&&!_tipsPrev.error};});
+  check(tipsReady.loaded,width+'px Tips issue reads completed for '+tipsReady.today+' and '+tipsReady.prev);
+  const issues=[tipsReady.today,tipsReady.prev].map(day=>slipsScreen.slips.find(x=>x.tier==='tips'&&x.day===day&&x.legs.length)).filter(Boolean);
+  const dateText=day=>new Date(day+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
+  console.log('TIPS CASE '+width+'px reader day '+tipsReady.today+', published issues '+(issues.map(x=>x.day).join(' and ')||'none'));
+  if(!issues.length){
+   const empty=await page.evaluate(()=>{tipState.tab='winner';renderTips();return{text:$('tipList').textContent.trim(),bar:!!$('tipIssueBar')&&!$('tipIssueBar').classList.contains('hidden')};});
+   check(empty.text==='No Tips have been issued for today or yesterday.'&&!empty.bar,width+'px Tips states that no issue exists for today or yesterday');
+  }
+  for(const issue of issues){
+   const previous=issue.day!==tipsReady.today;
+   for(const market of ['winner','ou','btts']){
+    const legs=issue.legs.filter(l=>l.tab===market).sort((a,b)=>a.rank-b.rank),legCards=legs.map(l=>union.get(l.fxid));
+    const exact=legCards.every(c=>c&&!['AET','PEN'].includes(c.status)),verified=legCards.filter(c=>c&&['FINISHED','AET','PEN'].includes(c.status)&&Number.isInteger(c.gh)&&Number.isInteger(c.ga)).length;
+    const seen=await page.evaluate(async({day,market,verified,many})=>{
+     if(many){tipState.issue=day;}tipState.tab=market;renderTips();
+     for(let i=0;i<60;i++){const t=$('tipList').querySelector('.subnote')?.textContent||'';if($('tipIssueBar').dataset.issue===day&&t.startsWith(verified+' of '))break;await new Promise(r=>setTimeout(r,250));renderTips();}
+     const bar=$('tipIssueBar');
+     return{issue:bar.dataset.issue,label:$('tipIssueLabel').textContent,switches:[...bar.querySelectorAll('[data-issue]')].map(b=>b.dataset.issue+(b.classList.contains('active')?'*':'')),
+      foot:$('tipList').querySelector('.subnote')?.textContent||'',banker:$('bankerCard').textContent,
+      rows:[...$('tipList').querySelectorAll('.fxrow')].map(r=>({sel:r.querySelector('.lname b').textContent,prob:r.querySelector('.predchip').textContent,mark:(r.querySelector('.tip-outcome')?.textContent||'').replace(/[^A-Za-z]/g,'')})),
+      overflow:document.documentElement.scrollWidth>innerWidth+1||bar.scrollWidth>bar.clientWidth+1};},{day:issue.day,market,verified,many:issues.length>1});
+    const tag=width+'px Tips '+issue.day+' '+market;
+    check(seen.issue===issue.day&&seen.label.startsWith('Issued for '+dateText(issue.day))&&(previous?/previous issue|latest available/.test(seen.label)&&!/Today/.test(seen.banker):seen.label==='Issued for '+dateText(issue.day)),tag+' shown under its own issue date: '+seen.label);
+    check(issues.length>1?seen.switches.length===2&&seen.switches.includes(issue.day+'*'):seen.switches.length===0,tag+' issue switch matches the published issues');
+    check(seen.rows.length===legs.length&&seen.rows.every((r,i)=>r.sel===legs[i].sel&&r.prob===Math.round(legs[i].p*100)+'%'),tag+' original selections, order and probabilities');
+    const m=/^(\d+) of (\d+) results verified/.exec(seen.foot);
+    check(m&&+m[2]===legs.length&&(exact?+m[1]===verified:+m[1]>0||!verified),tag+' counter '+verified+' of '+legs.length+': '+seen.foot);
+    check(seen.rows.every(r=>['Won','Lost','Void','Pending'].includes(r.mark))&&seen.rows.filter(r=>r.mark!=='Pending').length===+m[1]&&!seen.overflow,tag+' every row states Won, Lost, Void or Pending');
+   }
+  }
+  if(issues.length>1)await page.evaluate(()=>{delete tipState.issue;});
   await page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.prediction)?.prediction.kickoff);
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
