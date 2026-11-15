@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {realTransform} from '../staging/build-real-preview.mjs';
-import {envelope,EXPECTED,ISSUED,SAMPLE_NOW} from './real-results-sample.mjs';
+import {envelope,EXPECTED,ISSUED,RESCHEDULED,SAMPLE_NOW} from './real-results-sample.mjs';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
 const html=realTransform(readFileSync(new URL('../index.html',import.meta.url),'utf8'),readFileSync(new URL('../manifest.webmanifest',import.meta.url),'utf8')).html;
 const ORIGIN='https://kennedychinazam.github.io/matchmind-preview/';
@@ -92,6 +92,27 @@ test('a finished fixture with no score is Pending, never Lost, and a stale live 
  await page.clock.setFixedTime(new Date('2026-11-15T17:20:00Z'));
  const later=await analysis(page,'2026-11-15');
  assert.match(rowFor(later,ISSUED[5]).time,/^15:30.*LIVE 0-3$/);
+});
+
+test('a late-played forecast states no outcome, and a drawn Draw No Bet on time is still Void',async t=>{
+ /* The legacy record decides a pick played 48 hours or more after its issued kick-off, and the
+    public edition carries no settlement record. A score-based grade must not stand in for it. */
+ const page=await open(t,320);
+ const read=id=>page.evaluate(id=>{let x;for(const L of Object.values(afState.leagues)){const f=L.upcoming.find(f=>f.fxid===id);if(f)x={L,f};}
+  const p=publishedPrediction(x.f),box=document.createElement('div');box.innerHTML=publishedRowChip(x.L,x.f,p,scoreMap());const chip=box.firstChild;
+  openFixtureById(id);const line=[...$('heroMeta').querySelectorAll('.hm-dt')].find(e=>/90-minute score/.test(e.textContent));
+  return{chip:chip.textContent,cls:chip.className,outcome:chip.dataset.outcome,cell:(d=>{d.innerHTML=publishedResultCell(x.L,x.f,scoreMap()).replace(/<br>/g,' ');return d.textContent.replace(/\s+/g,' ').trim();})(document.createElement('div')),detail:line?.textContent,hero:$('heroPick').textContent,prob:$('heroPick').closest('.hero').dataset.originalProbability};},id);
+ const [laspalmas,haras]=RESCHEDULED;
+ // Seven days late: the issued pick, its probability and the verified score. No outcome of any kind.
+ assert.deepEqual(await read(haras.fxid),{chip:'1 DNB · 81%',cls:'predchip',outcome:'Unsettled',cell:'1–0 FT',detail:'90-minute score 1–0',hero:'1 DNB · 81%',prob:'0.807'});
+ // Twenty-six hours late is inside the window and is graded on its result as usual.
+ assert.deepEqual(await read(laspalmas.fxid),{chip:'1 DNB ✓',cls:'predchip hit',outcome:'Won',cell:'2–0 FT',detail:'90-minute score 2–0 · Won',hero:'1 DNB · 77%',prob:'0.771'});
+ // A completed draw on its issued date keeps the Draw No Bet void.
+ const reggiana=await read(1608748);
+ assert.equal(reggiana.chip,'1 DNB · Void');assert.equal(reggiana.outcome,'Void');assert.equal(reggiana.detail,'90-minute score 0–0 · Void');
+ // The listing for the issued date shows the on-time-window fixture with its score and chip.
+ const row=rowFor(await analysis(page,'2026-11-08'),{home:'Las Palmas',away:'Eldense'});
+ assert.deepEqual([row.time,row.badge],['2–0 FT','1 DNB ✓']);
 });
 
 test('Tips grades every issued leg from its own fixture and market and counts them',async t=>{

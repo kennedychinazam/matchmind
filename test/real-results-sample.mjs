@@ -30,6 +30,11 @@ export const ISSUED=[
  P(lugo,'1X','Double Chance',.729,.4172,.3122,.2706,1.221,.931,'2026-11-12T22:44:46.312+00:00'),
  P(luton,'1D','Draw No Bet',.809,.628,.2239,.1482,1.996,.871,'2026-11-11T23:28:36.396+00:00'),
  P(eibar,'1X','Double Chance',.816,.5496,.2666,.1838,1.617,.835,'2026-11-12T22:44:46.231+00:00')];
+/* Rescheduled after the pick was issued. Las Palmas was played 26 hours after its issued kick-off.
+   Haras El Hodood was played seven days after its issued kick-off. */
+const laspalmas={...P(C(1570011,141,'Segunda Division','Spain','Las Palmas','Eldense','2026-11-08','17:30',F,90,2,0,2,0,0,0),'1D','Draw No Bet',.771,.5709,.2597,.1694,1.669,.803,'2026-11-05T22:41:14.008+00:00'),date:'2026-11-09',time:'19:30'};
+const haras={...P(C(1594900,887,'Egyptian Second League','Egypt','Haras El Hodood','El Dakhleya','2026-11-06','12:30',F,90,1,0,1,0,0,0),'1D','Draw No Bet',.807,.5856,.2747,.1397,1.523,.613,'2026-11-03T12:47:39.259+00:00'),date:'2026-11-13',time:'12:30'};
+export const RESCHEDULED=[laspalmas,haras];
 const OTHERS=[juventus,atletico,ibiza,pescara,guidonia];
 const leg=(c,tab,rank,code,sel,p)=>({tab,rank,fxid:c.fxid,d:c.date,t:c.time,h:c.home,a:c.away,lid:c.lid,code,sel,market:'',p});
 export const TIPS_LEGS=[
@@ -46,7 +51,7 @@ export const SLIPS=[
 export const EXPECTED={1647925:'Won',1608748:'Void',1551879:'Lost',1570023:'Won',1570828:'Lost',1570830:'Pending',1564407:'Pending',1570016:'Pending'};
 export function envelope(screen,{withhold=[]}={}){
  const strip=c=>withhold.includes(c.fxid)?{...c,gh:n,ga:n,ft_h:n,ft_a:n,ht_h:n,ht_a:n}:c;
- const bare=ISSUED.map(c=>({...c,prediction:null}));
- const cards=(screen==='scores'||screen==='slips'||screen==='records'?[...bare,...OTHERS]:screen==='history'?ISSUED:[...ISSUED,...OTHERS]).map(strip);
+ const ALL=[...ISSUED,...RESCHEDULED],bare=ALL.map(c=>({...c,prediction:null}));
+ const cards=(screen==='scores'||screen==='slips'||screen==='records'?[...bare,...OTHERS]:screen==='history'?ALL:[...ALL,...OTHERS]).map(strip);
  return {version:'matchmind-display/1',screen,edition_id:'64586c8e-1997-41f7-9d62-c1e00874d599',as_of:AS_OF,expires_at:EXPIRES,cards,board:null,records:{engine:null,clv:null},slips:screen==='slips'?SLIPS:[]};
 }

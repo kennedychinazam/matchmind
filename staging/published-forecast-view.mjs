@@ -21,6 +21,13 @@ function publishedOutcomeOf(L,f,p,smap){
  if(fixtureExceptionalStatus(f))return 'Pending';
  const res=fixtureResult(L,f,smap||scoreMap());
  if(!res||!Number.isInteger(res.gh)||!Number.isInteger(res.ga))return 'Pending';
+ /* SETTLEMENT BOUNDARY. A match played 48 hours or more after the kick-off issued with the pick is
+    one the legacy record decides by its own rule, and the public edition carries no settlement
+    record to read that decision from. A grade computed here from the score could contradict it.
+    So no outcome is stated either way: not Won or Lost from the score, and not Void from the
+    elapsed time. The row keeps the issued pick, its probability and the verified score. */
+ const k0=pickOriginalKick({kickoff:p.kickoff,ktime:p.ktime}),k1=fixtureCurrentKick(f);
+ if(k0==null||k1==null||k1-k0>=VOID_AFTER_HOURS*3600000)return 'Unsettled';
  const g=gradePick(p.pick,actualCode(res.gh,res.ga),res.gh,res.ga);
  return g==='hit'?'Won':g==='miss'?'Lost':g==='void'?'Void':'Pending';
 }
@@ -29,7 +36,7 @@ function publishedOutcomeOf(L,f,p,smap){
    chip as data and stays visible in the detail view. */
 function publishedRowChip(L,f,p,smap){
  const o=publishedOutcomeOf(L,f,p,smap);
- if(!o||o==='Pending')return publishedBadge(p,f.fxid).replace('<span class="predchip"','<span class="predchip" data-outcome="'+(o||'')+'"');
+ if(!o||o==='Pending'||o==='Unsettled')return publishedBadge(p,f.fxid).replace('<span class="predchip"','<span class="predchip" data-outcome="'+(o||'')+'"');
  const cls=o==='Won'?'hit':o==='Lost'?'miss':'muted-chip',mark=o==='Won'?' ✓':o==='Lost'?' ✗':' · Void';
  return '<span class="predchip '+cls+'" data-outcome="'+o+'" data-original-probability="'+escapeHtml(String(p.pick_prob))+'" data-selection-key="'+escapeHtml(publishedSelectionKey(p,f.fxid))+'" aria-label="'+escapeHtml(chipCode(p.pick)+', '+o)+'">'+escapeHtml(chipCode(p.pick))+mark+'</span>';
 }
@@ -64,7 +71,7 @@ function showPublishedFixture(L,f,context=null){
  const v=p&&kind==='prediction'?probabilityVector(p.p_home,p.p_draw,p.p_away):null;
  $('outcomeRows').innerHTML=v?probRow(p.home,v.pW)+probRow('Draw',v.pD)+probRow(p.away,v.pL):'';
  renderPublishedAnalysis(L,f,p,kind);
- const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';const o=publishedOutcomeOf(L,f,p);line.textContent='90-minute score '+result.gh+'–'+result.ga+(o&&o!=='Pending'?' · '+o:'');line.dataset.outcome=o||'';$('heroMeta').appendChild(line);}
+ const result=fixtureExceptionalStatus(f)?null:fixtureResult(L,f,scoreMap());if(result&&Number.isInteger(result.gh)&&Number.isInteger(result.ga)){const line=document.createElement('div');line.className='hm-dt';const o=publishedOutcomeOf(L,f,p);line.textContent='90-minute score '+result.gh+'–'+result.ga+(o&&o!=='Pending'&&o!=='Unsettled'?' · '+o:'');line.dataset.outcome=o||'';$('heroMeta').appendChild(line);}
  setShareCard(false,null);navTo('detail');
 }
 function openIssuedForecast(leg){
