@@ -3108,7 +3108,9 @@ function fixtureEnvelope(value,screen){
   for(const row of value.board.rows){
    if(boardSeen.has(row.f))throw Error('Duplicate board fixture');boardSeen.add(row.f);
    const r=value.cards.find(c=>c.fxid===row.f),v=[row.pw,row.pd,row.pq];
-   if(!r||r.lid!==row.l||r.home!==row.h||r.away!==row.a||r.date!==row.d||r.time!==row.t)throw Error('Board fixture identity mismatch');
+   /* Identity is id, competition and both teams. `d`/`t` are the kickoff when the board was built; the provider
+      reschedules fixtures between builds, and the fixture record carries the current schedule. */
+   if(!r||r.lid!==row.l||r.home!==row.h||r.away!==row.a)throw Error('Board fixture identity mismatch');
    if(v.some(x=>x===null)&&v.some(x=>x!==null)||v.every(x=>x!==null)&&Math.abs(v.reduce((a,b)=>a+b,0)-1)>.0002)throw Error('Invalid board probability vector');
   }
  }
