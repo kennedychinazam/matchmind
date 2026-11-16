@@ -56,9 +56,12 @@ export const TEST_ONLY_NEXT_ISSUE={day:'2026-11-16',tier:'tips',step:'tips',buil
  leg(eibar,'ou',0,'U25','TEST ONLY Under 2.5',.55),leg(eibar,'btts',0,'NBT','TEST ONLY BTTS No',.54)]};
 /* What each issued selection did, by the app's own grader on the provider's 90-minute score. */
 export const EXPECTED={1647925:'Won',1608748:'Void',1551879:'Lost',1570023:'Won',1570828:'Lost',1570830:'Pending',1564407:'Pending',1570016:'Pending'};
-export function envelope(screen,{withhold=[],nextIssue=false,noSlips=false}={}){
+/* ⚠ TEST EVIDENCE ONLY. Stand-in engine record so the Accuracy panel has something to draw. The
+   sample edition's own record was not copied. The numbers mean nothing. */
+export const TEST_ONLY_ENGINE_RECORD={key:'engine',build:355,computed_at:'2026-11-15T22:54:00+00:00',payload:{v:1,days:{'2026-11-14':{'Double Chance':[7,3,1]}},total:11,graded:10,withheld:0,excluded:0,pending:0,orphan:0,off:0,ungradeable:0,voidLate:0}};
+export function envelope(screen,{withhold=[],nextIssue=false,noSlips=false,engineRecord=false}={}){
  const strip=c=>withhold.includes(c.fxid)?{...c,gh:n,ga:n,ft_h:n,ft_a:n,ht_h:n,ht_a:n}:c;
  const ALL=[...ISSUED,...RESCHEDULED],bare=ALL.map(c=>({...c,prediction:null}));
  const cards=(screen==='scores'||screen==='slips'||screen==='records'?[...bare,...OTHERS]:screen==='history'?ALL:[...ALL,...OTHERS]).map(strip);
- return {version:'matchmind-display/1',screen,edition_id:'64586c8e-1997-41f7-9d62-c1e00874d599',as_of:AS_OF,expires_at:EXPIRES,cards,board:null,records:{engine:null,clv:null},slips:screen==='slips'&&!noSlips?[...SLIPS,...(nextIssue?[TEST_ONLY_NEXT_ISSUE]:[])]:[]};
+ return {version:'matchmind-display/1',screen,edition_id:'64586c8e-1997-41f7-9d62-c1e00874d599',as_of:AS_OF,expires_at:EXPIRES,cards,board:null,records:{engine:screen==='records'&&engineRecord?TEST_ONLY_ENGINE_RECORD:null,clv:null},slips:screen==='slips'&&!noSlips?[...SLIPS,...(nextIssue?[TEST_ONLY_NEXT_ISSUE]:[])]:[]};
 }

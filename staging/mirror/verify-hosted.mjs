@@ -12,7 +12,7 @@ check(!expected||marker===expected,'hosted source commit matches expected develo
 const status=await rpc('mm_preview_status_v1');check(status?.mode==='real-read-only'&&Date.parse(status.expires_at)>Date.now(),'current verified real mirror exists');
 const scores=await rpc('mm_preview_display_v2',{screen:'scores'}),history=await rpc('mm_preview_display_v2',{screen:'history'});
 const predictions=await rpc('mm_preview_display_v2',{screen:'predictions'});
-const slipsScreen=await rpc('mm_preview_display_v2',{screen:'slips'});
+const slipsScreen=await rpc('mm_preview_display_v2',{screen:'slips'}),recordsScreen=await rpc('mm_preview_display_v2',{screen:'records'});
 const union=new Map([...scores.cards,...history.cards,...predictions.cards].map(c=>[c.fxid,c]));
 const legacy=await rpc('mm_preview_display_v1',{screen:'history'});
 check(legacy.cards.length===history.cards.length&&legacy.cards.every(c=>!Object.hasOwn(c,'analysis')&&JSON.stringify(c.prediction)===JSON.stringify(history.cards.find(h=>h.fxid===c.fxid)?.prediction)),'legacy preview reader strips optional analysis and preserves original predictions');
@@ -126,6 +126,19 @@ try{
    }
   }
   if(issues.length>1)await page.evaluate(()=>{delete tipState.issue;});
+  /* ACCURACY PANEL. The note always reads "Voids excluded, updated <record time>." and nothing
+     follows the market table. Asserted against the published engine record. Without a published
+     record there is nothing to assert, and that is reported as unavailable, not as a pass. */
+  const engine=recordsScreen.records.engine;
+  if(engine){
+   const acc=await page.evaluate(async()=>{navTo('data');for(let i=0;i<80&&_engineRecord.state==='pending';i++)await new Promise(r=>setTimeout(r,250));renderMoreRecord();
+    return{state:_engineRecord.state,at:_engineRecord.computedAt,want:'Voids excluded'+recordUpdatedText()+'.',note:$('recordNote')?.textContent||null,notes:$('moreRecordLine').querySelectorAll('.subnote').length,
+     line:$('moreRecordLine').textContent,table:$('moreRecordBreak').textContent,tableNotes:$('moreRecordBreak').querySelectorAll('.subnote').length,overflow:document.documentElement.scrollWidth>innerWidth+1};});
+   check(acc.state==='loaded'&&Date.parse(acc.at)===Date.parse(engine.computed_at),width+'px Accuracy reads the published engine record of '+engine.computed_at);
+   check(acc.note===acc.want&&/^Voids excluded, updated \S.*\.$/.test(acc.note)&&acc.notes===1,width+'px Accuracy note: '+acc.note);
+   check(!/From |had the stake returned|same record on every device|\d+ voids? excluded/.test(acc.line),width+'px Accuracy note carries no start date, void count, stake or device wording');
+   check(acc.tableNotes===0&&!/handful of picks|read the count before the percentage/.test(acc.table)&&!acc.overflow,width+'px no small-sample sentence under the Accuracy market table');
+  }else console.log('UNAVAILABLE CASE '+width+'px no published engine record, so the Accuracy note cannot be read');
   await page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;navTo('predict');if(day)afState.selectedDate=day;renderFixtures();scrollTo(0,0);},history.cards.find(c=>c.prediction)?.prediction.kickoff);
   await page.locator('#fixtureList .fxrow .tline').nth(1).click();
   check(await page.evaluate(()=>curView==='detail'),width+'px team-name tap opens detail without status interception');
@@ -211,7 +224,10 @@ try{
   // Browser History API roundtrip from a real list row after scrolling down the Analysis feed.
   const listDay=history.cards.filter(c=>c.prediction).map(c=>c.prediction.kickoff).sort((a,b)=>history.cards.filter(c=>c.prediction?.kickoff===b).length-history.cards.filter(c=>c.prediction?.kickoff===a).length)[0];
   await page.evaluate(day=>{afState.filter='all';afState.archiveDate=null;afState.selectedDate=day;navTo('predict');renderFixtures();},listDay);
-  const target=page.locator('#fixtureList .fxrow .tline').last();await target.scrollIntoViewIfNeeded();
+  /* The feed re-renders when a newer edition arrives, which detaches the row being scrolled to. The
+     row is re-resolved and the scroll retried. The click below re-resolves it too. */
+  const target=page.locator('#fixtureList .fxrow .tline').last();
+  for(let attempt=0;;attempt++){try{await target.scrollIntoViewIfNeeded({timeout:5000});break;}catch(e){if(attempt>=4)throw e;await page.waitForTimeout(400);}}
   await page.waitForTimeout(150);
   const listSnapshot=()=>page.evaluate(()=>({view:curView,tab:lastTab,date:afState.selectedDate,archiveDate:afState.archiveDate,filter:afState.filter,scoreFilter:afState.scoreFilter,scroll:scrollY,rows:[...$('fixtureList').querySelectorAll('.fxrow')].map(e=>e.textContent),accordions:[...$('view-predict').querySelectorAll('.acc')].map(e=>[e.id,e.className])}));
   const before=await listSnapshot();await target.click();await page.waitForFunction(()=>curView==='detail');
