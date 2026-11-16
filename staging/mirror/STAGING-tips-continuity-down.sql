@@ -2,6 +2,9 @@
 -- Unset MM_MIRROR_PREVIOUS_ISSUE BEFORE running this, or the next refresh will be refused.
 -- Published editions are immutable and are not touched.
 begin;
+-- The administrative role is a member of the owner with INHERIT false, so it must switch to the
+-- owner to replace the function, as STAGING-analysis-up.sql does. SET LOCAL ends at commit.
+set local role mm_preview_mirror_owner;
 do $$
 declare
  fn oid=to_regprocedure('mm_preview_mirror.publish(jsonb)');

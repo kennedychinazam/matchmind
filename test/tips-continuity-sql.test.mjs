@@ -24,6 +24,10 @@ const db='mm-tips-continuity-'+process.pid;
 const docker=(args,input)=>execFileSync('docker',['--host=unix:///var/run/docker.sock',...args],{input,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe']}).trim();
 const sql=(s,role)=>docker(['exec','-i',db,'psql','-X','-qAt','-U','postgres','-v','ON_ERROR_STOP=1'],(role?'set role '+role+';':'')+s);
 const literal=x=>"'"+JSON.stringify(x).replaceAll("'","''")+"'::jsonb";
+/* The hosted administrative role is NOT a superuser. It is a member of the function's owner with
+   INHERIT false and SET true, exactly as INSTALL-staging-only.sql grants it, so it can change the
+   function only by switching to the owner. The change files are run as a role of that shape. */
+const admin=file=>sql('set role stage_admin;'+read(file));
 const TOKEN='local-test-only-'.repeat(3);
 const dayOf=n=>new Date(Date.parse(new Date().toISOString().slice(0,10))+n*86400000).toISOString().slice(0,10);
 const today=dayOf(0),yesterday=dayOf(-1),older=dayOf(-2),stamp=new Date(Date.now()-60000).toISOString();
@@ -51,7 +55,8 @@ test('the staging Tips continuity change edits one guard, keeps every permission
  docker(['run','-d','--name',db,'--network','none','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36']);
  let ready=false;for(let i=0;i<80;i++){try{if(docker(['logs',db]).includes('init process complete')){docker(['exec',db,'pg_isready','-U','postgres']);ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}assert.ok(ready,'postgres ready');
  // The up file refuses a database that is not the isolated preview.
- assert.throws(()=>sql(read('staging/mirror/STAGING-tips-continuity-up.sql')),/Isolated real-data preview required/);
+ // A database without the preview's owner role is refused before anything is read.
+ assert.throws(()=>sql(read('staging/mirror/STAGING-tips-continuity-up.sql')),/role "mm_preview_mirror_owner" does not exist/);
  sql(read('backend/fixture-delivery/synthetic-bootstrap.sql'));
  sql('create schema mm_fixture_delivery;create table mm_fixture_delivery.editions(edition_id uuid primary key,edition_day date,as_of timestamptz,expires_at timestamptz,source_review text,expected_cards int,expected_predictions int,payload jsonb);');
  const baseline=read('backend/fixture-delivery/PROPOSAL-up.sql');
@@ -59,6 +64,8 @@ test('the staging Tips continuity change edits one guard, keeps every permission
  sql(baseline.match(/create function mm_fixture_delivery.prediction_count\([\s\S]*?\$\$;/)[0]);
  sql("set mm.preview_token_sha256='"+'a'.repeat(64)+"';"+read('staging/mirror/INSTALL-staging-only.sql'));
  sql(read('staging/mirror/STAGING-analysis-up.sql'));sql(read('staging/mirror/STAGING-issued-tips-up.sql'));
+ sql('create role stage_admin nosuperuser noinherit;grant mm_preview_mirror_owner to stage_admin with admin false, inherit false, set true;');
+ assert.equal(sql("select rolsuper::text||':'||(select inherit_option::text||set_option::text from pg_auth_members where member='stage_admin'::regrole) from pg_roles where rolname='stage_admin';"),'false:falsetrue');
  sql("set role mm_preview_mirror_owner;update mm_preview_mirror.configuration set token_sha256=sha256(convert_to('"+TOKEN+"','UTF8'));reset role;");
 
  // BEFORE. Today's complete issue is admitted, and the previous day's is refused by the one guard.
@@ -70,7 +77,7 @@ test('the staging Tips continuity change edits one guard, keeps every permission
  assert.equal(JSON.parse(metaBefore).security_definer,true);
 
  // INSTALL.
- sql(read('staging/mirror/STAGING-tips-continuity-up.sql'));
+ admin('staging/mirror/STAGING-tips-continuity-up.sql');
  const defAfter=sql(DEF);
  assert.notEqual(defAfter,defBefore);
  assert.equal(sql(META),metaBefore,'owner, security settings, grants or another function changed');
@@ -109,17 +116,20 @@ test('the staging Tips continuity change edits one guard, keeps every permission
  assert.ok(editionsInstalled.startsWith(editionsBefore+','),'earlier editions must be an unchanged prefix');
 
  // A second install refuses and changes nothing.
- assert.throws(()=>sql(read('staging/mirror/STAGING-tips-continuity-up.sql')),/Expected exactly one current-day slip guard/);
+ assert.throws(()=>admin('staging/mirror/STAGING-tips-continuity-up.sql'),/Expected exactly one current-day slip guard/);
  assert.equal(sql(DEF),defAfter);
 
  // ROLLBACK restores the original text exactly, with the same permissions, and keeps every edition.
- sql(read('staging/mirror/STAGING-tips-continuity-down.sql'));
+ admin('staging/mirror/STAGING-tips-continuity-down.sql');
  assert.equal(sql(DEF),defBefore,'the rollback did not restore the original function text');
  assert.equal(sql(META),metaBefore);
  assert.equal(sql(EDITIONS),editionsInstalled,'an edition changed on rollback');
  assert.deepEqual(JSON.parse(sql("select public.mm_preview_display_v2('slips');",'anon')).slips,[y0],'the published previous-day issue must stay readable and intact');
  assert.throws(()=>publish([y0,t0]),/Only current issued slips admitted/);
  assert.equal(publish([t0]).cards,FIXTURES.length);
- assert.throws(()=>sql(read('staging/mirror/STAGING-tips-continuity-down.sql')),/nothing to roll back/);
+ assert.throws(()=>admin('staging/mirror/STAGING-tips-continuity-down.sql'),/nothing to roll back/);
+ // The session role is restored by each file: nothing is left running as the owner.
+ assert.equal(sql('set role stage_admin;'+read('staging/mirror/STAGING-tips-continuity-up.sql')+'select current_user;'),'stage_admin');
+ admin('staging/mirror/STAGING-tips-continuity-down.sql');assert.equal(sql(DEF),defBefore);
  }finally{try{docker(['rm','-fv',db]);}catch{}}
 });

@@ -12,6 +12,9 @@
 -- AFTER INSTALLING: set MM_MIRROR_PREVIOUS_ISSUE=1 for the refresh step of the preview workflow.
 -- Until then staging/mirror/refresh.mjs keeps reading the current day only and nothing changes.
 begin;
+-- The administrative role is a member of the owner with INHERIT false, so it must switch to the
+-- owner to replace the function, as STAGING-analysis-up.sql does. SET LOCAL ends at commit.
+set local role mm_preview_mirror_owner;
 do $$
 declare
  fn oid=to_regprocedure('mm_preview_mirror.publish(jsonb)');
