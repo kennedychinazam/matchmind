@@ -47,6 +47,10 @@ jobs:
         working-directory: source
         env:
           MM_STAGING_MIRROR_TOKEN: ${{ secrets.MM_STAGING_MIRROR_TOKEN }}
+          # Installed on staging 2026-11-16 (STAGING-tips-continuity-up.sql): the publisher admits the
+          # current and the previous UTC day's issued slips, so the previous issue stays readable
+          # from 00:00 UTC until the day's Tips are issued.
+          MM_MIRROR_PREVIOUS_ISSUE: '1'
         run: node staging/mirror/refresh.mjs
       - name: Read original Build 355 logo mappings for current staging membership
         working-directory: source
