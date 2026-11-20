@@ -122,7 +122,10 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
 export async function publish(request,token,fetcher=fetch){
  if(typeof token!=='string'||token.length<32)throw Error('Protected MM_STAGING_MIRROR_TOKEN binding required');
  const r=await fetcher(new URL('/rest/v1/rpc/mm_preview_publish_v1',TARGET),{method:'POST',redirect:'error',headers:{apikey:TARGET_KEY,'Content-Type':'application/json','x-mm-preview-token':token},body:JSON.stringify({document:request}),signal:AbortSignal.timeout(60000)});
- if(!r.ok)throw Error('Staging-only publication HTTP '+r.status);const result=await r.json();
+ /* The publisher's refusals are fixed strings ('Closed public payload validation failed', 'Refresh snapshot stale', ...).
+    Report which one, bounded and single-line, so a failed refresh says why. The request token is never echoed. */
+ if(!r.ok){let why='';try{const b=await r.json();why=String(b?.message||'').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,160);}catch{}throw Error('Staging-only publication HTTP '+r.status+(why?': '+why:''));}
+ const result=await r.json();
  if(result.cards!==request.cards||result.predictions!==request.predictions||result.payload_sha256!==request.payload_sha256)throw Error('Destination coverage/hash mismatch');
  return result;
 }

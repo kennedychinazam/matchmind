@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {verifyDestination,requestFor} from '../staging/mirror/refresh.mjs';
+import {verifyDestination,requestFor,publish} from '../staging/mirror/refresh.mjs';
 import {projectFixtureAnalysis} from '../staging/mirror/analysis-projection.mjs';
 import {buildPresentationPayload,validatePresentationPayload,PAYLOAD_SCHEMA,legacyPresentationPayload} from '../backend/fixture-delivery/contract.mjs';
 const now=new Date('2026-11-13T10:00:00Z'),stamp='2026-11-13T09:00:00Z';
@@ -31,3 +31,10 @@ test('mirror readback verifies expanded v2 plus permanent closed v1 independentl
 /* 2026-11-19: the real 14-day window passed about 830 fixtures and an edition-wide 512 KiB legacy gate refused every
    refresh. Old clients bound one screen response themselves; the writer keeps the 1 MiB full-edition bound. */
 test('an edition whose stripped projection exceeds 512KiB is admitted within 1MiB, and v1 still strips analysis',()=>{const base=buildPresentationPayload({fixtures:[fixture()]});base.cards=Array.from({length:700},(_,i)=>({...fixture(),fxid:i+1,home:'H'.repeat(160),away:'A'.repeat(160),lname:'L'.repeat(160),lcountry:'C'.repeat(100),prediction:null,analysis:{source:'published-board',source_at:stamp}}));const legacy=legacyPresentationPayload(base),bytes=Buffer.byteLength(JSON.stringify(base));assert.ok(Buffer.byteLength(JSON.stringify(legacy))>524288&&bytes<1048576);assert.doesNotThrow(()=>validatePresentationPayload(base));assert.ok(legacy.cards.every(c=>!Object.hasOwn(c,'analysis')));const over=structuredClone(base);over.cards=Array.from({length:1001},(_,i)=>({...base.cards[0],fxid:i+1}));assert.throws(()=>validatePresentationPayload(over),/byte limit|invalid array/);});
+/* A refused refresh said only "HTTP 400" for two days (2026-11-19/20). The publisher's fixed refusal text is reported,
+   bounded to one line, and the writer token is never echoed. */
+test('a refused publication reports the publisher reason without the token',async()=>{const token='t'.repeat(40);
+ const refuse=body=>async()=>({ok:false,status:400,json:async()=>{if(body===null)throw Error('not json');return body;}});
+ await assert.rejects(publish({cards:1,predictions:0,payload_sha256:'a'},token,refuse({message:'Closed public payload validation failed\nsecond line'})),e=>e.message==='Staging-only publication HTTP 400: Closed public payload validation failed second line'&&!e.message.includes(token));
+ await assert.rejects(publish({cards:1,predictions:0,payload_sha256:'a'},token,refuse(null)),e=>e.message==='Staging-only publication HTTP 400');
+ await assert.rejects(publish({cards:1,predictions:0,payload_sha256:'a'},token,refuse({message:'x'.repeat(500)})),e=>e.message.length<='Staging-only publication HTTP 400: '.length+160);});
