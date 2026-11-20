@@ -18169,7 +18169,9 @@ function renderFavLeagues(){
   const rows=[], smap=scoreMap();
   for(const L of footballLeagues()) for(const f of L.upcoming)
     if((afState.favL.includes(L.id)||afState.favT.some(t=>f.home.includes(t)||f.away.includes(t))) && daysPast(f.date)<=2) rows.push({L,f});
-  rows.sort((a,b)=>(a.f.date+(a.f.time||''))<(b.f.date+(b.f.time||''))?-1:1);
+  /* Ties MUST return 0 (see renderFavMatches): `ka<kb?-1:1` is an inconsistent comparator, so same-
+     kick-off rows - and, through slice(0,40), WHICH rows are shown - differed between browsers. */
+  rows.sort((a,b)=>{ const ka=a.f.date+(a.f.time||''), kb=b.f.date+(b.f.time||''); return ka<kb?-1:ka>kb?1:0; });
   const feed=$('favLeagueFeed'), refs=[];
   if(!rows.length){ feed.innerHTML='<div class="subnote">Matches involving your favourite competitions and teams will appear here.</div>'; return; }
   let html='', cur=null;
