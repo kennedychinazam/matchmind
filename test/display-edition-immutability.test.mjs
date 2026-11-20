@@ -94,7 +94,7 @@ test('a published pick, its probability and its grade survive a reload and a UTC
  assert.match(first.rows.Graded.chip,/class="predchip hit"/);
  assert.equal(first.rows.Ahead.text,'X · 34%','the upcoming pick carries its probability');
  assert.match(first.rows.Silent.chip,/statuschip/,'a fixture with no published pick gets a status, not a pick');
- assert.equal(first.rows.Silent.text,'No record');
+ assert.equal(first.rows.Silent.text,'No published prediction');
  assert.doesNotMatch(first.rows.Silent.text,/No pick/i,'and is never described as "No pick"');
  assert.equal(first.until,Date.parse('2026-11-09T23:17:00.000Z'));
 
@@ -121,7 +121,7 @@ test('a published pick, its probability and its grade survive a reload and a UTC
 
  /* No fixture acquired a pick it was not issued, at any of those clocks. */
  for(const s of [first,reload,after,later]){
-  assert.equal(s.rows.Silent.text,'No record');
+  assert.equal(s.rows.Silent.text,'No published prediction');
   assert.doesNotMatch(s.rows.Silent.chip,/·/,'no probability may appear on an unissued fixture');
   assert.doesNotMatch(s.rows.Silent.chip,/[✓✗]/,'no grade may appear on an unissued fixture');
  }
@@ -141,7 +141,8 @@ test('the stored pick, probability and grade inputs are themselves untouched by 
  await setFakeNow(page,'2026-11-09T05:00:00.000Z');
  const after=await read();
  assert.deepEqual(after,before,'nothing the edition published is re-derived by the clock');
- assert.deepEqual(before.by[701],{pick:'1',prob:.6,vector:[.6,.25,.15],date:'2026-11-08',time:'23:59',market:'Winner',gated:null});
+ assert.deepEqual(before.by[701],{pick:'1',prob:.6,vector:[.6,.25,.15],date:'2026-11-08',time:'18:00',market:'Winner',gated:null});
+ assert.equal(before.archive[701].ktime,'23:59','original prediction time remains archived independently of current 18:00 fixture time');
  assert.deepEqual(before.by[703].pick,null);
  assert.equal(before.status[703],'norow');
  assert.equal(after.status[703],'norow','an unissued fixture stays unissued, and never reads "nopick" by expiry');

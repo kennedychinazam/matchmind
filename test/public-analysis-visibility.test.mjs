@@ -124,5 +124,5 @@ test('opening a published fixture shows its original pick and stored probabiliti
   assert.match(seen.pick,/Alpha FC/);
   assert.match(seen.conf,/60\.0%/);
   for(const p of ['60.0%','25.0%','15.0%']) assert.ok(seen.bars.includes(p),'missing stored bar '+p);
-  assert.match(seen.bars,/not a device re-estimate/i);
+  assert.match(seen.bars,/Original published 1X2 probabilities/i);
 });

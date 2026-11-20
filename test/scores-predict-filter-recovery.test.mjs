@@ -22,6 +22,8 @@ for(const viewport of [{width:390,height:844},{width:1280,height:900}]){
   const context=await browser.newContext({serviceWorkers:'block',viewport,hasTouch:true});
   const requests=[],errors=[];
   await context.route('**/*',r=>{if(r.request().url()==='http://filter-recovery.test/')return r.fulfill({status:200,contentType:'text/html',body:html});requests.push(r.request().url());return r.abort();});
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://filter-recovery.test/',{waitUntil:'domcontentloaded'});
   await page.evaluate(()=>{

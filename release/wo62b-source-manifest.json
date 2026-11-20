@@ -1,0 +1,33 @@
+{
+  "version": "wo62b-selective-integration/1",
+  "public_base_commit": "7420905be001749246bd5eebd61a2f255ab5b32a",
+  "private_feature_source_commit": "314b14d90690a7a021e9b8b69bc6596767dfefb4",
+  "director_order_commit": "8ff923c5c5c9c0f82bd40c2fb028ecd3119779b1",
+  "public_index_sha256": "8e4c9605e5c11186d98b2412dc74ee35a02c6c44382cf53890cffbbdbd1e2da1",
+  "private_builder_sha256": "ebd3a3de1832ce9acfffde1d8bb1f016ee442531c769315dbc9c47c300f098f9",
+  "unchanged_worker_sha256": "f3d69081ea3d2c6a410d338143d4afd70cd704cf39d724cda789c9f8d59117e8",
+  "scope": [
+    "approved name and statistical title",
+    "first-run introduction",
+    "approved distinct nonconflicting second-card policy",
+    "public personal-provider boundary"
+  ],
+  "deferred": [
+    "full private/public function parity",
+    "private builder parity with accepted public security corrections"
+  ],
+  "engine_regions": [
+    {
+      "name": "football engine",
+      "start": "const footballEngine = {",
+      "end": "const basketballEngine = {",
+      "sha256": "994b4145c3c619568e46e36277d9ac4947a976476e8ba5f9744a78ee2906739e"
+    },
+    {
+      "name": "basketball engine and existing payload scaffolding",
+      "start": "const basketballEngine = {",
+      "end": "const AI_PROMPT = `",
+      "sha256": "7a68c808e0fb84d461610c2aa8ab66185748108af9c691dffd3e0666fdc146c3"
+    }
+  ]
+}
