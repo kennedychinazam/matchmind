@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 jobs:
+  hosted-cross-browser:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/hosted-cross-browser.yml
   focused:
     runs-on: ubuntu-latest
     timeout-minutes: 15

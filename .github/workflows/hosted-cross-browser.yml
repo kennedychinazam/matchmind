@@ -1,5 +1,9 @@
 name: hosted-cross-browser
-on: workflow_dispatch
+# Dispatchable on its own once on the default branch; until then it is reached through
+# director-analysis-acceptance.yml (a workflow file must exist on the default branch to be dispatched).
+on:
+  workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
