@@ -31,7 +31,7 @@ for(const [mode,html] of [['source',source],['real-preview',generated]]){
   const r=await run(await open(t,html),{issued:true,xg:true});
   assert.equal(r.refit,0);assert.ok(r.unchanged);assert.match(r.bars,/60.0%/);
   assert.ok(r.combo.includes('1&Over2.5'+r.hO25));assert.match(r.combo,/Notanissuedpick/);
-  for(const s of r.cs)assert.ok(r.score.includes(s),s+" in "+r.score);assert.match(r.score,/sharesouttheissuedpick,unchanged/);
+  for(const s of r.cs)assert.ok(r.score.includes(s),s+" in "+r.score);assert.match(r.score,/^If.+lands/);assert.match(r.score,/Notanissuedpick/);
  });
  test(`${mode}: no pick - grid uses board xG and lists likeliest scores`,async t=>{
   const r=await run(await open(t,html),{issued:false,xg:true});
@@ -63,11 +63,11 @@ for(const [mode,html] of [['source',source],['real-preview',generated]]){
  test(`${mode}: goals markets equal 355's damped engine path from the published counts`,async t=>{
   const r=await runComp(await open(t,html),{counts:60,lid:39});
   assert.ok(r.differs,'competition damping changes the line, so the test can tell');for(const e of r.exp)assert.ok(r.goals.includes(e),e+' in '+r.goals);
-  assert.match(r.goals,/over60results/);assert.match(r.goals,/Notanissuedpick/);
+  assert.match(r.goals,/adjustedto60competitionresults/);assert.match(r.goals,/Notanissuedpick/);
  });
  test(`${mode}: under 30 results goals are 355's undamped line, and the table keeps 355's caveats`,async t=>{
   const r=await runComp(await open(t,html),{counts:20,lid:39});
-  for(const e of r.rawExp)assert.ok(r.goals.includes(e),e+' in '+r.goals);assert.match(r.goals,/fewerthan30results/);
+  for(const e of r.rawExp)assert.ok(r.goals.includes(e),e+' in '+r.goals);assert.match(r.goals,/notadjusted\(under30competitionresults\)/);
   assert.match(r.table,/pointdeductionsarenotshown/);assert.match(r.table,/Earlydays—3matchesplayed/);assert.match(r.table,/1Leganes2\+46/);assert.match(r.table,/3Burgos2-40/);
   assert.deepEqual(r.selected,['Leganes','Burgos']);
  });

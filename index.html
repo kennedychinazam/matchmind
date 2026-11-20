@@ -3301,7 +3301,7 @@ function publishedGrid(xh,xa,L=null,comp=null){
 function publishedGoals(M){
  if(!M||!M.ratesKnown)return '';
  return probRow('Over 1.5',M.over[1.5])+probRow('Over 2.5',M.over[2.5])+probRow('Over 3.5',M.over[3.5])+probRow('BTTS',M.btts,true)
-  +'<div class="subnote published-note">Model information from the published expected goals'+(M.ratesN>=30?', pulled toward this competition\u2019s own rate over '+M.ratesN+' results':'; fewer than 30 results in this competition, so no base-rate adjustment')+'. Not an issued pick.</div>';
+  +'<div class="subnote published-note">Model information'+(M.ratesN>=30?', adjusted to '+M.ratesN+' competition results':', not adjusted (under 30 competition results)')+'. Not an issued pick.</div>';
 }
 /* 355 renderStandings, on the rows the runner derived with 355's tableAt/seasonRoster/latestSeasonOf. */
 function publishedStandings(table,home,away){
@@ -3320,7 +3320,7 @@ function publishedCombos(M,home,away){
   ['X2 & Over 1.5',C.adO15,'Draw or '+A+' and 2+ goals'],['BTTS & Over 2.5',C.btO25,'Both score and 3+ goals']].filter(r=>validProbability(r[1])).sort((x,y)=>y[1]-x[1]);
  if(!list.length)return '';
  return list.map(([l,p,why])=>probRow(l,p,true)+'<div class="subnote" style="margin:-4px 0 9px">'+why+'.</div>').join('')
-  +'<div class="subnote published-note">Model information from the published expected goals, summed off one score grid. Not an issued pick.</div>';
+  +'<div class="subnote published-note">Model information. Not an issued pick.</div>';
 }
 function publishedScores(M,pick,home,away){
  if(!M)return '';const code=pick==='1D'?'1':pick==='2D'?'2':pick;
@@ -3328,9 +3328,9 @@ function publishedScores(M,pick,home,away){
  const list=(issued||M.topScores||[]).filter(s=>validProbability(issued?s.given:s.p));
  if(!list.length)return '';
  const nm=issued?escapeHtml(pickPhrase(code,home,away)):'';
- return (issued?'<div class="sec-label" style="margin-top:0">If '+nm+' lands \u2014 how it most likely finishes</div>':'<div class="sec-label" style="margin-top:0">Likeliest final scores</div>')
+ return (issued?'<div class="sec-label" style="margin-top:0">If '+nm+' lands</div>':'<div class="sec-label" style="margin-top:0">Likeliest final scores</div>')
   +list.map(s=>probRow(s.score,issued?s.given:s.p,true)).join('')
-  +'<div class="subnote published-note">Model information from the published expected goals'+(issued?'; shares out the issued pick, unchanged.':'.')+' The least reliable line on this page. Not an issued pick.</div>';
+  +'<div class="subnote published-note">Model information, the least reliable line here. Not an issued pick.</div>';
 }
 function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
