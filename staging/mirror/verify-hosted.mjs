@@ -203,7 +203,14 @@ try{
      const range=document.createRange();range.selectNodeContents(e);
      const lines=new Set([...range.getClientRects()].filter(r=>r.width>0&&r.height>0).map(r=>Math.round(r.top)));
      if(lines.size>2)tooLong.push({id:e.id,text:e.textContent.trim(),lines:lines.size});
-     if(e.scrollWidth>e.clientWidth+2||e.scrollHeight>e.clientHeight+2)clipped.push({id:e.id,text:e.textContent.trim(),tag:e.tagName,cls:e.className,display:getComputedStyle(e).display,overflow:getComputedStyle(e).overflow,font:getComputedStyle(e).fontFamily+' '+getComputedStyle(e).fontSize+'/'+getComputedStyle(e).lineHeight,sw:e.scrollWidth,cw:e.clientWidth,sh:e.scrollHeight,ch:e.clientHeight});
+     /* clientWidth/clientHeight are 0 for display:inline boxes in every engine, while Firefox
+        reports their content size as scrollWidth/scrollHeight (Chromium and WebKit report 0). An
+        inline box cannot clip its own text, so it is judged by its nearest ancestor that clips:
+        every line fragment must lie inside that ancestor's padding box. */
+     const inline=getComputedStyle(e).display==='inline';let clipper=null;
+     if(inline){for(let a=e.parentElement;a&&a!==document.body;a=a.parentElement){if(getComputedStyle(a).overflow!=='visible'){clipper=a;break;}}}
+     const outside=clipper&&[...e.getClientRects()].some(r=>{const c=clipper.getBoundingClientRect(),l=c.left+clipper.clientLeft,t=c.top+clipper.clientTop;return r.left<l-2||r.top<t-2||r.right>l+clipper.clientWidth+2||r.bottom>t+clipper.clientHeight+2;});
+     if(inline?outside:(e.scrollWidth>e.clientWidth+2||e.scrollHeight>e.clientHeight+2))clipped.push({id:e.id,text:e.textContent.trim(),tag:e.tagName,cls:e.className,display:getComputedStyle(e).display,overflow:getComputedStyle(e).overflow,font:getComputedStyle(e).fontFamily+' '+getComputedStyle(e).fontSize+'/'+getComputedStyle(e).lineHeight,sw:e.scrollWidth,cw:e.clientWidth,sh:e.scrollHeight,ch:e.clientHeight});
     }
     return{panels,order,tooLong,clipped,pick:$('heroPick').textContent,original:$('heroPick').closest('.hero').dataset.originalProbability,bars:$('outcomeRows').textContent,xg:$('xgInfo').textContent,overflow:document.documentElement.scrollWidth>innerWidth+1,body:$('results').textContent,forms:$('formBox').textContent,h2h:$('h2hBox').textContent};
    },{id:card.fxid});
