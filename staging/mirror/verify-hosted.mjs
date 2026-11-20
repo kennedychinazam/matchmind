@@ -1,7 +1,10 @@
 // Read-only hosted acceptance; fixed staging RPCs and the separate preview URL. No production access.
 import {createRequire} from 'node:module';
 import {writeFileSync} from 'node:fs';
-const require=createRequire(import.meta.url),{chromium}=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
+const require=createRequire(import.meta.url),pw=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
+/* MM_BROWSER selects the engine (chromium default, unchanged). Firefox and WebKit use the
+   Playwright-installed build; --no-sandbox and MM_TEST_CHROMIUM are Chromium-only. */
+const BROWSER=process.env.MM_BROWSER||'chromium';if(!['chromium','firefox','webkit'].includes(BROWSER))throw Error('MM_BROWSER must be chromium, firefox or webkit');
 const URL_BASE='https://kennedychinazam.github.io/matchmind-preview/';
 const STAGE='https://rdcbnvfnxenrpnnwxszs.supabase.co',KEY='sb_publishable_WKB88h4KAPtLVphsfNF9fg_W90ym80y';
 const expected=process.env.MM_EXPECTED_COMMIT;
@@ -22,7 +25,8 @@ check(logos.fixtures.length===union.size&&logos.fixtures.every(f=>{const c=union
 check(history.cards.filter(c=>c.prediction).length===status.predictions,'linked published prediction count preserved');
 check(![...union.values()].some(c=>/^(QA\b|Synthetic\b)/i.test(c.home+' ')||/^(QA\b|Synthetic\b)/i.test(c.away+' ')),'no fictional QA fixtures in real mirror');
 check(scores.cards.some(c=>['NS','TBD'].includes(c.status)&&Date.parse(c.date+'T'+c.time+':00Z')>Date.now()),'real upcoming football fixtures present');
-const browser=await chromium.launch({executablePath:process.env.MM_TEST_CHROMIUM,args:['--no-sandbox']});
+console.log('BROWSER '+BROWSER);
+const browser=await pw[BROWSER].launch(BROWSER==='chromium'?{executablePath:process.env.MM_TEST_CHROMIUM,args:['--no-sandbox']}:{});
 try{
  for(const width of [320,390]){
   const context=await browser.newContext({viewport:{width,height:844},timezoneId:'Africa/Lagos',serviceWorkers:'block'});
