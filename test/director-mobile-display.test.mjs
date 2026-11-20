@@ -98,7 +98,7 @@ for(const width of [320,390])test('published Analysis is concise, aligned and un
   return{text:el.textContent,table:$('standingsBox').textContent,align:style.textAlign,hyphens:style.hyphens,bars:$('outcomeRows').textContent,
    preserved:before===JSON.stringify({f,archive:afState.archive}),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
- assert.ok(r.text.length<100);assert.match(r.table,/League table not published/);assert.match(r.text,/AI write-up not published/);
+ assert.ok(r.text.length<100);assert.match(r.table,/League table unavailable for this competition/);assert.match(r.text,/AI write-up not published/);
  assert.equal(r.align,'left');assert.equal(r.hyphens,'none');assert.match(r.bars,/64\.0%/);assert.equal(r.preserved,true);assert.equal(r.overflow,false);
  await p.evaluate(()=>{document.documentElement.dir='rtl';});
  assert.equal(await p.locator('#analysisText').evaluate(el=>getComputedStyle(el).textAlign),'right');

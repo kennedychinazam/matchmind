@@ -1,6 +1,6 @@
 // Production transport is GET-only, anonymous and fixed-host; only mapped public fields leave the runner.
 import {createHash} from 'node:crypto';
-import {projectFixtureAnalysis,HISTORY_COLUMNS,HISTORY_DAYS} from './analysis-projection.mjs';
+import {projectFixtureAnalysis,HISTORY_COLUMNS,HISTORY_DAYS,COMPETITION_COLUMNS,COMPETITION_AHEAD_DAYS,competitionFrom,projectCompetition} from './analysis-projection.mjs';
 import {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {CARD_SCHEMA,PAYLOAD_SCHEMA,validatePresentationPayload,legacyPresentationPayload} from '../../backend/fixture-delivery/contract.mjs';
@@ -21,7 +21,7 @@ const fixtureCols=Object.keys(CARD_SCHEMA.properties).filter(x=>!['prediction','
 const predictionCols=['fxid',...Object.keys(CARD_SCHEMA.properties.prediction.properties)].join(',');
 const columnsByTable={fixtures:fixtureCols,predictions:predictionCols,shared_records:'key,payload,build,computed_at',daily_slips:'day,tier,odds,build,step,legs'};
 export async function readPages(table,columns,filters,order,fetcher=fetch){
- if(!Object.hasOwn(columnsByTable,table)||!columns||columns.split(',').some(c=>!(table==='fixtures'?new Set((fixtureCols+','+HISTORY_COLUMNS).split(',')):new Set(columnsByTable[table].split(','))).has(c)))throw Error('Unapproved source reader');
+ if(!Object.hasOwn(columnsByTable,table)||!columns||columns.split(',').some(c=>!(table==='fixtures'?new Set((fixtureCols+','+HISTORY_COLUMNS+','+COMPETITION_COLUMNS).split(',')):new Set(columnsByTable[table].split(','))).has(c)))throw Error('Unapproved source reader');
  const rows=[];let total=null;
  for(let offset=0;offset<=1000;offset+=200){
   const u=new URL('/rest/v1/'+table,SOURCE);u.searchParams.set('select',columns);u.searchParams.set('order',order);u.searchParams.set('limit','200');u.searchParams.set('offset',String(offset));
@@ -75,12 +75,32 @@ export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previo
   const teams=[...new Set(group.flatMap(f=>[f.home,f.away]))].map(quoted).join(',');
   try{histories.set(lid,await readPages('fixtures',HISTORY_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['or','(home.in.('+teams+'),away.in.('+teams+'))'],['date','gte.'+from],['date','lt.'+last],['status','in.(FT,FINISHED,AET,PEN)']],'fxid.asc',fetcher));}catch(e){analysis_warnings.push({lid,state:'history-unavailable',reason:e.message});}
  }
+ /* Per-competition facts for Build 355 parity (goal-market base rates and the league table). GET-only,
+    explicit columns, AF-only, one competition at a time. The finished window (analysis-projection.mjs
+    COMPETITION_MONTHS) is read in half-year slices so every slice stays inside readPages' 1000-row
+    bound; a slice over the bound, or any failure, omits that competition's entry with a warning rather
+    than publishing a partial count. Upper bound: 100 competitions x (10 slices + 1 upcoming read) x
+    5 pages x 2 capture passes = 11,000 GETs; ordinary request/egress accounting applies, no provider call. */
+ const competitions=[];
+ const from=competitionFrom(w.day),ahead=new Date(Date.parse(w.day)+COMPETITION_AHEAD_DAYS*86400000).toISOString().slice(0,10);
+ const slices=[];for(let a=from;a<=w.day;){const d=new Date(a+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+6);const b=d.toISOString().slice(0,10);slices.push([a,b>w.day?null:b]);a=b;}
+ if(slices.length>11)throw Error('Competition slice inventory exceeds reviewed bound');
+ for(const lid of lids){
+  try{
+   const rows=[];
+   for(const[a,b]of slices)rows.push(...await readPages('fixtures',COMPETITION_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['status','in.(FT,FINISHED,AET,PEN)'],['date','gte.'+a],b?['date','lt.'+b]:['date','lte.'+w.day]],'fxid.asc',fetcher));
+   const upcoming=await readPages('fixtures','lid,season,status,date,home,away',[['provider','eq.af'],['lid','eq.'+lid],['status','eq.NS'],['date','gte.'+w.day],['date','lte.'+ahead]],'fxid.asc',fetcher);
+   if(new Set(rows.map(r=>r.fxid)).size!==rows.length)throw Error('Duplicate competition history row');
+   competitions.push(projectCompetition(lid,{rows,upcoming,captureDay:w.day}));
+  }catch(e){analysis_warnings.push({lid,state:'competition-unavailable',reason:e.message});}
+ }
  // Raw arbitrary-prompt AI cache is deliberately neither read nor published.
 
  const payload={cards:fixtures.map(f=>({...project(f,CARD_SCHEMA),prediction:preds.has(f.fxid)?project(preds.get(f.fxid),CARD_SCHEMA.properties.prediction):null})),
   board:board===null?null:project(board,PAYLOAD_SCHEMA.properties.board),
   records:{engine:byKey.engine?project(byKey.engine,PAYLOAD_SCHEMA.properties.records.properties.engine):null,clv:byKey.clv?project(byKey.clv,PAYLOAD_SCHEMA.properties.records.properties.clv):null},
   slips:slips.map(s=>project(s,PAYLOAD_SCHEMA.properties.slips.items))};
+ if(competitions.length)payload.competitions=competitions.map(c=>project(c,PAYLOAD_SCHEMA.properties.competitions.items));
  for(const c of payload.cards){const analysis=projectFixtureAnalysis(c,{board,history:histories.get(c.lid),now});if(analysis)c.analysis=analysis;}
  validatePresentationPayload(payload);
  const stamps=fixtures.map(f=>f.updated_at).filter(x=>x&&Number.isFinite(Date.parse(x))).sort((a,b)=>Date.parse(a)-Date.parse(b));
@@ -104,7 +124,7 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
  };
  const status=await rpc('mm_preview_status_v1',{});
  if(status?.edition_id!==receipt.edition_id||status.payload_sha256!==request.payload_sha256||status.cards!==request.cards||status.predictions!==request.predictions)throw Error('Staging edition readback mismatch');
- const screens=await Promise.all(['scores','predictions','history','records','slips'].map(screen=>rpc('mm_preview_display_v2',{screen})));
+ const screens=await Promise.all(['scores','predictions','history','records','slips'].map(screen=>rpc('mm_preview_display_v3',{screen})));
  if(screens.some(s=>s.edition_id!==receipt.edition_id))throw Error('Staging edition changed during readback');
  const original=JSON.parse(request.payload_text),seen=new Map();
  for(const s of screens)for(const c of s.cards){
@@ -116,6 +136,9 @@ export async function verifyDestination(request,receipt,fetcher=fetch){
  if(legacy.edition_id!==receipt.edition_id)throw Error('Legacy staging edition changed during readback');
  for(const c of legacy.cards){const source=original.cards.find(s=>s.fxid===c.fxid);if(!source)throw Error('Legacy fixture identity mismatch');const {analysis,...old}=source;if(canonical(c)!==canonical({...old,prediction:null}))throw Error('Legacy closed fixture shape changed');}
  const legacySlips=await rpc('mm_preview_display_v1',{screen:'slips'});if(legacySlips.edition_id!==receipt.edition_id||canonical(legacySlips.slips)!==canonical(legacyPresentationPayload(original).slips))throw Error('Legacy whole issued bundle projection mismatch');
+ for(const s of screens)if(['scores','predictions','history'].includes(s.screen)?canonical(s.competitions??null)!==canonical(original.competitions??null):Object.hasOwn(s,'competitions'))throw Error('Staging competition projection mismatch');
+ if(Object.hasOwn(legacy,'competitions'))throw Error('Legacy screen must not carry competitions');
+ const v2=await rpc('mm_preview_display_v2',{screen:'scores'});{const {competitions,...rest}=screens[0];if(canonical(v2)!==canonical(rest))throw Error('v2 screen must equal v3 without competitions');}
  if(seen.size!==original.cards.length||canonical(screens[1].board)!==canonical(original.board)||canonical(screens[3].records)!==canonical(original.records)||canonical(screens[4].slips)!==canonical(original.slips))throw Error('Staging complete projection readback mismatch');
  return{verified_cards:seen.size,verified_predictions:original.cards.filter(c=>c.prediction).length};
 }

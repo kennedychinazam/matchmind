@@ -20,7 +20,7 @@ async function open(t,width=390){
  await context.route('**/*',r=>{const u=new URL(r.request().url());
   if(u.origin==='http://navigation.test')return r.fulfill({contentType:'text/html',body:u.pathname==='/outside'?'<title>Outside MatchMind</title><p>Previous website</p>':html});
   if(u.pathname.endsWith('mm_preview_status_v1'))return r.fulfill({json:{mode:'real-read-only',edition_id:'11111111-2222-4333-8444-555555555555',published_at:stamp,expires_at:expires,source_updated_at:stamp}});
-  if(u.pathname.endsWith('mm_preview_display_v2')){const {screen}=r.request().postDataJSON();return r.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?cards.map(c=>screen==='scores'?{...c,prediction:null}:c):[],board:null,records:{engine:null,clv:null},slips:[]}});}
+  if(u.pathname.endsWith('mm_preview_display_v3')){const {screen}=r.request().postDataJSON();return r.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?cards.map(c=>screen==='scores'?{...c,prediction:null}:c):[],board:null,records:{engine:null,clv:null},slips:[]}});}
   return r.abort();
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));

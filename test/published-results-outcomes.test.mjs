@@ -29,7 +29,7 @@ async function open(t,width,options={}){
   if(r.request().method()==='OPTIONS')return r.fulfill({status:204,headers:CORS});
   if(u===ORIGIN)return r.fulfill({contentType:'text/html',body:html});
   if(u.endsWith('/rpc/mm_preview_status_v1'))return r.fulfill({headers:CORS,contentType:'application/json',body:JSON.stringify({mode:'real-read-only',expires_at:'2026-11-16T17:01:25Z',published_at:'2026-11-15T17:01:25Z'})});
-  if(u.endsWith('/rpc/mm_preview_display_v2'))return r.fulfill({headers:CORS,contentType:'application/json',body:JSON.stringify(envelope(JSON.parse(r.request().postData()).screen,options))});
+  if(u.endsWith('/rpc/mm_preview_display_v3'))return r.fulfill({headers:CORS,contentType:'application/json',body:JSON.stringify(envelope(JSON.parse(r.request().postData()).screen,options))});
   // The preview only tests that the client library object exists. Its own read-only client is used.
   if(u.startsWith('https://cdn.jsdelivr.net/npm/@supabase'))return r.fulfill({contentType:'text/javascript',body:'window.supabase={createClient(){return null}}'});
   return r.abort();});

@@ -110,7 +110,7 @@ async function open(t,width){
   if(u.origin==='http://preview.test')return route.fulfill({status:200,contentType:'text/html',body:html});
   if(u.hostname==='media.api-sports.io')return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jM0cAAAAASUVORK5CYII=','base64')});
   if(u.pathname==='/rest/v1/rpc/mm_preview_status_v1')return route.fulfill({json:{mode:'real-read-only',edition_id:'11111111-2222-4333-8444-555555555555',published_at:stamp,expires_at:expires,source_updated_at:stamp}});
-  if(u.pathname==='/rest/v1/rpc/mm_preview_display_v2'){
+  if(u.pathname==='/rest/v1/rpc/mm_preview_display_v3'){
    const screen=r.postDataJSON().screen;return route.fulfill({json:{version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:stamp,expires_at:expires,screen,cards:screen==='scores'?[{...f,prediction:null},{...f,fxid:990889,home:'Cedar City',updated_at:new Date(Date.now()-72*3600000).toISOString(),prediction:null}]:['predictions','history'].includes(screen)?[f]:[],board:null,records:{engine:null,clv:null},slips:[]}});
   }
   return route.abort();

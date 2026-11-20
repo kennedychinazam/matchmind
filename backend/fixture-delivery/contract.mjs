@@ -13,11 +13,15 @@ const prediction=object({lid:id,lname:text,home:text,away:text,pick:nullableText
 const analysisProbability=object({label:str(80),prob:num(0,1)});
 const historyMatch=object({date,home:text,away:text,gh:num(0,100,false,true),ga:num(0,100,false,true)});
 // Optional, closed published analysis; independent of the immutable prediction object.
+const standings=object({season:num(1900,2200,false,true),rows:array(object({rank:num(1,100,false,true),team:text,played:count,won:count,drawn:count,lost:count,gf:count,ga:count,points:num(-100,1000,false,true)}),64)});
+/* Optional per-competition facts (Build 355 parity): the counts rates() needs over the reviewed window, and the
+   league table 355's renderStandings derives. One entry per competition, never per card. */
+const competition=object({lid:id,source:str(80),source_at:stamp,from:date,to:date,rates:object({n:count,btts:count,o15:count,o25:count,o35:count}),standings},['lid','source','from','to']);
 export const ANALYSIS_SCHEMA=object({source:str(80),source_at:stamp,history_source_at:stamp,xg_home:num(0,100),xg_away:num(0,100),
  result:object({p_home:num(0,1),p_draw:num(0,1),p_away:num(0,1)}),
  goals:array(analysisProbability,8),combos:array(analysisProbability,12),htft:array(analysisProbability,9),correct_scores:array(analysisProbability,12),scorers:array(analysisProbability,16),
  form:object({home:array(str(1,false,'^[WDL]$'),5),away:array(str(1,false,'^[WDL]$'),5)}),h2h:array(historyMatch,5),
- standings:object({season:num(1900,2200,false,true),rows:array(object({rank:num(1,100,false,true),team:text,played:count,won:count,drawn:count,lost:count,gf:count,ga:count,points:num(-100,1000,false,true)}),64)}),
+ standings,
  writeup:object({text:str(32768),source:str(80),source_at:stamp})},['source','source_at']);
 export const CARD_SCHEMA=object({fxid:id,lid:id,lname:text,lcountry:str(100),date,time:str(12,true),status:str(24),elapsed:num(0,200,true,true),home:text,away:text,gh:score,ga:score,ft_h:score,ft_a:score,ht_h:score,ht_a:score,updated_at:stamp,provider:str(80,true),prediction});
 CARD_SCHEMA.properties.analysis=ANALYSIS_SCHEMA;
@@ -33,7 +37,7 @@ const record=payload=>object({key:str(8),payload,build:num(0,1e6,false,true),com
 const legProperties={fxid:id,d:date,t:str(12,true),h:text,a:text,lid:{...id,nullable:true},code:str(40),market:str(60),p:probability,o:num(1,1e6,true),tab:str(30),rank:count,sel:str(240)};
 const leg=object(legProperties,['fxid','d','h','a','code','p']);
 const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,90)});
-export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1000),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128)});
+export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1000),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128),competitions:array(competition,100)},['cards','board','records','slips']);
 // RFC3339 subset shared with PostgreSQL: explicit zone, calendar-valid, no leap seconds;
 // offset displacement is limited to PostgreSQL's supported +/-15:59. Never rewrite the input.
 export function isPresentationTimestamp(value){
@@ -56,7 +60,7 @@ function walk(value,s,path,depth){
 }
 function vector(v){if(v.every(x=>x===null))return;if(v.some(x=>x===null)||Math.abs(v.reduce((a,b)=>a+b,0)-1)>0.0002)throw Error('Invalid published probability vector');}
 export function legacyPresentationPayload(value){
- return {...value,cards:value.cards.map(({analysis,...c})=>c),slips:value.slips.filter(s=>s.legs.length<=40)};
+ const {competitions,...rest}=value;return {...rest,cards:value.cards.map(({analysis,...c})=>c),slips:value.slips.filter(s=>s.legs.length<=40)};
 }
 export function validateIssuedSlip(s){
  if(s.tier!=='tips'){if(s.legs.length>40)throw Error('Issued slip exceeds40leg bound');return;}
@@ -79,6 +83,7 @@ export function validatePresentationPayload(value){
     the fixture record carries the current schedule and every consumer keys the board by `f`, so a
     moved kickoff is a truthful provider change and not corruption. The analysis projector separately
     declines a board result whose row no longer matches the kickoff it was built for. */
+ if(value.competitions){const seen=new Set();for(const c of value.competitions){if(seen.has(c.lid))throw Error('Duplicate published competition');seen.add(c.lid);if(!value.cards.some(x=>x.lid===c.lid))throw Error('Published competition missing display fixture');if(c.rates&&['btts','o15','o25','o35'].some(k=>c.rates[k]>c.rates.n)||c.rates&&(c.rates.o25>c.rates.o15||c.rates.o35>c.rates.o25))throw Error('Inconsistent competition rates');if(c.from>c.to)throw Error('Invalid competition window');}}
  for(const slip of value.slips)validateIssuedSlip(slip);
  for(const slip of value.slips)for(const leg of slip.legs)if(!ids.has(leg.fxid))throw Error('Unaccounted issued slip fixture inventory');
  if(value.records.engine&&value.records.engine.key!=='engine'||value.records.clv&&value.records.clv.key!=='clv')throw Error('Record identity mismatch');
