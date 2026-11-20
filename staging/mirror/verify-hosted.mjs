@@ -60,7 +60,7 @@ try{
   check(!/forecast retained|retained for history|not a device re-estimate/i.test(state.detail.note),width+'px no intrusive forecast-retention explanations');
   check(/REAL DATA.*READ-ONLY/.test(state.bar),width+'px real-data indicator verified');
   check(!requests.some(r=>r.url.includes('toqfdrcjzwnlydqekude')||r.url.includes('/auth/')||r.url.includes('/functions/')),width+'px no production/auth/Edge requests');
-  check(requests.filter(r=>r.url.includes('.supabase.co')).every(r=>r.method==='POST'&&/^https:\/\/rdcbnvfnxenrpnnwxszs\.supabase\.co\/rest\/v1\/rpc\/mm_preview_(?:display_v2|status_v1)$/.test(r.url)),width+'px network limited to staging read RPCs');
+  check(requests.filter(r=>r.url.includes('.supabase.co')).every(r=>r.method==='POST'&&(r.url==='https://rdcbnvfnxenrpnnwxszs.supabase.co/rest/v1/rpc/'+DISPLAY||r.url==='https://rdcbnvfnxenrpnnwxszs.supabase.co/rest/v1/rpc/mm_preview_status_v1')),width+'px network limited to staging read RPCs');
   check(errors.length===0,width+'px no runtime errors');
   await page.evaluate(()=>{afState.filter='all';afState.scoreFilter='all';navTo('scores');renderScores();scrollTo(0,0);});
   await page.waitForFunction(()=>[...document.querySelectorAll('#scoresList img.crest,#scoresList img.competition-logo')].filter(e=>{const r=e.getBoundingClientRect();return r.top<innerHeight&&r.bottom>0;}).every(e=>e.complete&&e.naturalWidth>0));
