@@ -28,7 +28,7 @@ test('bounded public match detail states standings unavailable without inventing
  });
  assert.match(observed.analysis,/\b(?:league table|standings)\b[^.\n]*(?:unavailable|not supplied|not published)/i,
   'Public detail hides standings without explaining that this edition does not supply them');
- assert.match(observed.analysis,/League table not published/i);
+ assert.match(observed.analysis,/League table unavailable for this competition\./i);   // wording since the 355 table restoration
  assert.doesNotMatch(observed.analysis,/reload.*(?:table|standings)|(?:table|standings).*reload/i,'reload cannot recover undistributed source history');
  assert.equal(observed.tableHidden,false,'the table panel explains unavailable published input without deriving a partial table');
  assert.doesNotMatch(observed.copy,/Previous private table/);

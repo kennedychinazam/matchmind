@@ -15,8 +15,13 @@ jobs:
       matrix:
         browser: [firefox, webkit]
     steps:
+      # Verify the hosted build with ITS OWN acceptance script: a newer branch script may call
+      # endpoints the hosted build and staging do not have yet.
+      - name: Read hosted source commit
+        id: hosted
+        run: echo "sha=$(curl -fsSL https://kennedychinazam.github.io/matchmind-preview/SOURCE-COMMIT.txt | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        with: {persist-credentials: false}
+        with: {persist-credentials: false, ref: '${{ steps.hosted.outputs.sha }}'}
       - uses: actions/setup-node@v4
         with: {node-version: '24.19.0'}
       - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
@@ -28,7 +33,7 @@ jobs:
           PWA_PLAYWRIGHT: ${{ github.workspace }}/node_modules/playwright-core
         run: |
           set -o pipefail
-          export MM_EXPECTED_COMMIT="$(curl -fsSL https://kennedychinazam.github.io/matchmind-preview/SOURCE-COMMIT.txt | tr -d '[:space:]')"
+          export MM_EXPECTED_COMMIT='${{ steps.hosted.outputs.sha }}'
           echo "expected commit $MM_EXPECTED_COMMIT"
           node verify-hosted.mjs 2>&1 | tee hosted-${{ matrix.browser }}.log
       - if: always()
