@@ -155,7 +155,7 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
  });
  assert.match(archiveView.badge,/1 DNB.*81%/);assert.equal(archiveView.time,archiveView.expected);assert.equal(archiveView.status,0);
  const missing=await page.evaluate(()=>{const L=Object.values(afState.leagues)[0],f=L.upcoming[0],saved=f._displayCard;f._displayCard=null;showPublishedFixture(L,f);const text=$('heroPick').textContent;f._displayCard=saved;return text;});assert.equal(missing,'No qualifying pick');
- for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display_v2|status_v1)$/);}
+ for(const n of network)if(n.url.includes('.supabase.co')){assert.ok(n.url.includes('rdcbnvfnxenrpnnwxszs'));assert.equal(n.method,'POST');assert.match(n.url,/mm_preview_(display_v3|status_v1)$/);}
 });
 test('real service worker preserves other applications caches and synthetic builder stays independent',()=>{
  const sw=readFileSync(join(dir,'sw.js'),'utf8');assert.match(sw,/startsWith\('mm-real-preview-'\)/);assert.doesNotMatch(sw,/filter\(k=>k!==CACHE\)/);assert.match(R('staging/build-preview.mjs'),/synthetic data/);
