@@ -3270,6 +3270,29 @@ async function loadFixturePresentation(){
 /* Public detail panels consume only the bounded published edition. They never fit a model,
    read protected source tables, or start an AI/provider request. An unissued selection does
    not suppress informational football analysis. Missing markets stay explicit per panel. */
+function publishedGrid(xh,xa){
+ if(!(typeof xh==='number'&&typeof xa==='number'&&xh>0&&xa>0&&xh<=100&&xa<=100))return null;
+ try{const M=footballEngine.marketsFor(xh,xa,null);return M&&M.combos&&M.topByPick?M:null;}catch(e){return null;}
+}
+function publishedCombos(M,home,away){
+ if(!M)return '';const C=M.combos,H=escapeHtml(home),A=escapeHtml(away);
+ const list=[['1 & Over 2.5',C.hO25,H+' win and 3+ goals'],['1 & BTTS',C.hBTS,H+' win and both score'],['1 & Under 2.5',C.hU25,H+' win and under 3 goals'],
+  ['1X & Over 1.5',C.hdO15,H+' or draw and 2+ goals'],['2 & Over 2.5',C.aO25,A+' win and 3+ goals'],['2 & BTTS',C.aBTS,A+' win and both score'],
+  ['X2 & Over 1.5',C.adO15,'Draw or '+A+' and 2+ goals'],['BTTS & Over 2.5',C.btO25,'Both score and 3+ goals']].filter(r=>validProbability(r[1])).sort((x,y)=>y[1]-x[1]);
+ if(!list.length)return '';
+ return list.map(([l,p,why])=>probRow(l,p,true)+'<div class="subnote" style="margin:-4px 0 9px">'+why+'.</div>').join('')
+  +'<div class="subnote published-note">Model information from the published expected goals, summed off one score grid. Not an issued pick.</div>';
+}
+function publishedScores(M,pick,home,away){
+ if(!M)return '';const code=pick==='1D'?'1':pick==='2D'?'2':pick;
+ const issued=['1','X','2','1X','X2'].includes(code)?M.topByPick[code]:null;
+ const list=(issued||M.topScores||[]).filter(s=>validProbability(issued?s.given:s.p));
+ if(!list.length)return '';
+ const nm=issued?escapeHtml(pickPhrase(code,home,away)):'';
+ return (issued?'<div class="sec-label" style="margin-top:0">If '+nm+' lands \u2014 how it most likely finishes</div>':'<div class="sec-label" style="margin-top:0">Likeliest final scores</div>')
+  +list.map(s=>probRow(s.score,issued?s.given:s.p,true)).join('')
+  +'<div class="subnote published-note">Model information from the published expected goals'+(issued?'; shares out the issued pick, unchanged.':'.')+' The least reliable line on this page. Not an issued pick.</div>';
+}
 function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
  const fixturePrediction=same?p:f._displayCard&&f._displayCard.prediction;
@@ -3289,9 +3312,13 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  $('xgInfo').classList.toggle('hidden',!$('xgInfo').textContent);
  if(v)$('outcomeRows').insertAdjacentHTML('beforeend',empty(!same?'Fixture analysis · separate from this pick.':original?'Original published 1X2 probabilities.':p?'Informational 1X2 · published separately.':'Informational model analysis · no issued pick.'));
  panel('acc-goals','goalsRows',rows(a.goals),'Goals probabilities not published.');
- panel('acc-combo','comboRows',rows(a.combos),'Combo probabilities not published.');
+ /* Build 355 parity: Combos and Correct Score are the unchanged engine grid (footballEngine.marketsFor, the
+    same call 355's analyze() reaches) evaluated on the published model expected goals. Neither is damped in 355,
+    so no competition base rate is needed. Model information only: it never replaces an issued pick. */
+ const grid=publishedGrid(xh,xa);
+ panel('acc-combo','comboRows',rows(a.combos)||publishedCombos(grid,f.home,f.away),'Combo probabilities unavailable for this fixture.');
  panel('acc-htft','htftBox',rows(a.htft),'Half-time/full-time probabilities not published.');
- panel('acc-score','scoreRows',rows(a.correct_scores),'Correct-score probabilities not published.');
+ panel('acc-score','scoreRows',rows(a.correct_scores)||publishedScores(grid,fixturePrediction&&fixturePrediction.pick,f.home,f.away),'Correct-score probabilities unavailable for this fixture.');
  panel('acc-scorers','scorerRows',rows(a.scorers),'Scorer probabilities not published.');
  const form=a.form||{},formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'Form not published.')+'</span></div>';
  panel('acc-form','formBox',formLine(f.home,form.home)+formLine(f.away,form.away),'Recent form not published.');
