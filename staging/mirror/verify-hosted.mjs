@@ -13,9 +13,14 @@ const rpc=async(name,body={})=>{const r=await fetch(STAGE+'/rest/v1/rpc/'+name,{
 const marker=(await(await fetch(URL_BASE+'SOURCE-COMMIT.txt',{cache:'no-store'})).text()).trim();
 check(!expected||marker===expected,'hosted source commit matches expected development commit');
 const status=await rpc('mm_preview_status_v1');check(status?.mode==='real-read-only'&&Date.parse(status.expires_at)>Date.now(),'current verified real mirror exists');
-const scores=await rpc('mm_preview_display_v3',{screen:'scores'}),history=await rpc('mm_preview_display_v3',{screen:'history'});
-const predictions=await rpc('mm_preview_display_v3',{screen:'predictions'});
-const slipsScreen=await rpc('mm_preview_display_v3',{screen:'slips'}),recordsScreen=await rpc('mm_preview_display_v3',{screen:'records'});
+/* Verify the reader the hosted page actually calls. A build that reads v3 is checked through v3; an earlier hosted
+   build that reads v2 is checked through v2, so this script can run before the v3 rollout reaches staging. */
+const hostedPage=await(await fetch(URL_BASE,{cache:'no-store'})).text();
+const DISPLAY=hostedPage.includes('mm_preview_display_v3')?'mm_preview_display_v3':'mm_preview_display_v2';
+check(hostedPage.includes(DISPLAY),'hosted page reads '+DISPLAY);
+const scores=await rpc(DISPLAY,{screen:'scores'}),history=await rpc(DISPLAY,{screen:'history'});
+const predictions=await rpc(DISPLAY,{screen:'predictions'});
+const slipsScreen=await rpc(DISPLAY,{screen:'slips'}),recordsScreen=await rpc(DISPLAY,{screen:'records'});
 const union=new Map([...scores.cards,...history.cards,...predictions.cards].map(c=>[c.fxid,c]));
 const legacy=await rpc('mm_preview_display_v1',{screen:'history'});
 check(legacy.cards.length===history.cards.length&&legacy.cards.every(c=>!Object.hasOwn(c,'analysis')&&JSON.stringify(c.prediction)===JSON.stringify(history.cards.find(h=>h.fxid===c.fxid)?.prediction)),'legacy preview reader strips optional analysis and preserves original predictions');
