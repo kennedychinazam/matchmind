@@ -110,3 +110,26 @@ test('collector reads the 60-month window in bounded GET slices and projects one
  assert.deepEqual(snap.payload.competitions,[expected]);assert.deepEqual(snap.analysis_warnings.filter(w=>w.state==='competition-unavailable'),[]);
  const bytes=Buffer.byteLength(JSON.stringify(snap.payload.competitions));assert.ok(bytes<2000,'one small entry per competition: '+bytes);
 });
+/* 2026-11-20 21:36 UTC: reading the 60-month competition facts in BOTH capture passes stretched a capture to
+   minutes, the two passes straddled the production collector's write, and every refresh was refused. The core is
+   still read twice and must match; the competition facts are read once, between the passes. */
+test('stable capture reads competition facts once and still refuses a changing core',async()=>{
+ const {stableCollect,collect}=await import('../staging/mirror/refresh.mjs');
+ const now=new Date('2026-11-20T09:00:00Z'),{rows,upcoming}=synthetic();
+ const card={fxid:500,lid:7,lname:'Example League',lcountry:'Test',date:'2026-11-21',time:'15:00',status:'NS',elapsed:null,home:'Team A',away:'Team F',gh:null,ga:null,ft_h:null,ft_a:null,ht_h:null,ht_a:null,updated_at:'2026-11-20T08:00:00Z',provider:'af'};
+ const val=(u,k)=>u.searchParams.getAll(k);
+ const make=(cardFor)=>{let windowReads=0;const calls=[];const fetcher=async(u,o)=>{calls.push(u.searchParams.get('select'));
+  const table=u.pathname.split('/').pop();let out=[];
+  if(table==='fixtures'&&!u.searchParams.get('lid')&&!u.searchParams.get('fxid'))out=[cardFor(windowReads++)];
+  else if(table==='fixtures'&&u.searchParams.get('select').includes('round')){const ds=val(u,'date');out=rows.filter(r=>ds.every(d=>{const [op,v]=d.split('.');return op==='gte'?r.date>=v:op==='lt'?r.date<v:r.date<=v;})&&['FT','FINISHED','AET','PEN'].includes(r.status.trim().toUpperCase()));}
+  else if(table==='fixtures'&&u.searchParams.get('status')==='eq.NS')out=upcoming;
+  const page=out.slice(+u.searchParams.get('offset'),+u.searchParams.get('offset')+200);
+  return{ok:true,headers:{get:()=>'0-0/'+out.length},json:async()=>page};};return{fetcher,calls};};
+ const steady=make(()=>card),snap=await stableCollect(now,steady.fetcher);
+ const slice='fxid,lid,season,round,date,status,home,away,gh,ga,ft_h,ft_a,updated_at';
+ assert.equal(steady.calls.filter(c=>c===slice).length,11,'competition slices read once per capture, not once per pass');
+ const single=await collect(now,make(()=>card).fetcher);
+ assert.deepEqual(snap.payload,single.payload,'same edition as a single full collect');
+ const live=make(i=>i===0?card:{...card,status:'1H',elapsed:3,gh:0,ga:0,updated_at:'2026-11-20T08:05:00Z'});
+ await assert.rejects(stableCollect(now,live.fetcher),/Source changed between coverage passes/);
+});

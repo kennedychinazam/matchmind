@@ -44,7 +44,34 @@ export async function readPages(table,columns,filters,order,fetcher=fetch){
    unless MM_MIRROR_PREVIOUS_ISSUE=1, because the installed staging publisher refuses any slip whose
    day is not the current one. Turn it on only after STAGING-tips-continuity-up.sql is installed. */
 export const previousIssueEnabled=(env=process.env)=>env.MM_MIRROR_PREVIOUS_ISSUE==='1';
-export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previousIssueEnabled()}={}){
+/* Per-competition facts for Build 355 parity (goal-market base rates and the league table). GET-only,
+   explicit columns, AF-only. The finished window (analysis-projection.mjs COMPETITION_MONTHS) is read in
+   half-year slices so every slice stays inside readPages' 1000-row bound; a slice over the bound, or any
+   failure, omits that competition's entry with a warning rather than publishing a partial count.
+   Competitions are read COMPETITION_CONCURRENCY at a time. Upper bound per capture: 100 competitions x
+   (10 slices + 1 upcoming read) x 5 pages = 5,500 GETs; no provider call. */
+export const COMPETITION_CONCURRENCY=6;
+export async function readCompetitions(lids,now,fetcher,analysis_warnings){
+ const w=windowFor(now);
+ const from=competitionFrom(w.day),ahead=new Date(Date.parse(w.day)+COMPETITION_AHEAD_DAYS*86400000).toISOString().slice(0,10);
+ const slices=[];for(let a=from;a<=w.day;){const d=new Date(a+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+6);const b=d.toISOString().slice(0,10);slices.push([a,b>w.day?null:b]);a=b;}
+ if(slices.length>11)throw Error('Competition slice inventory exceeds reviewed bound');
+ const results=new Array(lids.length),warnings=new Array(lids.length);let next=0;
+ const worker=async()=>{for(let i=next++;i<lids.length;i=next++){const lid=lids[i];
+  try{
+   const rows=[];
+   for(const[a,b]of slices)rows.push(...await readPages('fixtures',COMPETITION_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['status','in.(FT,FINISHED,AET,PEN)'],['date','gte.'+a],b?['date','lt.'+b]:['date','lte.'+w.day]],'fxid.asc',fetcher));
+   const upcoming=await readPages('fixtures','lid,season,status,date,home,away',[['provider','eq.af'],['lid','eq.'+lid],['status','eq.NS'],['date','gte.'+w.day],['date','lte.'+ahead]],'fxid.asc',fetcher);
+   if(new Set(rows.map(r=>r.fxid)).size!==rows.length)throw Error('Duplicate competition history row');
+   results[i]=projectCompetition(lid,{rows,upcoming,captureDay:w.day});
+  }catch(e){warnings[i]={lid,state:'competition-unavailable',reason:e.message};}
+ }};
+ await Promise.all(Array.from({length:Math.min(COMPETITION_CONCURRENCY,lids.length)},worker));
+ // Deterministic output: input order, independent of which request finished first.
+ for(const x of warnings)if(x)analysis_warnings.push(x);
+ return results.filter(Boolean);
+}
+export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previousIssueEnabled(),skipCompetitions=false}={}){
  const w=windowFor(now),prior=new Date(Date.parse(w.day)-86400000).toISOString().slice(0,10);
  const [fixtures,slips,records]=await Promise.all([
   readPages('fixtures',fixtureCols,[['provider','eq.af'],['date','gte.'+w.from],['date','lte.'+w.to]],'fxid.asc',fetcher),
@@ -83,19 +110,7 @@ export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previo
     bound; a slice over the bound, or any failure, omits that competition's entry with a warning rather
     than publishing a partial count. Upper bound: 100 competitions x (10 slices + 1 upcoming read) x
     5 pages x 2 capture passes = 11,000 GETs; ordinary request/egress accounting applies, no provider call. */
- const competitions=[];
- const from=competitionFrom(w.day),ahead=new Date(Date.parse(w.day)+COMPETITION_AHEAD_DAYS*86400000).toISOString().slice(0,10);
- const slices=[];for(let a=from;a<=w.day;){const d=new Date(a+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+6);const b=d.toISOString().slice(0,10);slices.push([a,b>w.day?null:b]);a=b;}
- if(slices.length>11)throw Error('Competition slice inventory exceeds reviewed bound');
- for(const lid of lids){
-  try{
-   const rows=[];
-   for(const[a,b]of slices)rows.push(...await readPages('fixtures',COMPETITION_COLUMNS,[['provider','eq.af'],['lid','eq.'+lid],['status','in.(FT,FINISHED,AET,PEN)'],['date','gte.'+a],b?['date','lt.'+b]:['date','lte.'+w.day]],'fxid.asc',fetcher));
-   const upcoming=await readPages('fixtures','lid,season,status,date,home,away',[['provider','eq.af'],['lid','eq.'+lid],['status','eq.NS'],['date','gte.'+w.day],['date','lte.'+ahead]],'fxid.asc',fetcher);
-   if(new Set(rows.map(r=>r.fxid)).size!==rows.length)throw Error('Duplicate competition history row');
-   competitions.push(projectCompetition(lid,{rows,upcoming,captureDay:w.day}));
-  }catch(e){analysis_warnings.push({lid,state:'competition-unavailable',reason:e.message});}
- }
+ const competitions=skipCompetitions?[]:await readCompetitions(lids,now,fetcher,analysis_warnings);
  // Raw arbitrary-prompt AI cache is deliberately neither read nor published.
 
  const payload={cards:fixtures.map(f=>({...project(f,CARD_SCHEMA),prediction:preds.has(f.fxid)?project(preds.get(f.fxid),CARD_SCHEMA.properties.prediction):null})),
@@ -108,9 +123,20 @@ export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previo
  const stamps=fixtures.map(f=>f.updated_at).filter(x=>x&&Number.isFinite(Date.parse(x))).sort((a,b)=>Date.parse(a)-Date.parse(b));
  return{payload,analysis_warnings,captured_at:now.toISOString(),from:w.from,to:w.to,window_cards:windowCount,cards:fixtures.length,predictions:predictions.length,latest_source_update:stamps.at(-1)??null};
 }
+/* The fast core (fixtures, forecasts, slips, board, records, recent history) is read twice and must be
+   identical: a changing source is refused and the previous edition kept. The per-competition facts are read
+   once, between the two core passes. They are 60 months of finished results, which a live score cannot
+   change; repeating them stretched each capture to minutes, so the two core passes nearly always straddled
+   the production collector's 10-minute write and every refresh was refused (2026-11-20 21:36 UTC). */
 export async function stableCollect(now=new Date(),fetcher=fetch,options={}){
- const a=await collect(now,fetcher,options),b=await collect(now,fetcher,options);
+ const a=await collect(now,fetcher,{...options,skipCompetitions:true});
+ const lids=[...new Set(a.payload.cards.map(c=>c.lid))];
+ const warnings=[],competitions=await readCompetitions(lids,now,fetcher,warnings);
+ const b=await collect(now,fetcher,{...options,skipCompetitions:true});
  if(digest(a)!==digest(b))throw Error('Source changed between coverage passes; retain previous mirror');
+ if(competitions.length)b.payload.competitions=competitions.map(c=>project(c,PAYLOAD_SCHEMA.properties.competitions.items));
+ b.analysis_warnings.push(...warnings);
+ validatePresentationPayload(b.payload);
  return b;
 }
 export function requestFor(snapshot){
