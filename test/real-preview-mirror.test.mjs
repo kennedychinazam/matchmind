@@ -32,7 +32,7 @@ test('production reads use GET, explicit columns, fixed origin and complete boun
  await assert.rejects(readPages('auth.users','*',[],'id'),/Unapproved/);
  await assert.rejects(readPages('fixtures','fxid,provider_blob',[],'fxid'),/Unapproved/);
  await assert.rejects(readPages('fixtures','fxid,*',[],'fxid'),/Unapproved/);
- await assert.rejects(readPages('fixtures','fxid',[],'fxid',async()=>({ok:true,headers:new Headers({'content-range':'0-0/1001'}),json:async()=>[]})),/bound/);
+ await assert.rejects(readPages('fixtures','fxid',[],'fxid',async()=>({ok:true,headers:new Headers({'content-range':'0-0/1501'}),json:async()=>[]})),/bound/);
 });
 test('mapping drops provider/private extras and preserves original probability and timestamps exactly',()=>{
  const input=fixture();input.provider_blob={private:'must not leave runner'};const original=JSON.stringify(input);

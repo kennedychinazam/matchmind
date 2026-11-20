@@ -20,16 +20,18 @@ export function windowFor(now){const d=new Date(now);const day=d.toISOString().s
 const fixtureCols=Object.keys(CARD_SCHEMA.properties).filter(x=>!['prediction','analysis'].includes(x)).join(',');
 const predictionCols=['fxid',...Object.keys(CARD_SCHEMA.properties.prediction.properties)].join(',');
 const columnsByTable={fixtures:fixtureCols,predictions:predictionCols,shared_records:'key,payload,build,computed_at',daily_slips:'day,tier,odds,build,step,legs'};
+/* Reviewed source/edition card bound; equals PAYLOAD_SCHEMA.cards.max and STAGING-capacity2-up.sql. */
+export const MAX_SOURCE_ROWS=PAYLOAD_SCHEMA.properties.cards.max;
 export async function readPages(table,columns,filters,order,fetcher=fetch){
  if(!Object.hasOwn(columnsByTable,table)||!columns||columns.split(',').some(c=>!(table==='fixtures'?new Set((fixtureCols+','+HISTORY_COLUMNS+','+COMPETITION_COLUMNS).split(',')):new Set(columnsByTable[table].split(','))).has(c)))throw Error('Unapproved source reader');
  const rows=[];let total=null;
- for(let offset=0;offset<=1000;offset+=200){
+ for(let offset=0;offset<=MAX_SOURCE_ROWS;offset+=200){
   const u=new URL('/rest/v1/'+table,SOURCE);u.searchParams.set('select',columns);u.searchParams.set('order',order);u.searchParams.set('limit','200');u.searchParams.set('offset',String(offset));
   for(const[k,v]of filters)u.searchParams.append(k,v);
   const r=await fetcher(u,{method:'GET',redirect:'error',headers:{apikey:SOURCE_KEY,Prefer:'count=exact'},signal:AbortSignal.timeout(30000)});
   if(!r.ok)throw Error('Source '+table+' read HTTP '+r.status);
   const count=Number(r.headers.get('content-range')?.split('/')[1]);
-  if(!Number.isInteger(count)||count>1000||(total!==null&&total!==count))throw Error('Source count unavailable, changed or exceeds reviewed bound');
+  if(!Number.isInteger(count)||count>MAX_SOURCE_ROWS||(total!==null&&total!==count))throw Error('Source count unavailable, changed or exceeds reviewed bound');
   total=count;const page=await r.json();if(!Array.isArray(page)||page.length>200)throw Error('Source page invalid');rows.push(...page);
   if(rows.length===total)break;
   if(page.length!==200)throw Error('Incomplete source pagination');
@@ -58,7 +60,7 @@ export async function collect(now=new Date(),fetcher=fetch,{previousIssue=previo
   fixtures.push(...await readPages('fixtures',fixtureCols,[['provider','eq.af'],['fxid','in.('+missing.slice(i,i+150).join(',')+')']],'fxid.asc',fetcher));
  }
  fixtures.sort((a,b)=>a.fxid-b.fxid);
- if(fixtures.length>1000||new Set(fixtures.map(f=>f.fxid)).size!==fixtures.length||missing.some(id=>!fixtures.some(f=>f.fxid===id)))throw Error('Linked published fixture inventory incomplete or excessive');
+ if(fixtures.length>MAX_SOURCE_ROWS||new Set(fixtures.map(f=>f.fxid)).size!==fixtures.length||missing.some(id=>!fixtures.some(f=>f.fxid===id)))throw Error('Linked published fixture inventory incomplete or excessive');
  if(fixtures.some(f=>/^(QA\b|Synthetic\b)/i.test(f.home)||/^(QA\b|Synthetic\b)/i.test(f.away)||/synthetic/i.test(f.lname)))throw Error('QA fixtures refused in real-data source');
  const predictions=[];
  for(let i=0;i<fixtures.length;i+=150){

@@ -59,3 +59,31 @@ To stop refresh and hide real data, an administrator sets `mm_preview_mirror.con
 ## Recovery status
 
 The earlier six implementation files were recovered on 2026-11-12. The temporary 745-card / 247-prediction extraction was lost when the environment disconnected; those counts are historical evidence, not a current acceptance result. Two matching GET-only source reads at 2026-11-12 18:31:40 UTC found 739 fixtures and 241 linked predictions, with latest fixture update 18:30:24 UTC and payload SHA-256 `aeabb04f03b4681cfb033bc351d78df885905bd91430c87be6d7a41ff14f6855`. This extraction remained private and was not published. No remote endpoint installation, real-data transfer or hosted real-data acceptance has yet been verified. The existing proposed settlement migrations remain inactive.
+
+## Capacity options awaiting decision
+
+Prepared 2026-11-20, not installed. Each option is a separate local branch from `9c3c355` and can be taken alone. Nothing below has been run against a hosted database.
+
+Measured fact that applies to both: the staging byte bounds measure PostgreSQL `jsonb::text` (`octet_length(v::text)` in `payload_valid`), which prints a space after every `:` and `,`. On a synthetic edition shaped like the real one (about 1,027 compact bytes a card) that text is 1.1155 times the compact JSON the JavaScript validators measure. So the SQL 1 MiB gate is reached at roughly 940,000 compact bytes (about 915 cards at today's density), earlier than the 26 November projection above, which compares compact bytes with the bound. The real ratio has not been measured on a real edition.
+
+### Option A: raise bounds (branch `capacity/options-20261120`)
+
+Bounds after: 1500 cards and 2 MiB (2,097,152 bytes) for the full edition, in every copy:
+`contract.mjs` (`MAX_DOCUMENT_BYTES`, `PAYLOAD_SCHEMA.cards.max`), `refresh.mjs` (`MAX_SOURCE_ROWS`, derived from the contract, drives the pagination loop, the source count bound and the linked inventory bound), `index.html` (`FIXTURE_DISPLAY_SCHEMA` cards max, `fixtureEnvelope` card and byte bounds), `staging/original-logos.mjs` (catalog and membership bounds; without this the workflow's logo step fails at 1001 cards after a successful refresh), and staging SQL via `STAGING-capacity2-up.sql` (`payload_valid` schema `"max":1500` and `octet_length(v::text)>2097152`; `publish` `octet_length(wire)>2097152`). Unchanged: the board's 1000-row bound (it covers seven days ahead), 128 slips, 90/40 legs, the v1 strip, the 14-day window, and the production delivery path (`PROPOSAL-up.sql`, `refresh-presentation.mjs`), which stay at 1000 cards and 512 KiB.
+
+Headroom: the card bound binds first; 2 MiB of jsonb text is about 1,880,000 compact bytes, about 1,830 cards.
+
+Client cost, local Chromium 1243 headless at 390x844, synthetic TEST ONLY editions (60 competitions over 14 days, every card with analysis, a third with forecasts), median of 5 fresh pages, milliseconds:
+
+| cards | compact bytes | JSON.parse | fixtureEnvelope validate | Scores load (3 RPCs+validate+state) | Scores render | Analysis load (loadCloudLeagues) | Analysis render | JS heap MB |
+|---|---|---|---|---|---|---|---|---|
+| 858 | 881,388 | 5.2 | 66.6 | 73.1 | 1.7 | 95.9 | 3.3 | 16.1 |
+| 1000 | 1,027,620 | 5.4 | 56.8 | 79.7 | 2.3 | 136.8 | 4.4 | 17.5 |
+| 1500 | 1,545,968 | 8.0 | 75.0 | 105.6 | 1.6 | 159.2 | 5.1 | 34.9 |
+| 1500, 4x CPU throttle | | 22.0 | 238.5 | 306.0 | 7.9 | 643.2 | 25.5 | 32.6 |
+
+(4x throttle at 858 cards: load 196.6 / 341.7 ms.) Render is cheap because both lists render one day; the cost is in validating and building state from three whole-edition screen responses. Not measured: real phones, network transfer of a 1.5 MB response three times per load, service-worker cache size.
+
+User-visible: nothing changes until the window passes 1000 cards; then the preview keeps refreshing instead of going to "data unavailable". Legacy (v1) clients already refuse oversized screen responses themselves and keep doing so.
+
+Install order: `STAGING-capacity2-up.sql` (admin connection; it switches to `mm_preview_mirror_owner` for the publisher), then deploy the code. Rollback: revert the Option A commit and redeploy first, then run `STAGING-capacity2-down.sql`, which restores the exact earlier text of both functions and refuses to run if the up file is not installed. Editions published above the old bounds stay readable until they expire. Tests: `test/capacity2-sql.test.mjs` (Docker, CI-style) and `test/capacity-bounds-consistency.test.mjs`.

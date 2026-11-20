@@ -1,6 +1,6 @@
 /* Versioned private materialization boundary. No network, credentials, model fitting, or SQL execution. */
 export const CONTRACT_VERSION='matchmind-display/1';
-export const MAX_DOCUMENT_BYTES=1048576;
+export const MAX_DOCUMENT_BYTES=2097152;
 export const MAX_LEGACY_DOCUMENT_BYTES=524288;
 const str=(max=160,nullable=false,pattern)=>({type:'string',max,nullable,...(pattern?{pattern}:{})});
 const num=(min=0,max=1e9,nullable=false,integer=false)=>({type:'number',min,max,nullable,integer});
@@ -37,7 +37,7 @@ const record=payload=>object({key:str(8),payload,build:num(0,1e6,false,true),com
 const legProperties={fxid:id,d:date,t:str(12,true),h:text,a:text,lid:{...id,nullable:true},code:str(40),market:str(60),p:probability,o:num(1,1e6,true),tab:str(30),rank:count,sel:str(240)};
 const leg=object(legProperties,['fxid','d','h','a','code','p']);
 const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,90)});
-export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1000),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128),competitions:array(competition,100)},['cards','board','records','slips']);
+export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1500),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128),competitions:array(competition,100)},['cards','board','records','slips']);
 // RFC3339 subset shared with PostgreSQL: explicit zone, calendar-valid, no leap seconds;
 // offset displacement is limited to PostgreSQL's supported +/-15:59. Never rewrite the input.
 export function isPresentationTimestamp(value){
@@ -74,7 +74,8 @@ export function validatePresentationPayload(value){
  const bytes=Buffer.byteLength(JSON.stringify(value));if(bytes>MAX_DOCUMENT_BYTES)throw Error('Display payload exceeds byte limit');walk(value,PAYLOAD_SCHEMA,'display',0);
  /* No edition-wide legacy gate. Old clients bound ONE screen response to MAX_LEGACY_DOCUMENT_BYTES and refuse an
     oversized one themselves; measuring the whole stripped edition refused every edition once the real 14-day window
-    passed about 830 fixtures (2026-11-19). The full edition stays within MAX_DOCUMENT_BYTES and 1000 cards. */
+    passed about 830 fixtures (2026-11-19). The full edition stays within MAX_DOCUMENT_BYTES (2 MiB) and 1500 cards (STAGING-capacity2-up.sql);
+    the board keeps its own 1000-row bound because it covers seven days ahead only. */
  const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}if(c.analysis?.result)vector(Object.values(c.analysis.result));}
  if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a)throw Error('Board fixture identity mismatch');}}
  /* A board row's `d`/`t` are the kickoff AT BOARD BUILD TIME. The provider reschedules fixtures between

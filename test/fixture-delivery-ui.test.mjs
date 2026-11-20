@@ -57,13 +57,13 @@ test('multibyte display payloads enforce both actual server byte budgets',async 
  const cases=await page.evaluate(async()=>{
   const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'}),base=data.cards[0],out=[];
   const run=(kind,n)=>{const d={...data,board:null,cards:Array.from({length:n},(_,i)=>({...base,fxid:i+1,prediction:null,...(kind==='legacy'?{home:'界'.repeat(160),away:'外'.repeat(160),lname:'競'.repeat(160),lcountry:'国'.repeat(100)}:{analysis:{source:'synthetic-approved',source_at:data.as_of,writeup:{text:'界'.repeat(4000),source:'synthetic-approved',source_at:data.as_of}}})}))};const payload={cards:d.cards,board:d.board,records:d.records,slips:d.slips},wire=JSON.stringify(payload),legacy=JSON.stringify({...payload,cards:payload.cards.map(({analysis,...c})=>c)});let rejected=false;try{fixtureEnvelope(d,'predictions');}catch{rejected=true;}out.push({kind,payload,chars:wire.length,bytes:new TextEncoder().encode(wire).length,legacyBytes:new TextEncoder().encode(legacy).length,rejected});};
-  run('legacy',300);run('expanded-accepted',70);run('expanded-rejected',100);return out;
+  run('legacy',300);run('expanded-accepted',70);run('expanded-rejected',200);return out;
  });
  for(const c of cases){let serverRejected=false;try{validatePresentationPayload(c.payload);}catch{serverRejected=true;}assert.equal(c.rejected,serverRejected,c.kind+' browser agrees with actual typed server validator');}
  const [legacy,accepted,expanded]=cases;
- assert.ok(legacy.chars<524288&&legacy.bytes>524288&&legacy.bytes<1048576);assert.equal(legacy.rejected,false,'v2 reader: only the 1 MiB edition bound applies');
- assert.ok(accepted.legacyBytes<524288&&accepted.bytes>524288&&accepted.bytes<1048576);assert.equal(accepted.rejected,false);
- assert.ok(expanded.chars<1048576&&expanded.bytes>1048576);assert.equal(expanded.rejected,true);
+ assert.ok(legacy.chars<524288&&legacy.bytes>524288&&legacy.bytes<2097152);assert.equal(legacy.rejected,false,'v2 reader: only the 2 MiB edition bound applies');
+ assert.ok(accepted.legacyBytes<524288&&accepted.bytes>524288&&accepted.bytes<2097152);assert.equal(accepted.rejected,false);
+ assert.ok(expanded.chars<2097152&&expanded.bytes>2097152);assert.equal(expanded.rejected,true);
 });
 test('calendar, board authority and record identity follow the same semantic contract as the server',async t=>{
  const page=await open(t);await synthetic(page);
