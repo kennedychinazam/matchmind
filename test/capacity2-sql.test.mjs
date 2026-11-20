@@ -1,7 +1,7 @@
 /* STAGING-capacity2-up.sql (capacity Option A) AND ITS ROLLBACK, AGAINST AN ISOLATED POSTGRES.
  * Synthetic rows only: a disposable PostgreSQL 16.6 container with no network, no hosted database,
  * no credential. The container is brought to the installed staging state (INSTALL, analysis,
- * issued-tips, capacity, tips-continuity) before the change under test is applied.
+ * issued-tips, tips-continuity, capacity) plus STAGING-analysis2-up.sql, which capacity2 follows, before the change under test is applied.
  * Must hold: 1000 -> 1500 cards and 1 MiB -> 2 MiB in payload_valid and the publisher wire bound;
  * 1501 cards and > 2 MiB still refused; the board's 1000-row bound unchanged; owner, grants,
  * volatility and every other function unchanged; reinstall refused; rollback restores exact text;
@@ -41,7 +41,9 @@ test('capacity Option A raises exactly the card and byte bounds and rolls back e
  sql(baseline.match(/create function mm_fixture_delivery.prediction_count\([\s\S]*?\$\$;/)[0]);
  assert.throws(()=>sql(read('staging/mirror/STAGING-capacity2-up.sql')),/Isolated real-data preview required/);
  sql("set mm.preview_token_sha256='"+'a'.repeat(64)+"';"+read('staging/mirror/INSTALL-staging-only.sql'));
- for(const f of['STAGING-analysis-up.sql','STAGING-issued-tips-up.sql','STAGING-capacity-up.sql','STAGING-tips-continuity-up.sql'])sql(read('staging/mirror/'+f));
+ for(const f of['STAGING-analysis-up.sql','STAGING-issued-tips-up.sql','STAGING-tips-continuity-up.sql','STAGING-capacity-up.sql'])sql(read('staging/mirror/'+f));
+ assert.throws(()=>sql(read('staging/mirror/STAGING-capacity2-up.sql')),/STAGING-analysis2-up.sql must be installed first/,'fixed order: analysis2 first');
+ sql(read('staging/mirror/STAGING-analysis2-up.sql'));
  sql("set role mm_preview_mirror_owner;update mm_preview_mirror.configuration set token_sha256=sha256(convert_to('"+TOKEN+"','UTF8'));reset role;");
  const c1000=cards(1000),c1200=cards(1200),c1500=cards(1500),c1501=cards(1501),mid=heavy(50),over=heavy(75);
  const bytes=p=>Buffer.byteLength(JSON.stringify(p));

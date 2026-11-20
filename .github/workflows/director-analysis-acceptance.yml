@@ -12,7 +12,7 @@ jobs:
     uses: ./.github/workflows/hosted-cross-browser.yml
   focused:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with: {persist-credentials: false}
@@ -35,6 +35,10 @@ jobs:
           test/navigation-history.test.mjs
           test/analysis-data-projection.test.mjs
           test/analysis-data-sql.test.mjs
+          test/analysis2-sql.test.mjs
+          test/capacity2-sql.test.mjs
+          test/rollout-analysis2-capacity2-sql.test.mjs
+          test/capacity-bounds-consistency.test.mjs
           test/issued-tip-bundle.test.mjs
           test/international-display.test.mjs
           test/wo62b-engine-preservation.test.mjs

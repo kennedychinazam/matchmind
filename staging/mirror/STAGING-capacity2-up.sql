@@ -1,6 +1,6 @@
 -- STAGING ONLY. NOT INSTALLED. Requires separate Director authorization (capacity Option A).
 -- Run only in the staging project's administrative SQL connection (rdcbnvfnxenrpnnwxszs), after
--- STAGING-capacity-up.sql. Never run against production. No table, row, edition, grant or token changes.
+-- STAGING-capacity-up.sql AND STAGING-analysis2-up.sql (fixed order: analysis2, then this). Never run against production. No table, row, edition, grant or token changes.
 --
 -- WHY. The real 14-day window reached 858 cards / 872,196 bytes on 2026-11-20 and projects to about
 -- 988 cards / 1,004,000 bytes on 26 November, against the 1000-card and 1 MiB edition bounds.
@@ -27,6 +27,8 @@ begin
  if to_regclass('mm_preview_mirror.configuration') is null or to_regclass('mm_preview_mirror.qa_backup') is null then raise exception 'Isolated real-data preview required';end if;
  if fn is null then raise exception 'mm_fixture_delivery.payload_valid(jsonb) not found';end if;
  def=pg_get_functiondef(fn);
+ -- Fixed order: applies to the text STAGING-analysis2-up.sql leaves (schema with "competitions", v3 present).
+ if to_regprocedure('public.mm_preview_display_v3(text)') is null or position($a2$STAGING-analysis2-up.sql: one entry per competition$a2$ in def)=0 or position($a2$"competitions":{"type":"array"$a2$ in def)=0 then raise exception 'STAGING-analysis2-up.sql must be installed first; refusing to edit';end if;
  cnt=(length(def)-length(replace(def,cards,'')))/length(cards);if cnt<>1 then raise exception 'Expected exactly one 1000-card schema bound, found %; refusing to edit',cnt;end if;
  cnt=(length(def)-length(replace(def,bytes,'')))/length(bytes);if cnt<>1 then raise exception 'Expected exactly one 1 MiB edition bound, found %; refusing to edit',cnt;end if;
  execute replace(replace(def,cards,cards_new),bytes,bytes_new);

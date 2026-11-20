@@ -86,6 +86,8 @@ Client cost, local Chromium 1243 headless at 390x844, synthetic TEST ONLY editio
 
 User-visible: nothing changes until the window passes 1000 cards; then the preview keeps refreshing instead of going to "data unavailable". Legacy (v1) clients already refuse oversized screen responses themselves and keep doing so.
 
+Combined rollout with Analysis v3, fixed order (both edit the `payload_valid` schema literal): `STAGING-analysis2-up.sql`, then `STAGING-capacity2-up.sql`; roll back `STAGING-capacity2-down.sql`, then `STAGING-analysis2-down.sql`. capacity2-up refuses unless analysis2 is installed, and analysis2-down refuses while capacity2 is installed. `test/rollout-analysis2-capacity2-sql.test.mjs` reproduces the installed staging state (INSTALL, analysis, issued-tips, tips-continuity, capacity), checks its recorded md5s, runs both steps and both rollbacks, and prints the function md5s after each step (`ROLLOUT_MD5`).
+
 Install order: `STAGING-capacity2-up.sql` (admin connection; it switches to `mm_preview_mirror_owner` for the publisher), then deploy the code. Rollback: revert the Option A commit and redeploy first, then run `STAGING-capacity2-down.sql`, which restores the exact earlier text of both functions and refuses to run if the up file is not installed. Editions published above the old bounds stay readable until they expire. Tests: `test/capacity2-sql.test.mjs` (Docker, CI-style) and `test/capacity-bounds-consistency.test.mjs`.
 
 ### Option C considered: Build 355's direct reads (not prepared)

@@ -23,6 +23,8 @@ declare
 begin
  if fn is null then raise exception 'mm_fixture_delivery.payload_valid(jsonb) not found';end if;
  def=pg_get_functiondef(fn);
+ -- Fixed order: STAGING-capacity2-up.sql edits this text after analysis2, so it is rolled back first.
+ if position($c2$octet_length(v::text)>2097152$c2$ in def)>0 then raise exception 'STAGING-capacity2-up.sql is installed; run STAGING-capacity2-down.sql first';end if;
  cnt=(length(def)-length(replace(def,f0,'')))/length(f0);if cnt<>1 then raise exception 'STAGING-analysis2-up.sql is not installed for payload_valid; nothing to roll back (0), found %; refusing to edit',cnt;end if;
  cnt=(length(def)-length(replace(def,f1,'')))/length(f1);if cnt<>1 then raise exception 'STAGING-analysis2-up.sql is not installed for payload_valid; nothing to roll back (1), found %; refusing to edit',cnt;end if;
  execute replace(replace(def,f0,t0),f1,t1);

@@ -29,7 +29,7 @@ test('staging analysis2 SQL adds closed competitions, keeps v1 shape and rolls b
  sql(baseline.match(/create function mm_fixture_delivery.prediction_count\([\s\S]*?\$\$;/)[0]);
  assert.throws(()=>sql(read('staging/mirror/STAGING-analysis2-up.sql')),/Isolated real-data preview/);checks++;
  sql("set mm.preview_token_sha256='"+'a'.repeat(64)+"';"+read('staging/mirror/INSTALL-staging-only.sql'));
- for(const f of ['STAGING-analysis-up.sql','STAGING-issued-tips-up.sql','STAGING-capacity-up.sql'])sql(read('staging/mirror/'+f));
+ for(const f of ['STAGING-analysis-up.sql','STAGING-issued-tips-up.sql','STAGING-tips-continuity-up.sql','STAGING-capacity-up.sql'])sql(read('staging/mirror/'+f));
  check(valid(base)==='t'&&valid(withComp)==='f','before: base accepted, competitions refused');
  const before=defs(),aclBefore=acls();
  sql(read('staging/mirror/STAGING-analysis2-up.sql'));
