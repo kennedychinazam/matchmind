@@ -27,6 +27,7 @@ jobs:
           MM_BROWSER: ${{ matrix.browser }}
           PWA_PLAYWRIGHT: ${{ github.workspace }}/node_modules/playwright-core
         run: |
+          set -o pipefail
           export MM_EXPECTED_COMMIT="$(curl -fsSL https://kennedychinazam.github.io/matchmind-preview/SOURCE-COMMIT.txt | tr -d '[:space:]')"
           echo "expected commit $MM_EXPECTED_COMMIT"
           node verify-hosted.mjs 2>&1 | tee hosted-${{ matrix.browser }}.log

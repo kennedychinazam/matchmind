@@ -203,7 +203,7 @@ try{
      const range=document.createRange();range.selectNodeContents(e);
      const lines=new Set([...range.getClientRects()].filter(r=>r.width>0&&r.height>0).map(r=>Math.round(r.top)));
      if(lines.size>2)tooLong.push({id:e.id,text:e.textContent.trim(),lines:lines.size});
-     if(e.scrollWidth>e.clientWidth+2||e.scrollHeight>e.clientHeight+2)clipped.push({id:e.id,text:e.textContent.trim()});
+     if(e.scrollWidth>e.clientWidth+2||e.scrollHeight>e.clientHeight+2)clipped.push({id:e.id,text:e.textContent.trim(),tag:e.tagName,cls:e.className,display:getComputedStyle(e).display,overflow:getComputedStyle(e).overflow,font:getComputedStyle(e).fontFamily+' '+getComputedStyle(e).fontSize+'/'+getComputedStyle(e).lineHeight,sw:e.scrollWidth,cw:e.clientWidth,sh:e.scrollHeight,ch:e.clientHeight});
     }
     return{panels,order,tooLong,clipped,pick:$('heroPick').textContent,original:$('heroPick').closest('.hero').dataset.originalProbability,bars:$('outcomeRows').textContent,xg:$('xgInfo').textContent,overflow:document.documentElement.scrollWidth>innerWidth+1,body:$('results').textContent,forms:$('formBox').textContent,h2h:$('h2hBox').textContent};
    },{id:card.fxid});
