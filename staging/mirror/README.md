@@ -30,6 +30,14 @@ The 15-minute schedule remains `8,23,38,53 * * * *`, independent of development 
 
 A board row carries the kickoff at board build time. The provider reschedules upcoming fixtures between board builds (2026-11-16 00:00 UTC: eight fixtures, Brentford-Everton among them, moved a day or more after the 21:54 UTC board, and the refresh was refused as `Board fixture identity mismatch`). Board identity is fixture id, competition and both teams; date and time are read from the fixture record, which is what every consumer and `boardRowFor` key on. Neither the board row nor the fixture is rewritten, and the analysis projector still declines a board result whose row no longer matches the kickoff it was built for.
 
+## Capacity: the 2026-11-19 refresh outage
+
+From 2026-11-19 04:05 UTC every refresh was refused by the staging publisher with HTTP 400, and the last edition expired at 2026-11-19 23:06 UTC. `mm_fixture_delivery.payload_valid` applied a 524288-byte legacy gate to the whole analysis-stripped edition, measured as PostgreSQL jsonb text. The real window grew from 710 fixtures on 16 November to 858 on 20 November, and the stripped edition reached about 557,000 bytes. JavaScript measured the same payload in compact JSON and passed it, so only the database refused it, and the refresh logged nothing but the status code.
+
+Old clients apply the 512 KiB bound to one screen response and refuse an oversized one themselves, so the edition-wide gate protected nobody. `STAGING-capacity-up.sql` removes it, and removes the board kickoff comparison that the JavaScript validators dropped on 16 November. The 1 MiB full-edition bound and the 1000-card bound stay, and v1 still strips analysis and bundles over 40 legs. `STAGING-capacity-down.sql` restores the exact earlier text. A refused refresh now prints the publisher's reason.
+
+Remaining margin, measured 2026-11-20: the window reaches about 988 fixtures on 26 November against the 1000-card bound, and the full edition about 975,000 bytes against 1 MiB. When either is exceeded the refresh is refused and the previous edition stays until it expires. Raising a reviewed bound or narrowing the 14-day window is a Director decision.
+
 ## Verification and rollback
 
 `test/real-preview-mirror.test.mjs` uses an isolated Docker Postgres and synthetic browser responses; it never calls production. Run it with `test/staging-preview.test.mjs`. The real builder is separate from the unchanged synthetic builder. Generated real files must be scanned against all locally available protected values before pushing. Missing protected values cannot be certified by a scan.
