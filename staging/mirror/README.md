@@ -36,7 +36,7 @@ From 2026-11-19 04:05 UTC every refresh was refused by the staging publisher wit
 
 Old clients apply the 512 KiB bound to one screen response and refuse an oversized one themselves, so the edition-wide gate protected nobody. `STAGING-capacity-up.sql` removes it, and removes the board kickoff comparison that the JavaScript validators dropped on 16 November. The 1 MiB full-edition bound and the 1000-card bound stay, and v1 still strips analysis and bundles over 40 legs. `STAGING-capacity-down.sql` restores the exact earlier text. A refused refresh now prints the publisher's reason.
 
-Remaining margin, measured 2026-11-20: the window reaches about 988 fixtures on 26 November against the 1000-card bound, and the full edition about 975,000 bytes against 1 MiB. When either is exceeded the refresh is refused and the previous edition stays until it expires. Raising a reviewed bound or narrowing the 14-day window is a Director decision.
+Remaining margin, measured 2026-11-20: the first edition after the fix (`5f36484c`, 858 fixtures, 265 issued forecasts) is 872,196 bytes against the 1,048,576-byte bound, about 1,016 bytes a fixture. The window reaches about 988 fixtures on 26 November, which projects to roughly 1,004,000 bytes and sits against the 1000-card bound. Either bound is likely to refuse a refresh in the last week of November. A refused refresh keeps the previous edition until it expires 24 hours later, then the preview shows data as unavailable. Raising a reviewed bound or narrowing the 14-day window is a Director decision.
 
 ## Verification and rollback
 
