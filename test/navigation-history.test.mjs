@@ -30,6 +30,9 @@ async function open(t,width=390){
  t.after(()=>assert.deepEqual(errors,[]));return{page,outsideLength};
 }
 const waitView=(page,v)=>page.waitForFunction(v=>curView===v,v);
+/* A feed re-render can detach the row being scrolled to (Firefox reports "Element is not attached").
+   The locator is re-resolved and the scroll retried, as in staging/mirror/verify-hosted.mjs. */
+const scrollTo=async locator=>{for(let attempt=0;;attempt++){try{await locator.scrollIntoViewIfNeeded({timeout:5000});return;}catch(e){if(attempt>=4)throw e;await new Promise(r=>setTimeout(r,400));}}};
 const frames=page=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))));
 test('cold start adds no sentinel entry; Back leaves MatchMind normally',async t=>{
  const{page,outsideLength}=await open(t);assert.equal(await page.evaluate(()=>history.length),outsideLength+1);
@@ -50,7 +53,7 @@ test('detail-to-detail Back and Forward preserve identities and accordion state'
 test('hidden feed refresh cannot mutate the saved list or its row listeners',async t=>{
  const{page}=await open(t);
  await page.evaluate(day=>{afState.selectedDate=day;navTo('predict');afState.filter='all';renderFixtures();},day);
- await page.locator('#fixtureList .fxrow').nth(23).scrollIntoViewIfNeeded();await frames(page);
+ await scrollTo(page.locator('#fixtureList .fxrow').nth(23));await frames(page);
  const before=await page.evaluate(()=>({y:scrollY,text:$('fixtureList').textContent}));
  await page.locator('#fixtureList .fxrow').nth(23).click();await waitView(page,'detail');
  await page.evaluate(()=>{const L=Object.values(afState.leagues)[0];L.upcoming.reverse();renderFixtures();});
@@ -96,7 +99,7 @@ for(const width of [320,390,1280])for(const tab of ['scores','predict','tips','f
  },{tab,day});
  const selector=tab==='scores'?'#scoresList .scrow':tab==='predict'?'#fixtureList .fxrow':tab==='favs'?'#favFeed .favrow':'#tipList .fxrow';
  const rows=page.locator(selector);assert.ok(await rows.count()>20);
- await rows.nth(24).scrollIntoViewIfNeeded();await frames(page);
+ await scrollTo(rows.nth(24));await frames(page);
  const before=await page.evaluate(selector=>({y:scrollY,date:afState.selectedDate,scoresDate:afState.scoresDate,filter:afState.filter,scoreFilter:afState.scoreFilter,order:[...document.querySelectorAll(selector)].map(e=>e.textContent),length:history.length}),selector);
  await rows.nth(24).click();await waitView(page,'detail');await frames(page);
  assert.match(await page.locator('#heroHome').textContent(),/Home 24/);
