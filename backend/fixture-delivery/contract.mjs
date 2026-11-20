@@ -68,7 +68,9 @@ export function validateIssuedSlip(s){
 }
 export function validatePresentationPayload(value){
  const bytes=Buffer.byteLength(JSON.stringify(value));if(bytes>MAX_DOCUMENT_BYTES)throw Error('Display payload exceeds byte limit');walk(value,PAYLOAD_SCHEMA,'display',0);
- const legacy=legacyPresentationPayload(value);if(Buffer.byteLength(JSON.stringify(legacy))>MAX_LEGACY_DOCUMENT_BYTES)throw Error('Legacy display payload exceeds byte limit');
+ /* No edition-wide legacy gate. Old clients bound ONE screen response to MAX_LEGACY_DOCUMENT_BYTES and refuse an
+    oversized one themselves; measuring the whole stripped edition refused every edition once the real 14-day window
+    passed about 830 fixtures (2026-11-19). The full edition stays within MAX_DOCUMENT_BYTES and 1000 cards. */
  const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}if(c.analysis?.result)vector(Object.values(c.analysis.result));}
  if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a)throw Error('Board fixture identity mismatch');}}
  /* A board row's `d`/`t` are the kickoff AT BOARD BUILD TIME. The provider reschedules fixtures between

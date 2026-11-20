@@ -3089,7 +3089,7 @@ function fixtureEnvelope(value,screen){
  if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
  if(!Array.isArray(value.cards)||value.cards.length>1000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>1048576)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips},FIXTURE_DISPLAY_SCHEMA);
- const legacyPayload={cards:value.cards.map(({analysis,...c})=>c),board:value.board,records:value.records,slips:value.slips.filter(s=>s.legs.length<=40)};if(new TextEncoder().encode(JSON.stringify(legacyPayload)).byteLength>524288)throw Error('Legacy display inventory exceeds limit');
+ /* This client reads v2. The 512 KiB bound belongs to old clients reading v1, which check their own screen response. */
  const allowed=['fxid','lid','lname','lcountry','date','time','status','elapsed','home','away','gh','ga','ft_h','ft_a','ht_h','ht_a','updated_at','provider','prediction'];
  const seen=new Set();
  for(const r of value.cards){

@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {verifyDestination,requestFor} from '../staging/mirror/refresh.mjs';
 import {projectFixtureAnalysis} from '../staging/mirror/analysis-projection.mjs';
-import {buildPresentationPayload,validatePresentationPayload,PAYLOAD_SCHEMA} from '../backend/fixture-delivery/contract.mjs';
+import {buildPresentationPayload,validatePresentationPayload,PAYLOAD_SCHEMA,legacyPresentationPayload} from '../backend/fixture-delivery/contract.mjs';
 const now=new Date('2026-11-13T10:00:00Z'),stamp='2026-11-13T09:00:00Z';
 const fixture=()=>({fxid:1,lid:2,lname:'Test league',lcountry:'Test',date:'2026-11-14',time:'12:00',status:'NS',elapsed:null,home:'Home',away:'Away',gh:null,ga:null,ft_h:null,ft_a:null,ht_h:null,ht_a:null,updated_at:stamp,provider:'af'});
 const board=()=>({builtAt:stamp,rows:[{f:1,l:2,h:'Home',a:'Away',d:'2026-11-14',t:'12:00',pw:.5,pd:.3,pq:.2,xh:1.5,xa:.9,p:null,q:null}]});
@@ -28,4 +28,6 @@ test('mirror readback verifies expanded v2 plus permanent closed v1 independentl
  assert.deepEqual(await verifyDestination(request,receipt,fetcher),{verified_cards:1,verified_predictions:0});assert.ok(paths.some(p=>p.endsWith('display_v2'))&&paths.some(p=>p.endsWith('display_v1')));
 });
 
-test('expanded admission retains permanent512KiB original-schema bound for old clients',()=>{const base=buildPresentationPayload({fixtures:[fixture()]});base.cards=Array.from({length:700},(_,i)=>({...fixture(),fxid:i+1,home:'H'.repeat(160),away:'A'.repeat(160),lname:'L'.repeat(160),lcountry:'C'.repeat(100),prediction:null}));const bytes=Buffer.byteLength(JSON.stringify(base));assert.ok(bytes>524288&&bytes<1048576);assert.throws(()=>validatePresentationPayload(base),/Legacy display payload/);});
+/* 2026-11-19: the real 14-day window passed about 830 fixtures and an edition-wide 512 KiB legacy gate refused every
+   refresh. Old clients bound one screen response themselves; the writer keeps the 1 MiB full-edition bound. */
+test('an edition whose stripped projection exceeds 512KiB is admitted within 1MiB, and v1 still strips analysis',()=>{const base=buildPresentationPayload({fixtures:[fixture()]});base.cards=Array.from({length:700},(_,i)=>({...fixture(),fxid:i+1,home:'H'.repeat(160),away:'A'.repeat(160),lname:'L'.repeat(160),lcountry:'C'.repeat(100),prediction:null,analysis:{source:'published-board',source_at:stamp}}));const legacy=legacyPresentationPayload(base),bytes=Buffer.byteLength(JSON.stringify(base));assert.ok(Buffer.byteLength(JSON.stringify(legacy))>524288&&bytes<1048576);assert.doesNotThrow(()=>validatePresentationPayload(base));assert.ok(legacy.cards.every(c=>!Object.hasOwn(c,'analysis')));const over=structuredClone(base);over.cards=Array.from({length:1001},(_,i)=>({...base.cards[0],fxid:i+1}));assert.throws(()=>validatePresentationPayload(over),/byte limit|invalid array/);});

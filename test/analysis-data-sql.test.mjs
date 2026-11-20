@@ -57,6 +57,22 @@ test('staging analysis SQL keeps old readers compatible and rollback preserves i
  const w=windowFor(now),request=requestFor({payload:large,from:w.from,to:w.to,captured_at:now.toISOString(),window_cards:20,cards:20,predictions:0,latest_source_update:stamp});
  const oversized=structuredClone(large);oversized.cards=Array.from({length:36},(_,i)=>({...large.cards[0],fxid:1000+i}));check(sql('select mm_fixture_delivery.payload_valid('+literal(oversized)+');')==='f','over1MiB refused');
  const legacyOversized=structuredClone(old);legacyOversized.cards=Array.from({length:700},(_,i)=>({...old.cards[0],fxid:2000+i,home:'H'.repeat(160),away:'A'.repeat(160),lname:'L'.repeat(160),lcountry:'C'.repeat(100)}));check(Buffer.byteLength(JSON.stringify(legacyOversized))>524288&&Buffer.byteLength(JSON.stringify(legacyOversized))<1048576,'original-schema test is within expanded bound');check(sql('select mm_fixture_delivery.payload_valid('+literal(legacyOversized)+');')==='f','legacy original512KiB cap enforced');
+ /* STAGING-capacity-up.sql: the edition-wide legacy gate and the board kickoff comparison go; 1 MiB stays. */
+ const c0=old.cards[0],row={f:c0.fxid,l:c0.lid,n:c0.lname,d:'2000-01-01',t:'00:01',h:c0.home,a:c0.away,p:null,q:null,m:null,g:null,z:false,pw:.5,pd:.3,pq:.2,xh:1.2,xa:.9},moved={...structuredClone(old),board:{v:1,ahead:7,builtAt:stamp,n:1,notPassed:0,noBars:0,rows:[row]}};
+ const defBeforeCapacity=sql("select md5(pg_get_functiondef('mm_fixture_delivery.payload_valid(jsonb)'::regprocedure));");
+ const aclBeforeCapacity=sql("select pg_get_userbyid(proowner)||proacl::text||provolatile from pg_proc where oid='mm_fixture_delivery.payload_valid(jsonb)'::regprocedure;");
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(moved)+');')==='f','original validator refuses the rescheduled board kickoff');
+ sql(read('staging/mirror/STAGING-capacity-up.sql'));
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(legacyOversized)+');')==='t','capacity: stripped edition over 512KiB admitted');
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(oversized)+');')==='f','capacity: over 1MiB still refused');
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(moved)+');')==='t','capacity: rescheduled board kickoff admitted');
+ const teams=structuredClone(moved);teams.board.rows[0].h='Another team';check(sql('select mm_fixture_delivery.payload_valid('+literal(teams)+');')==='f','capacity: board team identity still enforced');
+ check(sql("select pg_get_userbyid(proowner)||proacl::text||provolatile from pg_proc where oid='mm_fixture_delivery.payload_valid(jsonb)'::regprocedure;")===aclBeforeCapacity,'capacity: owner, grants and volatility unchanged');
+ assert.throws(()=>sql(read('staging/mirror/STAGING-capacity-up.sql')),/Expected exactly one/);checks++;
+ sql(read('staging/mirror/STAGING-capacity-down.sql'));
+ check(sql("select md5(pg_get_functiondef('mm_fixture_delivery.payload_valid(jsonb)'::regprocedure));")===defBeforeCapacity,'capacity rollback restores the exact text');
+ check(sql('select mm_fixture_delivery.payload_valid('+literal(legacyOversized)+');')==='f','capacity rollback restores the legacy gate');
+ assert.throws(()=>sql(read('staging/mirror/STAGING-capacity-down.sql')),/nothing to roll back/);checks++;
  const token='local-test-only-'.repeat(3);sql("set role mm_preview_mirror_owner;update mm_preview_mirror.configuration set token_sha256=sha256(convert_to('"+token+"','UTF8'));reset role;");
  const published=JSON.parse(sql("set request.headers='"+JSON.stringify({'x-mm-preview-token':token})+"';select public.mm_preview_publish_v1("+literal(request)+");",'anon'));
  check(published.cards===20,'publisher accepts reviewed >512KiB wire');
