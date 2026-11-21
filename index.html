@@ -24071,7 +24071,7 @@ function renderAccount(){
   const fillBtn = $('archFillBtn'); if(fillBtn) fillBtn.classList.toggle('hidden', !isPublisher());   // build 340
   const box=$('acctBox'); if(!box) return;
   let quarantineNotice='';
-  try{if(localStorage.getItem('mm_state_UNASSIGNED')!==null) quarantineNotice='<div class="notice">Existing local personal data retained unassigned; not imported into this account.</div>';}catch(e){}
+  /* Owner decision 2026-11-21: the separation of pre-sign-in data stays, the notice about it is not shown. */
   renderSyncBadge();
   if(!cloudEnabled()){
     box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">The account service is unavailable. Sign-in and cross-device sync will be available when the server connection is restored. Personal service keys are not required.</div>';
