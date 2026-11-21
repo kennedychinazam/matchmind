@@ -203,3 +203,27 @@ Order:
 The reason for client first: the bounded client is empty, and the robot fails, as soon as the
 wrappers are revoked. 355 is empty only for the minutes between the Pages update and the revert.
 A robot run must not fall in that gap, so pause the workflow.
+
+## Re-check after fixes, 2026-11-21 (read-only against production)
+
+Fixes: e67205f (SQL: bounded window edition, paged history, neutral league label, loud size
+refusal, retention, publisher RPC, 90-leg tips and rescheduled board rows admitted), 0cd0a7e
+(client: server-decided `isPublisher()`, paged history read). `robot/publish.mjs` on this branch
+already counts through the signed-in page (B4).
+
+Production inventory, built with the new projection inside a `READ ONLY` transaction and checked
+node by node against the patched `payload_valid` schema plus its semantic rules (dup ids,
+probability vectors, board identity, tips shape, leg-to-card references, record keys):
+995 cards (bound 1500), 660,221 bytes (bound 2,097,152), 238 window predictions, 17 slips,
+39,611 schema nodes, **0 violations**. All 2963 predictions have a dated fixture; 2732 are served by
+`matchmind_history_v1` (11 pages of 250). The 30 NULL `lname` rows all resolve from their fixture.
+Found during the re-check and fixed in e67205f: production issues 90-leg `tips` slips, which the
+old 40-leg schema refused, so the original materializer could not have written an edition even
+under its size bound.
+
+Verdict for executing the release from this session: **NO-GO, stopped before production.**
+- Pages publish and the workflow pause need writes to `main` and to Actions settings. This session
+  may push only to `ccr-5da6e9b3-3ms4v5`, and its GitHub CLI token is invalid.
+- The 320px/390px browser checks only run in Chromium here (no Firefox/WebKit). Most of them fail
+  identically at the baseline, so they are not a clean signal.
+- The deployed refresh-af/ai-analyze hashes were not re-fetched, because no deploy was reached.
