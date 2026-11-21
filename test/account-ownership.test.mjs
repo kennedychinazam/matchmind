@@ -151,8 +151,9 @@ test('pending notification type change cannot subscribe the next account',async 
   onAuth({id:'A'});await new Promise(r=>setTimeout(r,0));notif.kickoff=true;document.querySelector('[data-nt="digest"]').click();onAuth({id:'B'});await new Promise(r=>setTimeout(r,0));finish({pushManager:{getSubscription:async()=>sub}});await new Promise(r=>setTimeout(r,0));return {writes,owner:authUser.id,notif:{...notif}};
  });assert.equal(r.owner,'B');assert.equal(r.writes,0);assert.equal(r.notif.digest,false);
 });
-test('account notice explains that legacy personal data remains unassigned',async t=>{
+test('legacy personal data stays unassigned and the account box shows no notice about it',async t=>{
  const legacy=JSON.stringify({fb:[{x:1}],af:{favT:['unassigned-private']}});const p=await open(t,legacy);
  const r=await p.evaluate(async()=>{cloudEnabled=()=>true;aiShadowGate=async()=>{};supa={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null,error:null})})}),upsert:async()=>({error:null})})};onAuth({id:'B'});await new Promise(r=>setTimeout(r,0));return{text:$('acctBox').textContent,backup:localStorage.getItem('mm_state_UNASSIGNED')};});
- assert.match(r.text,/existing local personal data retained unassigned/i);assert.match(r.text,/not imported into this account/i);assert.doesNotMatch(r.text,/unassigned-private/);assert.equal(r.backup,legacy);
+ assert.doesNotMatch(r.text,/retained unassigned|not imported into this account/i);   // owner decision 2026-11-21: notice hidden, separation kept
+ assert.doesNotMatch(r.text,/unassigned-private/);assert.equal(r.backup,legacy);
 });
