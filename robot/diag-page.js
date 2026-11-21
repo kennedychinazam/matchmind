@@ -41,16 +41,22 @@ async function mmDiag(opts) {
   }
   const roundOf = new Map();
   for (const r of rows) roundOf.set(r.lid + '|' + r.date + '|' + r.home + '|' + r.away, r.round || '');
-  const pq = await supa.from('predictions').select('fxid,lid,kickoff,ktime,made_at,pick,pick_prob,build').gte('kickoff', W0);
-  if (pq.error) return { error: 'predictions read: ' + pq.error.message };
-  const pred = new Map((pq.data || []).map((p) => [p.fxid, p]));
+  /* by fixture id, never by kick-off date: a rescheduled match keeps its ORIGINAL kick-off on the
+     prediction row (the late-void rule reads it), so a date filter would miss it */
+  const winIds = rows.filter((r) => r.date >= W0 && r.date <= W1).map((r) => r.fxid);
+  const pred = new Map();
+  for (let i = 0; i < winIds.length; i += 150) {
+    const pq = await supa.from('predictions').select('fxid,lid,kickoff,ktime,made_at,pick,pick_prob,build').in('fxid', winIds.slice(i, i + 150));
+    if (pq.error) return { error: 'predictions read: ' + pq.error.message };
+    for (const p of (pq.data || [])) pred.set(p.fxid, p);
+  }
 
   const before = (ms, date) => { let lo = 0, hi = ms.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ms[m].date < date) lo = m + 1; else hi = m; } return lo; };
   const appsOf = (ms, n, team) => { let k = 0; for (let i = 0; i < n; i++) if (ms[i].home === team || ms[i].away === team) k++; return k; };
 
   /* ── CENSUS ───────────────────────────────────────────────────────────────── */
   const census = {}, fixtures = [];
-  const add = (lid, cause) => { const c = census[lid] || (census[lid] = { name: (afState.leagues[lid] || {}).name || String(lid) }); c[cause] = (c[cause] || 0) + 1; };
+  const add = (lid, cause, past) => { const c = census[lid] || (census[lid] = { name: (afState.leagues[lid] || {}).name || String(lid) }); const k = (past ? 'past:' : 'next:') + cause; c[k] = (c[k] || 0) + 1; };
   for (const r of rows) {
     if (r.date < W0 || r.date > W1) continue;
     if (/CANC|POSTP|ABAND|SUSP/i.test(r.status || '')) continue;
@@ -90,7 +96,9 @@ async function mmDiag(opts) {
       }
     }
     rec.c = cause;
-    add(r.lid, cause);
+    const kd = kickoffUTC(r.date, r.time); rec.past = !!(kd && kd.getTime() < now);
+    if (p && p.kickoff !== r.date) rec.moved = p.kickoff;
+    add(r.lid, cause, rec.past);
     if ([253, 292, 2].includes(+r.lid) || cause === 'passed_unpublished' || cause === 'notloaded' || cause === 'newteam') fixtures.push(rec);
   }
   await Y();
@@ -158,5 +166,15 @@ async function mmDiag(opts) {
   }
   const bars = {};
   for (const lid of ids) { const L = afState.leagues[lid]; if (L) bars[lid] = { name: L.name, bar: gateBarFor(L), ef: gateEdgeFor(L), shared: sharedBarKnown(L), n: (L.matches || []).length, predicts: predictsComp(L) }; }
-  return { build: APP_BUILD, W0, W1, btFrom: BT_FROM, rows: rows.length, census, fixtures, seg: fmt, bins, bars };
+  /* the board this checkout would write now (built in memory; the runner fakes the write) */
+  let board = null;
+  try {
+    const b = boardBuild(), past = b.rows.filter((r) => { const d = kickoffUTC(r.d, r.t); return d && d.getTime() < now; });
+    const byG = {}; for (const r of past) byG[r.g] = (byG[r.g] || 0) + 1;
+    board = { n: b.n, kept: typeof _boardKept === 'number' ? _boardKept : null, pastRows: past.length, pastByG: byG,
+      pastWithPick: past.filter((r) => r.p != null || r.q != null || r.pw != null).length,
+      prevBuiltAt: _boardRecord && _boardRecord.payload ? _boardRecord.payload.builtAt : null,
+      bytes: JSON.stringify(b).length };
+  } catch (e) { board = { error: String(e && e.message || e) }; }
+  return { build: APP_BUILD, W0, W1, btFrom: BT_FROM, rows: rows.length, census, fixtures, seg: fmt, bins, bars, board };
 }

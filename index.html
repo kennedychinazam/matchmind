@@ -1126,7 +1126,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 359;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 360;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -5547,6 +5547,9 @@ const PICK_STATUS = {
     why:'The published forecast record for this match issued no pick, so there is nothing to grade. Nothing is filled in after the whistle.' },
   boardgate: { label:'Board: no pick',
     why:'' },
+  /* build 360 - the competition is outside what MatchMind predicts, so no pick was ever possible. */
+  outofscope: { label:'Not predicted here',
+    why:'MatchMind does not predict this competition, so no pick was ever issued for this match. Scores and results here still update.' },
   norow: { label:'No published prediction',
     why:'No published forecast record exists for this match. The data does not say why, and the possible reasons cannot be told apart, so none is named.' },
   norecord: { label:'Not archived',
@@ -5576,7 +5579,10 @@ function pickStatusCode(L, f){
     if(_boardRecord && _boardRecord.state === 'failed') return 'failed';
     const p = f._displayCard.prediction;
     if(p) return p.withheld_at ? 'withheld' : 'nopick';
-    return f._boardRow ? 'boardgate' : 'norow';
+    if(f._boardRow) return 'boardgate';
+    /* build 360 - a competition MatchMind does not predict at all (`NO_PREDICT_COMPS`) has no record by
+       construction, so "the data does not say why" was false for it: the reason is fixed and known. */
+    return (L && L.id != null && !predictsComp(L)) ? 'outofscope' : 'norow';
   }
   /* `ensureLeagueFromScore` marks the LEAGUE as presentation and pushes bare rows into it. Those
      rows carry no card, so they are not evidence of an edition having issued anything. */
@@ -5590,6 +5596,7 @@ function pickStatusCode(L, f){
   if(_archiveRead !== 'loaded' || !afState.archive) return 'unread';
   const a = (f.fxid != null) ? afState.archive[f.fxid] : null;
   if(a && a.withheldAt) return 'withheld';
+  if(!a && L && L.id != null && !predictsComp(L)) return 'outofscope';   // build 360
   return 'norecord';
 }
 /* The board's own build time, and `payload.builtAt` deliberately rather than `computedAt`, which
@@ -5598,15 +5605,23 @@ function boardBuiltText(){
   const at = (_boardRecord && _boardRecord.payload && _boardRecord.payload.builtAt) || '';
   return String(at).slice(0, 16).replace('T', ' ');
 }
-function pickStatusWhy(code){
+/* BUILD 360 - the board now keeps a played match's last pre-kick-off verdict (see `boardBuild`), so
+   the sentence names that verdict when the row carries one. It is still one dated snapshot, and says so. */
+function pickStatusWhy(code, f){
   if(code !== 'boardgate') return (PICK_STATUS[code] || PICK_STATUS.failed).why;
   const when = boardBuiltText();
+  const g = f && f.gated && f.gated !== 'withheld' ? f.gated : null;
+  const reason = g && GATE_TEXT[g] ? GATE_TEXT[g] : null;
+  if(reason)
+    return 'The publisher\u2019s board' + (when ? ' of ' + when : '')
+         + ' keeps the verdict it gave this match before kick-off: ' + reason
+         + '. No pick was published, so nothing is graded. The board is one snapshot, rebuilt every run, so this is what it recorded then.';
   return 'The publisher\u2019s board' + (when ? ' of ' + when : '')
-       + ' carries this match with no pick. That board is one snapshot, rebuilt every run and never covering a match already played, so this is what it recorded then — not a settled fact, and not a ruling out of a withhold.';
+       + ' carries this match with no pick. That board is one snapshot, rebuilt every run, so this is what it recorded then — not a settled fact, and not a ruling out of a withhold.';
 }
 function pickStatusChip(L, f){
   const code = pickStatusCode(L, f), s = PICK_STATUS[code] || PICK_STATUS.failed;
-  const why = pickStatusWhy(code);
+  const why = pickStatusWhy(code, f);
   /* Compact on screen; the sentence is OPTIONAL — a title for a pointer, an accessible name for
      assistive technology, a tap for everyone else. Never a paragraph under the matchday. */
   return `<button type="button" class="predchip muted-chip statuschip" data-statuswhy="${escapeHtml(why)}"`
@@ -21386,7 +21401,12 @@ function boardTakeOver(f){
   f.pick = null; f.prob = null; f.fromBoard = false;
 }
 const BOARD_AHEAD_DAYS = 7;                 // Ken's horizon; the lock at 72h is PUBLISH_AHEAD_DAYS
-let _boardRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
+/* build 360 - how long a played match keeps its last pre-kick-off verdict on the board. Six days is the
+   played half of the display edition's own window (day-6 .. day+7), so a carried row never adds a card. */
+const BOARD_KEEP_PLAYED_DAYS = 6;
+const BOARD_MAX_ROWS = 1000;                // the display schema's own bound on board.rows
+let _boardKept = 0;
+let _boardRecord ={ state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _boardLoading = null;
 /* Read on its own request, NOT folded into `loadSharedRecords`. The record and the closing-line
    payloads are a few hundred bytes; the board is tens of kilobytes, and the screens that want the
@@ -21471,6 +21491,48 @@ function boardBuild(){
                   xa: (xa != null ? +(+xa).toFixed(3) : null) });
     }
   }
+  /* ══ BUILD 360 — A PLAYED MATCH KEEPS THE LAST VERDICT THE BOARD GAVE IT ══════════════════════
+     Measured 2026-11-21 (robot/diagnose.mjs, the app's own engine on the live history): of 1,490
+     fixtures from 14 days back to 7 ahead, the ones with no pick were withheld by the gate itself -
+     318 under their competition's measured bar, 102 with no edge over the league's base rate, 52 with
+     a side new to the competition - and not one was missing its history, its league, its ratings or a
+     robot run. Every MLS and K League 1 fixture in the window was priced from 36 to 192 prior
+     appearances per side and then held under the bar (MLS 0.80, K League 0.75).
+
+     Yet once such a match kicked off, the Analysis tab said "No published prediction", "the data does
+     not say why", because the board drops every fixture at kick-off and nothing else kept the reason.
+     The reason WAS known, before kick-off, on the board. So the board now carries the withheld rows of
+     the last BOARD_KEEP_PLAYED_DAYS forward from the previous board, exactly as that board recorded
+     them and with everything a screen could read as a forecast removed: no pick, no probability, no
+     bars. Only the reason survives, so a played row can never be graded, shown as a pick or counted.
+
+     ⚠ NOTHING IS RECOMPUTED FOR A PLAYED MATCH. A row is carried only from a board that was built
+     before its kick-off, so the verdict is the one the robot actually gave, never a reconstruction.
+     A fixture with a published prediction is never carried: the record speaks for it.
+     ⚠ THE DISPLAY SCHEMA CAPS THE BOARD AT 1,000 ROWS, and a board over it would stop every edition,
+     so carried rows give way first, oldest first, and the live board is never cut. */
+  _boardKept = 0;
+  const prevBoard = (_boardRecord.state === 'loaded' && _boardRecord.payload && _boardRecord.payload.v === 1)
+    ? (_boardRecord.payload.rows || []) : [];
+  if(prevBoard.length){
+    const have = new Set(rows.map(r => r.f)), keepFrom = now - BOARD_KEEP_PLAYED_DAYS * 86400000;
+    const carried = [];
+    for(const r of prevBoard){
+      if(!r || r.f == null || have.has(r.f) || !r.g || r.g === 'outofscope') continue;
+      if(afState.archive && afState.archive[r.f]) continue;
+      const kd = kickoffUTC(r.d, r.t);
+      const kms = kd ? kd.getTime() : Date.parse((r.d || '') + 'T00:00:00Z');
+      if(!kms || isNaN(kms) || kms >= now || kms < keepFrom) continue;
+      have.add(r.f);
+      carried.push({ k: kms, row: { f: r.f, l: r.l, n: r.n, d: r.d, t: (r.t == null ? null : r.t),
+        h: r.h, a: r.a, p: null, q: null, m: null, g: r.g, z: false,
+        pw: null, pd: null, pq: null, xh: null, xa: null } });
+    }
+    carried.sort((x, y) => y.k - x.k);
+    const room = Math.max(0, BOARD_MAX_ROWS - rows.length);
+    for(const c of carried.slice(0, room)) rows.push(c.row);
+    _boardKept = Math.min(room, carried.length);
+  }
   rows.sort((x, y) => ((x.d || '') + (x.t || '')) < ((y.d || '') + (y.t || '')) ? -1 : 1);
   /* `v` is the hedge: the reader checks it, so a later build may add a field without breaking a
      device still holding an older copy. */
@@ -21492,7 +21554,7 @@ async function boardPublish(){
     if(_boardRecord.state!=='loaded')throw Error('Published board could not be verified');
     const edition=await supa.rpc('matchmind_publish_display_v1',{});
     if(edition.error||!edition.data||edition.data.version!=='matchmind-display/1'||!fixtureText(edition.data.edition_id,80)||!Number.isFinite(Date.parse(edition.data.as_of)))throw Error('Bounded public display publication failed');
-    return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead,
+    return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead, kept: _boardKept,
              notPassed: payload.notPassed, noBars: payload.noBars };
   }catch(e){
     return { ok: false, error: String((e && e.message) || e) };
