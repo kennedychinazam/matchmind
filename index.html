@@ -3140,6 +3140,7 @@ async function fixtureDisplayLoad(screen){
   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during display read');
   if(r.error)throw Error('Bounded display unavailable');
   const payload=fixtureEnvelope(r.data,screen),prior=c.screens.values().next().value;
+  if(screen==='history'&&r.data.history_paged===true)await fixtureHistoryPages(c,payload);   // the server says the edition holds only the window
   if(prior&&(prior.edition_id!==payload.edition_id||prior.as_of!==payload.as_of)){
    if(Date.parse(payload.as_of)<Date.parse(prior.as_of))throw Error('Obsolete display edition');
    c.screens.clear();
@@ -3148,6 +3149,31 @@ async function fixtureDisplayLoad(screen){
  })();
  c.screenPending.set(screen,pending);
  try{return await pending;}finally{if(c.screenPending.get(screen)===pending)c.screenPending.delete(screen);}
+}
+/* HISTORY BEYOND THE EDITION. An edition holds only the current window (fixtures from 6 days back
+   to 7 ahead and their predictions); every other issued prediction comes from
+   `matchmind_history_v1`, in keyset pages of at most 250 cards, partitioned on the same edition day.
+   Each page is validated exactly as a display envelope and must name the same edition. The pages
+   are read to the end: a page that fails, changes edition or never ends fails the whole history read
+   rather than showing a silently shortened record. */
+const FIXTURE_HISTORY_MAX_PAGES=400;
+async function fixtureHistoryPages(c,payload){
+ const merged=new Map();for(const r of payload.cards)merged.set(r.fxid,r);
+ let cursor=null;
+ for(let page=0;;page++){
+  if(page>=FIXTURE_HISTORY_MAX_PAGES)throw Error('History exceeds the page bound');
+  const r=await c.client.rpc('matchmind_history_v1',cursor?{before_date:cursor.date,before_fxid:cursor.fxid}:{});
+  if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during history read');
+  if(r.error||!r.data)throw Error('History unavailable');
+  const next=r.data.next;
+  const p=fixtureEnvelope(r.data,'history');
+  if(p.edition_id!==payload.edition_id||p.as_of!==payload.as_of)throw Error('Display edition changed during history read');
+  for(const row of p.cards)if(!merged.has(row.fxid))merged.set(row.fxid,row);
+  if(next===null||next===undefined)break;
+  if(!next||typeof next!=='object'||!/^\d{4}-\d{2}-\d{2}$/.test(next.date)||!Number.isSafeInteger(next.fxid)||!p.cards.length)throw Error('Invalid history cursor');
+  cursor={date:next.date,fxid:next.fxid};
+ }
+ payload.cards=[...merged.values()];
 }
 function fixturePublicRows(table,payload){
  if(table==='fixtures'||table==='fixtures_lean')return payload.cards.map(r=>({...r}));
@@ -4670,9 +4696,33 @@ const MEASURES_TABLE  = 'competition_measures';
 const SHARED_MEASURES = {};            // lid -> the shared row, filled ONLY from the server
 let _measuresState = 'pending';        // 'pending' | 'loaded' | 'failed'
 let _measuresWritten = 0, _measuresWriteFailed = 0, _measuresPassDone = 0;   // the publisher's pass, for verification
+/* PUBLISHER AUTHORITY, ASKED OF THE SERVER. a9d8aa1 removed the publisher email from this public
+   page (an email match was never authority, and it published the robot's address) and left this
+   returning false, which stopped the robot from publishing anything. The page now asks
+   `matchmind_publisher_v1`, which answers true only for the signed-in subject enrolled as an
+   enabled, unexpired 'publisher' in mm_fixture_delivery.principals. The answer only opens the
+   publishing code paths; every write is still decided by the database. It is tied to the client,
+   the account and the account epoch it was asked for, so a sign-out or switch clears it. */
+let _publisherAuthority={client:null,owner:null,epoch:-1,ok:false,promise:null};
 function isPublisher(){
-  // Public clients read published records; publisher authority stays on the server.
-  return false;
+  const a=_publisherAuthority;
+  return !!(a.ok&&authUser&&a.owner===authUser.id&&a.client===supa&&a.epoch===_cloudAccountEpoch);
+}
+async function publisherAuthorityRefresh(){
+  const owner=authUser&&authUser.id||null,client=supa,epoch=_cloudAccountEpoch;
+  if(!owner||!client){_publisherAuthority={client,owner,epoch,ok:false,promise:null};return false;}
+  const a=_publisherAuthority;
+  if(a.promise&&a.owner===owner&&a.client===client&&a.epoch===epoch)return a.promise;
+  const next={client,owner,epoch,ok:false,promise:null};_publisherAuthority=next;
+  next.promise=(async()=>{try{
+    const r=await client.rpc('matchmind_publisher_v1',{});
+    if(_publisherAuthority!==next)return false;
+    next.ok=!r.error&&!!r.data&&r.data.version==='matchmind-publisher/1'&&r.data.publisher===true;
+  }catch(e){next.ok=false;}
+  next.promise=null;
+  if(isPublisher()&&_leaguesLoadedAt){try{refreshSkills();}catch(e){}}
+  return isPublisher();})();
+  return next.promise;
 }
 function sharedBarKnown(L){
   return _measuresState === 'loaded' && !!(L && SHARED_MEASURES[String(L.id)]);
@@ -23879,6 +23929,7 @@ function onAuth(user){
   if((was&&was.id)!==(user&&user.id)) personalRefresh();
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
   if(isPublisher() && _leaguesLoadedAt){ try{ refreshSkills(); }catch(e){} }   // build 324 — the publisher measures once signed in
+  if((was&&was.id)!==(user&&user.id) || !isPublisher()) { try{ publisherAuthorityRefresh(); }catch(e){} }   // the server decides; refreshSkills runs once it answers
 }
 async function authSignup(){
   if(!supa) return;
