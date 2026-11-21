@@ -14,7 +14,7 @@ const launch=()=>driver[engine].launch(engine==='chromium'?{executablePath:proce
 const rig=()=>{
  const day=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10),stamp=new Date(Date.now()-60000).toISOString();
  const card=(fxid,d,pred,status)=>({fxid,lid:39,lname:'Premier League',lcountry:'England',date:day(d),time:'15:00',status:status||(d<0?'FT':'NS'),elapsed:null,home:'Home '+fxid,away:'Away '+fxid,
-  gh:d<0?2:null,ga:d<0?1:null,ft_h:d<0?2:null,ft_a:d<0?1:null,ht_h:null,ht_a:null,updated_at:stamp,provider:'af',
+  gh:d<0?2:null,ga:d<0?1:null,ft_h:d<0?2:null,ft_a:d<0?1:null,ht_h:null,ht_a:null,updated_at:stamp,provider:'af',home_logo:'https://media.api-sports.io/football/teams/'+fxid+'.png',away_logo:'https://media.api-sports.io/football/teams/'+(fxid+1)+'.png',llogo:'https://media.api-sports.io/football/leagues/39.png',
   prediction:pred?{lid:39,lname:'Premier League',home:'Home '+fxid,away:'Away '+fxid,pick:'1',pick_prob:.61,market:'1X2',p_home:.61,p_draw:.22,p_away:.17,xg_home:1.6,xg_away:.9,kickoff:day(d),ktime:'15:00',made_at:stamp,withheld_at:null,final_pick:'1',build:358}:null});
  const window_=[card(1001,-2,true),card(1002,0,false),card(1003,2,true),card(1004,5,false)];
  const old=Array.from({length:12},(_,i)=>card(2000+i,-10-i,true));
@@ -49,8 +49,9 @@ for(const width of [320,390])test(engine+' '+width+'px: window edition plus page
   const notEnrolled=await publisherAuthorityRefresh();
   window.__publisher=true;const enrolled=await publisherAuthorityRefresh();const after=isPublisher();
   authUser=null;const signedOut=isPublisher();
+  const crestHtml=crest('Home 1001'),badge=competitionBadge(afState.leagues[39]||{}),scoresLogos=(scores.data||[]).filter(r=>r.home_logo).length;
   const doc=document.scrollingElement;
-  return{ids,archive:Object.keys(afState.archive||{}).length,scores:(scores.data||[]).length,scoresErr:scores.error,guest,notEnrolled,enrolled,after,signedOut,overflow:doc.scrollWidth>innerWidth+1,calls:window.__calls,text:document.body.innerText};
+  return{ids,archive:Object.keys(afState.archive||{}).length,scores:(scores.data||[]).length,scoresErr:scores.error,guest,notEnrolled,enrolled,after,signedOut,overflow:doc.scrollWidth>innerWidth+1,calls:window.__calls,crestHtml,badge,scoresLogos,text:document.body.innerText};
  },rig.toString());
  assert.equal(x.err,undefined);
  assert.equal(new Set(x.ids).size,14,'2 window predictions + 12 paged history predictions, each once');
@@ -59,6 +60,9 @@ for(const width of [320,390])test(engine+' '+width+'px: window edition plus page
  assert.equal(x.guest,false);assert.equal(x.notEnrolled,false);assert.equal(x.enrolled,true);assert.equal(x.after,true);assert.equal(x.signedOut,false);
  assert.equal(x.calls.filter(c=>c==='matchmind_history_v1').length>=2,true);
  assert.equal(x.overflow,false,'no sideways scroll');
+ assert.match(x.crestHtml,/<img class="crest" src="https:\/\/media\.api-sports\.io\/football\/teams\/1001\.png"/,'Build 355 team crest');
+ assert.match(x.badge,/<img src="https:\/\/media\.api-sports\.io\/football\/leagues\/39\.png"/,'Build 355 league logo');
+ assert.equal(x.scoresLogos,4,'Scores rows carry their crests');
  assert.ok(!/api key/i.test(x.text),'no API key wording on the public page');
  assert.deepEqual(errors,[]);
 });
