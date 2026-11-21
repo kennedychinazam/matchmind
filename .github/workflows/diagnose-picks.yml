@@ -11,6 +11,11 @@ on:
         description: 'Backtest from (YYYY-MM-DD)'
         required: false
         default: '2024-07-01'
+      save_to_branch:
+        description: 'Also push the full result to the diag-results branch (public in a public repo: it holds engine prices for withheld fixtures)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write   # only to push the result file to the diag-results branch
@@ -36,7 +41,7 @@ jobs:
           MM_BT_FROM: ${{ inputs.bt_from }}
         run: set -o pipefail; node diagnose.mjs | tee diag.log
       - name: Save the result to the diag-results branch
-        if: always()
+        if: always() && inputs.save_to_branch
         run: |
           cp robot/diag.log /tmp/diag.log
           git config user.name "matchmind-diagnose"
