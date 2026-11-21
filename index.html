@@ -2652,9 +2652,9 @@ const AI_PROVIDERS = [
 function aiProviderById(id){ return AI_PROVIDERS.find(p=>p.id===id) || AI_PROVIDERS[0]; }
 
 /* ---- server-side AI proxy (build 39) ----
-   Analyses now run through the `ai-analyze` Edge Function, which holds the API keys server-side and
+   Analyses now run through the `ai-analyze` Edge Function, which holds the provider access server-side and
    allows each signed-in user a few per day. This is what lets ordinary users get AI write-ups
-   without owning an API key — previously the feature was unusable unless you had your own.
+   without their own provider access — previously the feature was unusable unless you had your own.
    A personal key saved in Settings still works and bypasses the quota entirely. */
 let aiQuota = null;                 // {used, limit} from the last successful proxy call
 let aiServerProviders = null;       // ids the server has keys for, or null until we've asked
@@ -2750,7 +2750,7 @@ async function runAIWriter(providerId, payload, credential=credentialContext()){
 }
 function syncAIKeyField(){
   const p = aiProviderById(aiProvider);
-  if($('aiKeyLabel')) $('aiKeyLabel').textContent = p.name + ' API key';
+  if($('aiKeyLabel')) $('aiKeyLabel').textContent = p.name;
   if($('aiKeyInput')){ $('aiKeyInput').placeholder = p.hint + '  ·  ' + p.where; $('aiKeyInput').value = ''; $('aiKeyInput').placeholder += aiKeys[aiProvider] ? ' · saved' : ''; }
 }
 // "· 2 of 5 today" — only meaningful for analyses that used the shared server allowance
@@ -2771,7 +2771,7 @@ function renderAISettings(){
   pc.querySelectorAll('.sfchip').forEach(b=>b.addEventListener('click',()=>{ if(aiProvider!==b.dataset.aip)++_credentialRevision; aiProvider=b.dataset.aip; if(aiCompare===aiProvider) aiCompare=''; renderAISettings(); }));
   const st = $('aiServerStatus');
   if(st){
-    if(aiServerProviders===null) st.textContent = 'Sign in to use the shared AI allowance — no API key needed.';
+    if(aiServerProviders===null) st.textContent = 'Sign in to use the shared AI allowance.';
     else if(!aiServerProviders.length) st.textContent = 'No shared AI configured on the server yet. A personal key below still works.';
     else st.innerHTML = `● = written by the app's own AI, no key needed`
       + ((aiQuota && aiQuota.limit!=null) ? ` · <b>${Math.max(0, aiQuota.limit-(aiQuota.used||0))} of ${aiQuota.limit}</b> left today` : '')
