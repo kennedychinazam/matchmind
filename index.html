@@ -21492,12 +21492,14 @@ function boardBuild(){
     }
   }
   /* ══ BUILD 360 — A PLAYED MATCH KEEPS THE LAST VERDICT THE BOARD GAVE IT ══════════════════════
-     Measured 2026-11-21 (robot/diagnose.mjs, the app's own engine on the live history): of 1,490
-     fixtures from 14 days back to 7 ahead, the ones with no pick were withheld by the gate itself -
-     318 under their competition's measured bar, 102 with no edge over the league's base rate, 52 with
-     a side new to the competition - and not one was missing its history, its league, its ratings or a
-     robot run. Every MLS and K League 1 fixture in the window was priced from 36 to 192 prior
-     appearances per side and then held under the bar (MLS 0.80, K League 0.75).
+     Measured 2026-11-21 (robot/diagnose.mjs, the app's own engine on the live history): of the 556
+     played fixtures of the last 14 days in competitions MatchMind predicts, 281 were published and
+     the gate itself withheld the rest - 163 under their competition's measured bar, 53 with no edge
+     over the league's base rate, 52 with a side new to the competition; 7 clear it on recompute
+     but were not published then, and the run-time bar is not stored to say why. Not one was
+     missing its history, its league, its ratings or a robot run. Every MLS and K League 1
+     fixture in the window was priced from 36 to 192 prior appearances per side and then held under
+     the bar (MLS 0.80, K League 0.75).
 
      Yet once such a match kicked off, the Analysis tab said "No published prediction", "the data does
      not say why", because the board drops every fixture at kick-off and nothing else kept the reason.
