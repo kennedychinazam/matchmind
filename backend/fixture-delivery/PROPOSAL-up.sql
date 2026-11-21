@@ -59,8 +59,8 @@ create table mm_fixture_delivery.editions (
  as_of timestamptz not null,
  expires_at timestamptz not null,
  source_review text not null check(length(source_review) between 1 and 200),
- expected_cards integer not null check(expected_cards between 0 and 1000),
- expected_predictions integer not null check(expected_predictions between 0 and 1000),
+ expected_cards integer not null check(expected_cards between 0 and 1500),
+ expected_predictions integer not null check(expected_predictions between 0 and 1500),
  payload jsonb not null,
  check((as_of at time zone 'UTC')::date=edition_day),
  check(expires_at>as_of and expires_at<=as_of+interval '24 hours')
@@ -225,6 +225,8 @@ begin
  'board',case when screen='predictions' then e.payload->'board' else 'null'::jsonb end,
  'records',case when screen='records' then e.payload->'records' else '{"engine":null,"clv":null}'::jsonb end,
  'slips',case when screen='slips' then e.payload->'slips' else '[]'::jsonb end);
+ -- The edition holds only the current window; the rest of the history is paged by matchmind_history_v1.
+ if screen='history' then outp=outp||jsonb_build_object('history_paged',true);end if;
  return outp;
 end $$;
 alter function mm_fixture_delivery.display(text) owner to mm_display_reader;
@@ -390,38 +392,157 @@ alter function mm_fixture_delivery.publisher_allowed() owner to mm_display_reade
 revoke all on function mm_fixture_delivery.publisher_allowed() from public,anon,authenticated;
 grant execute on function mm_fixture_delivery.publisher_allowed() to mm_display_materializer;
 grant execute on function mm_fixture_delivery.schema_valid(jsonb,jsonb,integer),mm_fixture_delivery.payload_valid(jsonb),mm_fixture_delivery.prediction_count(jsonb) to mm_display_materializer;
+-- BOUNDED CURRENT WINDOW (B1 FIX). An edition used to carry every prediction ever issued, and
+-- the prediction table only grows: production on 2026-11-21 needed 3720 cards against a
+-- 1000-card bound, so no edition could ever be written. An edition now holds exactly the
+-- current window - fixtures dated edition-day-6 .. edition-day+7 and the predictions on those
+-- fixtures - plus the fixtures the published board and the window's issued slips reference.
+-- Every older or later prediction is served by matchmind_history_v1(), a keyset-paginated read
+-- of the same projection, partitioned on the same edition day, so the two together account for
+-- every prediction exactly once. The edition is never truncated: over 1500 cards or 2 MiB the
+-- call raises with the measured size and nothing is written.
+-- League name: 30 production predictions have lname NULL. The rows are immutable and are not
+-- edited; the name is resolved here, at projection time, from the prediction, then the fixture,
+-- then any other fixture of the same competition, else the neutral label 'Competition'.
+create function mm_fixture_delivery.league_label(p_lname text,f_lname text,lid bigint) returns text language sql stable security definer set search_path=pg_catalog as $$
+ select coalesce(nullif(btrim(p_lname),''),nullif(btrim(f_lname),''),
+  (select f2.lname from public.fixtures f2 where f2.lid=league_label.lid and nullif(btrim(f2.lname),'') is not null order by f2.date::date desc nulls last,f2.fxid desc limit 1),
+  'Competition')
+$$;
 create function mm_fixture_delivery.materialize() returns jsonb language plpgsql volatile security definer set search_path=pg_catalog as $$
-declare built jsonb;cards jsonb;b jsonb;rec_engine jsonb;rec_clv jsonb;slips jsonb;stamp timestamptz=statement_timestamp();day_utc date=(statement_timestamp() at time zone 'UTC')::date; eid uuid=gen_random_uuid();nc integer;np integer;
+declare built jsonb;cards jsonb;b jsonb;rec_engine jsonb;rec_clv jsonb;slips jsonb;stamp timestamptz=statement_timestamp();day_utc date=(statement_timestamp() at time zone 'UTC')::date; eid uuid=gen_random_uuid();nc integer;np integer;nb bigint;undated integer;pruned integer;
 begin
  if not mm_fixture_delivery.publisher_allowed() then raise exception 'Scoped publisher required' using errcode='42501';end if;
  select payload into b from public.shared_records where key='board';
  if b is null then raise exception 'Reviewed published board unavailable';end if;
- -- No LIMIT/OFFSET: every required immutable prediction and every board fixture must survive projection.
+ -- A prediction with no dated fixture belongs to neither the window nor the history read, so it
+ -- would vanish. Refuse instead.
+ select count(*) into undated from public.predictions p left join public.fixtures f on f.fxid=p.fxid where f.fxid is null or f.date is null;
+ if undated>0 then raise exception 'Unaccounted immutable prediction inventory: % prediction(s) have no dated fixture',undated;end if;
+ select coalesce(jsonb_agg(jsonb_build_object('day',day,'tier',tier,'odds',odds,'build',build,'step',step,'legs',legs) order by day,tier),'[]'::jsonb) into slips from public.daily_slips where day::date between day_utc-6 and day_utc;
+ -- No LIMIT/OFFSET: the whole window is projected, then measured.
  select coalesce(jsonb_agg(jsonb_build_object(
-  'fxid',f.fxid,'lid',f.lid,'lname',f.lname,'lcountry',f.lcountry,'date',f.date,'time',f.time,'status',f.status,'elapsed',f.elapsed,'home',f.home,'away',f.away,
+  'fxid',f.fxid,'lid',f.lid,'lname',left(mm_fixture_delivery.league_label(null,f.lname,f.lid),160),'lcountry',coalesce(f.lcountry,''),'date',f.date,'time',f.time,'status',f.status,'elapsed',f.elapsed,'home',f.home,'away',f.away,
   'gh',f.gh,'ga',f.ga,'ft_h',f.ft_h,'ft_a',f.ft_a,'ht_h',f.ht_h,'ht_a',f.ht_a,'updated_at',f.updated_at,'provider',f.provider,
-  'prediction',case when p.fxid is null then 'null'::jsonb else jsonb_build_object('lid',p.lid,'lname',p.lname,'home',p.home,'away',p.away,'pick',p.pick,'pick_prob',p.pick_prob,'market',p.market,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'kickoff',p.kickoff,'ktime',p.ktime,'made_at',p.made_at,'withheld_at',p.withheld_at,'final_pick',p.final_pick,'build',p.build) end
- ) order by f.fxid),'[]'::jsonb) into cards from public.fixtures f left join public.predictions p on p.fxid=f.fxid
- where f.date::date between day_utc-6 and day_utc+7 or p.fxid is not null or exists(select 1 from jsonb_array_elements(b->'rows') br where br->>'f'=f.fxid::text)
- or exists(select 1 from public.daily_slips s cross join lateral jsonb_array_elements(s.legs) leg where s.day::date between day_utc-31 and day_utc and leg->>'fxid'=f.fxid::text);
- select count(*) into np from public.predictions;
+  'prediction',case when p.fxid is null then 'null'::jsonb else jsonb_build_object('lid',p.lid,'lname',left(mm_fixture_delivery.league_label(p.lname,f.lname,coalesce(p.lid,f.lid)),160),'home',p.home,'away',p.away,'pick',p.pick,'pick_prob',p.pick_prob,'market',p.market,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'kickoff',p.kickoff,'ktime',p.ktime,'made_at',p.made_at,'withheld_at',p.withheld_at,'final_pick',p.final_pick,'build',p.build) end) order by f.fxid),'[]'::jsonb),count(p.fxid) into cards,np from public.fixtures f left join public.predictions p on p.fxid=f.fxid
+ where f.date::date between day_utc-6 and day_utc+7 or exists(select 1 from jsonb_array_elements(b->'rows') br where br->>'f'=f.fxid::text)
+ or exists(select 1 from jsonb_array_elements(slips) s cross join lateral jsonb_array_elements(s->'legs') leg where leg->>'fxid'=f.fxid::text);
+ nc=jsonb_array_length(cards);
  if np<>(select count(*) from jsonb_array_elements(cards) c where c->'prediction'<>'null'::jsonb) then raise exception 'Unaccounted immutable prediction inventory';end if;
+ if nc>1500 then raise exception 'Presentation window exceeds the 1500-card bound: % cards (% predictions). Nothing was written',nc,np using errcode='54000';end if;
  select jsonb_build_object('key',key,'payload',payload,'build',build,'computed_at',computed_at) into rec_engine from public.shared_records where key='engine';
  select jsonb_build_object('key',key,'payload',payload,'build',build,'computed_at',computed_at) into rec_clv from public.shared_records where key='clv';
- select coalesce(jsonb_agg(jsonb_build_object('day',day,'tier',tier,'odds',odds,'build',build,'step',step,'legs',legs) order by day,tier),'[]'::jsonb) into slips from public.daily_slips where day::date between day_utc-31 and day_utc;
  built=jsonb_build_object('cards',cards,'board',b,'records',jsonb_build_object('engine',rec_engine,'clv',rec_clv),'slips',slips);
- if not mm_fixture_delivery.payload_valid(built) then raise exception 'Incomplete or unsupported presentation inventory';end if;
- nc=jsonb_array_length(cards);
+ nb=octet_length(built::text);
+ if nb>2097152 then raise exception 'Presentation window exceeds the 2 MiB bound: % bytes for % cards. Nothing was written',nb,nc using errcode='54000';end if;
+ if not mm_fixture_delivery.payload_valid(built) then raise exception 'Incomplete or unsupported presentation inventory (% cards, % bytes)',nc,nb;end if;
  -- Expiry is a rolling 24 hours from as_of. The old least(...) clipped it to the next UTC
  -- midnight, which gave the 23:17 run a 43-minute edition. This sits exactly on the table's
  -- expires_at<=as_of+interval '24 hours' bound.
- insert into mm_fixture_delivery.editions values(eid,day_utc,stamp,stamp+interval '24 hours','existing-published-record-projection/1',nc,np,built);
+ insert into mm_fixture_delivery.editions values(eid,day_utc,stamp,stamp+interval '24 hours','existing-published-record-projection/2',nc,np,built);
+ -- RETENTION. display() serves only the newest admissible edition, and a reader that began on an
+ -- older one retries when the edition changes. Keep the newest three plus anything published in
+ -- the last 30 minutes; delete the rest. Rows are deleted whole, never edited, so an edition that
+ -- survives is byte-identical to what was published. Storage stays at a few editions however
+ -- often refresh-af runs.
+ delete from mm_fixture_delivery.editions e where e.edition_id<>eid and e.as_of<stamp-interval '30 minutes'
+  and e.edition_id not in(select x.edition_id from mm_fixture_delivery.editions x order by x.as_of desc,x.edition_id desc limit 3);
+ get diagnostics pruned=row_count;
  return jsonb_build_object('version','matchmind-display/1','edition_id',eid,'cards',nc,'predictions',np,'as_of',stamp);
 end $$;
+alter function mm_fixture_delivery.league_label(text,text,bigint) owner to mm_display_materializer;
 alter function mm_fixture_delivery.materialize() owner to mm_display_materializer;
 create function public.matchmind_publish_display_v1() returns jsonb language sql volatile security invoker set search_path=pg_catalog as $$select mm_fixture_delivery.materialize()$$;
 revoke all on function public.matchmind_publish_display_v1(),mm_fixture_delivery.materialize() from public,anon,authenticated;
 grant execute on function public.matchmind_publish_display_v1(),mm_fixture_delivery.materialize() to authenticated,service_role;
+-- HISTORY (B1 FIX, second half). Every prediction outside the edition's window, newest first, in
+-- pages of at most 250 cards, keyed on (date,fxid) so a page boundary can neither repeat nor skip
+-- a row. The window is taken from the CURRENT EDITION's day, not today's, so the edition plus the
+-- history pages partition the prediction table exactly. The caller supplies only the cursor that
+-- the previous page returned; no dates, ids, offsets or page sizes. Same envelope and closed card
+-- shape as display('history'), so the client validates it with the same checks.
+create function mm_fixture_delivery.history(before_date date,before_fxid bigint) returns jsonb language plpgsql stable security definer set search_path=pg_catalog as $$
+declare e record;d date;page jsonb;n integer;last_date date;last_fxid bigint;more boolean;
+begin
+ if (before_date is null)<>(before_fxid is null) then raise exception 'Incomplete history cursor' using errcode='22023';end if;
+ select edition_id,as_of,expires_at,edition_day into e from mm_fixture_delivery.editions where as_of<=statement_timestamp() and expires_at>statement_timestamp() order by as_of desc,edition_id desc limit 1;
+ if not found then raise exception 'Current presentation unavailable' using errcode='P0002';end if;
+ d=e.edition_day;
+ with rows as(
+  select f.fxid,f.date::date as date,jsonb_build_object(
+  'fxid',f.fxid,'lid',f.lid,'lname',left(mm_fixture_delivery.league_label(null,f.lname,f.lid),160),'lcountry',coalesce(f.lcountry,''),'date',f.date,'time',f.time,'status',f.status,'elapsed',f.elapsed,'home',f.home,'away',f.away,
+  'gh',f.gh,'ga',f.ga,'ft_h',f.ft_h,'ft_a',f.ft_a,'ht_h',f.ht_h,'ht_a',f.ht_a,'updated_at',f.updated_at,'provider',f.provider,
+  'prediction',case when p.fxid is null then 'null'::jsonb else jsonb_build_object('lid',p.lid,'lname',left(mm_fixture_delivery.league_label(p.lname,f.lname,coalesce(p.lid,f.lid)),160),'home',p.home,'away',p.away,'pick',p.pick,'pick_prob',p.pick_prob,'market',p.market,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'kickoff',p.kickoff,'ktime',p.ktime,'made_at',p.made_at,'withheld_at',p.withheld_at,'final_pick',p.final_pick,'build',p.build) end) as card
+  from public.predictions p join public.fixtures f on f.fxid=p.fxid
+  where not(f.date::date between d-6 and d+7)
+   and(before_date is null or (f.date::date,f.fxid)<(before_date,before_fxid))
+  order by f.date::date desc,f.fxid desc limit 251)
+ select coalesce(jsonb_agg(card order by date desc,fxid desc) filter(where rn<=250),'[]'::jsonb),count(*) filter(where rn<=250),
+        max(date) filter(where rn=250),max(fxid) filter(where rn=250),count(*)>250
+   into page,n,last_date,last_fxid,more
+   from(select *,row_number() over(order by date desc,fxid desc) rn from rows) r;
+ return jsonb_build_object('version','matchmind-display/1','edition_id',e.edition_id,'as_of',e.as_of,'expires_at',e.expires_at,'screen','history',
+  'cards',page,'board','null'::jsonb,'records','{"engine":null,"clv":null}'::jsonb,'slips','[]'::jsonb,
+  'next',case when more then jsonb_build_object('date',last_date,'fxid',last_fxid) else 'null'::jsonb end);
+end $$;
+alter function mm_fixture_delivery.history(date,bigint) owner to mm_display_materializer;
+create function public.matchmind_history_v1(before_date date default null,before_fxid bigint default null) returns jsonb language sql stable security invoker set search_path=pg_catalog as $$select mm_fixture_delivery.history(before_date,before_fxid)$$;
+-- PUBLISHER AUTHORITY (B2 FIX). The client no longer names a publisher email. It asks the server
+-- whether the signed-in subject is an enrolled, enabled, unexpired 'publisher' principal. The
+-- answer only switches on the client's publishing code paths; every write is still decided by the
+-- database (materialize() checks publisher_allowed(), and the source write policies are unchanged).
+create function mm_fixture_delivery.publisher_scope() returns boolean language sql stable security definer set search_path=pg_catalog as $$
+ select exists(select 1 from mm_fixture_delivery.principals where user_id=mm_fixture_delivery.request_uid() and scope='publisher' and enabled and approved_until>statement_timestamp())
+$$;
+alter function mm_fixture_delivery.publisher_scope() owner to mm_display_reader;
+create function public.matchmind_publisher_v1() returns jsonb language sql stable security invoker set search_path=pg_catalog as $$
+ select jsonb_build_object('version','matchmind-publisher/1','publisher',mm_fixture_delivery.publisher_scope())
+$$;
+grant delete on mm_fixture_delivery.editions to mm_display_materializer;
+revoke all on function mm_fixture_delivery.league_label(text,text,bigint),mm_fixture_delivery.history(date,bigint),mm_fixture_delivery.publisher_scope() from public,anon,authenticated;
+revoke all on function public.matchmind_history_v1(date,bigint),public.matchmind_publisher_v1() from public,anon,authenticated;
+grant execute on function mm_fixture_delivery.league_label(text,text,bigint) to mm_display_materializer;
+grant execute on function mm_fixture_delivery.history(date,bigint),public.matchmind_history_v1(date,bigint) to anon,authenticated;
+grant execute on function mm_fixture_delivery.publisher_scope(),public.matchmind_publisher_v1() to authenticated;
+-- CAPACITY AND ISSUED SHAPES. payload_valid's text is edited in place; each replaced literal must
+-- occur exactly once or the install aborts. Four edits, all measured against production on
+-- 2026-11-21 (995 window cards, 659,946 bytes, three 90-leg 'tips' slips in the window):
+--   cards "max":1000 -> 1500 and 512 KiB -> 2 MiB: the client's own edition bounds;
+--   slip legs "max":40 -> 90, with the 40-leg bound kept for every tier but 'tips', and a 'tips'
+--     slip held to its issued shape (tab winner|ou|btts, rank 0..29, each tab:rank once, <=30 per
+--     tab), as the client already checks; production issues 90-leg tips slips, which the 40-leg
+--     schema refused, so no edition could have been written;
+--   the board row's d/t no longer has to equal the fixture's current date/time. d/t are the kickoff
+--     when the board was built and the provider reschedules between builds; the client matches on
+--     id, competition and both teams only. Identity (id, lid, home, away) is still enforced.
+do $$
+declare fn oid=to_regprocedure('mm_fixture_delivery.payload_valid(jsonb)');def text;cnt int;
+ cards constant text=$old$"updated_at","provider","prediction"],"nullable":false},"max":1000}$old$;
+ cards_new constant text=$new$"updated_at","provider","prediction"],"nullable":false},"max":1500}$new$;
+ bytes constant text=$old$octet_length(v::text)>524288$old$;
+ bytes_new constant text=$new$octet_length(v::text)>2097152$new$;
+ legs constant text=$old$"required":["fxid","d","h","a","code","p"],"nullable":false},"max":40}$old$;
+ legs_new constant text=$new$"required":["fxid","d","h","a","code","p"],"nullable":false},"max":90}$new$;
+ slip_loop constant text=$old$ for r in select value from jsonb_array_elements(v->'slips') loop
+$old$;
+ slip_loop_new constant text=$new$ for r in select value from jsonb_array_elements(v->'slips') loop
+  if r->>'tier'='tips' then
+   if exists(select 1 from jsonb_array_elements(r->'legs') l where l->>'tab' is null or l->>'tab' not in('winner','ou','btts') or l->>'rank' is null or(l->>'rank')::integer not between 0 and 29) then return false;end if;
+   if exists(select 1 from jsonb_array_elements(r->'legs') l group by l->>'tab',l->>'rank' having count(*)>1) then return false;end if;
+   if exists(select 1 from jsonb_array_elements(r->'legs') l group by l->>'tab' having count(*)>30) then return false;end if;
+  elsif jsonb_array_length(r->'legs')>40 then return false;end if;
+$new$;
+ kickoff constant text=$old$ or c->>'date'<>r->>'d' or c->'time'<>r->'t'$old$;
+begin
+ def=pg_get_functiondef(fn);
+ cnt=(length(def)-length(replace(def,cards,'')))/length(cards);if cnt<>1 then raise exception 'Expected exactly one 1000-card bound, found %',cnt;end if;
+ cnt=(length(def)-length(replace(def,bytes,'')))/length(bytes);if cnt<>1 then raise exception 'Expected exactly one 512 KiB bound, found %',cnt;end if;
+ cnt=(length(def)-length(replace(def,legs,'')))/length(legs);if cnt<>1 then raise exception 'Expected exactly one 40-leg bound, found %',cnt;end if;
+ cnt=(length(def)-length(replace(def,slip_loop,'')))/length(slip_loop);if cnt<>1 then raise exception 'Expected exactly one slip loop, found %',cnt;end if;
+ cnt=(length(def)-length(replace(def,kickoff,'')))/length(kickoff);if cnt<>1 then raise exception 'Expected exactly one board kickoff comparison, found %',cnt;end if;
+ execute replace(replace(replace(replace(replace(def,cards,cards_new),bytes,bytes_new),legs,legs_new),slip_loop,slip_loop_new),kickoff,'');
+ if not mm_fixture_delivery.payload_valid('{"cards":[],"board":null,"records":{"engine":null,"clv":null},"slips":[]}'::jsonb) then raise exception 'payload_valid no longer admits an empty edition';end if;
+end $$;
 
 -- S1 CLEANUP. Hand back exactly what was taken, before this transaction commits.
 -- CREATE on the private schema is removed from both owner roles: they are created by this

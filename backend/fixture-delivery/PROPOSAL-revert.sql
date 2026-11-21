@@ -49,6 +49,14 @@ begin
 end $$;
 revoke all on function public.matchmind_display_v1(text),public.matchmind_fixture_access_v1(),public.matchmind_publish_display_v1() from public,anon,authenticated,service_role;
 revoke all on function mm_fixture_delivery.display(text),mm_fixture_delivery.raw_allowed(),mm_fixture_delivery.raw_expiry(),mm_fixture_delivery.materialize() from public,anon,authenticated,service_role;
+-- Entry points added with the bounded window (history pages, publisher authority). Guarded so the
+-- revert still runs against an install that predates them.
+do $$declare fn text;begin
+ foreach fn in array array['public.matchmind_history_v1(date,bigint)','public.matchmind_publisher_v1()','mm_fixture_delivery.history(date,bigint)','mm_fixture_delivery.publisher_scope()'] loop
+  if to_regprocedure(fn) is not null then execute format('revoke all on function %s from public,anon,authenticated,service_role',fn);end if;
+ end loop;
+ if to_regclass('mm_fixture_delivery.editions') is not null then revoke delete on mm_fixture_delivery.editions from mm_display_materializer;end if;
+end $$;
 -- Private metadata/editions and original ACL snapshots are retained for audit; no CASCADE/data deletion.
 -- Give back exactly what this revert borrowed, before it commits.
 do $$
