@@ -1,0 +1,42 @@
+# MatchMind - the pick-coverage diagnostic (2026-11-21). READ-ONLY: robot/diagnose.mjs serves the
+# checked-out index.html locally, signs in as the publisher only to read the raw fixtures, answers
+# every database write locally without sending it, and prints why each fixture has or lacks a pick
+# plus a walk-forward backtest. Dispatch it on any branch to measure that branch's engine.
+name: Diagnose picks
+
+on:
+  workflow_dispatch:
+    inputs:
+      bt_from:
+        description: 'Backtest from (YYYY-MM-DD)'
+        required: false
+        default: '2024-07-01'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install the browser driver
+        working-directory: robot
+        run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Diagnose
+        working-directory: robot
+        env:
+          MM_PUBLISHER_EMAIL: ${{ secrets.MM_PUBLISHER_EMAIL }}
+          MM_PUBLISHER_PASSWORD: ${{ secrets.MM_PUBLISHER_PASSWORD }}
+          MM_CHANNEL: chrome
+          MM_BT_FROM: ${{ inputs.bt_from }}
+        run: node diagnose.mjs | tee diag.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag
+          path: robot/diag.log
