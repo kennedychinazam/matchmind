@@ -132,7 +132,7 @@ test('version labels identify app versus legal text, and time-zone copy cannot b
   prefs.tz='America/New_York';renderTzSetting();
   return{app:$('verLabel').textContent,legal:$('legalDraftNote').textContent,footer:legalFooter(),device,selected:$('tzHint').textContent};
  });
- assert.match(r.app,/App v0\.9 · build 358/);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
+ assert.match(r.app,/App v0\.9 · build 359/);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
  assert.match(r.device,/Africa\/Lagos.*device/);assert.match(r.selected,/America\/New_York/);
  assert.doesNotMatch(r.device+r.selected,/right now|\d\d:\d\d/);
 });
