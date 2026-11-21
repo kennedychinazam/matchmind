@@ -50,17 +50,33 @@ const POLL_MS = 5 * 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (msg, extra) => console.log(new Date().toISOString() + '  ' + msg + (extra ? '  ' + JSON.stringify(extra) : ''));
 
-async function restCount(table, query) {
-  try {
-    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?select=*&${query}&limit=1`, {
-      method: 'HEAD',
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, Prefer: 'count=exact' },
-    });
-    const cr = r.headers.get('content-range');
-    return cr ? Number(cr.split('/')[1]) : null;
-  } catch (e) {
-    return null;
-  }
+async function publisherCounts(page, day) {
+  // Counts are privileged diagnostics, not a reason to retain public base-table grants.
+  // Keep the session/token in the browser; return three scalars, never source rows.
+  return page.evaluate(async (day) => {
+    const empty = () => ({ predictions:null, slipsToday:null, sharedBars:null });
+    try {
+      if (!supa || !authUser || !isPublisher()) return empty();
+      const client=supa, user=authUser, owner=user.id, epoch=_cloudAccountEpoch;
+      const current=()=>supa===client && authUser===user && authUser.id===owner && _cloudAccountEpoch===epoch;
+      const session=await client.auth.getSession();
+      const s=session.data && session.data.session;
+      if (session.error || !current() || !s || !s.user || s.user.id!==owner || typeof s.access_token!=='string' || !s.access_token) return empty();
+      const access=await client.rpc('matchmind_fixture_access_v1', {});
+      if (!current() || access.error || !access.data || access.data.version!=='matchmind-fixture-access/1' || access.data.raw_allowed!==true) return empty();
+      const specs=[['predictions','fxid',null],['daily_slips','day',day],['competition_measures','lid',null]];
+      const values=[];
+      for (const [table,col,date] of specs) {
+        if (!current()) return empty();
+        let q=client.from(table).select(col,{count:'exact',head:true});
+        q=date ? q.eq('day',date) : q.not(col,'is',null);
+        const result=await q;
+        if (!current()) return empty();
+        values.push(!result.error && Number.isSafeInteger(result.count) && result.count>=0 ? result.count : null);
+      }
+      return {predictions:values[0],slipsToday:values[1],sharedBars:values[2]};
+    } catch { return empty(); }
+  }, day);
 }
 
 async function openApp(page) {
@@ -239,9 +255,7 @@ async function reopenApp(ctx, page, label) {
 async function main() {
   if (!DRY_RUN && (!EMAIL || !PASSWORD)) throw new Error('MM_PUBLISHER_EMAIL and MM_PUBLISHER_PASSWORD must be set');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TIMEZONE });
-  const before = { predictions: await restCount('predictions', 'fxid=not.is.null'),
-                   slipsToday: await restCount('daily_slips', `day=eq.${today}`),
-                   sharedBars: await restCount('competition_measures', 'lid=not.is.null') };
+  let before = { predictions:null, slipsToday:null, sharedBars:null };
   log('start', { app: APP_URL, dryRun: DRY_RUN, channel: CHANNEL, today, before });
 
   const ctx = await chromium.launchPersistentContext(PROFILE, {
@@ -267,6 +281,8 @@ async function main() {
         await openApp(page);
       }
       await ensureSignedIn(page, 'boot');
+      before = await publisherCounts(page, today);
+      log('authorized count baseline', before);
     }
 
     let record = null, clv = null, board = null, aiShadow = null;
@@ -353,9 +369,7 @@ async function main() {
     }
     const end = await waitSettled(page, 'after slips');
 
-    const after = { predictions: await restCount('predictions', 'fxid=not.is.null'),
-                    slipsToday: await restCount('daily_slips', `day=eq.${today}`),
-                    sharedBars: await restCount('competition_measures', 'lid=not.is.null') };
+    const after = DRY_RUN ? {predictions:null,slipsToday:null,sharedBars:null} : await publisherCounts(page, today);
     const summary = {
       build: end.build, competitions: end.competitions, expected: end.expected, matches: end.matches,
       duplicates: end.duplicates, signedIn: end.signedIn, publisher: end.publisher, archiveFailed: end.archiveFailed,
