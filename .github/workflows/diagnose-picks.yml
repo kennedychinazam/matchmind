@@ -13,7 +13,7 @@ on:
         default: '2024-07-01'
 
 permissions:
-  contents: read
+  contents: write   # only to push the result file to the diag-results branch
 
 jobs:
   diagnose:
@@ -34,9 +34,17 @@ jobs:
           MM_PUBLISHER_PASSWORD: ${{ secrets.MM_PUBLISHER_PASSWORD }}
           MM_CHANNEL: chrome
           MM_BT_FROM: ${{ inputs.bt_from }}
-        run: node diagnose.mjs | tee diag.log
-      - uses: actions/upload-artifact@v4
+        run: set -o pipefail; node diagnose.mjs | tee diag.log
+      - name: Save the result to the diag-results branch
         if: always()
-        with:
-          name: diag
-          path: robot/diag.log
+        run: |
+          cp robot/diag.log /tmp/diag.log
+          git config user.name "matchmind-diagnose"
+          git config user.email "diagnose@users.noreply.github.com"
+          git fetch origin diag-results || true
+          git checkout --orphan diag-tmp
+          git rm -rq --cached . && git clean -fdq -e diag-profile
+          if git rev-parse -q --verify origin/diag-results >/dev/null; then git checkout origin/diag-results -- . || true; fi
+          mkdir -p runs && cp /tmp/diag.log "runs/${GITHUB_RUN_ID}-${GITHUB_SHA:0:7}.log"
+          git add runs && git commit -qm "diag ${GITHUB_RUN_ID} on ${GITHUB_REF_NAME} ${GITHUB_SHA:0:7}"
+          git push -f origin HEAD:diag-results
