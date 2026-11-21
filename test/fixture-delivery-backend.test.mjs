@@ -14,7 +14,12 @@ test('null fulltime and AET status survive unchanged',()=>{const f={...fixture()
 test('duplicate source inventory rejected',()=>{assert.throws(()=>buildPresentationPayload({fixtures:[fixture(),fixture()]}),/duplicate/i);assert.throws(()=>buildPresentationPayload({fixtures:[fixture()],predictions:[pred(),pred()]}),/duplicate/i);});
 test('raw blobs, nestedextras, credentials cannot enter projected response',()=>{const f={...fixture(),raw:{odds:'private-marker'},api_key:'private-marker'};const out=buildPresentationPayload({fixtures:[f]});assert(!JSON.stringify(out).includes('private-marker'));out.cards[0].raw={source:'mustreject'};assert.throws(()=>validatePresentationPayload(out),/unsupported/i);});
 test('incomplete score/source fields are not defaulted or silently dropped',()=>{const f=fixture();delete f.ft_h;assert.throws(()=>buildPresentationPayload({fixtures:[f]}),/missing source/i);});
-test('board identity must agree with selected fixture facts',()=>{const b=board();b.rows[0].h='Other';assert.throws(()=>buildPresentationPayload({fixtures:[fixture()],board:b}),/identity/i);});
+test('board identity must agree with selected fixture facts',()=>{const b=board();b.rows[0].h='Other';assert.throws(()=>buildPresentationPayload({fixtures:[fixture()],board:b}),/identity/i);const l=board();l.rows[0].l=2;assert.throws(()=>buildPresentationPayload({fixtures:[fixture()],board:l}),/identity/i);});
+/* Regression for the 2026-11-16 00:00 UTC refresh refusal: the provider moved eight upcoming kickoffs after the
+   board was built, and the whole edition was refused as a "Board fixture identity mismatch". A board row keeps the
+   kickoff it was built for; the fixture record carries the current one. Same id, competition and teams: admitted,
+   with neither the board row nor the fixture rewritten. */
+test('a fixture rescheduled after the board build is admitted with its board row untouched',()=>{const b=board(),f={...fixture(),status:'NS',date:'2026-11-05',time:'20:00',gh:null,ga:null,ft_h:null,ft_a:null};const out=buildPresentationPayload({fixtures:[f],board:b});assert.equal(out.board.rows[0].d,'2026-11-03');assert.equal(out.board.rows[0].t,'12:00');assert.equal(out.cards[0].date,'2026-11-05');assert.equal(out.cards[0].time,'20:00');});
 test('untrusted prototype map keys rejected',()=>{const out=buildPresentationPayload({fixtures:[fixture()]});out.records.engine={key:'engine',build:355,computed_at:null,payload:{v:1,days:JSON.parse('{"2026-11-03":{"__proto__":[1,1,1]}}'),total:0,graded:0,withheld:0,excluded:0,pending:0,orphan:0,off:0,ungradeable:0,voidLate:0}};assert.throws(()=>validatePresentationPayload(out),/map key/i);});
 
 test('original forecast identity is retained separately from current display metadata',()=>{const p=pred();const out=buildPresentationPayload({fixtures:[fixture()],predictions:[p]});assert.equal(out.cards[0].prediction.lname,'Original Synthetic League');assert.equal(out.cards[0].lname,'Synthetic League');assert.equal(out.cards[0].prediction.home,p.home);});
@@ -23,3 +28,12 @@ test('issued slip fixture inventory cannot silently disappear',()=>{const slip={
 
 test('PostgreSQL RFC3339 offset timestamps preserve exact original text',()=>{const f={...fixture(),updated_at:'2026-11-03T12:00:00.123456+00:00'},p={...pred(),made_at:'2026-11-02T13:00:00+01:00'};const b=board();b.builtAt='2026-11-03T05:30:00+05:30';const out=buildPresentationPayload({fixtures:[f],predictions:[p],board:b});assert.equal(out.cards[0].updated_at,f.updated_at);assert.equal(out.cards[0].prediction.made_at,p.made_at);assert.equal(out.board.builtAt,b.builtAt);});
 test('timestamp syntax calendar ranges and explicit timezone are fail closed',()=>{for(const updated_at of ['2026-02-30T12:00:00Z','2026-11-03T24:00:00Z','2026-11-03T12:60:00Z','2026-11-03T12:00:60Z','2026-11-03T12:00:00','2026-11-03T12:00:00+16:00','0000-01-01T00:00:00Z'])assert.throws(()=>buildPresentationPayload({fixtures:[{...fixture(),updated_at}]}),/timestamp/i,updated_at);});
+
+test('publisher preserves all admitted competitions and refuses a missing immutable fixture instead of emitting a subset',()=>{
+ const fixtures=[fixture(),{...fixture(),fxid:2,lid:2,lname:'UEFA Champions League',home:'Champions Home',away:'Champions Away'}];
+ const predictions=[pred(),{...pred(),fxid:2,lid:2,lname:'UEFA Champions League',home:'Champions Home',away:'Champions Away'}];
+ const out=buildPresentationPayload({fixtures,predictions});
+ assert.equal(out.cards.length,2);assert.deepEqual(out.cards.map(c=>c.lname),['Synthetic League','UEFA Champions League']);
+ assert.deepEqual(out.cards.map(c=>c.prediction.pick_prob),[.6,.6]);
+ assert.throws(()=>buildPresentationPayload({fixtures:fixtures.slice(0,1),predictions}),/Unaccounted required prediction inventory 2/);
+});

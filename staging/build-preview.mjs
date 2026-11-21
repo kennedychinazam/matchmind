@@ -67,6 +67,8 @@ export function transform(index, manifest) {
   if (!html.includes(STAGING_KEY)) throw new Error('staging build refused: SUPA_KEY was not replaced');
   html = once(html, '<head>', '<head>' + (crlf ? '\r\n' : '\n') + GUARD, '<head>');
   html = once(html, '<title>MatchMind PRO', '<title>STAGING MatchMind PRO', '<title>');
+  html = once(html, "document.title = APP_NAME_FULL + ': Statistical Football Forecasts';",
+    "document.title = 'STAGING ' + APP_NAME_FULL + ': Statistical Football Forecasts';", 'runtime title');
   const man = JSON.parse(manifest);
   man.name = 'MatchMind STAGING'; man.short_name = 'MM Staging';
   return {html, manifest: JSON.stringify(man, null, 2) + '\n'};
@@ -88,7 +90,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     source_sha256: {'index.html': sha(src.index), 'sw.js': sha(src.sw), 'manifest.webmanifest': sha(src.manifest)},
     output_sha256: {'index.html': sha(Buffer.from(t.html)), 'sw.js': sha(src.sw), 'manifest.webmanifest': sha(Buffer.from(t.manifest)),
                     'icon-192.png': sha(src.i192), 'icon-512.png': sha(src.i512)},
-    changes: ['SUPA_URL and SUPA_KEY to staging', 'staging guard script in <head>', 'title prefix STAGING', 'manifest name and short_name'],
+    changes: ['SUPA_URL and SUPA_KEY to staging', 'staging guard script in <head>', 'static and runtime title prefix STAGING', 'manifest name and short_name'],
   };
   writeFileSync(join(out, 'BUILD-INFO.json'), JSON.stringify(info, null, 2) + '\n');
   console.log(JSON.stringify(info, null, 2));

@@ -1,6 +1,7 @@
 /* Versioned private materialization boundary. No network, credentials, model fitting, or SQL execution. */
 export const CONTRACT_VERSION='matchmind-display/1';
-export const MAX_DOCUMENT_BYTES=524288;
+export const MAX_DOCUMENT_BYTES=2097152;
+export const MAX_LEGACY_DOCUMENT_BYTES=524288;
 const str=(max=160,nullable=false,pattern)=>({type:'string',max,nullable,...(pattern?{pattern}:{})});
 const num=(min=0,max=1e9,nullable=false,integer=false)=>({type:'number',min,max,nullable,integer});
 const bool={type:'boolean'};
@@ -9,7 +10,21 @@ const array=(items,max)=>({type:'array',items,max});
 const count=num(0,1e9,false,true), id=num(1,Number.MAX_SAFE_INTEGER,false,true), score=num(0,100,true,true), probability=num(0,1,true);
 const date={...str(10,false,'^[0-9]{4}-[0-9]{2}-[0-9]{2}$'),format:'date'}, stamp={...str(40,true,'^[0-9]{4}-[0-9]{2}-[0-9]{2}T'),format:'timestamp'}, text=str(160), nullableText=str(160,true);
 const prediction=object({lid:id,lname:text,home:text,away:text,pick:nullableText,pick_prob:probability,market:nullableText,p_home:probability,p_draw:probability,p_away:probability,xg_home:num(0,100,true),xg_away:num(0,100,true),kickoff:date,ktime:str(12,true),made_at:stamp,withheld_at:stamp,final_pick:nullableText,build:num(0,1e6,false,true)},undefined,true);
+const analysisProbability=object({label:str(80),prob:num(0,1)});
+const historyMatch=object({date,home:text,away:text,gh:num(0,100,false,true),ga:num(0,100,false,true)});
+// Optional, closed published analysis; independent of the immutable prediction object.
+const standings=object({season:num(1900,2200,false,true),rows:array(object({rank:num(1,100,false,true),team:text,played:count,won:count,drawn:count,lost:count,gf:count,ga:count,points:num(-100,1000,false,true)}),64)});
+/* Optional per-competition facts (Build 355 parity): the counts rates() needs over the reviewed window, and the
+   league table 355's renderStandings derives. One entry per competition, never per card. */
+const competition=object({lid:id,source:str(80),source_at:stamp,from:date,to:date,rates:object({n:count,btts:count,o15:count,o25:count,o35:count}),standings},['lid','source','from','to']);
+export const ANALYSIS_SCHEMA=object({source:str(80),source_at:stamp,history_source_at:stamp,xg_home:num(0,100),xg_away:num(0,100),
+ result:object({p_home:num(0,1),p_draw:num(0,1),p_away:num(0,1)}),
+ goals:array(analysisProbability,8),combos:array(analysisProbability,12),htft:array(analysisProbability,9),correct_scores:array(analysisProbability,12),scorers:array(analysisProbability,16),
+ form:object({home:array(str(1,false,'^[WDL]$'),5),away:array(str(1,false,'^[WDL]$'),5)}),h2h:array(historyMatch,5),
+ standings,
+ writeup:object({text:str(32768),source:str(80),source_at:stamp})},['source','source_at']);
 export const CARD_SCHEMA=object({fxid:id,lid:id,lname:text,lcountry:str(100),date,time:str(12,true),status:str(24),elapsed:num(0,200,true,true),home:text,away:text,gh:score,ga:score,ft_h:score,ft_a:score,ht_h:score,ht_a:score,updated_at:stamp,provider:str(80,true),prediction});
+CARD_SCHEMA.properties.analysis=ANALYSIS_SCHEMA;
 const boardRow=object({f:id,l:id,n:text,d:date,t:str(12,true),h:text,a:text,p:nullableText,q:probability,m:nullableText,g:nullableText,z:bool,pw:probability,pd:probability,pq:probability,xh:num(0,100,true),xa:num(0,100,true)});
 const board=object({v:num(1,1,false,true),ahead:num(7,7,false,true),builtAt:stamp,n:count,notPassed:count,noBars:count,rows:array(boardRow,1000)},undefined,true);
 const tuple={type:'array',items:count,min:3,max:3};
@@ -21,8 +36,8 @@ const clv=object({v:num(1,1,false,true),raw:stat,devig:stat,beat:count,tie:count
 const record=payload=>object({key:str(8),payload,build:num(0,1e6,false,true),computed_at:stamp},undefined,true);
 const legProperties={fxid:id,d:date,t:str(12,true),h:text,a:text,lid:{...id,nullable:true},code:str(40),market:str(60),p:probability,o:num(1,1e6,true),tab:str(30),rank:count,sel:str(240)};
 const leg=object(legProperties,['fxid','d','h','a','code','p']);
-const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,40)});
-export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1000),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128)});
+const slip=object({day:date,tier:str(40),odds:num(0,1e12),build:num(0,1e6,false,true),step:str(80),legs:array(leg,90)});
+export const PAYLOAD_SCHEMA=object({cards:array(CARD_SCHEMA,1500),board,records:object({engine:record(engine),clv:record(clv)}),slips:array(slip,128),competitions:array(competition,100)},['cards','board','records','slips']);
 // RFC3339 subset shared with PostgreSQL: explicit zone, calendar-valid, no leap seconds;
 // offset displacement is limited to PostgreSQL's supported +/-15:59. Never rewrite the input.
 export function isPresentationTimestamp(value){
@@ -44,10 +59,33 @@ function walk(value,s,path,depth){
  for(const k of keys)walk(value[k],s.properties[k],path+'.'+k,depth+1);
 }
 function vector(v){if(v.every(x=>x===null))return;if(v.some(x=>x===null)||Math.abs(v.reduce((a,b)=>a+b,0)-1)>0.0002)throw Error('Invalid published probability vector');}
+export function legacyPresentationPayload(value){
+ const {competitions,...rest}=value;return {...rest,cards:value.cards.map(({analysis,...c})=>c),slips:value.slips.filter(s=>s.legs.length<=40)};
+}
+export function validateIssuedSlip(s){
+ if(s.tier!=='tips'){if(s.legs.length>40)throw Error('Issued slip exceeds40leg bound');return;}
+ const seen=new Set(),counts=new Map();for(const l of s.legs){
+  if(!['winner','ou','btts'].includes(l.tab)||!Number.isInteger(l.rank)||l.rank<0||l.rank>=30)throw Error('Invalid issued tip tab/rank');
+  const key=l.tab+':'+l.rank;if(seen.has(key))throw Error('Duplicate issued tip tab/rank');seen.add(key);
+  counts.set(l.tab,(counts.get(l.tab)||0)+1);if(counts.get(l.tab)>30)throw Error('Issued tip tab exceeds30rows');
+ }
+}
 export function validatePresentationPayload(value){
  const bytes=Buffer.byteLength(JSON.stringify(value));if(bytes>MAX_DOCUMENT_BYTES)throw Error('Display payload exceeds byte limit');walk(value,PAYLOAD_SCHEMA,'display',0);
- const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}}
- if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a||c.date!==row.d||c.time!==row.t)throw Error('Board fixture identity mismatch');}}
+ /* No edition-wide legacy gate. Old clients bound ONE screen response to MAX_LEGACY_DOCUMENT_BYTES and refuse an
+    oversized one themselves; measuring the whole stripped edition refused every edition once the real 14-day window
+    passed about 830 fixtures (2026-11-19). The full edition stays within MAX_DOCUMENT_BYTES (2 MiB) and 1500 cards (STAGING-capacity2-up.sql);
+    the board keeps its own 1000-row bound because it covers seven days ahead only. */
+ const ids=new Set();for(const c of value.cards){if(ids.has(c.fxid))throw Error('Duplicate fixture in display');ids.add(c.fxid);const p=c.prediction;if(p){const v=[p.p_home,p.p_draw,p.p_away];vector(v);}if(c.analysis?.result)vector(Object.values(c.analysis.result));}
+ if(value.board){if(value.board.n!==value.board.rows.length)throw Error('Incomplete published board inventory');const seen=new Set();for(const row of value.board.rows){if(seen.has(row.f))throw Error('Duplicate board fixture');seen.add(row.f);if(!ids.has(row.f))throw Error('Board fixture missing display identity');vector([row.pw,row.pd,row.pq]);const c=value.cards.find(c=>c.fxid===row.f);if(c.lid!==row.l||c.home!==row.h||c.away!==row.a)throw Error('Board fixture identity mismatch');}}
+ /* A board row's `d`/`t` are the kickoff AT BOARD BUILD TIME. The provider reschedules fixtures between
+    board builds (measured 2026-11-16 00:00 UTC: eight upcoming fixtures moved a day or more after the
+    21:54 board, which refused the whole refresh). Fixture identity is id, competition and both teams;
+    the fixture record carries the current schedule and every consumer keys the board by `f`, so a
+    moved kickoff is a truthful provider change and not corruption. The analysis projector separately
+    declines a board result whose row no longer matches the kickoff it was built for. */
+ if(value.competitions){const seen=new Set();for(const c of value.competitions){if(seen.has(c.lid))throw Error('Duplicate published competition');seen.add(c.lid);if(!value.cards.some(x=>x.lid===c.lid))throw Error('Published competition missing display fixture');if(c.rates&&['btts','o15','o25','o35'].some(k=>c.rates[k]>c.rates.n)||c.rates&&(c.rates.o25>c.rates.o15||c.rates.o35>c.rates.o25))throw Error('Inconsistent competition rates');if(c.from>c.to)throw Error('Invalid competition window');}}
+ for(const slip of value.slips)validateIssuedSlip(slip);
  for(const slip of value.slips)for(const leg of slip.legs)if(!ids.has(leg.fxid))throw Error('Unaccounted issued slip fixture inventory');
  if(value.records.engine&&value.records.engine.key!=='engine'||value.records.clv&&value.records.clv.key!=='clv')throw Error('Record identity mismatch');
  return value;
@@ -55,7 +93,7 @@ export function validatePresentationPayload(value){
 export function buildPresentationPayload({fixtures,predictions=[],board=null,records={engine:null,clv:null},slips=[]}){
  if(!Array.isArray(fixtures)||!Array.isArray(predictions))throw Error('Complete source inventory required');
  const preds=new Map();for(const p of predictions){if(preds.has(p.fxid))throw Error('Duplicate immutable prediction');preds.set(p.fxid,p);}
- const cards=fixtures.map(f=>{const c={};for(const key of Object.keys(CARD_SCHEMA.properties)){if(key==='prediction')continue;if(!Object.hasOwn(f,key))throw Error('Missing source field '+key);c[key]=f[key];}const p=preds.get(f.fxid);c.prediction=p?Object.fromEntries(Object.keys(prediction.properties).map(k=>{if(!Object.hasOwn(p,k))throw Error('Missing immutable prediction '+k);return[k,p[k]];})):null;return c;});
+ const cards=fixtures.map(f=>{const c={};for(const key of Object.keys(CARD_SCHEMA.properties)){if(key==='prediction'||key==='analysis')continue;if(!Object.hasOwn(f,key))throw Error('Missing source field '+key);c[key]=f[key];}const p=preds.get(f.fxid);if(f.analysis)c.analysis=structuredClone(f.analysis);c.prediction=p?Object.fromEntries(Object.keys(prediction.properties).map(k=>{if(!Object.hasOwn(p,k))throw Error('Missing immutable prediction '+k);return[k,p[k]];})):null;return c;});
  for(const key of preds.keys())if(!cards.some(c=>c.fxid===key))throw Error('Unaccounted required prediction inventory '+key);
  // Explicitly projected facts only; never return original objects, snapshots or provider JSON.
  return validatePresentationPayload({cards,board:board===null?null:structuredClone(board),records:structuredClone(records),slips:structuredClone(slips)});

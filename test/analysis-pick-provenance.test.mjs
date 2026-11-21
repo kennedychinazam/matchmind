@@ -42,6 +42,8 @@ async function open(t,viewport){
     viewport:viewport||{width:390,height:844}});
   await context.route('**/*',r=>r.request().url()==='http://pick-provenance.test/'
     ?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://pick-provenance.test/');
   return page;
@@ -243,10 +245,9 @@ test('the verbose no-pick paragraph is gone and every played row keeps a compact
   const seen=await page.evaluate(async([slate])=>{
     eval(slate);mmSlate();return await mmRender({stub:true});
   },[SLATE]);
-  /* 30 rows: 24 with no record at all, 1 board-only, 1 withheld-and-played, 3 graded, 1 bare stub.
-     The upcoming withheld card has no result, so the feed's own rule keeps it out of the played
-     list; its chip is asserted separately. */
-  assert.equal(seen.rows.length,30,'the feed did not render every fixture: '+seen.rows.length);
+  /* Director 5: 31 admitted rows, including the upcoming withheld fixture.
+     Accepted public inventory remains visible independently of whether a pick was issued. */
+  assert.equal(seen.rows.length,31,'the feed did not render every fixture: '+seen.rows.length);
   /* THE PARAGRAPH, AND THE CLAIM INSIDE IT, on rendered text rather than on the source. */
   assert.doesNotMatch(seen.text,VERBOSE,'the feed still blames whether the app was open');
   assert.doesNotMatch(seen.body,VERBOSE,'the screen still blames whether the app was open');
@@ -269,7 +270,7 @@ test('the verbose no-pick paragraph is gone and every played row keeps a compact
   const by=p=>seen.rows.find(r=>r.text.includes(p)).chip;
   assert.equal(by('Hit Home'),'1 ✓','a published hit no longer grades as a hit');
   assert.equal(by('Miss Home'),'1 ✗','a published miss no longer grades as a miss');
-  assert.equal(by('Void Home'),'1 DNB void','a level Draw No Bet no longer grades as a void');
+  assert.equal(by('Void Home'),'1 DNB · Void','a level Draw No Bet no longer grades as a void');
 });
 
 test('provenance decides the status: the eight states are told apart, not pooled',async t=>{
@@ -316,7 +317,7 @@ test('provenance decides the status: the eight states are told apart, not pooled
       'four indistinguishable causes were reported as a published decision: '+r.chip);
     assert.doesNotMatch(r.chip,/board/i,
       'a state with no board row cites a board: '+r.chip);
-    assert.match(r.chip,/^No record$/i,
+    assert.match(r.chip,/^No published prediction$/i,
       'the unknowable state is not reported as such: '+r.chip);
     assert.doesNotMatch(r.chipTitle,/not withheld|was not withheld/i,
       'the title rules out a withhold it cannot rule out: '+r.chipTitle);
@@ -332,7 +333,7 @@ test('provenance decides the status: the eight states are told apart, not pooled
   assert.doesNotMatch(stub.chip,/withheld/i);
   /* The one sentence is OPTIONAL and reachable: a title for a pointer, an accessible name for
      assistive technology. It is never permanent furniture, and never that claim. */
-  for(const r of seen.rows.filter(x=>!GRADE.test(x.chip)&&!/void/.test(x.chip))){
+  for(const r of seen.rows.filter(x=>!GRADE.test(x.chip)&&!/void/i.test(x.chip))){
     assert.ok(r.chipTitle&&r.chipTitle.length>0,'the compact status carries no title: '+r.chip);
     assert.ok(r.chipTitle.length<=300,'the title is a paragraph again: '+r.chipTitle);
     assert.doesNotMatch(r.chipTitle,VERBOSE,'the title still blames whether the app was open');
@@ -352,7 +353,7 @@ test('an expired edition is reported as unavailable, never as a published decisi
     renderFixtures();
     return mmFeed();
   },[SLATE]);
-  const rows=seen.rows.filter(r=>!GRADE.test(r.chip||'')&&!/void/.test(r.chip||''));
+  const rows=seen.rows.filter(r=>!GRADE.test(r.chip||'')&&!/void/i.test(r.chip||''));
   assert.ok(rows.length>=26,'the slate did not survive the re-render: '+rows.length);
   for(const r of rows){
     assert.match(r.chip,/^Unavailable$/i,

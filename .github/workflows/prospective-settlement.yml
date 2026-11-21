@@ -1,0 +1,31 @@
+name: Prospective settlement (isolated synthetic database)
+on:
+  push:
+    branches: [codex/wo62b-public-release-20261110]
+    paths:
+      - 'backend/settlement-cohort/**'
+      - 'test/prospective-settlement.test.mjs'
+      - 'index.html'
+      - '.github/workflows/prospective-settlement.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  prospective:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.20.2', '24.19.0']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Verify prospective policy and immutable engine
+        run: node --test test/prospective-settlement.test.mjs test/wo62b-engine-preservation.test.mjs
+      - name: Build existing isolated preview (no deployment)
+        run: node staging/build-preview.mjs "$RUNNER_TEMP/mm-settlement-preview"

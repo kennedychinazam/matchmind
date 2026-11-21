@@ -30,8 +30,10 @@ test('the release candidate is untouched and only the documented hunks differ', 
   assert.ok(D('icon-192.png').equals(R('icon-192.png')) && D('icon-512.png').equals(R('icon-512.png')));
   const a = R('index.html').toString('utf8').split('\r\n'), b = D('index.html').toString('utf8').split('\r\n');
   const removed = a.filter(l => !b.includes(l)), added = b.filter(l => !a.includes(l));
-  assert.equal(removed.length, 3, 'removed lines: ' + removed.map(l => l.slice(0, 40)).join(' | '));
+  assert.equal(removed.length, 4, 'removed lines: ' + removed.map(l => l.slice(0, 40)).join(' | '));
   assert.ok(removed.some(l => /^const SUPA_URL/.test(l)) && removed.some(l => /^const SUPA_KEY/.test(l)) && removed.some(l => /^<title>MatchMind PRO/.test(l)));
+  assert.ok(removed.includes("document.title = APP_NAME_FULL + ': Statistical Football Forecasts';"));
+  assert.ok(added.includes("document.title = 'STAGING ' + APP_NAME_FULL + ': Statistical Football Forecasts';"));
   assert.ok(added.some(l => /^const SUPA_URL = 'https:\/\/rdcbnvfnxenrpnnwxszs/.test(l)) && added.length < 40, 'added lines: ' + added.length);
   assert.equal(a.length + added.length - removed.length, b.length, 'every other line is identical, in the same order');
 });

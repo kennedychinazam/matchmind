@@ -134,3 +134,35 @@ test('a stale edition cannot replace a newer accepted one',async t=>{
   assert.deepEqual(seen.afterStaleAgain,seen.fresh,
     'the feed did not recover while the replica kept lagging');
 });
+
+test('delayed edition adds Champions League atomically, preserving date, filter and original rows against lagging refresh',async t=>{
+ const page=await open(t);
+ const x=await page.evaluate(async rig=>{
+  eval(rig);installStable();
+  window.currentEdition=makeEdition('77777777-7777-4777-8777-777777777777',2000,['Alpha Cup']);
+  await loadFixturePresentation();
+  afState.filter='all';afState.selectedDate=new Date().toISOString().slice(0,10);
+  const state=()=>({names:visibleLeagues().map(L=>L.name).sort(),date:afState.selectedDate,filter:afState.filter,archive:JSON.stringify(afState.archive),text:$('fixtureList').textContent});
+  const first=state(),old=window.currentEdition;
+  const newer=makeEdition('88888888-8888-4888-8888-888888888888',500,['Alpha Cup','UEFA Champions League']);
+  newer.cards[0].prediction=structuredClone(old.cards[0].prediction);
+  newer.cards[1].prediction.lid=999;newer.cards[1].prediction.lname='Original archived competition';
+  newer.cards[1].status='PST';
+  // Hold one screen on the SAME client. No account/client reset is involved.
+  const rpc=supa.rpc;let release;let waiting=false;
+  supa.rpc=async(name,args)=>{if(args&&args.screen==='predictions'&&!waiting){waiting=true;await new Promise(r=>{release=r;});}return rpc(name,args);};
+  window.currentEdition=newer;
+  const pending=loadFixturePresentation();
+  while(!release)await new Promise(r=>setTimeout(r,0));
+  const during=state();release();await pending;const after=state();
+  window.currentEdition=old;await loadFixturePresentation();const lagging=state();
+  return{first,during,after,lagging,original:afState.archive[980000]};
+ },RIG);
+ assert.deepEqual(x.during,x.first,'no half-slate or false no-pick count while one screen is delayed');
+ assert.deepEqual(x.after.names,['Alpha Cup','UEFA Champions League']);
+ assert.ok(x.after.text.includes('UEFA Champions League'));
+ assert.ok(x.after.text.toUpperCase().includes('POSTPONED'),'provider status propagates through real admitted edition');
+ assert.equal(x.after.date,x.first.date);assert.equal(x.after.filter,x.first.filter);
+ assert.deepEqual(x.lagging,x.after,'older/slower subset cannot replace complete accepted edition');
+ assert.deepEqual(JSON.parse(x.after.archive)['980000'],JSON.parse(x.first.archive)['980000'],'published history is unchanged');
+});

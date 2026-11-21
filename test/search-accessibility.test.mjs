@@ -18,7 +18,11 @@ async function open(t,viewport={width:1280,height:900}){
   t.after(async()=>{await browser.close();assert.deepEqual(errors,[],'no page runtime errors');});
   const context=await browser.newContext({viewport,serviceWorkers:'block'});
   await context.route('**/*',r=>r.request().url()==='http://search-accessibility.test/'
-    ?r.fulfill({status:200,contentType:'text/html',body:source}):r.abort());
+    ?r.fulfill({status:200,contentType:'text/html',body:source})
+    :r.request().url()==='http://search-accessibility.test/outside'
+      ?r.fulfill({status:200,contentType:'text/html',body:'<title>Previous website</title>'}):r.abort());
+  // This existing scenario starts as a returning visitor; first-run behavior has its own WO62B suite.
+  await context.addInitScript(()=>localStorage.setItem('mm_intro','1'));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://search-accessibility.test/',{waitUntil:'load'});
   assert.match(await page.title(),/MatchMind/);
@@ -121,6 +125,49 @@ test('Close and browser Back restore the legitimate opener, including repeated o
   assert.equal(await focused(page),'alternateSearchOpen');
   await showSearch(page);await page.goBack();
   assert.equal(await page.locator('#searchOverlay').isVisible(),false);assert.equal(await focused(page),'searchOpen');
+});
+test('Search owns one real history entry and Forward reopens it without trapping external Back',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.goto('http://search-accessibility.test/outside');
+  await page.goto('http://search-accessibility.test/');
+  const rootLength=await page.evaluate(()=>history.length);
+  await showSearch(page);assert.equal(await page.evaluate(()=>history.length),rootLength+1);
+  await page.goBack();assert.equal(await page.locator('#searchOverlay').isVisible(),false);assert.equal(await focused(page),'searchOpen');
+  await page.goForward();await page.waitForFunction(()=>document.activeElement.id==='searchInput');assert.equal(await page.locator('#searchOverlay').isVisible(),true);
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!history.state.overlay);assert.equal(await focused(page),'searchOpen');
+  await showSearch(page);await page.locator('#searchClose').click();await page.waitForFunction(()=>!history.state.overlay);assert.equal(await page.evaluate(()=>history.length),rootLength+1);
+  await page.goBack();assert.equal(await page.title(),'Previous website');
+});
+test('Search result navigation consumes its overlay before detail Back and Forward',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.evaluate(()=>navTo('predict'));const originLength=await page.evaluate(()=>history.length);
+  await showSearch(page);await seedResults(page);await page.locator('#searchResults [data-m="0"]').click();
+  await page.waitForFunction(()=>curView==='detail');assert.equal(await page.evaluate(()=>history.length),originLength+1);
+  await page.goBack();await page.waitForFunction(()=>curView==='predict');assert.equal(await page.locator('#searchOverlay').isVisible(),false);
+  await page.goForward();await page.waitForFunction(()=>curView==='detail');assert.equal(await page.locator('#searchOverlay').isVisible(),false);
+  assert.match(await page.locator('#heroHome').textContent(),/Synthetic Search A/);
+});
+test('skipping Search with a history jump preserves an interactive Analysis view on Forward',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.evaluate(()=>{navTo('predict');$('fixturesWrap').classList.remove('hidden');});
+  await showSearch(page);await page.evaluate(()=>history.go(-2));await page.waitForFunction(()=>curView==='scores');
+  assert.equal(await page.locator('#searchOverlay').isVisible(),false);
+  await page.goForward();await page.waitForFunction(()=>curView==='predict');
+  assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);
+  await page.locator('#segComps').click();assert.equal(await page.locator('#compsDrop').isVisible(),true);
+  await page.goForward();await page.waitForFunction(()=>document.activeElement.id==='searchInput');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!history.state.overlay);
+  assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);assert.equal(await focused(page),'segComps');
+});
+test('jumping Forward directly into Search first restores its originating Analysis view',async t=>{
+  const page=await open(t,{width:390,height:844});
+  await page.evaluate(()=>navTo('predict'));await showSearch(page);
+  await page.evaluate(()=>history.go(-2));await page.waitForFunction(()=>curView==='scores');
+  await page.evaluate(()=>history.go(2));await page.waitForFunction(()=>document.activeElement.id==='searchInput');
+  assert.equal(await page.evaluate(()=>curView),'predict');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!history.state.overlay);
+  assert.equal(await page.evaluate(()=>curView),'predict');assert.equal(await page.locator('#view-predict').evaluate(e=>e.inert),false);
+  assert.equal(await focused(page),'searchOpen');
 });
 test('a removed opener falls back to the visible Search button',async t=>{
   const page=await open(t);

@@ -109,7 +109,7 @@ test('a previously issued pick remains visible when later marked as no longer ba
  const got=await page.evaluate(()=>{
   const r={fxid:990359,lid:39,lname:'Synthetic Competition',date:'2099-11-03',time:'12:00',status:'NS',elapsed:null,home:'Frozen Home',away:'Frozen Away',prediction:{lid:39,lname:'Original Synthetic Competition',home:'Frozen Home',away:'Frozen Away',pick:'1',pick_prob:.61,market:'Winner',p_home:.61,p_draw:.24,p_away:.15,kickoff:'2099-11-03',ktime:'12:00',made_at:'2026-11-03T10:00:00Z',withheld_at:'2026-11-03T10:01:00Z',final_pick:'1',build:355}};
   const f=fixturePresentationRow(r,null);showPublishedFixture({id:39,name:r.lname,country:'Synthetic',matches:[],upcoming:[f],_presentation:true},f);
-  return {pick:$('heroPick').textContent,note:$('analysisText').textContent};
+  return {pick:$('heroPick').textContent,note:$('heroStrong').textContent};
  });
  assert.match(got.pick,/Frozen Home/,'marking an issued pick as no longer backed must not erase the original published claim');
  assert.match(got.note,/withdrawn|no longer|stopped backing|unbacked/i,'the changed backing must be represented honestly beside the preserved issued claim');
