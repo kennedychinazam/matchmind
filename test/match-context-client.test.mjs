@@ -54,5 +54,5 @@ test('matchContextDecode admits the closed wire shape and refuses anything else'
  for(const f of bad){const v=structuredClone(good);f(v);assert.throws(()=>dec(v,5));}
 });
 test('Build 361 ships the client and the service worker together',()=>{
- assert.match(html,/const APP_BUILD = 361;/);assert.match(sw,/const CACHE = 'matchmind-v361';/);
+ assert.match(html,/const APP_BUILD = 362;/);assert.match(sw,/const CACHE = 'matchmind-v362';/);
 });
