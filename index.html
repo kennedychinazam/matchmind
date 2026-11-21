@@ -1132,7 +1132,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 363;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 364;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -1546,7 +1546,7 @@ const SHRINK_OF_MATCHES = new WeakMap();
    stays on the nine: its question is which caches predate build 320, and 3 and 848 postdate it.
    K for 3 and 848 is the cup value, by `MatchMind-CUP-DEF-PREREG.md` (filed before scoring; 32 is the default and
    8 did not clear its drop-one). */
-const CUP_COMPS = [2, 13, 45, 66, 81, 90, 96, 137, 143, 3, 848];
+const CUP_COMPS = [2, 13, 45, 66, 81, 90, 96, 137, 143, 3, 848, 531, 15, 12, 20, 533, 1, 4, 6, 19, 32, 29, 960, 36, 5, 10, 37];   // build 364: never a league source for xcSource
 const _CUP_COMPS = new Set(CUP_COMPS.map(String));
 function shrinkKFor(L){
   if(!L || L.id == null) return ENGINE2.SHRINK_K;
@@ -4897,7 +4897,12 @@ function gateBarFor(L){
    never stamp `withheld_at` on a pick issued before this build. */
 const STRONG_MIN = 0.75;
 const LEAN_MIN = 0.65;
-function strongBarFor(L){ return Math.max(STRONG_MIN, gateBarFor(L)); }
+function strongBarFor(L){
+  /* build 364 - an XR competition that has not passed its own walk-forward calibration test, and every
+     friendly, is capped at Lean: the Strong bar is set out of reach. */
+  if(typeof xrComp === 'function' && xrComp(L) && !XR_STRONG_OK.has(String(L.id))) return 1.01;
+  return Math.max(STRONG_MIN, gateBarFor(L));
+}
 function gateEdgeFor(L){
   const g = (L && afState.gate) ? afState.gate[L.id] : null;
   return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
@@ -6178,7 +6183,189 @@ function xcAdjust(L, f, P, eng){
   out.xcShift = +z.toFixed(4);
   return out;
 }
+/* ══ BUILD 364 — XR: ONE CROSS-COMPETITION RATING (CLUB ELO + NATIONAL ELO) ══════════════════════
+   The owner's complaint: a club new to a competition is priced as an average side until it builds
+   history in THAT competition (`footballEngine` only sees `L.matches`). XR rates every team from all of
+   its matches in every collected competition, in date order, so a Champions League debutant arrives
+   with its domestic record already in its rating.
+
+   CLUB ELO (ClubElo style). One rating per club, updated after every match in every club competition
+   the app loads (the 55 domestic and continental competitions, 60 months).
+     K        20 domestic, 30 continental and club-world competitions.
+     margin   World Football Elo multiplier: 1 for a one-goal margin or a draw, 1.5 for two,
+              (11+N)/8 for N of three or more.
+     home     an advantage per competition, learned online from that competition's results;
+              0 at a neutral venue (UEFA Super Cup, Club World Cup, a single-match UEFA final).
+     seed     a club first seen in a collected league starts at that league's current mean, so a
+              strong league's newcomer is not dragged to 1500. A club first seen in a continental
+              competition (its own league is not collected) starts at the league-strength prior for
+              that confederation: the running mean of every other such club, which the continental
+              results themselves move. No domestic fetch is needed for it.
+     decay    a club idle for more than 120 days is pulled 25% toward its pool mean.
+   NATIONAL ELO (World Football Elo style), a separate pool:
+     K        60 World Cup, 50 continental finals (Euro, AFCON, CHAN), 40 qualifiers and Nations
+              League, 20 friendlies. Same margin multiplier.
+     home     +100 for the home side; 0 at the finals tournaments, except for the host.
+   PRICE. The Elo difference d (home advantage included, in units of 400) is mapped to expected goals
+   with a Poisson model, lambdaH = exp(a + b*d), lambdaA = exp(a - b*d), whose a and b were fitted
+   by maximum likelihood on matches BEFORE the backtest window (bt/xr-run.mjs), then priced by the
+   engine's own `marketsFor`, so every market and the calibration step are the ones the app uses.
+   The walk-forward backtest and its per-competition gate are in XR_GATE below. */
+const XR = (() => {
+  const CONT = new Set([2,3,848,531,15,12,20,533,13]);
+  const CLUB_NEUTRAL = new Set([531,15]);
+  const NT_K = {1:60, 4:50, 6:50, 19:50, 32:40, 29:40, 960:40, 36:40, 5:40, 37:40, 10:20};
+  const NT_FINALS = new Set([1,4,6,19]);
+  /* Hosts by provider season. Euro 2020 was played across eleven countries and has no single host. */
+  const NT_HOSTS = {
+    '1:2014':['Brazil'], '1:2018':['Russia'], '1:2022':['Qatar'], '1:2026':['USA','Mexico','Canada'],
+    '4:2016':['France'], '4:2024':['Germany'],
+    '6:2015':['Equatorial Guinea'], '6:2017':['Gabon'], '6:2019':['Egypt'], '6:2021':['Cameroon'],
+    '6:2023':['Ivory Coast'], '6:2025':['Morocco'],
+    '19:2014':['South Africa'], '19:2016':['Rwanda'], '19:2018':['Morocco'], '19:2020':['Cameroon'],
+    '19:2022':['Algeria'], '19:2024':['Kenya','Uganda','Tanzania']
+  };
+  /* Fitted on matches before 2024-07-01 (club) and 2022-01-01 (national); see bt/xr-run.mjs. */
+  const FIT = { club:{a:0.23, b:0.90}, nt:{a:0.14, b:0.92} };
+  const PRIOR = { uefa:1450, caf:1450, other:1450 };
+  const isNT = (lid) => NT_K[lid] != null;
+  const margin = (gd) => { gd = Math.abs(gd); return gd <= 1 ? 1 : gd === 2 ? 1.5 : (11 + gd) / 8; };
+  const expect = (d) => 1 / (1 + Math.pow(10, -d / 400));
+  const days = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
+  const fam = (lid) => [12,20,533].includes(+lid) ? 'caf' : [2,3,848,531].includes(+lid) ? 'uefa' : 'other';
+  function neutralClub(m){ return CLUB_NEUTRAL.has(+m.lid) || ([2,3,848].includes(+m.lid) && /^final$/i.test(String(m.round||'').trim())); }
+  function create(){
+    return { r:{}, last:{}, pool:{}, poolSum:{}, poolN:{}, hfa:{}, n:{}, pre:new Map(), nt:{ r:{}, n:{} } };
+  }
+  function poolMean(S, key){ return S.poolN[key] ? S.poolSum[key] / S.poolN[key] : null; }
+  function seedClub(S, name, m){
+    if(S.r[name] != null) return;
+    const lid = +m.lid;
+    let key, v;
+    if(!CONT.has(lid)){ key = 'L' + lid; v = poolMean(S, key); if(v == null) v = 1500; }
+    else { key = 'U' + fam(lid); v = poolMean(S, key); if(v == null) v = PRIOR[fam(lid)]; }
+    S.r[name] = v; S.pool[name] = key; S.n[name] = 0;
+    S.poolSum[key] = (S.poolSum[key] || 0) + v; S.poolN[key] = (S.poolN[key] || 0) + 1;
+  }
+  function setR(S, name, v){ const k = S.pool[name]; S.poolSum[k] += v - S.r[name]; S.r[name] = v; }
+  function keyOf(m){ return m.date + '|' + m.home + '|' + m.away; }
+  /* One club match, in date order. Records the PRE-match state for walk-forward pricing. */
+  function stepClub(S, m){
+    const lid = +m.lid;
+    seedClub(S, m.home, m); seedClub(S, m.away, m);
+    for(const t of [m.home, m.away]){
+      const l = S.last[t];
+      if(l && days(l, m.date) > 120){ const pm = poolMean(S, S.pool[t]); if(pm != null) setR(S, t, pm + (S.r[t] - pm) * 0.75); }
+    }
+    const neutral = neutralClub(m);
+    const hk = CONT.has(lid) ? 'cont' : 'L' + lid;
+    const h = neutral ? 0 : (S.hfa[hk] != null ? S.hfa[hk] : 65);
+    const d = S.r[m.home] + h - S.r[m.away];
+    S.pre.set(keyOf(m), { d, nh:S.n[m.home], na:S.n[m.away], lid });
+    if(m.hg == null || m.ag == null) return;
+    const res = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+    const K = (CONT.has(lid) ? 30 : 20) * margin(m.hg - m.ag);
+    const dl = K * (res - expect(d));
+    setR(S, m.home, S.r[m.home] + dl); setR(S, m.away, S.r[m.away] - dl);
+    if(!neutral) S.hfa[hk] = h + 0.6 * (res - expect(d)) * 4;
+    S.n[m.home]++; S.n[m.away]++; S.last[m.home] = m.date; S.last[m.away] = m.date;
+  }
+  function ntHostAdv(m, t){
+    const hs = NT_HOSTS[(+m.lid) + ':' + (m.season || String(m.date).slice(0,4))];
+    return hs && hs.includes(t) ? 100 : 0;
+  }
+  function stepNT(S, m){
+    const T = S.nt, lid = +m.lid;
+    for(const t of [m.home, m.away]) if(T.r[t] == null){ T.r[t] = 1500; T.n[t] = 0; }
+    const h = NT_FINALS.has(lid) ? ntHostAdv(m, m.home) - ntHostAdv(m, m.away) : 100;
+    const d = T.r[m.home] + h - T.r[m.away];
+    S.pre.set(keyOf(m), { d, nh:T.n[m.home], na:T.n[m.away], lid, nt:true });
+    if(m.hg == null || m.ag == null) return;
+    const res = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+    const dl = NT_K[lid] * margin(m.hg - m.ag) * (res - expect(d));
+    T.r[m.home] += dl; T.r[m.away] -= dl; T.n[m.home]++; T.n[m.away]++;
+  }
+  /* Build from every loaded competition. `all` is [{lid,date,home,away,hg,ag,round,season}]. */
+  function build(all){
+    const S = create();
+    const ms = all.slice().sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0);
+    for(const m of ms) (isNT(m.lid) ? stepNT : stepClub)(S, m);
+    S.built = ms.length;
+    return S;
+  }
+  function lambdas(d, nt, fit){
+    const F = fit || (nt ? FIT.nt : FIT.club), x = d / 400;
+    return [Math.exp(F.a + F.b * x), Math.exp(F.a - F.b * x)];
+  }
+  /* The pre-match difference for a played fixture, or the current one for an upcoming fixture. */
+  function diffFor(S, lid, f){
+    const p = S.pre.get(keyOf(f));
+    if(p) return p;
+    lid = +lid;
+    if(isNT(lid)){
+      const T = S.nt, rh = T.r[f.home], ra = T.r[f.away];
+      const h = NT_FINALS.has(lid) ? ntHostAdv({lid, season:f.season, date:f.date}, f.home) - ntHostAdv({lid, season:f.season, date:f.date}, f.away) : 100;
+      return { d:(rh ?? 1500) + h - (ra ?? 1500), nh:T.n[f.home] || 0, na:T.n[f.away] || 0, lid, nt:true };
+    }
+    const m = { lid, round:f.round };
+    const prior = (t) => S.r[t] != null ? S.r[t] : (poolMean(S, 'U' + fam(lid)) ?? PRIOR[fam(lid)]);
+    const hk = CONT.has(lid) ? 'cont' : 'L' + lid;
+    const h = neutralClub(m) ? 0 : (S.hfa[hk] != null ? S.hfa[hk] : 65);
+    return { d:prior(f.home) + h - prior(f.away), nh:S.n[f.home] || 0, na:S.n[f.away] || 0, lid };
+  }
+  return { build, lambdas, diffFor, isNT, CONT, NT_K, FIT, keyOf, _margin:margin };
+})();
+
+/* XR_COMPS are priced by XR instead of the per-competition engine. Friendlies keep the per-competition
+   engine where it prices (it backtested better there: log loss 0.947 against XR 0.977) and fall back
+   to XR, and are never Strong. XR_STRONG_OK lists the competitions whose walk-forward Strong picks
+   (prob >= 0.75) landed within 2 points of their stated probability; every other XR competition is
+   capped at Lean until its own backtest passes. Backtest, 2024-07 on (clubs) and 2022-01 on (national):
+     UEL 0.792 v 0.800 (n 378) PASS · UCL 0.756 v 0.802 (432) · UECL 0.755 v 0.789 (565) ·
+     CAF CL 0.837 v 0.814 (241) · CAF CC 0.879 v 0.802 (190) · CWC 0.778 v 0.812 (50) · 531/533 n<10 ·
+     WC 0.821 v 0.805 (168) PASS · AFCON 0.818 v 0.798 (155) PASS · WCQ Africa 0.801 v 0.815 (266) PASS ·
+     Euro qual 0.846 v 0.838 (239) PASS · AFCON qual 0.826 v 0.810 (341) PASS · Euro 0.818 v 0.797 (51) ·
+     WCQ Europe 0.806 v 0.851 (212) · Nations League 0.776 v 0.811 (510) · CHAN 0.727 v 0.801 (73).
+   Full table: release/xr/XR-BACKTEST.md. */
+const XR_COMPS = new Set([2,3,848,531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37].map(String));
+const XR_STRONG_OK = new Set([3,1,6,29,960,36].map(String));
+const XR_FRIENDLY = '10';
+function xrComp(L){ return !!L && XR_COMPS.has(String(L.id)); }
+let _xrState = null, _xrAt = -1;
+function xrState(){
+  if(_xrState && _xrAt === _leaguesLoadedAt) return _xrState;
+  const all = [];
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id]; if(!L || L.sport && L.sport !== 'football') continue;
+    for(const m of (L.matches || [])) if(m && m.hg != null && m.ag != null) all.push({lid:+L.id, date:m.date, home:m.home, away:m.away, hg:m.hg, ag:m.ag, round:m.round, season:m.season});
+  }
+  _xrState = XR.build(all); _xrAt = _leaguesLoadedAt;
+  return _xrState;
+}
+function xrPredict(L, f){
+  if(!xrComp(L) || !f) return null;
+  const S = xrState(), q = XR.diffFor(S, L.id, f);
+  if(!q || !isFinite(q.d)) return null;
+  const [lh, la] = XR.lambdas(q.d, !!q.nt);
+  const out = footballEngine.marketsFor(lh, la, null);
+  if(!out) return null;
+  /* A side XR has never seen is priced on the pool prior. The live rule never publishes that. */
+  out.unknownTeams = (q.nh ? 0 : 1) + (q.na ? 0 : 1);
+  out.unknownNames = [!q.nh ? f.home : null, !q.na ? f.away : null].filter(Boolean);
+  out.xr = { d:+q.d.toFixed(1), nh:q.nh, na:q.na };
+  return out;
+}
+/* The one place that decides which model prices an XR competition's fixture. */
+function xrOrEngine(L, f, engineP){
+  if(!xrComp(L)) return engineP;
+  if(String(L.id) === XR_FRIENDLY && engineP && !engineP.unknownTeams) return engineP;
+  return xrPredict(L, f) || engineP;
+}
 function fxPredict(L,f){
+  if(xrComp(L) && f){   // build 364
+    const tmp0 = (L.matches && L.matches.length>=15) ? Object.assign(Object.create(footballEngine),{matches:L.matches}) : null;
+    return xrOrEngine(L, f, tmp0 ? tmp0.predict(f.home,f.away) : null);
+  }
   if(!(L && L.matches && L.matches.length>=15 && f)) return null;
   const hit = _fxPredCache.get(f);
   if(hit && hit.n === L.matches.length) return hit.P;
@@ -18357,6 +18544,7 @@ const ANALYSIS_TIER = {
   45:{t:13}, 48:{t:13}, 143:{t:13}, 137:{t:13}, 81:{t:13}, 66:{t:13},
   88:{t:14}, 94:{t:14}, 2003:{t:14}, 2017:{t:14},
   233:{t:15}, 288:{t:15}, 200:{t:15}, 186:{t:15}, 202:{t:15}, 399:{t:15},
+  37:{t:9,s:2},   // build 364 - WC qualification play-offs, with the qualifiers
   19:{t:16}, 10:{t:19}, 667:{t:20}
 };
 function analysisTier(L){
@@ -19790,7 +19978,10 @@ async function loadCloudResults(){
    falls back safely: `gateBarFor`/`gateEdgeFor` to the global bar, `dampenFor` to the engine
    default, and `autoGate` measures a new competition's own bar once it has history. Verified at
    build 257 rather than trusted from the note. */
-const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865,
+  /* build 364 - UEFA Super Cup, Club World Cup, the three CAF club competitions and the European and
+     African national-team competitions. Collected by refresh-af af-45's date pass; priced by XR. */
+  531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37];
 /* ⚠ EVERY COMPETITION MUST BE A DECISION: fitted by id in LEAGUE_FIT_NAME, or listed here as
    deliberately unfitted. The lock asserts `COMP_IDS == fitted ∪ unfitted`, so a league added with
    no decision either way fails the suite rather than quietly predicting on a constant nobody chose.
@@ -19801,7 +19992,7 @@ const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,30
    Inventing a value to fill the row is §17e's exact habit, and it is why 13 has sat here unfitted
    since build 159 rather than being given a plausible number. They become candidates for fitting
    when they have the history to support one — which is a measurement, not this build. */
-const LEAGUE_UNFITTED = [3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const LEAGUE_UNFITTED = [531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
 
 /* == BUILD 327 - KEN'S DIVISION RULE: WHICH COMPETITIONS MATCHMIND PREDICTS ======================
    Ken, 2026-09-16: *"We will remove from our analysis and tips section, all prediction from any league
@@ -20947,13 +21138,15 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
     return true;
   }
   // predictions from the engine (needs enough history)
-  if(L.matches.length>=15){
+  if(L.matches.length>=15 || xrComp(L)){   // build 364 - XR prices a competition with no history of its own
     const tmp=Object.create(footballEngine); tmp.matches=L.matches;
+    const thin = L.matches.length < 15;
     for(const f of display){
       // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
-      const p = f._fin
+      const p0 = thin ? null : f._fin
         ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
         : xcAdjust(L, f, tmp.predict(f.home, f.away), tmp);   // build 324 — the record prices as the screens do
+      const p = xrOrEngine(L, f, p0);   // build 364 - XR's pre-match state is walk-forward for a played fixture
       if(p){
         const hp = headlinePick(p, f.home, f.away);
         /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
