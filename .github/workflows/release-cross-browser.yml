@@ -1,0 +1,42 @@
+name: release-cross-browser
+# Release gate for the bounded-window cutover: Firefox and WebKit at 320px and 390px against the
+# release branch's own index.html. Runs on push to the release branch (a push-triggered workflow
+# runs from the pushed branch, so it need not exist on the default branch first).
+on:
+  push:
+    branches: [ccr-5da6e9b3-3ms4v5]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browsers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.19.0'}
+      - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - run: npx -y playwright@1.63.0 install --with-deps ${{ matrix.browser }}
+      - name: Release check (${{ matrix.browser }}, 320px and 390px)
+        env:
+          MM_RELEASE_BROWSER: ${{ matrix.browser }}
+          PWA_PLAYWRIGHT: ${{ github.workspace }}/node_modules/playwright-core
+        run: node --test test/release-cross-browser.test.mjs
+      - name: Navigation at 320px and 390px (Firefox)
+        if: matrix.browser == 'firefox'
+        env:
+          MM_NAV_BROWSER: firefox
+          PWA_PLAYWRIGHT: ${{ github.workspace }}/node_modules/playwright-core
+        run: node --test test/navigation-history.test.mjs
+      - name: Director release display (WebKit)
+        if: matrix.browser == 'webkit'
+        env:
+          MM_DIRECTOR_BROWSER: webkit
+          PWA_PLAYWRIGHT: ${{ github.workspace }}/node_modules/playwright-core
+        run: node --test test/director5-release.test.mjs

@@ -3139,8 +3139,12 @@ async function fixtureDisplayLoad(screen){
   const r=await c.client.rpc('matchmind_display_v1',{screen});
   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during display read');
   if(r.error)throw Error('Bounded display unavailable');
-  const payload=fixtureEnvelope(r.data,screen),prior=c.screens.values().next().value;
-  if(screen==='history'&&r.data.history_paged===true)await fixtureHistoryPages(c,payload);   // the server says the edition holds only the window
+  /* `history_paged` is the one key a window-only edition adds to the history screen; it is taken off
+     before the closed envelope check, which still refuses every other key. */
+  const paged=screen==='history'&&!!r.data&&typeof r.data==='object'&&r.data.history_paged===true;
+  let body=r.data;if(paged){body={...r.data};delete body.history_paged;}
+  const payload=fixtureEnvelope(body,screen),prior=c.screens.values().next().value;
+  if(paged)await fixtureHistoryPages(c,payload);   // the server says the edition holds only the window   // the server says the edition holds only the window
   if(prior&&(prior.edition_id!==payload.edition_id||prior.as_of!==payload.as_of)){
    if(Date.parse(payload.as_of)<Date.parse(prior.as_of))throw Error('Obsolete display edition');
    c.screens.clear();
@@ -3165,8 +3169,9 @@ async function fixtureHistoryPages(c,payload){
   const r=await c.client.rpc('matchmind_history_v1',cursor?{before_date:cursor.date,before_fxid:cursor.fxid}:{});
   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during history read');
   if(r.error||!r.data)throw Error('History unavailable');
-  const next=r.data.next;
-  const p=fixtureEnvelope(r.data,'history');
+  if(typeof r.data!=='object'||Array.isArray(r.data)||!Object.hasOwn(r.data,'next'))throw Error('History page without a cursor');
+  const {next,...page_}=r.data;
+  const p=fixtureEnvelope(page_,'history');
   if(p.edition_id!==payload.edition_id||p.as_of!==payload.as_of)throw Error('Display edition changed during history read');
   for(const row of p.cards)if(!merged.has(row.fxid))merged.set(row.fxid,row);
   if(next===null||next===undefined)break;
