@@ -3143,7 +3143,7 @@ async function fixtureDisplayLoad(screen){
      pages) is being read, the read is restarted on the newer edition instead of failing the screen. */
   for(let attempt=1;;attempt++){
    try{return await fixtureDisplayAttempt(c,screen);}
-   catch(e){if(attempt>=4||!/Display edition changed|Obsolete display edition/.test(String(e&&e.message)))throw e;c.screens.clear();}
+   catch(e){if(attempt>=4||!/Display edition changed/.test(String(e&&e.message)))throw e;c.screens.clear();}
   }
  })();
  c.screenPending.set(screen,pending);
@@ -3160,10 +3160,12 @@ async function fixtureDisplayAttempt(c,screen){
   let body=r.data;if(paged){body={...r.data};delete body.history_paged;}
   const payload=fixtureEnvelope(body,screen),prior=c.screens.values().next().value;
   if(paged)await fixtureHistoryPages(c,payload);   // the server says the edition holds only the window   // the server says the edition holds only the window
+  if(c.newestAsOf&&Date.parse(payload.as_of)<c.newestAsOf)throw Error('Obsolete display edition');
   if(prior&&(prior.edition_id!==payload.edition_id||prior.as_of!==payload.as_of)){
    if(Date.parse(payload.as_of)<Date.parse(prior.as_of))throw Error('Obsolete display edition');
    c.screens.clear();
   }
+  c.newestAsOf=Math.max(c.newestAsOf||0,Date.parse(payload.as_of)||0);
   c.screens.set(screen,payload);return payload;
  }
 }
@@ -18341,7 +18343,8 @@ async function matchDetail(s){
     const navigationTurn=typeof _navScrollEpoch==='number'?_navScrollEpoch:null;
     let {L,f}=ensureLeagueFromScore(s);
     try{
-      const history=await fixtureDisplayLoad('history');   // issued predictions are immutable across editions
+      const scores=_fixtureDelivery.screens.get('scores'),history=await fixtureDisplayLoad('history');
+      if(scores&&(history.edition_id!==scores.edition_id||history.as_of!==scores.as_of))throw Error('Display edition changed');
       const original=history.cards.find(c=>c.fxid===s.fxid);
       if(original&&original.home===s.home&&original.away===s.away){
         const current=f._displayCard||original;
