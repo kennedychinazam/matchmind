@@ -346,6 +346,11 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   .htab.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
 
   /* grading chips on fixtures */
+  .predchip.lean{background:rgba(59,130,246,.10); border-color:#3b82f6; color:#60a5fa; max-width:58vw; overflow:hidden; text-overflow:ellipsis;}
+  .predchip.tossup{background:transparent; border-color:var(--border); color:var(--muted);}
+  .fxbar{display:flex; height:4px; border-radius:2px; overflow:hidden; margin-top:4px; max-width:220px; background:var(--border);}
+  .fxbar i{display:block; height:100%;}
+  .fxbar .bh{background:#22c55e;} .fxbar .bd{background:#9ca3af;} .fxbar .ba{background:#3b82f6;}
   .predchip.hit{background:rgba(34,197,94,.16); border-color:var(--green); color:var(--green2);}
   .predchip.miss{background:rgba(239,68,68,.14); border-color:var(--red); color:#fca5a5;}
   html[data-theme="light"] .predchip.miss{color:#b91c1c;}
@@ -1001,6 +1006,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
       <h2>🎯 How the engine is doing</h2>
       <div class="muted" id="moreRecordLine" style="line-height:1.5"></div>
       <div id="moreRecordBreak" style="margin-top:10px"></div>
+      <div id="moreLeanRecord"></div>
       <!-- BUILD 353 (WO-58) - Ken, 2026-10-17, of the closing-line panel that sat here: "ALSO
            REMOVE THIS." The PANEL is off the screen; THE MEASUREMENT IS UNTOUCHED AND NOTHING IS
            DELETED. m15Fetch / m15Build / clvSummary still run, sharedClvPublish still writes the
@@ -1126,7 +1132,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 361;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 362;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -3305,6 +3311,7 @@ async function loadFixturePresentation(){
   _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
   _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
   renderFixtures();renderFavs();renderTips();refreshDataChip();
+  loadLeans();   // build 362 - the frozen Leans of this edition, not awaited
   if($('fixturesMeta'))$('fixturesMeta').textContent='';
  }catch(e){
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
@@ -4878,6 +4885,19 @@ function gateBarFor(L){
 }
 /* And the edge floor, measured alongside the bar rather than assumed at zero (build 129). Same
    one-way rule: a league can require more edge than the default, never less. */
+/* ══ BUILD 362 — THREE TIERS: STRONG, LEAN, TOSS-UP ═══════════════════════════════════════════
+   STRONG is the only tier written to public.predictions and counted in the official record. Its bar
+   is now max(0.75, the competition's fitted bar). Walk-forward backtest (2025-07-01 on, the app's
+   own engine, `bt/bt-tiers.js`): Strong 50.8% coverage, hit 0.790 against a stated 0.791.
+   LEAN is the best call between LEAN_MIN and the Strong bar that also clears the edge floor. It is
+   frozen before kick-off in public.lean_picks (insert-only, publisher only) with its own record.
+   TOSS-UP is everything else: "Too close to call" and the 1X2 bar.
+   ⚠ A PICK ALREADY ISSUED IS NEVER JUDGED BY THE NEW BAR. `applyGatePass` re-asks a published,
+   unstarted pick with `gateBarFor` (the bar it was issued under), so raising the Strong bar can
+   never stamp `withheld_at` on a pick issued before this build. */
+const STRONG_MIN = 0.75;
+const LEAN_MIN = 0.65;
+function strongBarFor(L){ return Math.max(STRONG_MIN, gateBarFor(L)); }
 function gateEdgeFor(L){
   const g = (L && afState.gate) ? afState.gate[L.id] : null;
   return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
@@ -5075,10 +5095,10 @@ async function autoGate(L){
 }
 /* Returns null when the pick is fit to publish, or a short reason when it is not. The reason is
    shown to the user — a fixture that says nothing must say WHY it says nothing (build 110). */
-function gateReason(L, f, code, prob){
+function gateReason(L, f, code, prob, bar){
   if(prob == null || !code) return 'unpriced';
   if(!sharedBarKnown(L)) return 'unmeasured';   // build 324 — no shared bar: nothing publishes, on any device
-  if(prob < gateBarFor(L)) return 'low';   // build 128 — this competition's measured bar
+  if(prob < (bar != null ? bar : strongBarFor(L))) return 'low';   // build 362 — the Strong bar   // build 128 — this competition's measured bar
   if(PICK_GATE.NEED_EDGE){
     /* build 120 — a goals pick is measured against the goals base rate of an average match in this
        competition, which is why Over 1.5 can never sneak through: it sits near 75% everywhere, so its
@@ -5290,9 +5310,9 @@ function rungsFor(P){
    Re-enabling is one line: put '1X': 0.70, 'X2': 0.70 back. */
 const RUNG_MIN = {};
 
-function ladderPick(P, home, away, L){
+function ladderPick(P, home, away, L, barOverride){
   if(!P) return null;
-  const G = gateBarFor(L);   // build 128 — the competition's own measured bar, not one global number
+  const G = barOverride != null ? barOverride : strongBarFor(L);   // build 362 — the Strong bar   // build 128 — the competition's own measured bar, not one global number
   /* Rungs come from rungsFor() so the ladder and the auto-gate measurement can never disagree about
      the order. RUNG 4 (build 120) — stop forcing a winner. Ken: "A match that shows an indecisive
      winning probability with low percentage to winning, lets say 33% 33% 34%, but shows <59% for
@@ -5311,6 +5331,20 @@ function ladderPick(P, home, away, L){
                               label:pickLabel(r.code, home, away), rung:rungs.indexOf(r)};
   }
   return null;   // nothing on this match clears the bar — the fixture publishes no pick
+}
+/* BUILD 362 — the Lean: the first rung at or above LEAN_MIN, below the Strong bar, that clears the
+   competition's edge floor. Same ladder, same calibration, same edge test as the Strong pick. */
+function leanPickFor(L, P, home, away){
+  if(!P || !L || !sharedBarKnown(L)) return null;
+  const sb = strongBarFor(L);
+  for(const r of rungsFor(P)){
+    if(r.prob < LEAN_MIN) continue;
+    if(r.prob >= sb) return null;               // a Strong call exists: not a Lean
+    const e = pickEdge(L, r.code, r.prob);
+    if(e != null && e <= gateEdgeFor(L)) return null;
+    return { code: r.code, prob: +r.prob.toFixed(3), market: pickMarket(r.code) };
+  }
+  return null;
 }
 /* build 120 — every goals code, in one place, so the grader, the labeller and the baseline lookup
    cannot disagree about what a code means. `won` takes the final score, which is why gradeRecord
@@ -5917,6 +5951,7 @@ function fxCells(L,f,smap){
        least four, and which of them applies is not recoverable from the data. So the single
        message is replaced by a status read from provenance, which says what the record proves and
        stops there. See PICK_STATUS above. */
+    else if(leanFor(f)) chip = leanGradedChip(f, leanFor(f), res);   // build 362 - the frozen Lean, graded
     else chip = pickStatusChip(L, f);
     return {timeCell, chip, finished:true};
   }
@@ -5939,7 +5974,13 @@ function fxCells(L,f,smap){
      robot's own issuing path, and a display rule has no business moving it. */
   const _arch = (f.pick && afState.archive) ? afState.archive[f.fxid] : null;
   const _void = forecastDisplayExpired(f);
+  /* BUILD 362 - an unplayed fixture the Strong bar declined shows its frozen Lean, or "Too close to
+     call" when the engine priced it and no call clears the Lean floor. Other reasons keep their text. */
+  const _ln = leanFor(f);
+  const _tier = !exceptional && !_void && (!f.pick || _g) && (_ln || ((!_g || _g === 'low' || _g === 'nobase') && fixtureVector(L, f)))
+              ? (_ln ? leanChip(f, _ln) : TOSSUP_CHIP) : '';
   const chip = exceptional ? exceptionalStatusChip(f)
+             : _tier  ? _tier
              : !f.pick&&f._presentation ? pickStatusChip(L,f)
              : _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
              : _void  ? expiredForecastChip()
@@ -10947,7 +10988,7 @@ async function analyze(){
       if(gr){
         $('heroPick').textContent = GATE_TEXT[gr] || GATE_TEXT.low;
         $('heroConf').textContent = '';
-        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, gateBarFor(sL), gateMetFor(sL), pred);
+        $('heroStrong').textContent = (GATE_WHY[gr] || GATE_WHY.low)(hp.prob, strongBarFor(sL), gateMetFor(sL), pred);
       } else if(hindsightOnly){
         $('heroPick').textContent = 'No prediction was published for this match';
         $('heroConf').textContent = '';
@@ -12433,6 +12474,121 @@ async function flushPredictionArchive(){
   }catch(e){ archiveFailure('flush', e); }   /* still never interrupts the app — but never silent */
 }
 
+/* ══ BUILD 362 — THE LEAN STORE ══════════════════════════════════════════════════════════════
+   Written ONLY by the publisher, insert-once (`public.lean_picks`, the database refuses an update, a
+   delete, a write after kick-off and a Lean on a fixture that already has a Strong pick). Read by
+   everyone through `matchmind_leans_v1`, which serves the current edition's frozen Leans and their
+   own record. A Lean is never counted in the official record. */
+const LEAN_TABLE = 'lean_picks';
+const LEAN_AHEAD_DAYS = 8;
+const _leanQueue = new Map();
+const _leanSent = new Set();
+let _leanTimer = null;
+let _leans = { state: 'pending', byFx: new Map(), record: null, edition: null };
+function archiveLean(L, f, p, lean){
+  if(!supa || !isPublisher() || !f || !f.fxid || !lean || !archiveWritable()) return;
+  if(kickoffPassed(f) || _leanSent.has(f.fxid) || _leans.byFx.has(f.fxid)) return;
+  const d = kickoffUTC(f.date, f.time), ms = d ? d.getTime() : Date.parse((f.date || '') + 'T00:00:00Z');
+  if(!ms || isNaN(ms) || ms - Date.now() > LEAN_AHEAD_DAYS * 86400000) return;
+  _leanSent.add(f.fxid);
+  _leanQueue.set(f.fxid, { fxid: f.fxid, lid: L.id, code: lean.code, market: lean.market, prob: lean.prob,
+    p_home: +p.pW.toFixed(4), p_draw: +p.pD.toFixed(4), p_away: +p.pL.toFixed(4),
+    kickoff: f.date, ktime: f.time || null, build: APP_BUILD });
+  clearTimeout(_leanTimer); _leanTimer = setTimeout(flushLeans, 3000);
+}
+async function flushLeans(){
+  if(!_leanQueue.size || !archiveWritable()) return;
+  const rows = [..._leanQueue.values()]; _leanQueue.clear();
+  try{
+    for(let i = 0; i < rows.length; i += 100){
+      const r = await fixtureTable(LEAN_TABLE).upsert(rows.slice(i, i + 100), { onConflict: 'fxid', ignoreDuplicates: true });
+      if(r && r.error){ try{ console.warn('MatchMind: lean write refused -', r.error.message); }catch(_){} }
+    }
+  }catch(e){ try{ console.warn('MatchMind: lean write failed -', (e && e.message) || e); }catch(_){} }
+}
+function leanText(x, max){ return typeof x === 'string' && x.length > 0 && x.length <= max && !/[\u0000-\u001f]/.test(x); }
+function leanNum(x, lo, hi, int){ return typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi && (!int || Number.isSafeInteger(x)); }
+/* The leans envelope is closed exactly like the display envelope: an unknown key refuses the read. */
+function leansEnvelope(v){
+  if(!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).sort().join(',') !== 'as_of,edition_id,leans,record,version')
+    throw Error('Invalid leans envelope');
+  if(v.version !== 'matchmind-leans/1' || !leanText(v.edition_id, 80) || !fixtureTimestamp(v.as_of)) throw Error('Invalid leans edition');
+  if(!Array.isArray(v.leans) || v.leans.length > 1500) throw Error('Leans exceed bound');
+  const seen = new Set();
+  for(const r of v.leans){
+    if(!r || typeof r !== 'object' || Object.keys(r).sort().join(',') !== 'c,f,m,q') throw Error('Invalid lean');
+    if(!leanNum(r.f, 1, 9007199254740991, true) || seen.has(r.f) || !leanText(r.c, 8) || !Object.hasOwn(LEAN_CODES, r.c)
+       || !leanNum(r.q, LEAN_MIN - 0.0005, 1, false) || !(r.m === null || leanText(r.m, 40))) throw Error('Invalid lean');
+    seen.add(r.f);
+  }
+  const rec = v.record;
+  if(rec !== null){
+    if(!rec || typeof rec !== 'object' || Object.keys(rec).sort().join(',') !== 'bins,graded,hit,n,pending,sum_p,void') throw Error('Invalid lean record');
+    for(const k of ['n','graded','hit','void','pending']) if(!leanNum(rec[k], 0, 1e9, true)) throw Error('Invalid lean record');
+    if(!leanNum(rec.sum_p, 0, 1e9, false) || rec.hit > rec.graded || !Array.isArray(rec.bins) || rec.bins.length > 20) throw Error('Invalid lean record');
+    for(const b of rec.bins) if(!b || Object.keys(b).sort().join(',') !== 'hit,lo,n,sum_p' || !leanNum(b.lo, 0, 1, false) || !leanNum(b.n, 0, 1e9, true) || !leanNum(b.hit, 0, b.n, true) || !leanNum(b.sum_p, 0, 1e9, false)) throw Error('Invalid lean bin');
+  }
+  return v;
+}
+const LEAN_CODES = {'1':1,'X':1,'2':1,'1X':1,'X2':1,'1D':1,'2D':1,'O25':1,'U25':1,'U35':1,'BTS':1,'NBT':1};
+async function loadLeans(){
+  if(!supa) return;
+  try{
+    const r = await supa.rpc('matchmind_leans_v1', {});
+    if(r.error) throw Error('Leans unavailable');
+    const v = leansEnvelope(r.data);
+    const m = new Map(); for(const x of v.leans) m.set(x.f, x);
+    _leans = { state: 'loaded', byFx: m, record: v.record, edition: v.edition_id };
+  }catch(e){ _leans = { state: 'failed', byFx: _leans.byFx, record: _leans.record, edition: _leans.edition }; }
+  try{ renderLeanRecord(); }catch(_){}
+  try{ if(!navigationRetains('predict')) renderFixtures(); }catch(_){}
+}
+function leanFor(f){ return (f && f.fxid != null && _leans.byFx.get(Number(f.fxid))) || null; }
+function leanSelection(code, home, away){
+  return code === '1' ? home : code === '2' ? away : code === 'X' ? 'Draw'
+       : code === '1X' ? home + ' or Draw' : code === 'X2' ? 'Draw or ' + away
+       : code === '1D' ? home + ' (DNB)' : code === '2D' ? away + ' (DNB)'
+       : GOAL_MARKETS[code] ? GOAL_MARKETS[code].label : code;
+}
+function leanChip(f, ln){
+  const sel = leanSelection(ln.c, f.home, f.away), txt = 'Lean: ' + sel + ' · ' + Math.round(ln.q * 100) + '%';
+  return `<span class="predchip lean" title="${escapeHtml(txt + '. A Lean is below the Strong bar and is not part of the official record.')}">${escapeHtml(txt)}</span>`;
+}
+function leanGradedChip(f, ln, res){
+  const g = gradePick(ln.c, actualCode(res.gh, res.ga), res.gh, res.ga);
+  const mark = g === 'hit' ? '✓' : g === 'void' ? '· Void' : g === 'miss' ? '✗' : '';
+  const cls = g === 'hit' ? 'lean hit' : 'lean';
+  return `<span class="predchip ${cls}" title="Lean, frozen before kick-off. Not part of the official record.">Lean: ${escapeHtml(chipCode(ln.c))} ${mark}</span>`;
+}
+const TOSSUP_CHIP = '<span class="predchip tossup" title="No call clears the Lean floor of 65%. The bar shows the engine\'s home, draw and away probabilities.">Too close to call</span>';
+/* The 1X2 vector a row can show: the issued pick's, else the board's, else this device's own engine. */
+function fixtureVector(L, f){
+  if(!f) return null;
+  let v = probabilityVector(f.pW, f.pD, f.pL);
+  if(v) return v;
+  const b = (typeof boardRowFor === 'function' && boardReady()) ? boardRowFor(f.fxid) : null;
+  if(b){ v = probabilityVector(b.pw, b.pd, b.pq); if(v) return v; }
+  if(L && !L._presentation && (L.matches || []).length >= 15 && !kickoffPassed(f)){
+    try{ const P = fxPredict(L, f); if(P) return probabilityVector(P.pW, P.pD, P.pL) || {pW:P.pW, pD:P.pD, pL:P.pL}; }catch(_){}
+  }
+  return null;
+}
+function fixtureBarHtml(v){
+  if(!v) return '';
+  const w = x => (100 * x).toFixed(1) + '%';
+  const lab = `Home ${Math.round(100*v.pW)}%, draw ${Math.round(100*v.pD)}%, away ${Math.round(100*v.pL)}%`;
+  return `<span class="fxbar" role="img" aria-label="${lab}" title="${lab}"><i class="bh" style="width:${w(v.pW)}"></i><i class="bd" style="width:${w(v.pD)}"></i><i class="ba" style="width:${w(v.pL)}"></i></span>`;
+}
+function renderLeanRecord(){
+  const el = $('moreLeanRecord'); if(!el) return;
+  const r = _leans.record;
+  if(!r){ el.innerHTML = _leans.state === 'loaded' ? '<div class="subnote">Lean record: no Lean has been graded yet.</div>' : ''; return; }
+  const gr = r.graded - r.void;
+  const hit = gr > 0 ? (100 * r.hit / gr).toFixed(1) + '%' : 'n/a';
+  const stated = gr > 0 ? (100 * r.sum_p / gr).toFixed(1) + '%' : 'n/a';
+  el.innerHTML = `<h3 style="margin:14px 0 4px;font-size:.95rem">Lean record (separate from the official record)</h3>`
+    + `<div class="muted" style="line-height:1.5">${r.hit} of ${gr} graded Leans landed: ${hit}, against a stated ${stated}. ${r.void} void, ${r.pending} pending, ${r.n} issued in all. Leans sit between 65% and the Strong bar.</div>`;
+}
 /* One shape for an archive entry, built in one place. loadArchive and the read-back above both
    produce it, and a second spelling of the same row is how `fixtures.xg_h` and `predictions.xg_home`
    came to disagree. */
@@ -18185,6 +18341,55 @@ function leaguePriority(L){
   return 35;
 }
 
+/* ══ BUILD 362 — THE ANALYSIS ORDER (Ken's priority list) ════════════════════════════════════════
+   Lower tier = higher in the feed. A tournament marked `win` takes its high tier only during its
+   window (a fixture from 3 days back to 10 ahead); outside it, it falls to the super-cup tier.
+   Favourites come first, live before scheduled within a tier, and skillProven is only a tie-break. */
+const ANALYSIS_TIER = {
+  1:{t:1,win:true}, 2000:{t:1,win:true},
+  2:{t:2}, 2001:{t:2},
+  4:{t:3,win:true}, 2018:{t:3,win:true}, 6:{t:3,win:true},
+  39:{t:4}, 140:{t:4}, 135:{t:4}, 78:{t:4}, 61:{t:4}, 2021:{t:4}, 2014:{t:4}, 2019:{t:4}, 2002:{t:4}, 2015:{t:4},
+  3:{t:5}, 848:{t:6}, 12:{t:7}, 20:{t:8},
+  32:{t:9,s:0}, 29:{t:9,s:1}, 30:{t:9,s:2}, 31:{t:9,s:2}, 34:{t:9,s:2}, 33:{t:9,s:2},
+  5:{t:10}, 960:{t:11}, 36:{t:11},
+  15:{t:12}, 531:{t:12}, 528:{t:12}, 556:{t:12}, 547:{t:12}, 529:{t:12}, 526:{t:12}, 533:{t:12},
+  45:{t:13}, 48:{t:13}, 143:{t:13}, 137:{t:13}, 81:{t:13}, 66:{t:13},
+  88:{t:14}, 94:{t:14}, 2003:{t:14}, 2017:{t:14},
+  233:{t:15}, 288:{t:15}, 200:{t:15}, 186:{t:15}, 202:{t:15}, 399:{t:15},
+  19:{t:16}, 10:{t:19}, 667:{t:20}
+};
+function analysisTier(L){
+  const e = ANALYSIS_TIER[L.id];
+  if(e){
+    if(e.win){
+      const lo = Date.now() - 3*86400000, hi = Date.now() + 10*86400000;
+      const inWin = (L.upcoming||[]).some(f => { const ms = Date.parse((f.date||'') + 'T12:00:00Z'); return ms >= lo && ms <= hi; });
+      if(!inWin) return [12, 9];
+    }
+    return [e.t, e.s || 0];
+  }
+  const n = (L.name || '').toLowerCase();
+  if(n.includes('friendl')) return /club/.test(n) ? [20,0] : [19,0];
+  if(n.includes('cup') || n.includes('copa') || n.includes('coupe') || n.includes('coppa') || n.includes('pokal') || n.includes('taca') || n.includes('libertadores') || n.includes('sudamericana')) return [18,0];
+  return [17,0];
+}
+function leagueLiveNow(L){
+  return (L.upcoming||[]).some(f => ['1H','2H','HT','ET','BT','P','INT','LIVE'].includes(normStatus(f.status)));
+}
+function analysisOrder(a, b){
+  const fav = afState.favL || [];
+  const fa = fav.includes(a.id) ? 0 : 1, fb = fav.includes(b.id) ? 0 : 1;
+  if(fa !== fb) return fa - fb;
+  const ta = analysisTier(a), tb = analysisTier(b);
+  if(ta[0] !== tb[0]) return ta[0] - tb[0];
+  const la = leagueLiveNow(a) ? 0 : 1, lb = leagueLiveNow(b) ? 0 : 1;
+  if(la !== lb) return la - lb;
+  if(ta[1] !== tb[1]) return ta[1] - tb[1];
+  return (skillProven(b)?1:0) - (skillProven(a)?1:0)
+      || leaguePriority(b) - leaguePriority(a)
+      || b.upcoming.length - a.upcoming.length;
+}
 let _edgeHidden = [];   // build 117 — competitions the edge filter removed on the last render
 function visibleLeagues(){
   const order = afState.leagueOrder.length ? afState.leagueOrder : Object.keys(afState.leagues);
@@ -18239,9 +18444,8 @@ function visibleLeagues(){
   _edgeHidden = [];
   /* Ken's call: publish everywhere, but let the competitions with a measured edge lead. A proven
      league outranks an unproven one regardless of how famous it is (build 65). */
-  return Ls.sort((a,b)=> (skillProven(b)?1:0)-(skillProven(a)?1:0)
-                      || leaguePriority(b)-leaguePriority(a)
-                      || b.upcoming.length-a.upcoming.length);
+  /* BUILD 362 - Ken's priority list (analysisOrder). skillProven is now only a tie-break. */
+  return Ls.sort(analysisOrder);
 }
 
 /* ================================================================
@@ -20768,7 +20972,8 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
         const arch = afState.archive ? afState.archive[f.fxid] : null;
         /* The ladder still runs on every load — not to publish, but so the CURRENT model view
            can be recorded in `final_*` and shown beside a pick it has moved away from. */
-        const lp = started ? null : ladderPick(p, f.home, f.away, L);
+        /* build 362 - a published pick is re-asked with the bar it was ISSUED under, never the new Strong bar. */
+        const lp = started ? null : ladderPick(p, f.home, f.away, L, arch ? gateBarFor(L) : undefined);
         if(arch){
           f.pick = arch.pick; f.prob = arch.prob; f.pW = arch.pW; f.pD = arch.pD; f.pL = arch.pL;
           if(arch.market) f.market = arch.market;
@@ -20821,7 +21026,7 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
         f.moved = null; f.unbacked = null;
         if(arch && !started){
           const nowGate = !sharedBarKnown(L) ? null   // build 324 — no shared bar, no verdict: never withhold on a guess
-                        : lp ? gateReason(L, f, lp.code, lp.prob) : 'no market clears the bar';
+                        : lp ? gateReason(L, f, lp.code, lp.prob, gateBarFor(L)) : 'no market clears the bar';
           if(lp && lp.code !== arch.pick) f.moved = { pick:lp.code, prob:lp.prob, market:lp.market };
           if(nowGate || arch.withheldAt) f.unbacked = nowGate || 'withdrawn earlier';
         }
@@ -20860,6 +21065,9 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
           else if(sharedBarKnown(L)) recordDrift(f, lp);
         }
         if(!f._fin && arch && f.unbacked) markWithheld(f);
+        /* BUILD 362 - the Lean tier, frozen once before kick-off by the publisher. */
+        f.lean = (!started && !arch && f.gated === 'low' && !p.unknownTeams) ? leanPickFor(L, p, f.home, f.away) : null;
+        if(f.lean && !f._fin) archiveLean(L, f, p, f.lean);
         /* BUILD 257 — counted HERE, after the decision, using the same variables the decision
            used. Anywhere else and it would be a second reconstruction of the rule, which is the
            drift that a duplicated constant always eventually produces. */
@@ -20894,6 +21102,7 @@ async function loadCloudLeagues(force){
   await loadCompMeta();
   await loadSharedMeasures();   // build 324 — every bar comes from the shared record, before any gate pass
   await loadBoard();            // build 337 — and the robot's board, for the same reason
+  await loadLeans();            // build 362 - frozen Leans, so the pass never re-sends one
   loadSharedRecords();          // build 325 - one engine record for every device, not awaited
   try{
     const today = todayStrLocal();
@@ -21719,6 +21928,7 @@ function boardBuild(){
 async function boardPublish(){
   if(!isPublisher() || !supa) return { ok: false, error: 'only the publisher writes the board' };
   try{
+    clearTimeout(_leanTimer); await flushLeans();   // build 362 - this run's Leans are frozen before the edition is built
     const payload = boardBuild();
     const w = await fixtureTable(RECORDS_TABLE).upsert(
       { key: BOARD_RECORD_KEY, payload: payload, build: APP_BUILD,
@@ -21728,6 +21938,7 @@ async function boardPublish(){
     if(_boardRecord.state!=='loaded')throw Error('Published board could not be verified');
     const edition=await supa.rpc('matchmind_publish_display_v1',{});
     if(edition.error||!edition.data||edition.data.version!=='matchmind-display/1'||!fixtureText(edition.data.edition_id,80)||!Number.isFinite(Date.parse(edition.data.as_of)))throw Error('Bounded public display publication failed');
+    await loadLeans();   // build 362
     return { ok: _boardRecord.state === 'loaded', rows: payload.n, ahead: payload.ahead, kept: _boardKept,
              notPassed: payload.notPassed, noBars: payload.noBars };
   }catch(e){
@@ -23316,7 +23527,7 @@ function renderFixtures(){
        form is worth cannot be pinned down, only that these picks did better. */
     const fm = (FORM_ADJ.ON && f.formM != null && f.formM >= FORM_ADJ.UP)
       ? `<span class="formflag" title="The side picked here is also ${f.formM} points better over its last ${FORM_ADJ.WIN} matches">🔥</span>` : '';
-    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${fm}${chip}</div>`;
+    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span>${fixtureBarHtml(fixtureVector(L, f))}</span>${fm}${chip}</div>`;
   };
 
   /* BUILD 129 — TOP MATCHES IS NOW RANKED BY EDGE, NOT BY FAME.
