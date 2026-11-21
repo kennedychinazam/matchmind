@@ -3574,7 +3574,8 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const panel=(id,box,content,note)=>{$(id).classList.remove('hidden');$(box).innerHTML=content||empty(note);};
  $('results').classList.add('published-detail');
  $('analysisText').classList.add('published');
- $('outcomeRows').innerHTML=v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.');
+ { const _ln=leanFor(f);   /* owner 2026-11-21: the tier and its 1X2 bar live in the match analysis, not the list */
+   $('outcomeRows').innerHTML=(v?'<div style="margin:2px 0 10px">'+(_ln?leanChip(f,_ln):fixturePrediction&&fixturePrediction.pick?'':TOSSUP_CHIP)+fixtureBarHtml({pW:v.pW,pD:v.pD,pL:v.pL})+'</div>':'')+(v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.')); }
  $('acc-result').classList.remove('hidden');
  $('resultSide').textContent='';$('formNote').classList.add('hidden');
  const xh=fixturePrediction&&typeof fixturePrediction.xg_home==='number'?fixturePrediction.xg_home:a.xg_home,xa=fixturePrediction&&typeof fixturePrediction.xg_away==='number'?fixturePrediction.xg_away:a.xg_away;
@@ -23720,7 +23721,7 @@ function renderFixtures(){
        form is worth cannot be pinned down, only that these picks did better. */
     const fm = (FORM_ADJ.ON && f.formM != null && f.formM >= FORM_ADJ.UP)
       ? `<span class="formflag" title="The side picked here is also ${f.formM} points better over its last ${FORM_ADJ.WIN} matches">🔥</span>` : '';
-    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span>${fixtureBarHtml(fixtureVector(L, f))}</span>${fm}${chip}</div>`;
+    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${fm}${chip}</div>`;
   };
 
   /* BUILD 129 — TOP MATCHES IS NOW RANKED BY EDGE, NOT BY FAME.
