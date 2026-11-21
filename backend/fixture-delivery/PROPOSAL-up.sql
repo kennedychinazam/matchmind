@@ -425,8 +425,11 @@ begin
   'fxid',f.fxid,'lid',f.lid,'lname',left(mm_fixture_delivery.league_label(null,f.lname,f.lid),160),'lcountry',coalesce(f.lcountry,''),'date',f.date,'time',f.time,'status',f.status,'elapsed',f.elapsed,'home',f.home,'away',f.away,
   'gh',f.gh,'ga',f.ga,'ft_h',f.ft_h,'ft_a',f.ft_a,'ht_h',f.ht_h,'ht_a',f.ht_a,'updated_at',f.updated_at,'provider',f.provider,
   'prediction',case when p.fxid is null then 'null'::jsonb else jsonb_build_object('lid',p.lid,'lname',left(mm_fixture_delivery.league_label(p.lname,f.lname,coalesce(p.lid,f.lid)),160),'home',p.home,'away',p.away,'pick',p.pick,'pick_prob',p.pick_prob,'market',p.market,'p_home',p.p_home,'p_draw',p.p_draw,'p_away',p.p_away,'xg_home',p.xg_home,'xg_away',p.xg_away,'kickoff',p.kickoff,'ktime',p.ktime,'made_at',p.made_at,'withheld_at',p.withheld_at,'final_pick',p.final_pick,'build',p.build) end) order by f.fxid),'[]'::jsonb),count(p.fxid) into cards,np from public.fixtures f left join public.predictions p on p.fxid=f.fxid
- where f.date::date between day_utc-6 and day_utc+7 or exists(select 1 from jsonb_array_elements(b->'rows') br where br->>'f'=f.fxid::text)
- or exists(select 1 from jsonb_array_elements(slips) s cross join lateral jsonb_array_elements(s->'legs') leg where leg->>'fxid'=f.fxid::text);
+ -- The member set is built first and joined by key: an OR of per-row EXISTS here scans every
+ -- fixture ever collected (measured: over 60 s on production).
+ where f.fxid in(select w.fxid from public.fixtures w where w.date::date between day_utc-6 and day_utc+7
+  union select (br->>'f')::bigint from jsonb_array_elements(b->'rows') br
+  union select (leg->>'fxid')::bigint from jsonb_array_elements(slips) s cross join lateral jsonb_array_elements(s->'legs') leg);
  nc=jsonb_array_length(cards);
  if np<>(select count(*) from jsonb_array_elements(cards) c where c->'prediction'<>'null'::jsonb) then raise exception 'Unaccounted immutable prediction inventory';end if;
  if nc>1500 then raise exception 'Presentation window exceeds the 1500-card bound: % cards (% predictions). Nothing was written',nc,np using errcode='54000';end if;
