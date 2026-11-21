@@ -15,20 +15,20 @@ test('bounded public match detail states standings unavailable without inventing
  const context=await browser.newContext({serviceWorkers:'block',viewport:{width:375,height:667}});
  await context.route('**/*',r=>r.request().url()==='http://public-standings.test/'?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
  const page=await context.newPage();await page.goto('http://public-standings.test/',{waitUntil:'domcontentloaded',timeout:60000});
- const observed=await page.evaluate(()=>{
+ const observed=await page.evaluate(async()=>{
   const L={id:78,name:'Bundesliga',country:'Germany',_presentation:true,matches:[],upcoming:[],sport:'football'};
   const f={fxid:9900358,home:'Synthetic Home',away:'Synthetic Away',date:'2026-11-09',time:'20:00',status:'NS',pick:'H',prob:0.5,pW:0.5,pD:0.3,pL:0.2};
   const before=JSON.stringify({L,f});
   // A previously viewed private table must not leak into this bounded public fixture.
   $('acc-standings').classList.remove('hidden');$('standingsBox').textContent='Previous private table';
-  showPublishedFixture(L,f);
+  showPublishedFixture(L,f);await _matchContextPending;
   return{copy:$('view-detail').innerText,analysis:$('standingsBox').textContent,
    tableHidden:$('acc-standings').classList.contains('hidden'),
    preserved:before===JSON.stringify({L,f}),probabilities:$('outcomeRows').textContent};
  });
  assert.match(observed.analysis,/\b(?:league table|standings)\b[^.\n]*(?:unavailable|not supplied|not published)/i,
   'Public detail hides standings without explaining that this edition does not supply them');
- assert.match(observed.analysis,/League table unavailable for this competition\./i);   // wording since the 355 table restoration
+ assert.match(observed.analysis,/League table unavailable right now\./i);   // Build 361: the table comes from the match context, offline here
  assert.doesNotMatch(observed.analysis,/reload.*(?:table|standings)|(?:table|standings).*reload/i,'reload cannot recover undistributed source history');
  assert.equal(observed.tableHidden,false,'the table panel explains unavailable published input without deriving a partial table');
  assert.doesNotMatch(observed.copy,/Previous private table/);

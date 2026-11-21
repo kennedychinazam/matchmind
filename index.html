@@ -1126,7 +1126,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 360;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 361;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -3390,6 +3390,172 @@ function publishedScores(M,pick,home,away){
   +list.map(s=>probRow(s.score,issued?s.given:s.p,true)).join('')
   +'<div class="subnote published-note">Model information, the least reliable line here. Not an issued pick.</div>';
 }
+/* ══ BUILD 361: BUILD 355's OWN PANELS ON THE PER-MATCH CONTEXT ══════════════════════════════════
+   Build 355 drew Goals Markets, Half-time / Full-time, Form, Head to head, the League Table and the
+   written analysis from the competition's finished results, read straight from `fixtures`. Visitors
+   can no longer read that table, so the bounded display left those panels empty. When a match opens,
+   `matchmind_match_context_v1(fxid)` returns, for that competition only, exactly the fields 355's
+   loader put in L.matches (date, sides, 90-minute score, half-time score, season, round kind; 60
+   months back), the season's upcoming pairs for the table roster, and the two sides' scorers this
+   season counted from the stored goal events. The panels are then drawn by 355's unchanged functions:
+   renderHTFT, renderStandings, footballEngine.form/h2h/rates/scorerProbs. Probabilities come from the
+   published expected goals and are labelled as model information; an issued pick is never altered. */
+const MATCH_CONTEXT_VERSION='matchmind-match-context/1';
+const MATCH_CONTEXT_BOUNDS={matches:6000,teams:1500,upcoming:1000,scorers:40,rounds:400};
+function matchContextDecode(c,fxid){
+ const bad=m=>{throw Error('Invalid match context: '+m);};
+ if(!c||typeof c!=='object'||Array.isArray(c))bad('shape');
+ if(c.version!==MATCH_CONTEXT_VERSION)bad('version');
+ if(c.fxid!==fxid||!Number.isSafeInteger(c.lid))bad('identity');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(c.from||'')||!/^\d{4}-\d{2}-\d{2}$/.test(c.to||''))bad('window');
+ const T=c.teams,R=c.rounds,B=MATCH_CONTEXT_BOUNDS;
+ if(!Array.isArray(T)||T.length>B.teams||T.some(t=>typeof t!=='string'||t.length>160))bad('teams');
+ if(!Array.isArray(R)||R.length>B.rounds||R.some(t=>typeof t!=='string'||t.length>160))bad('rounds');
+ if(!Array.isArray(c.m)||c.m.length>B.matches||!Array.isArray(c.up)||c.up.length>B.upcoming)bad('bounds');
+ const goal=x=>Number.isInteger(x)&&x>=0&&x<=100,opt=x=>x===null||goal(x),team=i=>i===null?null:Number.isInteger(i)&&i>=0&&i<T.length?T[i]:bad('team index');
+ const season=s=>s===null||Number.isInteger(s)&&s>=1900&&s<=2200?s:bad('season');
+ const base=Date.parse(c.from+'T00:00:00Z'),span=Math.round((Date.parse(c.to+'T00:00:00Z')-base)/86400000);
+ const matches=c.m.map(r=>{
+  if(!Array.isArray(r)||r.length!==9)bad('match row');
+  const [d,h,a,hg,ag,hth,hta,s,rk]=r;
+  if(!Number.isInteger(d)||d<0||d>span||!goal(hg)||!goal(ag)||!opt(hth)||!opt(hta))bad('match value');
+  const x={},sn=season(s),round=rk===null?null:Number.isInteger(rk)&&rk>=0&&rk<R.length?R[rk]:bad('round index');
+  if(sn!=null)x.season=sn;if(round!=null)x.round=round;   // 355 providerExtras: only present keys
+  return {date:new Date(base+d*86400000).toISOString().slice(0,10),home:team(h),away:team(a),hg,ag,hth,hta,_x:x};
+ });
+ for(let i=1;i<matches.length;i++)if(matches[i].date<matches[i-1].date)bad('order');
+ const upcoming=c.up.map(r=>{if(!Array.isArray(r)||r.length!==3)bad('upcoming row');return {home:team(r[0]),away:team(r[1]),season:season(r[2])};});
+ const sc=c.scorers||{},side=(list,name)=>{
+  if(!Array.isArray(list)||list.length>B.scorers)bad('scorers');
+  return list.map(r=>{if(!Array.isArray(r)||r.length!==3||typeof r[0]!=='string'||!r[0].trim()||r[0].length>80||!Number.isInteger(r[1])||r[1]<1||r[1]>200||!Number.isInteger(r[2])||r[2]<0||r[2]>200)bad('scorer');
+   return {name:r[0].trim(),team:name,goals:r[1],apps:r[2]};});
+ };
+ if(typeof c.home!=='string'||typeof c.away!=='string')bad('sides');
+ return {lid:c.lid,season:c.season,from:c.from,to:c.to,matches,upcoming,home:c.home,away:c.away,
+  scorers:[...side(sc.home,c.home),...side(sc.away,c.away)]};
+}
+const _matchContextCache=new Map();   // fxid -> {at, value}; a few minutes only, the collector refreshes results
+async function matchContextLoad(fxid){
+ const hit=_matchContextCache.get(fxid);if(hit&&Date.now()-hit.at<5*60000)return hit.value;
+ const client=_fixtureDelivery&&_fixtureDelivery.client||supa;if(!client)throw Error('Match context unavailable');
+ const r=await client.rpc('matchmind_match_context_v1',{fxid});
+ if(r.error||!r.data)throw Error('Match context unavailable');
+ const value=matchContextDecode(r.data,fxid);
+ _matchContextCache.set(fxid,{at:Date.now(),value});if(_matchContextCache.size>40)_matchContextCache.delete(_matchContextCache.keys().next().value);
+ return value;
+}
+/* 355 rates(): BTTS and over-line counts over the competition's finished matches, n >= 30 to be used. */
+function matchContextRates(matches){
+ let btts=0,o15=0,o25=0,o35=0;
+ for(const m of matches){const t=m.hg+m.ag;if(m.hg>0&&m.ag>0)btts++;if(t>1.5)o15++;if(t>2.5)o25++;if(t>3.5)o35++;}
+ return {n:matches.length,btts,o15,o25,o35};
+}
+/* 355's written analysis, on the published numbers: the favourite and the expected goals are the
+   published ones, and the scoreline sentence follows the ISSUED pick (never a pick computed here). */
+function publishedLocalAnalysis(ctx,code){
+ const {home,away,pred,formH,formA,h2h}=ctx,paras=[];
+ if(pred){const fav=pred.pW>pred.pL?home:away,favP=Math.max(pred.pW,pred.pL);
+ paras.push(`${home} host ${away} with the engine making ${fav} the favourite at ${pct(favP)}. The model expects roughly ${pred.lambdaH.toFixed(2)} goals for ${home} and ${pred.lambdaA.toFixed(2)} for ${away}, built from each side's attacking and defensive strength relative to the league, with recent matches weighted most heavily.`);}
+ paras.push(`Form check: ${home} have taken ${formPoints(formH)} points from their last five (${formString(formH)}), while ${away} have ${formPoints(formA)} (${formString(formA)}). ${formPoints(formH)>formPoints(formA)? home+' arrive in the better rhythm.' : formPoints(formA)>formPoints(formH)? away+' come in with the stronger momentum.' : 'There is little to separate the two on recent form.'}`);
+ if(h2h.length){
+  const wH=h2h.filter(m=>(m.home===home&&m.hg>m.ag)||(m.away===home&&m.ag>m.hg)).length;
+  const wA=h2h.filter(m=>(m.home===away&&m.hg>m.ag)||(m.away===away&&m.ag>m.hg)).length;
+  paras.push(`Head-to-head in the dataset: ${h2h.length} meeting(s): ${home} ${wH} win(s), ${away} ${wA}, ${h2h.length-wH-wA} draw(s).`);
+ }
+ if(pred&&pred.over&&validProbability(pred.over[2.5])&&validProbability(pred.btts)){
+  const csc=code==='1D'?'1':code==='2D'?'2':code,cs=csc&&pred.topByPick&&(pred.topByPick[csc]||[])[0];
+  paras.push(`Goals outlook: Over 2.5 is priced at ${pct(pred.over[2.5])} and both teams to score at ${pct(pred.btts)}.`
+   +(cs?` If ${pickPhrase(code,home,away)} lands, the likeliest finish is ${cs.score}, ${pct(cs.given)} of that outcome.`:''));
+ }
+ return paras.join('\n\n');
+}
+function publishedLocalVerdict(ctx,code){
+ const {home,away,pred}=ctx;
+ const arr=[[pred.pW,home+' win'],[pred.pD,'draw'],[pred.pL,away+' win']].sort((a,b)=>b[0]-a[0]);
+ const conf=arr[0][0]>0.55?'strong':arr[0][0]>0.42?'moderate':'slight';
+ const csc=code==='1D'?'1':code==='2D'?'2':code,cs=csc&&pred.topByPick&&(pred.topByPick[csc]||[])[0];
+ return `Verdict: ${arr[0][1]} (${pct(arr[0][0])}), a ${conf} lean.`+(cs?` If ${pickPhrase(code,home,away)} lands, the likeliest finish is ${cs.score}.`:'')+` Remember: probabilities, not guarantees.`;
+}
+let _matchContextPending=null;   // the latest detail's context render, so a caller can wait for it
+async function renderMatchContext(L,f,s){
+ const gen=_analysisGeneration,esc=escapeHtml,note=t=>'<div class="subnote published-note">'+esc(t)+'</div>';
+ let C;
+ try{C=await matchContextLoad(f.fxid);}
+ catch(e){
+  if(gen!==_analysisGeneration)return;
+  /* Only what the edition did not already supply is replaced, and each panel says what is missing. */
+  const later=' unavailable right now. Reopen the match to try again.';
+  if(!s.goalsFromCard)$('goalsRows').innerHTML=note('Goals probabilities unavailable for this fixture.');
+  if(!s.htftFromCard)$('htftBox').innerHTML=note('Half-time / full-time'+later);
+  if(!s.scorersFromCard)$('scorerRows').innerHTML=note('Likely scorers'+later);
+  if(!s.formFromCard)$('formBox').innerHTML=note('Recent form'+later);
+  if(!s.h2hFromCard)$('h2hBox').innerHTML=note('Head-to-head'+later);
+  if(!s.tableFromCard)$('standingsBox').innerHTML=note('League table'+later);
+  if(!s.writeup)$('analysisText').textContent='The written analysis is'+later;
+  return;
+ }
+ if(gen!==_analysisGeneration)return;
+ const home=f.home,away=f.away;
+ const CL={id:L.id,name:L.name,country:L.country,matches:C.matches,upcoming:C.upcoming};
+ /* Goals Markets: the grid on the published expected goals, adjusted by 355's own rule to this
+    competition's measured base rates (60 months, n >= 30). */
+ const grid=publishedGrid(s.xh,s.xa,L,{rates:matchContextRates(C.matches)});
+ if(!s.goalsFromCard){$('acc-goals').classList.remove('hidden');$('goalsRows').innerHTML=publishedGoals(grid)||note('Goals probabilities need the published expected goals, which this fixture does not have.');}
+ /* Half-time / Full-time: 355 renderHTFT, unchanged. It hides itself when the competition has fewer
+    than 30 matches with a half-time score, as 355 did. */
+ if(!s.htftFromCard){renderHTFT(CL,{home,away});if(!$('acc-htft').classList.contains('hidden'))$('htftBox').insertAdjacentHTML('beforeend',note('Model information. Not an issued pick.'));}
+ /* Form and head to head: 355 footballEngine.form/h2h on this competition's results, cut at this
+    fixture when it has been played, so a played match never shows its own result as prior form. */
+ const E=Object.create(footballEngine);E.matches=C.matches;
+ const i=C.matches.findIndex(m=>m.date===f.date&&m.home===home&&m.away===away),cut=i>=0?i:null;
+ const formH=E.form(home,5,cut),formA=E.form(away,5,cut),h2h=E.h2h(home,away,cut);
+ $('acc-form').classList.remove('hidden');
+ if(!s.formFromCard)$('formBox').innerHTML=`<div class="frow"><b>${esc(home)}</b>${formRow(formH)}</div>`+`<div class="frow"><b>${esc(away)}</b>${formRow(formA)}</div>`;
+ if(!s.h2hFromCard)$('h2hBox').innerHTML=h2h.length?h2h.slice(-5).map(m=>`${esc(m.date)}: ${esc(m.home)} ${m.hg}–${m.ag} ${esc(m.away)}`).join('<br>'):'No previous meetings in the dataset.';
+ /* League Table: 355 renderStandings, unchanged (season, roster, league phase and its notes). */
+ if(!s.tableFromCard)renderStandings(CL,home,away);
+ /* Likely Scorers: 355 footballEngine.scorerProbs, unchanged, on this season's goal counts for the two
+    sides and the published expected goals. */
+ const sc=grid?[...footballEngine.scorerProbs(home,s.xh,C.scorers),...footballEngine.scorerProbs(away,s.xa,C.scorers)].sort((a,b)=>b.prob-a.prob):[];
+ if(!s.scorersFromCard){
+  $('acc-scorers').classList.remove('hidden');
+  $('scorerRows').innerHTML=sc.length
+   ?sc.map(x=>probRow(`${esc(x.name)} <span class="muted" style="font-size:.72rem">(${esc(x.team)})</span>`,x.prob)).join('')
+    +note('Season goal share on the published expected goals. Model information, not an issued pick.')
+   :note(grid?'No goals recorded for these sides in this competition this season yet.':'Scorer probabilities need the published expected goals, which this fixture does not have.');
+ }
+ /* Written analysis: 355 showed its built-in analysis to everyone and asked the AI writer for signed-in
+    readers. Same here, from the published numbers. */
+ if(s.writeup)return;
+ if(!grid||!s.vector){
+  /* No published model numbers for this fixture: say what the results show, and nothing priced. */
+  const formOnly={home,away,formH,formA,h2h};
+  $('analysisText').classList.remove('published-writeup');
+  $('analysisText').textContent=publishedLocalAnalysis(formOnly,null);
+  $('verdictBox').textContent='No published model probabilities for this fixture, so no verdict is given.';
+  return;
+ }
+ const pred={pW:s.vector.pW,pD:s.vector.pD,pL:s.vector.pL,lambdaH:s.xh,lambdaA:s.xa,over:grid.over,btts:grid.btts,topByPick:grid.topByPick,topScores:grid.topScores};
+ const ctx={sport:'football',home,away,pred,formH,formA,h2h,scorers:sc.map(x=>({player:x.name,team:x.team,anytimeProb:+(x.prob).toFixed(3)})),injuries:null,L:CL};
+ $('analysisHeading').textContent='Professional AI Write-up';
+ $('analysisText').classList.remove('published-writeup');
+ $('analysisText').textContent=publishedLocalAnalysis(ctx,s.code);
+ $('verdictBox').textContent=publishedLocalVerdict(ctx,s.code);
+ const credential=credentialContext(),session=supa?await proxySession():null;
+ if(gen!==_analysisGeneration||!session)return;
+ const prov=aiProviderById(aiProvider);
+ $('aiStatus').innerHTML='<span class="spinner"></span>Asking '+escapeHtml(prov.name)+'…';$('aiStatus').classList.remove('hidden');
+ pendingMetaFxid=f.fxid;
+ try{
+  const r=await runAIWriter(aiProvider,enginePayloadStr(ctx),credential);
+  if(gen!==_analysisGeneration)return;
+  $('analysisText').textContent=deLatex(r.text);
+  $('verdictBox').textContent=`✨ Written by ${r.label} from the engine output above.`+quotaNote(r.via);
+ }catch(e){
+  if(gen!==_analysisGeneration)return;
+  $('verdictBox').textContent+=`  (${e.message} Showing the built-in analysis. The predictions above are unaffected.)`;
+ }finally{if(gen===_analysisGeneration)$('aiStatus').classList.add('hidden');}
+}
 function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const a=f._displayCard&&f._displayCard.analysis||{},same=kind==='prediction';
  const fixturePrediction=same?p:f._displayCard&&f._displayCard.prediction;
@@ -3413,23 +3579,29 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
     published base-rate counts (publishedRates). Without those counts the goals panel says unavailable rather
     than show an undamped number 355 would not. Model information only: it never replaces an issued pick. */
  const pubComp=publishedCompetition(f._displayCard?f._displayCard.lid:L.id),grid=publishedGrid(xh,xa,L,pubComp);
- panel('acc-goals','goalsRows',rows(a.goals)||publishedGoals(grid),'Goals probabilities unavailable for this fixture.');
+ const S={xh,xa,vector:v,code:fixturePrediction&&fixturePrediction.pick||null};
+ const goalsCard=rows(a.goals)||publishedGoals(grid);S.goalsFromCard=!!goalsCard;
+ panel('acc-goals','goalsRows',goalsCard,'Loading goals markets…');
  panel('acc-combo','comboRows',rows(a.combos)||publishedCombos(grid,f.home,f.away),'Combo probabilities unavailable for this fixture.');
- panel('acc-htft','htftBox',rows(a.htft),'Half-time/full-time probabilities not published.');
+ S.htftFromCard=!!rows(a.htft);panel('acc-htft','htftBox',rows(a.htft),'Loading half-time / full-time…');
  panel('acc-score','scoreRows',rows(a.correct_scores)||publishedScores(grid,fixturePrediction&&fixturePrediction.pick,f.home,f.away),'Correct-score probabilities unavailable for this fixture.');
- panel('acc-scorers','scorerRows',rows(a.scorers),'Scorer probabilities not published.');
- const form=a.form||{},formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'Form not published.')+'</span></div>';
- panel('acc-form','formBox',formLine(f.home,form.home)+formLine(f.away,form.away),'Recent form not published.');
- $('h2hBox').innerHTML=Array.isArray(a.h2h)&&a.h2h.length?a.h2h.map(m=>'<div class="published-meeting"><span class="muted">'+esc(m.date)+'</span><div><span>'+esc(m.home)+'</span><b>'+esc(m.gh)+'–'+esc(m.ga)+'</b><span>'+esc(m.away)+'</span></div></div>').join(''):empty('Head-to-head meetings not published.');
+ S.scorersFromCard=!!rows(a.scorers);panel('acc-scorers','scorerRows',rows(a.scorers),'Loading likely scorers…');
+ const form=a.form||null,formLine=(team,list)=>'<div class="published-form"><b>'+esc(team)+'</b><span>'+(Array.isArray(list)&&list.length?list.filter(x=>['W','D','L'].includes(x)).slice(-5).map(pill).join(''):'no earlier matches in this competition')+'</span></div>';
+ S.formFromCard=!!form;panel('acc-form','formBox',form?formLine(f.home,form.home)+formLine(f.away,form.away):'','Loading recent form…');
+ S.h2hFromCard=Array.isArray(a.h2h)&&a.h2h.length>0;
+ $('h2hBox').innerHTML=S.h2hFromCard?a.h2h.map(m=>'<div class="published-meeting"><span class="muted">'+esc(m.date)+'</span><div><span>'+esc(m.home)+'</span><b>'+esc(m.gh)+'–'+esc(m.ga)+'</b><span>'+esc(m.away)+'</span></div></div>').join(''):empty('Loading head-to-head…');
  const table=a.standings;
  const tableHTML=table&&Array.isArray(table.rows)&&table.rows.length?'<div class="subnote">Season '+esc(table.season)+'</div><table class="published-table"><thead><tr><th>#</th><th>Team</th><th>P</th><th>GD</th><th>Pts</th></tr></thead><tbody>'+table.rows.map(r=>'<tr'+([f.home,f.away].includes(r.team)?' class="selected"':'')+'><td>'+esc(r.rank)+'</td><td>'+esc(r.team)+'</td><td>'+esc(r.played)+'</td><td>'+esc(r.gf-r.ga)+'</td><td>'+esc(r.points)+'</td></tr>').join('')+'</tbody></table>':'';
- panel('acc-standings','standingsBox',tableHTML||publishedStandings(pubComp&&pubComp.standings,f.home,f.away),'League table unavailable for this competition.');
+ const tableCard=tableHTML||publishedStandings(pubComp&&pubComp.standings,f.home,f.away);S.tableFromCard=!!tableCard;
+ panel('acc-standings','standingsBox',tableCard,'Loading league table…');
  $('analysisHeading').textContent='Professional AI Write-up';
  $('acc-analysis').classList.remove('hidden');$('aiStatus').classList.add('hidden');
- $('analysisText').textContent=a.writeup&&a.writeup.text||'AI write-up not published.';
+ S.writeup=!!(a.writeup&&a.writeup.text);
+ $('analysisText').textContent=a.writeup&&a.writeup.text||'Loading the written analysis…';
  $('analysisText').classList.toggle('published-writeup',!!(a.writeup&&a.writeup.text));
  $('verdictBox').textContent='';$('verdictBox').removeAttribute('title');$('verdictBox').removeAttribute('aria-label');
  if(a.writeup&&a.writeup.source_at){$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10);$('verdictBox').title='Source: '+a.writeup.source;$('verdictBox').setAttribute('aria-label','Published '+a.writeup.source_at+' · Source '+a.writeup.source);}
+ _matchContextPending=f&&Number.isSafeInteger(f.fxid)&&f.fxid>0?renderMatchContext(L,f,S):null;
  $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':'';$('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
  // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
  const dnb=p&&['1D','2D'].includes(p.pick);

@@ -16,7 +16,7 @@ async function open(t,html,width){
  await context.addInitScript(()=>{localStorage.setItem('mm_intro','1');localStorage.setItem('mm-real-preview:mm_intro','1');});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));t.after(()=>assert.deepEqual(errors,[]));await page.goto('http://detail-restore.test/');return page;
 }
-async function show(page,{issued=true,full=true,finished=false,dnb=false,selectionKind='prediction',originalInputs=true}={}){return page.evaluate(({issued,full,finished,dnb,selectionKind,originalInputs})=>{
+async function show(page,{issued=true,full=true,finished=false,dnb=false,selectionKind='prediction',originalInputs=true}={}){return page.evaluate(async({issued,full,finished,dnb,selectionKind,originalInputs})=>{
  const source_at='2026-11-13T12:00:00Z';
  const analysis={source:'published-football-analysis',source_at,xg_home:1.8,xg_away:.9,result:{p_home:.51,p_draw:.29,p_away:.2},
   goals:[{label:'Over 2.5',prob:.56}],combos:[{label:'1 & Over 2.5',prob:.34}],htft:[{label:'1/1',prob:.32}],correct_scores:[{label:'2–0',prob:.12}],scorers:[{label:'Verified player',prob:.38}],
@@ -31,6 +31,7 @@ async function show(page,{issued=true,full=true,finished=false,dnb=false,selecti
  if(selectionKind==='prediction')showPublishedFixture(L,f);
  else if(typeof openIssuedForecast==='function'){const leg={fxid:f.fxid,d:card.date,t:card.time,h:card.home,a:card.away,code:'1X',p:.88,market:'Double Chance'};_sharedSlips={loaded:true,rows:[{day:card.date,tier:'banker',build:358,step:'issued',legs:[leg]}]};openIssuedForecast(leg);}
  else {showPublishedFixture(L,f);renderPublishedAnalysis(L,f,{...p,pick:'1X',pick_prob:.88},selectionKind);}
+ await _matchContextPending;   // Build 361: the per-match context call (aborted offline) settles first
  document.querySelectorAll('#view-detail .acc').forEach(x=>x.classList.add('open'));scrollTo(0,0);
  const lineViolations=[...document.querySelectorAll('#view-detail .subnote,#view-detail .plabel,#view-detail .hm-comp,#view-detail .hm-dt,#view-detail .tname>div:not(.venue),#view-detail #heroDnb,#view-detail #verdictBox')].filter(el=>el.getClientRects().length&&el.textContent.trim()).map(el=>{const s=getComputedStyle(el);return{id:el.id||el.className,text:el.textContent,lines:(el.getBoundingClientRect().height-parseFloat(s.paddingTop)-parseFloat(s.paddingBottom)-parseFloat(s.borderTopWidth)-parseFloat(s.borderBottomWidth))/(parseFloat(s.lineHeight)||parseFloat(s.fontSize)*1.2)}}).filter(x=>x.lines>2.1);
  return{sections:[...document.querySelectorAll('#view-detail .acc:not(.hidden)')].map(x=>x.id),bars:$('outcomeRows').textContent,goals:$('goalsRows').textContent,form:$('formBox').textContent,h2h:$('h2hBox').textContent,table:$('standingsBox').textContent,ai:$('analysisText').textContent,heading:$('analysisHeading').textContent,pick:$('heroPick').textContent,dnb:$('heroDnb').textContent,xg:$('xgInfo').textContent,preserved:before===JSON.stringify({card,f,archive:afState.archive}),overflow:document.documentElement.scrollWidth>innerWidth+1,lineViolations,mfCalls,combo:$('comboRows').textContent,score:$('scoreRows').textContent};

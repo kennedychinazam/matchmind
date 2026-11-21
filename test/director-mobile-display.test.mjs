@@ -92,13 +92,13 @@ for(const width of [320,390])test('published Analysis is concise, aligned and un
  const p=await open(t,width);await install(p);
  const r=await p.evaluate(async()=>{
   await loadCloudLeagues(true);const L=afState.leagues[39],f=L.upcoming[0],before=JSON.stringify({f,archive:afState.archive});
-  footballEngine.predict=()=>{throw Error('must not recompute');};showPublishedFixture(L,f);
+  footballEngine.predict=()=>{throw Error('must not recompute');};showPublishedFixture(L,f);await _matchContextPending;
   $('acc-analysis').classList.remove('collapsed');
   const el=$('analysisText'),style=getComputedStyle(el);
   return{text:el.textContent,table:$('standingsBox').textContent,align:style.textAlign,hyphens:style.hyphens,bars:$('outcomeRows').textContent,
    preserved:before===JSON.stringify({f,archive:afState.archive}),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
- assert.ok(r.text.length<100);assert.match(r.table,/League table unavailable for this competition/);assert.match(r.text,/AI write-up not published/);
+ assert.ok(r.text.length<100);assert.match(r.table,/League table unavailable right now/);assert.match(r.text,/written analysis is unavailable right now/);   // Build 361: the match context is offline here
  assert.equal(r.align,'left');assert.equal(r.hyphens,'none');assert.match(r.bars,/64\.0%/);assert.equal(r.preserved,true);assert.equal(r.overflow,false);
  await p.evaluate(()=>{document.documentElement.dir='rtl';});
  assert.equal(await p.locator('#analysisText').evaluate(el=>getComputedStyle(el).textAlign),'right');
@@ -132,7 +132,7 @@ test('version labels identify app versus legal text, and time-zone copy cannot b
   prefs.tz='America/New_York';renderTzSetting();
   return{app:$('verLabel').textContent,legal:$('legalDraftNote').textContent,footer:legalFooter(),device,selected:$('tzHint').textContent};
  });
- assert.match(r.app,/App v0\.9 · build 360/);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
+ assert.match(r.app,/App v0\.9 · build 361/);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
  assert.match(r.device,/Africa\/Lagos.*device/);assert.match(r.selected,/America\/New_York/);
  assert.doesNotMatch(r.device+r.selected,/right now|\d\d:\d\d/);
 });
@@ -153,12 +153,12 @@ test('missing predictions are explained without inventing a pick; a 64% listing 
   const after=Object.keys(slipPool(slipCandidatesFromBoard({todayOnly:false,leagues:slipState.leagues,markets:slipState.markets}),75)).length;
   const preserved=original===JSON.stringify({f,archive:afState.archive});
   const missing={...f,fxid:990400,pick:null,prob:null,_displayCard:true,_hasPrediction:false};
-  showPublishedFixture(L,missing);
+  showPublishedFixture(L,missing);await _matchContextPending;
   return{empty,risk,before,wrongMarket,after,preserved,label:PICK_STATUS.norow.label,missing:$('analysisText').textContent};
  });
  assert.match(r.empty,/No eligible slip legs.*selected dates, leagues and markets/);assert.match(r.risk,/minimum published probability 25%/);
  assert.equal(r.before,0);assert.equal(r.wrongMarket,0);assert.equal(r.after,1);assert.equal(r.preserved,true);
- assert.equal(r.label,'No published prediction');assert.match(r.missing,/AI write-up not published/);assert.doesNotMatch(r.missing,/Original published prediction/);
+ assert.equal(r.label,'No published prediction');assert.match(r.missing,/written analysis is unavailable right now/);assert.doesNotMatch(r.missing,/Original published prediction/);
 });
 
 test('public client cannot become publisher and exposes no active provider-key controls',async t=>{
