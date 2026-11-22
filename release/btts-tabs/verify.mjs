@@ -1,0 +1,15 @@
+import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import http from 'node:http'; import { readFileSync } from 'node:fs';
+import {load,mkCal,rungs} from './lib.mjs';
+const D=load('/tmp/claude-0/bb/dump368.json'); const cal=mkCal({U35:-0.03,X2:-0.015,'1D':-0.015});
+const sample=D.rows.filter((r,i)=>i%13===0).slice(0,4000);
+const srv=http.createServer((q,r)=>{r.writeHead(200,{'content-type':'text/html'});r.end(readFileSync('/tmp/claude-0/wt-btts/index.html'));});
+await new Promise(r=>srv.listen(8153,'127.0.0.1',r));
+const b=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true}); const ctx=await b.newContext();
+await ctx.route('**/*',rt=>{const u=rt.request().url(); if(u.startsWith('http://127.0.0.1')||u.includes('cdn.jsdelivr.net'))return rt.continue(); return rt.abort();});
+const pg=await ctx.newPage(); const errs=[]; pg.on('pageerror',e=>errs.push(String(e.message).slice(0,200)));
+await pg.goto('http://127.0.0.1:8153/'); await pg.waitForFunction(()=>typeof rungsFor==='function'&&typeof tipMarketPick==='function',null,{timeout:60000});
+const res=await pg.evaluate(S=>S.map(r=>{ const P={pW:r.pW,pD:r.pD,pL:r.pL,over:{1.5:r.o15,2.5:r.o25,3.5:r.o35},btts:r.btts}; return [rungsFor(P).map(x=>x.code+':'+x.prob.toFixed(5)).join(','), JSON.stringify(tipMarketPick('ou',P)&&tipMarketPick('ou',P).code), JSON.stringify(tipMarketPick('btts',P)&&tipMarketPick('btts',P).code)]; }),sample);
+let bad=0; sample.forEach((r,i)=>{ const mine=rungs(r,cal,{goalsSet:['O25','U35','BTS']}).map(x=>x.code+':'+x.prob.toFixed(5)).join(','); if(mine!==res[i][0]){ if(bad<3) console.log(mine,'|',res[i][0]); bad++; } });
+console.log('rung mismatches',bad,'of',sample.length,'| goals codes',[...new Set(res.map(x=>x[1]))],'btts',[...new Set(res.map(x=>x[2]))]); console.log('errs',errs);
+await b.close(); srv.close();

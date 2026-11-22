@@ -15,7 +15,7 @@ const HTML = readFileSync(join(ROOT, 'index.html'), 'utf8');
 
 test('source: one GOAL_LEVEL, refitted U35 shift, 0.70 card floor, no preferGoals', () => {
   assert.match(HTML, /const GOAL_LEVEL = \{ ON: true, POOL_DAYS: 60, POOL_K: 500, LEAGUE_N: 300, LEAGUE_K: 300, MIN_HISTORY: 30 \};/);
-  assert.match(HTML, /const CALIB_SHIFT = \{ U35: -0\.03 \};/);
+  assert.match(HTML, /const CALIB_SHIFT = \{ U35: -0\.03, X2: -0\.015, '1D': -0\.015 \};/);   // build 368 adds X2 and 1D
   assert.match(HTML, /const DAILY_CARD_FLOOR_LO = 0\.70;/);
   assert.match(HTML, /const DAILY_CARD_FLOOR_HI = 0\.70;/);
   assert.match(HTML, /safe: \{ BTS: DAILY_CARD_FLOOR_LO \}/);

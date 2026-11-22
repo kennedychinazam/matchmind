@@ -393,14 +393,14 @@ test('the existing prediction and grading behaviour is unchanged', async t => {
         markets: ['1','1X','1D','BTS','O25'].map(pickMarket),
         // the calibration table still touches only U35
         // rounded: binary64 makes 0.8-0.0175 land at 0.7825000000000001
-        calib: [calibrate('1D',0.8), calibrate('2D',0.8), +calibrate('U35',0.8).toFixed(6)]
+        calib: [+calibrate('1D',0.8).toFixed(6), calibrate('2D',0.8), +calibrate('U35',0.8).toFixed(6)]
       };
     });
     /* The ladder: best-paying rung first, then DNB, then double chance, then the strongest goals
        line. U35 leads the goals group at 1-0.30 = 0.70 shifted to 0.6825 by CALIB_SHIFT.U35, which
        is the one calibration entry that exists and is visible right here. */
     assert.deepEqual(seen.rungs, ['2','2D','X2','U35']);
-    assert.deepEqual(seen.probs, [0.7, 0.8485, 0.875, 0.67]);   // build 366: CALIB_SHIFT.U35 is -0.03
+    assert.deepEqual(seen.probs, [0.7, 0.8485, 0.86, 0.67]);   // build 368: CALIB_SHIFT.X2 is -0.015, U35 -0.03
     assert.equal(seen.dnbVoid, 'void');
     assert.equal(seen.dnbHit, 'hit');
     assert.equal(seen.dnbMiss, 'miss');
@@ -410,7 +410,7 @@ test('the existing prediction and grading behaviour is unchanged', async t => {
     assert.deepEqual(seen.labels, ['Home to win','Draw','Away to win','Home or Draw','Draw or Away',
       'Home (Draw No Bet)','Away (Draw No Bet)','Either team']);
     assert.deepEqual(seen.markets, ['Winner','Double Chance','Draw No Bet','BTTS','Goals']);
-    assert.deepEqual(seen.calib, [0.8, 0.8, 0.77]);
+    assert.deepEqual(seen.calib, [0.785, 0.8, 0.77]);   // build 368: 1D -0.015
     await ctx.close();
   }
 });
