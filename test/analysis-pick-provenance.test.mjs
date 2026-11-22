@@ -121,9 +121,17 @@ const SLATE=`
  /* The rendered feed, read as STRUCTURE as well as text. */
  globalThis.mmFeed=()=>{
   const list=$('fixtureList')||{children:[],querySelectorAll:()=>[]};
+  /* BUILD 366 - owner: the list chip reads "No pick" for every match without a Strong pick or a Lean,
+     and the match page says why. The provenance below is therefore read from the status the match
+     page explains (pickStatusChip / rebuiltChip, unchanged), and the list chip is checked separately. */
+  const fxOf=r=>{const home=(r.querySelector('.tline')||{}).textContent;for(const L of Object.values(afState.leagues))
+    for(const f of [...(L.upcoming||[]),...(L.played||[])])if(f&&f.home&&home&&home.trim().endsWith(String(f.home).trim()))return [L,f];return null;};
+  const statusEl=r=>{const lf=fxOf(r);if(!lf)return null;const [L,f]=lf;const box=document.createElement('div');
+    box.innerHTML=(f.pick&&pickIsRebuilt(f))?rebuiltChip(f):pickStatusChip(L,f);return box.firstElementChild;};
   const rows=[...list.querySelectorAll('.fxrow')].map(r=>{
-   const chip=r.querySelector('.predchip');
-   return {text:r.textContent,
+   const listChip=r.querySelector('.predchip');
+   const chip=listChip&&listChip.textContent.trim()==='No pick'?(statusEl(r)||listChip):listChip;
+   return {text:r.textContent,listChip:listChip?listChip.textContent.trim():null,
      chip:chip?chip.textContent.trim():null,
      chipTag:chip?chip.tagName.toLowerCase():null,
      chipTitle:chip?(chip.getAttribute('title')||''):null,
@@ -270,7 +278,7 @@ test('the verbose no-pick paragraph is gone and every played row keeps a compact
   const by=p=>seen.rows.find(r=>r.text.includes(p)).chip;
   assert.equal(by('Hit Home'),'1 ✓','a published hit no longer grades as a hit');
   assert.equal(by('Miss Home'),'1 ✗','a published miss no longer grades as a miss');
-  assert.equal(by('Void Home'),'1 DNB · Void','a level Draw No Bet no longer grades as a void');
+  assert.equal(by('Void Home'),'Void','a level Draw No Bet no longer grades as a void');
 });
 
 test('provenance decides the status: the eight states are told apart, not pooled',async t=>{
@@ -282,7 +290,7 @@ test('provenance decides the status: the eight states are told apart, not pooled
        built. gateNow returns the stored verdict for a frozen fixture; GATE_TEXT had no key for
        'withheld' and printed "No strong read" over a decision the record states outright. */
     const L=afState.leagues[39],up=L.upcoming.find(f=>f.fxid===991201);
-    return Object.assign(feed,{upcoming:fxCells(L,up,scoreMap()).chip,
+    return Object.assign(feed,{upcomingChip:fxCells(L,up,scoreMap()).chip,upcoming:noPickReason(L,up),
       upcomingGate:gateNow(L,up)});
   },[SLATE]);
   const row=p=>seen.rows.find(r=>r.text.includes(p));
@@ -291,6 +299,7 @@ test('provenance decides the status: the eight states are told apart, not pooled
   assert.ok(w,'the withheld row did not render');
   assert.match(w.chip,/withheld/i,'a proven withhold does not read as withheld: '+w.chip);
   assert.equal(seen.upcomingGate,'withheld','the stored verdict is not the one under test');
+  assert.match(seen.upcomingChip,/>No pick</,'build 366: the list chip is short: '+seen.upcomingChip);
   assert.match(seen.upcoming,/withheld/i,
     'a withheld fixture before kick-off does not read as withheld: '+seen.upcoming);
   assert.doesNotMatch(seen.upcoming,/no strong read/i,
@@ -475,7 +484,7 @@ test('the compact status stays readable at 360px and under enlarged text, with n
     await mmRender({stub:true});
     const measure=()=>{
       const d=document.documentElement;
-      const chips=[...document.querySelectorAll('#fixtureList .statuschip')].map(c=>{
+      const chips=[...document.querySelectorAll('#fixtureList .predchip.nopick, #fixtureList .predchip.lean')].map(c=>{   // build 366: the short no-pick and Lean chips
         const r=c.getBoundingClientRect();
         const cs=getComputedStyle(c);
         return {w:Math.round(r.width),h:Math.round(r.height),right:Math.round(r.right),
@@ -499,7 +508,7 @@ test('the compact status stays readable at 360px and under enlarged text, with n
     const vp=document.querySelector('meta[name=viewport]');
     return {normal,large,viewport:vp?vp.getAttribute('content'):''};
   },[SLATE]);
-  /* The affordance has to exist at all: a span with a tooltip is not reachable by touch. */
+  /* Build 366: every no-pick row carries the short chip; the reason is on the match page. */
   assert.ok(seen.normal.chips.length>=26,
     'the compact status is not an addressable element: '+seen.normal.chips.length);
   for(const label of ['normal','large']){

@@ -1,0 +1,6 @@
+0  ||  train: U35 n8198 gap 0.2 | all n23915 hit 79.4 gap -0.4 cov 0.627  ||  test: U35 n3539 gap -0.8 | all n10172 hit 79.1 gap -0.5 cov 0.583  ||  new: U35 n653 gap -3.5 | all n2324 hit 78.1 gap -1.3 cov 0.519
+-0.01  ||  train: U35 n6392 gap 0.5 | all n22109 hit 79.3 gap -0.3 cov 0.582  ||  test: U35 n2607 gap 0.6 | all n9240 hit 79.4 gap 0 cov 0.533  ||  new: U35 n470 gap -2.6 | all n2141 hit 78.4 gap -0.9 cov 0.480
+-0.0175  ||  train: U35 n5058 gap 1 | all n20775 hit 79.2 gap -0.3 cov 0.549  ||  test: U35 n1952 gap 1.3 | all n8585 hit 79.4 gap 0.1 cov 0.497  ||  new: U35 n340 gap -2.2 | all n2011 hit 78.6 gap -0.7 cov 0.453
+-0.025  ||  train: U35 n3731 gap 1 | all n19448 hit 79 gap -0.4 cov 0.516  ||  test: U35 n1393 gap 0.9 | all n8026 hit 79.2 gap -0.1 cov 0.467  ||  new: U35 n240 gap 0 | all n1911 hit 79 gap -0.3 cov 0.432
+-0.03  ||  train: U35 n2958 gap 1.3 | all n18675 hit 79 gap -0.4 cov 0.497  ||  test: U35 n1047 gap 1.6 | all n7680 hit 79.2 gap -0.1 cov 0.448  ||  new: U35 n179 gap 0.9 | all n1850 hit 79 gap -0.3 cov 0.420
+-0.04  ||  train: U35 n1728 gap 2.6 | all n17445 hit 79 gap -0.4 cov 0.467  ||  test: U35 n461 gap -0.3 | all n7094 hit 78.9 gap -0.3 cov 0.417  ||  new: U35 n66 gap -1.5 | all n1737 hit 78.9 gap -0.4 cov 0.396

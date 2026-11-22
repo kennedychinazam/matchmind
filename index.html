@@ -346,7 +346,18 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   .htab.active{background:linear-gradient(135deg,var(--gold2),var(--gold)); border-color:var(--gold); color:#1a1405;}
 
   /* grading chips on fixtures */
-  .predchip.lean{background:rgba(59,130,246,.10); border-color:#3b82f6; color:#60a5fa; max-width:58vw; overflow:hidden; text-overflow:ellipsis;}
+  .predchip.lean{background:rgba(59,130,246,.10); border-color:#3b82f6; color:#60a5fa; display:inline-flex; flex-direction:column; align-items:center; line-height:1.15; flex:0 0 auto; white-space:normal; text-align:center;}
+  .predchip.lean .tier{display:block; font-size:.56rem; font-weight:700; letter-spacing:.03em; opacity:.85;}
+  .predchip.lean-long{display:inline-block; max-width:58vw; overflow:hidden; text-overflow:ellipsis;}
+  .predchip.nopick{flex:0 0 auto; white-space:normal;}
+  #view-predict .fxrow>.fxteams .tline{white-space:normal; overflow:visible; text-overflow:clip;}   /* build 366 - team names wrap, never "..." */
+  .match-odds{margin:10px 0 2px; padding:8px 10px; border:1px solid var(--border); border-radius:10px;}
+  .match-odds .mo-h{font-size:.72rem; font-weight:800; color:var(--muted); margin-bottom:4px;}
+  .match-odds .mo-row{display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:3px 0; font-size:.78rem;}
+  .match-odds .mo-t{min-width:92px; color:var(--muted);}
+  .match-odds .mo-cell{display:inline-flex; gap:4px; padding:2px 7px; border-radius:7px; background:rgba(148,163,184,.10);}
+  .match-odds .mo-k{color:var(--muted);}
+  .fxrow>.predchip,.favrow .favright .predchip{flex:0 0 auto;}
   .predchip.tossup{background:transparent; border-color:var(--border); color:var(--muted);}
   .fxbar{display:flex; height:4px; border-radius:2px; overflow:hidden; margin-top:4px; max-width:220px; background:var(--border);}
   .fxbar i{display:block; height:100%;}
@@ -1132,7 +1143,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 366;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 367;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -3698,7 +3709,7 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  $('results').classList.add('published-detail');
  $('analysisText').classList.add('published');
  { const _ln=leanFor(f);   /* owner 2026-11-21: the tier and its 1X2 bar live in the match analysis, not the list */
-   $('outcomeRows').innerHTML=(v?'<div style="margin:2px 0 10px">'+(_ln?leanChip(f,_ln):fixturePrediction&&fixturePrediction.pick?'':TOSSUP_CHIP)+fixtureBarHtml({pW:v.pW,pD:v.pD,pL:v.pL})+'</div>':'')+(v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.')); }
+   $('outcomeRows').innerHTML=(v?'<div style="margin:2px 0 10px">'+(_ln?leanDetailChip(f,_ln):fixturePrediction&&fixturePrediction.pick?'':TOSSUP_CHIP)+fixtureBarHtml({pW:v.pW,pD:v.pD,pL:v.pL})+'</div>':'')+(v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.')); }
  $('acc-result').classList.remove('hidden');
  $('resultSide').textContent='';$('formNote').classList.add('hidden');
  const xh=fixturePrediction&&typeof fixturePrediction.xg_home==='number'?fixturePrediction.xg_home:a.xg_home,xa=fixturePrediction&&typeof fixturePrediction.xg_away==='number'?fixturePrediction.xg_away:a.xg_away;
@@ -3733,7 +3744,12 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  $('verdictBox').textContent='';$('verdictBox').removeAttribute('title');$('verdictBox').removeAttribute('aria-label');
  if(a.writeup&&a.writeup.source_at){$('verdictBox').textContent='Published '+a.writeup.source_at.slice(0,10);$('verdictBox').title='Source: '+a.writeup.source;$('verdictBox').setAttribute('aria-label','Published '+a.writeup.source_at+' · Source '+a.writeup.source);}
  _matchContextPending=f&&Number.isSafeInteger(f.fxid)&&f.fxid>0?renderMatchContext(L,f,S):null;
- $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':'';$('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
+ renderMatchOdds(f);
+ { const why=kind==='prediction'&&!f._pickUnavailable?noPickReason(L,f):'';
+   if(why){ if(!(p&&p.pick&&!p.withheld_at)){$('heroPick').textContent='No pick';$('heroConf').textContent='';}
+     $('heroStrong').textContent=(p&&p.withheld_at?'Pick withdrawn. ':'')+why; }
+   else $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':''; }
+ $('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
  // A DNB confidence conditions out draws; retain the original unconditional 1X2 values below.
  const dnb=p&&['1D','2D'].includes(p.pick);
  $('heroDnb').textContent=dnb?'DNB probability excludes draws.':'';
@@ -3752,6 +3768,33 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
 
 }
 
+/* BUILD 366 - the match page shows the bookmaker prices the edition carries for this fixture: the
+   consensus of the capture closest to kick-off, never one taken after it. Nothing when none exists. */
+function matchOddsHtml(sn,home,away){
+ if(!sn)return '';
+ const esc=escapeHtml,px=v=>typeof v==='number'&&isFinite(v)&&v>1?v.toFixed(2):null;
+ const cell=(k,v)=>px(v)?'<span class="mo-cell"><span class="mo-k">'+esc(k)+'</span><b>'+px(v)+'</b></span>':'';
+ const row=(t,cells)=>{const c=cells.join('');return c?'<div class="mo-row"><span class="mo-t">'+esc(t)+'</span>'+c+'</div>':'';};
+ const body=row('1X2',[cell('1',sn.h),cell('X',sn.d),cell('2',sn.a)])
+  +row('Double chance',[cell('1X',sn.dc1x),cell('12',sn.dc12),cell('X2',sn.dcx2)])
+  +row('Draw no bet',[cell('1',sn.dnbh),cell('2',sn.dnba)])
+  +row('Goals 2.5',[cell('Over',sn.o25),cell('Under',sn.u25)])
+  +row('Goals 1.5',[cell('Over',sn.o15),cell('Under',sn.u15)])
+  +row('Goals 3.5',[cell('Over',sn.o35),cell('Under',sn.u35)])
+  +row('BTTS',[cell('Yes',sn.bttsy),cell('No',sn.bttsn)]);
+ return body?'<div class="match-odds" id="matchOdds"><div class="mo-h">Bookmaker odds</div>'+body+'<div class="subnote published-note">Consensus of the bookmakers collected before kick-off. Not an issued pick.</div></div>':'';
+}
+function renderMatchOdds(f){
+ const gen=_analysisGeneration,id=f&&f.fxid;
+ if(id==null)return null;
+ return slipOddsEnsure([id]).then(()=>{
+  if(gen!==_analysisGeneration)return;
+  const sn=_dailyOdds.byFx&&_dailyOdds.byFx[id];
+  const old=$('matchOdds');if(old)old.remove();
+  const h=matchOddsHtml(sn&&sn.mins_to_kick!=null&&sn.mins_to_kick>=0?sn:null,f.home,f.away);
+  if(h)$('outcomeRows').insertAdjacentHTML('beforeend',h);
+ }).catch(()=>{});
+}
 function showPublishedFixture(L,f){
   prepareNavigation();
  showNoAnalysis(f.home,f.away);
@@ -6028,7 +6071,41 @@ function expiredForecastChip(){
   return forecastStatusChip('Pick expired','The earlier published prediction expired after confirmed postponement or non-play beyond 48 hours of its original kickoff. The original forecast is preserved; this match may still be scheduled.');
 }
 function dnbVoidChip(pick){
-  return forecastStatusChip(chipCode(pick)+' · Void','The completed match was a draw. This DNB prediction is neither a hit nor a miss. A bookmaker returns the stake; MatchMind processes no stake.');
+  return forecastStatusChip('Void','The completed match was a draw. This DNB prediction is neither a hit nor a miss. A bookmaker returns the stake; MatchMind processes no stake.');
+}
+const NO_PICK_CHIP = '<span class="predchip muted-chip nopick">No pick</span>';
+/* BUILD 366 - why a match has no pick, for the match page. The same decision the list chip made
+   before it was shortened, so the reason shown is the one the old chip named. '' when a pick or a
+   Lean exists. */
+function noPickReason(L, f){
+  if(!f) return '';
+  try{
+    const smap = scoreMap(), u = f.fxid!=null ? smap[f.fxid] : null;
+    const exceptional = fixtureExceptionalStatus(f);
+    if(exceptional) return '';
+    if(leanFor(f)) return '';
+    const p = f._displayCard && f._displayCard.prediction;
+    if(p && p.withheld_at) return PICK_STATUS.withheld.why;
+    const res = fixtureResult(L, f, smap);
+    if(res || (u && unsettled90(u))){
+      if(f.pick && pickIsRebuilt(f)) return PICK_STATUS.rebuilt.why;
+      if(f.pick) return '';
+      const c = pickStatusCode(L, f); return pickStatusWhy(c, f);
+    }
+    if(forecastDisplayExpired(f)) return '';
+    const _g = gateNow(L, f);
+    if(f.pick && !_g) return '';
+    if(!_g || _g === 'low' || _g === 'nobase'){
+      if(fixtureVector(L, f)) return 'Too close to call. No call clears the Lean floor of 65%. The bar shows the engine\u2019s home, draw and away probabilities.';
+    }
+    if(!f.pick && f._presentation){ const c = pickStatusCode(L, f); return pickStatusWhy(c, f); }
+    if(_g){
+      const w = GATE_WHY[_g] || GATE_WHY.low;
+      let t = ''; try{ t = w(f.prob, strongBarFor(L), gateMetFor(L), null); }catch(_){ t = ''; }
+      return (GATE_TEXT[_g] || GATE_TEXT.low) + (t ? '. ' + t : '.');
+    }
+    const c = pickStatusCode(L, f); return pickStatusWhy(c, f);
+  }catch(_){ return PICK_STATUS.norow.why; }
 }
 function fxCells(L,f,smap){
   smap=smap||scoreMap();
@@ -6041,7 +6118,7 @@ function fxCells(L,f,smap){
       /* No grade, because there is nothing to grade on. A fixture with no pick still says what is
          known about its pick rather than leaving a blank where a chip goes. */
       return {timeCell:`<span class="fxtime ft">${u.raw_gh}–${u.raw_ga}<br><span class="ftl">AET · 90' n/a</span></span>`,
-              chip: f && f.pick ? '' : pickStatusChip(L, f), finished:true}; }
+              chip: f && f.pick ? '' : NO_PICK_CHIP, finished:true}; }
   const res=exceptional?null:fixtureResult(L,f,smap);
   if(res){
     const timeCell=`<span class="fxtime ft">${res.gh}–${res.ga}<br><span class="ftl">${res.fgh!=null?aetText(res):'FT'}</span></span>`;
@@ -6066,7 +6143,7 @@ function fxCells(L,f,smap){
        the feed awarded a tick or a cross to a pick the published record refuses to count: one pick,
        two answers. `gradePick`, every threshold and the ledger's own exclusion are untouched - only
        what this chip is allowed to assert changes. */
-    else if(f.pick && pickIsRebuilt(f)){ chip = rebuiltChip(f); }
+    else if(f.pick && pickIsRebuilt(f)){ chip = NO_PICK_CHIP; }
     else if(f.pick){ const g = gradePick(f.pick, actualCode(res.gh,res.ga), res.gh, res.ga);
                 const cls = g==='hit'?'hit' : g==='void'?'muted-chip' : 'miss';
                 const mark = g==='hit'?'✓' : g==='void'?'· Void' : '✗';
@@ -6081,7 +6158,7 @@ function fxCells(L,f,smap){
        message is replaced by a status read from provenance, which says what the record proves and
        stops there. See PICK_STATUS above. */
     else if(leanFor(f)) chip = leanGradedChip(f, leanFor(f), res);   // build 362 - the frozen Lean, graded
-    else chip = pickStatusChip(L, f);
+    else chip = NO_PICK_CHIP;   // build 366 - the match page says why
     return {timeCell, chip, finished:true};
   }
   /* BUILD 118 — a withheld pick still shows the fixture. Ken's call: "show the fixture, no pick".
@@ -6107,14 +6184,17 @@ function fxCells(L,f,smap){
      call" when the engine priced it and no call clears the Lean floor. Other reasons keep their text. */
   const _ln = leanFor(f);
   const _tier = !exceptional && !_void && (!f.pick || _g) && (_ln || ((!_g || _g === 'low' || _g === 'nobase') && fixtureVector(L, f)))
-              ? (_ln ? leanChip(f, _ln) : TOSSUP_CHIP) : '';
+              ? (_ln ? leanChip(f, _ln) : NO_PICK_CHIP) : '';
+  /* BUILD 366 - owner: every match without an issued Strong pick or a Lean reads "No pick" in the list.
+     The reason (withheld, the board's gate, too close to call, no published record) is on the match
+     page, from `noPickReason`, and the list chip carries no pop-up. */
   const chip = exceptional ? exceptionalStatusChip(f)
              : _tier  ? _tier
-             : !f.pick&&f._presentation ? pickStatusChip(L,f)
-             : _g     ? `<span class="predchip muted-chip">${GATE_TEXT[_g] || GATE_TEXT.low}</span>`
+             : !f.pick&&f._presentation ? NO_PICK_CHIP
+             : _g     ? NO_PICK_CHIP
              : _void  ? expiredForecastChip()
              : f.pick ? `<span class="predchip">${chipCode(f.pick)} · ${probabilityPercent(f.prob,0)}</span>`
-             : f._presentation||exceptional ? pickStatusChip(L,f) : '';
+             : f._presentation||exceptional ? NO_PICK_CHIP : '';
   return {timeCell:`<span class="fxtime">${exceptional?fixtureExceptionalTime(f):localHM(f.date, f.time)}</span>`, chip, finished:false};
 }
 let _toastT=null;
@@ -8448,12 +8528,64 @@ let _dailyOdds = { day: null, byFx: {}, loaded: false };
    deliberately: it is the one line that still holds if this is ever pointed back at the raw table,
    which is exactly how build 301's version of this function was written. */
 const ODDS_LATEST_VIEW = 'odds_latest';
+/* == BUILD 366 - THE PUBLIC APP GETS ITS PRICES FROM THE EDITION ===================================
+   Owner: "selecting odds doesn't work". On the bounded display an anonymous visitor cannot read
+   `odds_latest`, so `fixtureTable` answered nothing and every price, the slip generator's target odds
+   included, came back empty ("none of them is priced by a bookmaker yet"). Build 355 read the view
+   directly. The edition now carries, per carded fixture, the same row `odds_latest` gives (the capture
+   closest to kick-off, never one after it), served by `matchmind_odds_v1`. It is read once per edition
+   and merged into the one store `dailyRealPrice` reads, so there is still one answer per price. */
+const PUBLIC_ODDS_KEYS = ['h','d','a','o15','u15','o25','u25','o35','u35','bttsy','bttsn','dc1x','dc12','dcx2','dnbh','dnba'];
+let _publicOdds = { state: 'idle', byFx: new Map(), p: null };
+function publicOddsRow(o){
+  if(!o || typeof o !== 'object' || !Number.isSafeInteger(o.f) || o.f <= 0) return null;
+  if(!Number.isInteger(o.k) || o.k < 0) return null;   // never a price taken after kick-off
+  const sn = { fxid: o.f, mins_to_kick: o.k };
+  for(const k of PUBLIC_ODDS_KEYS){ const v = o[k]; sn[k] = (typeof v === 'number' && isFinite(v) && v > 1) ? v : null; }
+  return sn.h == null && sn.o25 == null && sn.bttsy == null ? null : sn;
+}
+function publicOddsEnsure(){
+  if(_publicOdds.p) return _publicOdds.p;
+  const p = (async () => {
+    try{
+      if(!supa) throw Error('no client');
+      const r = await supa.rpc('matchmind_odds_v1', {});
+      if(r.error || !r.data || r.data.version !== 'matchmind-odds/1' || !Array.isArray(r.data.odds)) throw Error('Odds unavailable');
+      const m = new Map();
+      for(const o of r.data.odds){ const sn = publicOddsRow(o); if(sn) m.set(sn.fxid, sn); }
+      _publicOdds = { state: 'loaded', byFx: m, p };
+    }catch(e){ _publicOdds = { state: 'failed', byFx: _publicOdds.byFx, p }; }
+    return _publicOdds;
+  })();
+  _publicOdds.p = p;
+  return p;
+}
+function publicOddsFor(fxid){
+  if(fxid == null) return null;
+  return _publicOdds.byFx.get(Number(fxid)) || null;
+}
+/* Merge the edition's rows for these ids into a byFx map, without replacing a row already held. */
+async function publicOddsMerge(byFx, fxids){
+  if(!supa) return;
+  await publicOddsEnsure();
+  for(const id of (fxids || [])){
+    if(id == null || byFx[id]) continue;
+    const sn = publicOddsFor(id); if(sn) byFx[id] = sn;
+  }
+}
 
 async function dailyOddsLoad(day, fxids){
   if(!cloudEnabled() || !supa || !fxids || !fxids.length){
     _dailyOdds = { day: day, byFx: {}, loaded: true }; return _dailyOdds;
   }
   const byFx = {};
+  /* Build 366: without current raw authority the view cannot answer, so the edition's prices are
+     the source and no raw request is made. */
+  if(!fixtureRawCurrent() && !isPublisher()){
+    try{ await publicOddsMerge(byFx, fxids); }catch(_){}
+    _dailyOdds = { day: day, byFx: byFx, loaded: true };
+    return _dailyOdds;
+  }
   for(let i = 0; i < fxids.length; i += 150){
     let q = null;
     try{
@@ -8539,6 +8671,10 @@ async function slipOddsMerge(fxids){
   const key = want.slice().sort().join(',');
   if(_slipOddsTried[key]) return _slipOddsTried[key];
   const p = (async () => {
+    if(!fixtureRawCurrent() && !isPublisher()){   // build 366 - the edition's prices, as above
+      try{ await publicOddsMerge(_dailyOdds.byFx, want); }catch(_){}
+      return _dailyOdds;
+    }
     for(let i = 0; i < want.length; i += 150){
       let q = null;
       try{
@@ -8561,7 +8697,7 @@ async function slipOddsMerge(fxids){
 /* Today's slate first - it sets `loaded`, without which `dailyRealPrice` answers null by design -
    then the slip's own extra fixtures. */
 function slipOddsEnsure(fxids){
-  return dailyOddsEnsure().then(() => (cloudEnabled() && supa) ? slipOddsMerge(fxids) : _dailyOdds)
+  return dailyOddsEnsure().then(() => supa ? slipOddsMerge(fxids) : _dailyOdds)
                           .catch(() => _dailyOdds);
 }
 /* `m15Fair` is the app's own price reader and is REUSED rather than reimplemented - the same rule
@@ -12886,15 +13022,24 @@ function leanSelection(code, home, away){
        : code === '1D' ? home + ' (DNB)' : code === '2D' ? away + ' (DNB)'
        : GOAL_MARKETS[code] ? GOAL_MARKETS[code].label : code;
 }
+/* BUILD 366 - owner: the list chip is short. The selection in the compact pick code, the percentage, and
+   the word "Lean" on a second line inside the chip, all blue. Team names never give way to the chip. */
+function leanCode(c){ return String(chipCode(c)).replace(/ /g, ''); }
 function leanChip(f, ln){
+  return '<span class="predchip lean">' + escapeHtml(leanCode(ln.c) + ' · ' + Math.round(ln.q * 100) + '%')
+       + '<span class="tier">Lean</span></span>';
+}
+/* The match page keeps the long form, with the team named. */
+function leanDetailChip(f, ln){
   const sel = leanSelection(ln.c, f.home, f.away), txt = 'Lean: ' + sel + ' · ' + Math.round(ln.q * 100) + '%';
-  return `<span class="predchip lean" title="${escapeHtml(txt + '. A Lean is below the Strong bar and is not part of the official record.')}">${escapeHtml(txt)}</span>`;
+  return `<span class="predchip lean lean-long" title="${escapeHtml(txt + '. A Lean is below the Strong bar and is not part of the official record.')}">${escapeHtml(txt)}</span>`;
 }
 function leanGradedChip(f, ln, res){
   const g = gradePick(ln.c, actualCode(res.gh, res.ga), res.gh, res.ga);
-  const mark = g === 'hit' ? '✓' : g === 'void' ? '· Void' : g === 'miss' ? '✗' : '';
+  if(g === 'void') return '<span class="predchip lean">Void<span class="tier">Lean</span></span>';
+  const mark = g === 'hit' ? ' ✓' : g === 'miss' ? ' ✗' : '';
   const cls = g === 'hit' ? 'lean hit' : 'lean';
-  return `<span class="predchip ${cls}" title="Lean, frozen before kick-off. Not part of the official record.">Lean: ${escapeHtml(chipCode(ln.c))} ${mark}</span>`;
+  return `<span class="predchip ${cls}">${escapeHtml(leanCode(ln.c))}${mark}<span class="tier">Lean</span></span>`;
 }
 const TOSSUP_CHIP = '<span class="predchip tossup" title="No call clears the Lean floor of 65%. The bar shows the engine\'s home, draw and away probabilities.">Too close to call</span>';
 /* The 1X2 vector a row can show: the issued pick's, else the board's, else this device's own engine. */

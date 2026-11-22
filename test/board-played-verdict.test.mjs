@@ -121,8 +121,14 @@ test('B4: a carried row names its reason and is never graded; an unpredicted com
     afState.selectedDate=new Date().toISOString().slice(0,10);
     renderFixtures();
     const list=$('fixtureList');
-    const rows=[...list.querySelectorAll('.fxrow')].map(r=>{const c=r.querySelector('.predchip');
-      return {text:r.textContent,chip:c?c.textContent.trim():null,title:c?(c.getAttribute('title')||''):''};});
+    /* Build 366: the list chip reads "No pick"; the status and its reason are what the match page
+       shows, read here from the same builder (pickStatusChip) the old list chip used. */
+    const fxOf=home=>{for(const L of Object.values(afState.leagues))for(const f of [...(L.upcoming||[]),...(L.played||[])])
+      if(f&&f.home&&home.trim().endsWith(String(f.home)))return [L,f];return null;};
+    const rows=[...list.querySelectorAll('.fxrow')].map(r=>{let c=r.querySelector('.predchip');const listChip=c?c.textContent.trim():null;
+      const lf=fxOf((r.querySelector('.tline')||{}).textContent||'');
+      if(listChip==='No pick'&&lf){const box=document.createElement('div');box.innerHTML=pickStatusChip(lf[0],lf[1]);c=box.firstElementChild;}
+      return {text:r.textContent,listChip,chip:c?c.textContent.trim():null,title:c?(c.getAttribute('title')||''):''};});
     /* The Analysis feed lists only competitions MatchMind predicts (build 327), so the out-of-scope
        status is read where every other surface reads it: the chip builder itself. */
     const L42=afState.leagues[42],f42=L42&&(L42.upcoming||[]).find(f=>f.fxid===993003);
@@ -132,6 +138,7 @@ test('B4: a carried row names its reason and is never graded; an unpredicted com
   },[SLATE]);
   const row=p=>seen.find(r=>r.text.includes(p));
   const k=row('Kept Home');assert.ok(k,'the carried row did not render');
+  assert.equal(k.listChip,'No pick','build 366: the list chip is short');
   assert.match(k.chip,/^Board: no pick$/i,k.chip);
   assert.doesNotMatch(k.chip,/[✓✗]|·/,'a never-published pick was graded or priced');
   assert.match(k.title,/No strong read/,'the recorded reason is not named: '+k.title);

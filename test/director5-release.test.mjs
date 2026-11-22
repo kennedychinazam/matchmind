@@ -37,7 +37,8 @@ test('Top Matches excludes exceptional fixtures and expired picks while normal b
 });
 test('completed DNB draw is neutral Void and normal wins/losses keep ticks/crosses',async t=>{
  const p=await open(t);const x=await p.evaluate(rig=>{eval(rig);const r=card('FT',0,0),{L,f}=installRow(r);return [[0,0],[0,1],[1,0]].map(([gh,ga])=>fxCells(L,f,{[f.fxid]:{...r,gh,ga}}).chip);},rig);
- assert.match(x[0],/muted-chip.*2 DNB · Void/);assert.match(x[1],/hit.*✓/);assert.match(x[2],/miss.*✗/);
+ assert.match(x[0],/muted-chip.*>Void</);   // build 366: a refunded DNB reads Void
+assert.match(x[1],/hit.*✓/);assert.match(x[2],/miss.*✗/);
 });
 test('Scores cloud row names and status are text, never executable markup',async t=>{
  const p=await open(t);const x=await p.evaluate(()=>{const bad='<img src=x onerror="window.injected=1">';const date=ymdOffset(0);afState.scoresDate=date;afState.filter='all';afState.scores={at:Date.now(),list:[{fxid:990123,lid:2,lname:bad,lcountry:bad,home:bad,away:bad,date,time:'12:00',status:bad,gh:null,ga:null}]};renderScores();return{text:$('scoresList').textContent,images:$('scoresList').querySelectorAll('img[src="x"]').length,injected:window.injected||0};});assert.ok(x.text.includes('<img'));assert.equal(x.images,0);assert.equal(x.injected,0);
@@ -51,7 +52,7 @@ test('same fixture settles two frozen shared cards independently without mutatin
 
 test('older-date Analysis shows exceptional status and never labels delayed NS as void',async t=>{
  const p=await open(t);const x=await p.evaluate(async rig=>{eval(rig);const r=card('PST',-10,1);const pred={fxid:r.fxid,...r.prediction,lname:r.lname};const original=fixtureTable,retired=retiredCount;supa={};retiredCount=async()=>0;let current=r;fixtureTable=table=>{const q={select:()=>q,eq:()=>q,order:()=>q,in:()=>q,then:ok=>Promise.resolve({data:table==='predictions'?[pred]:current.status==='MISSING'?[]:[current],error:null}).then(ok)};return q;};const out=[];try{for(const status of ['PST','ABD','CANC','SUSP','INT','NS','FT','MISSING']){current={...r,status,date:r.prediction.kickoff,gh:status==='FT'?0:null,ga:status==='FT'?0:null};await showPredictDate(pred.kickoff);out.push($('fixtureList').textContent);}}finally{fixtureTable=original;retiredCount=retired;}return out;},rig);
- for(const [i,label]of ['POSTPONED','ABANDONED','CANCELLED','SUSPENDED','INTERRUPTED'].entries())assert.ok(x[i].toUpperCase().includes(label),x[i]);assert.ok(x[5].includes('77%'));assert.ok(x[6].includes('2 DNB · Void'));assert.ok(!x[6].includes('0/1 correct'));assert.ok(x[7].includes('77%'));assert.ok(!x[7].includes("Couldn't load"));
+ for(const [i,label]of ['POSTPONED','ABANDONED','CANCELLED','SUSPENDED','INTERRUPTED'].entries())assert.ok(x[i].toUpperCase().includes(label),x[i]);assert.ok(x[5].includes('77%'));assert.ok(x[6].includes('Void')&&!x[6].includes('DNB · Void'));   // build 366: a refunded DNB reads Voidassert.ok(!x[6].includes('0/1 correct'));assert.ok(x[7].includes('77%'));assert.ok(!x[7].includes("Couldn't load"));
 });
 test('current exceptional status outranks stale unresolved extra-time score',async t=>{
  const p=await open(t);const x=await p.evaluate(rig=>{eval(rig);const r={...card('INT',1,1),elapsed:78},{L,f}=installRow(r);const s=settledRow({...r,status:'AET',gh:3,ga:2,ft_h:null,ft_a:null});return fxCells(L,f,{[f.fxid]:s});},rig);assert.ok(x.timeCell.includes("78'"));assert.ok(!x.timeCell.includes('LIVE'));assert.ok(x.chip.includes('Interrupted'));assert.equal(x.finished,false);
@@ -64,7 +65,7 @@ test('expired and completed DNB badges explain themselves on tap and keyboard',a
  const p=await open(t);await p.evaluate(rig=>{eval(rig);navTo('predict');installRow(card('NS',-4,1));renderFixtures();window.explanations=[];toast=m=>explanations.push(m);},rig);
  const b=p.locator('#fixtureList .statuschip').first();await b.focus();await b.press('Enter');assert.match(await p.evaluate(()=>explanations.join(' ')),/48 hours/);await b.click();assert.equal(await p.evaluate(()=>explanations.length),2);
  await p.evaluate(rig=>{eval(rig);const r=card('FT',0,0);installRow(r);afState.scores={list:[{...r,gh:0,ga:0}]};renderFixtures();},rig);
- const drawn=p.locator('#fixtureList .statuschip').filter({hasText:'DNB · Void'}).first();await drawn.focus();await drawn.press('Enter');assert.match(await p.evaluate(()=>explanations.at(-1)),/completed match was a draw/);
+ const drawn=p.locator('#fixtureList .statuschip').filter({hasText:/^Void$/}).first();await drawn.focus();await drawn.press('Enter');assert.match(await p.evaluate(()=>explanations.at(-1)),/completed match was a draw/);
 });
 
 test('48-hour presentation boundary and delayed on-time result retain original locked forecast',async t=>{

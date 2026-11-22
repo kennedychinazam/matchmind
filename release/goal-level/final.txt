@@ -1,0 +1,62 @@
+===== BEFORE (build 365)
+  2022-07..2025-06: fixtures 40447, Strong coverage 55.5%, Lean 23.3%, Strong all: n 21004 hit 79.2 stated 79.5 gap -0.2
+     lean|BTTS                n     5 hit 40 stated 65.8 gap -25.8 (se 21.2)  0.1% of Lean
+     lean|Double chance       n  7962 hit 70.2 stated 70.3 gap -0.1 (se 0.5)  84.5% of Lean
+     lean|Draw no bet         n   965 hit 66.4 stated 67.5 gap -1.1 (se 1.5)  13.6% of Lean
+     lean|Over goals          n    62 hit 71 stated 66.8 gap 4.2 (se 6)  0.7% of Lean
+     lean|Under goals         n   111 hit 64.9 stated 68.1 gap -3.2 (se 4.4)  1.2% of Lean
+     strong|Double chance     n  9770 hit 77.1 stated 78.3 gap -1.2 (se 0.4)  43.5% of Strong
+     strong|Draw no bet       n  5293 hit 81.3 stated 81.3 gap -0.1 (se 0.5)  30.0% of Strong
+     strong|Under goals       n  5257 hit 80.7 stated 79.7 gap 1 (se 0.6)  23.4% of Strong
+     strong|Winner            n   684 hit 82.2 stated 79.7 gap 2.5 (se 1.5)  3.0% of Strong
+  2025-07 on: fixtures 18533, Strong coverage 50.9%, Lean 26.1%, Strong all: n 8799 hit 79.3 stated 79.3 gap 0
+     lean|BTTS                n     4 hit 75 stated 65.5 gap 9.5 (se 23.8)  0.1% of Lean
+     lean|Double chance       n  4068 hit 69.6 stated 70.4 gap -0.8 (se 0.7)  84.0% of Lean
+     lean|Draw no bet         n   528 hit 64 stated 67.5 gap -3.5 (se 2)  14.1% of Lean
+     lean|Over goals          n    29 hit 72.4 stated 66.4 gap 6 (se 8.8)  0.6% of Lean
+     lean|Under goals         n    56 hit 58.9 stated 67.3 gap -8.3 (se 6.3)  1.2% of Lean
+     strong|Double chance     n  4108 hit 78.3 stated 78.2 gap 0.1 (se 0.6)  43.6% of Strong
+     strong|Draw no bet       n  2217 hit 79.7 stated 81.1 gap -1.4 (se 0.8)  30.2% of Strong
+     strong|Under goals       n  2175 hit 80.3 stated 79.5 gap 0.7 (se 0.9)  23.1% of Strong
+     strong|Winner            n   299 hit 84.6 stated 80.1 gap 4.5 (se 2.3)  3.2% of Strong
+  2026-08 on: fixtures 4787, Strong coverage 48.8%, Lean 28.3%, Strong all: n 2180 hit 78.3 stated 79.3 gap -1
+     lean|BTTS                n     3 hit 66.7 stated 65.2 gap 1.5 (se 27.5)  0.2% of Lean
+     lean|Double chance       n  1118 hit 70.8 stated 70.4 gap 0.3 (se 1.4)  82.6% of Lean
+     lean|Draw no bet         n   155 hit 65.8 stated 67.6 gap -1.8 (se 3.8)  15.0% of Lean
+     lean|Over goals          n    16 hit 68.8 stated 66.5 gap 2.3 (se 11.8)  1.2% of Lean
+     lean|Under goals         n    14 hit 50 stated 66.7 gap -16.7 (se 12.6)  1.0% of Lean
+     strong|Double chance     n  1009 hit 77.4 stated 78.2 gap -0.8 (se 1.3)  43.2% of Strong
+     strong|Draw no bet       n   589 hit 81.5 stated 81.2 gap 0.3 (se 1.6)  32.0% of Strong
+     strong|Under goals       n   506 hit 75.5 stated 79.3 gap -3.9 (se 1.8)  21.6% of Strong
+     strong|Winner            n    76 hit 84.2 stated 80.1 gap 4.1 (se 4.6)  3.3% of Strong
+===== AFTER (build 366)
+  2022-07..2025-06: fixtures 40447, Strong coverage 50.0%, Lean 26.6%, Strong all: n 18806 hit 79 stated 79.4 gap -0.3
+     lean|BTTS                n     9 hit 55.6 stated 65.5 gap -9.9 (se 15.8)  0.1% of Lean
+     lean|Double chance       n  9370 hit 70.5 stated 70.4 gap 0.1 (se 0.5)  87.0% of Lean
+     lean|Draw no bet         n   970 hit 66.5 stated 67.5 gap -1 (se 1.5)  12.0% of Lean
+     lean|Over goals          n    64 hit 70.3 stated 66.9 gap 3.4 (se 5.9)  0.6% of Lean
+     lean|Under goals         n    40 hit 75 stated 67.7 gap 7.3 (se 7.4)  0.4% of Lean
+     strong|Double chance     n  9770 hit 77.1 stated 78.3 gap -1.2 (se 0.4)  48.3% of Strong
+     strong|Draw no bet       n  5293 hit 81.3 stated 81.3 gap -0.1 (se 0.5)  33.2% of Strong
+     strong|Under goals       n  3059 hit 80.6 stated 79.3 gap 1.3 (se 0.7)  15.1% of Strong
+     strong|Winner            n   684 hit 82.2 stated 79.7 gap 2.5 (se 1.5)  3.4% of Strong
+  2025-07 on: fixtures 18533, Strong coverage 45.2%, Lean 29.7%, Strong all: n 7748 hit 79.2 stated 79.2 gap 0
+     lean|BTTS                n    13 hit 84.6 stated 66.2 gap 18.4 (se 13.1)  0.2% of Lean
+     lean|Double chance       n  4750 hit 70.1 stated 70.5 gap -0.4 (se 0.7)  86.2% of Lean
+     lean|Draw no bet         n   532 hit 64.1 stated 67.5 gap -3.4 (se 2)  12.5% of Lean
+     lean|Over goals          n    35 hit 65.7 stated 67 gap -1.3 (se 7.9)  0.6% of Lean
+     lean|Under goals         n    23 hit 69.6 stated 66.9 gap 2.7 (se 9.8)  0.4% of Lean
+     strong|Double chance     n  4108 hit 78.3 stated 78.2 gap 0.1 (se 0.6)  49.1% of Strong
+     strong|Draw no bet       n  2217 hit 79.7 stated 81.1 gap -1.4 (se 0.8)  34.0% of Strong
+     strong|Under goals       n  1124 hit 80.2 stated 79 gap 1.2 (se 1.2)  13.4% of Strong
+     strong|Winner            n   299 hit 84.6 stated 80.1 gap 4.5 (se 2.3)  3.6% of Strong
+  2026-08 on: fixtures 4787, Strong coverage 42.9%, Lean 32.1%, Strong all: n 1898 hit 79.1 stated 79.3 gap -0.1
+     lean|BTTS                n     9 hit 88.9 stated 66.4 gap 22.5 (se 15.7)  0.6% of Lean
+     lean|Double chance       n  1303 hit 71.4 stated 70.5 gap 0.8 (se 1.3)  84.7% of Lean
+     lean|Draw no bet         n   155 hit 65.8 stated 67.6 gap -1.8 (se 3.8)  13.2% of Lean
+     lean|Over goals          n    20 hit 55 stated 67.3 gap -12.3 (se 10.5)  1.3% of Lean
+     lean|Under goals         n     3 hit 100 stated 67.4 gap 32.6 (se 27.1)  0.2% of Lean
+     strong|Double chance     n  1009 hit 77.4 stated 78.2 gap -0.8 (se 1.3)  49.1% of Strong
+     strong|Draw no bet       n   589 hit 81.5 stated 81.2 gap 0.3 (se 1.6)  36.3% of Strong
+     strong|Under goals       n   224 hit 79 stated 78.8 gap 0.2 (se 2.7)  10.9% of Strong
+     strong|Winner            n    76 hit 84.2 stated 80.1 gap 4.1 (se 4.6)  3.7% of Strong
