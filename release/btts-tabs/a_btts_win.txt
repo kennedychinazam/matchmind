@@ -1,0 +1,222 @@
+
+=== train 2022-07..2025-06: 40447 fixtures (non-XR, both sides known) ===
+ WIN (1 or 2)
+   0.50-0.55  n  5182 cov  12.8%  hit 52.4 stated 52.4 gap +0 (se 0.7)  ROI@0.95/p -5%  real ROI -
+   0.55-0.60  n  3379 cov   8.4%  hit 57.7 stated 57.3 gap +0.4 (se 0.9)  ROI@0.95/p -4.4%  real ROI -
+   0.60-0.65  n  2191 cov   5.4%  hit 62.7 stated 62.3 gap +0.4 (se 1)  ROI@0.95/p -4.5%  real ROI -
+   0.65-0.70  n  1315 cov   3.3%  hit 66.8 stated 67.3 gap -0.5 (se 1.3)  ROI@0.95/p -5.7%  real ROI -
+   0.70-0.75  n   809 cov   2.0%  hit 74.4 stated 72.4 gap +2 (se 1.6)  ROI@0.95/p -2.3%  real ROI -
+   0.75-0.80  n   429 cov   1.1%  hit 78.3 stated 77.1 gap +1.2 (se 2)  ROI@0.95/p -3.5%  real ROI -
+   0.80-1.00  n   282 cov   0.7%  hit 86.9 stated 83.3 gap +3.6 (se 2.2)  ROI@0.95/p -0.8%  real ROI -
+   >=0.60 cov 12.4% n 5026 hit 68.3 stated 67.7 gap 0.7 se 0.7 ROIfair -4.2 real null(n 0)
+   >=0.65 cov 7.0% n 2835 hit 72.7 stated 71.8 gap 0.9 se 0.8 ROIfair -3.9 real null(n 0)
+   >=0.70 cov 3.8% n 1520 hit 77.8 stated 75.7 gap 2.1 se 1.1 ROIfair -2.4 real null(n 0)
+   >=0.75 cov 1.8% n 711 hit 81.7 stated 79.5 gap 2.2 se 1.5 ROIfair -2.4 real null(n 0)
+ BTTS (Yes or No)
+   0.50-0.55  n 21759 cov  53.8%  hit 51.8 stated 52.3 gap -0.6 (se 0.3)  ROI@0.95/p -6%  real ROI -
+   0.55-0.60  n 12594 cov  31.1%  hit 56.1 stated 57.2 gap -1.1 (se 0.4)  ROI@0.95/p -6.7%  real ROI -
+   0.60-0.65  n  5724 cov  14.2%  hit 58.6 stated 61.9 gap -3.3 (se 0.6)  ROI@0.95/p -10%  real ROI -
+   0.65-0.70  n   370 cov   0.9%  hit 64.1 stated 66 gap -1.9 (se 2.5)  ROI@0.95/p -7.8%  real ROI -
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 15.1% n 6094 hit 58.9 stated 62.1 gap -3.2 se 0.6 ROIfair -9.9 real null(n 0)
+   >=0.65 cov 0.9% n 370 hit 64.1 stated 66 gap -1.9 se 2.5 ROIfair -7.8 real null(n 0)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS Yes
+   0.50-0.55  n 10177 cov  25.2%  hit 52.8 stated 52.3 gap +0.5 (se 0.5)  ROI@0.95/p -4.1%  real ROI -
+   0.55-0.60  n  6757 cov  16.7%  hit 56.9 stated 57.4 gap -0.4 (se 0.6)  ROI@0.95/p -5.7%  real ROI -
+   0.60-0.65  n  4207 cov  10.4%  hit 59.7 stated 61.9 gap -2.2 (se 0.7)  ROI@0.95/p -8.4%  real ROI -
+   0.65-0.70  n   246 cov   0.6%  hit 64.6 stated 66 gap -1.3 (se 3)  ROI@0.95/p -6.9%  real ROI -
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 11.0% n 4453 hit 60 stated 62.1 gap -2.2 se 0.7 ROIfair -8.3 real null(n 0)
+   >=0.65 cov 0.6% n 246 hit 64.6 stated 66 gap -1.3 se 3 ROIfair -6.9 real null(n 0)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS No
+   0.50-0.55  n 11613 cov  28.7%  hit 50.8 stated 52.3 gap -1.5 (se 0.5)  ROI@0.95/p -7.8%  real ROI -
+   0.55-0.60  n  5837 cov  14.4%  hit 55.2 stated 57 gap -1.8 (se 0.6)  ROI@0.95/p -8%  real ROI -
+   0.60-0.65  n  1517 cov   3.8%  hit 55.6 stated 61.8 gap -6.2 (se 1.2)  ROI@0.95/p -14.5%  real ROI -
+   0.65-0.70  n   124 cov   0.3%  hit 62.9 stated 66 gap -3.1 (se 4.3)  ROI@0.95/p -9.4%  real ROI -
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 4.1% n 1641 hit 56.1 stated 62.1 gap -6 se 1.2 ROIfair -14.1 real null(n 0)
+   >=0.65 cov 0.3% n 124 hit 62.9 stated 66 gap -3.1 se 4.3 ROIfair -9.4 real null(n 0)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ Home win 1
+   0.50-0.55  n  4082 cov  10.1%  hit 52.6 stated 52.4 gap +0.2 (se 0.8)  ROI@0.95/p -4.5%  real ROI -
+   0.55-0.60  n  2685 cov   6.6%  hit 57.7 stated 57.3 gap +0.4 (se 1)  ROI@0.95/p -4.3%  real ROI -
+   0.60-0.65  n  1656 cov   4.1%  hit 63.4 stated 62.2 gap +1.2 (se 1.2)  ROI@0.95/p -3.3%  real ROI -
+   0.65-0.70  n   984 cov   2.4%  hit 67.3 stated 67.3 gap +0 (se 1.5)  ROI@0.95/p -5.1%  real ROI -
+   0.70-0.75  n   612 cov   1.5%  hit 75 stated 72.4 gap +2.6 (se 1.8)  ROI@0.95/p -1.6%  real ROI -
+   0.75-0.80  n   350 cov   0.9%  hit 78 stated 77.1 gap +0.9 (se 2.2)  ROI@0.95/p -3.9%  real ROI -
+   0.80-1.00  n   244 cov   0.6%  hit 88.5 stated 83.4 gap +5.2 (se 2.4)  ROI@0.95/p 1%  real ROI -
+   >=0.60 cov 9.5% n 3846 hit 69.2 stated 67.8 gap 1.3 se 0.8 ROIfair -3.3 real null(n 0)
+   >=0.65 cov 5.4% n 2190 hit 73.5 stated 72.1 gap 1.4 se 1 ROIfair -3.2 real null(n 0)
+   >=0.70 cov 3.0% n 1206 hit 78.6 stated 76 gap 2.6 se 1.2 ROIfair -1.8 real null(n 0)
+   >=0.75 cov 1.5% n 594 hit 82.3 stated 79.7 gap 2.6 se 1.7 ROIfair -1.9 real null(n 0)
+ Away win 2
+   0.50-0.55  n  1100 cov   2.7%  hit 51.3 stated 52.3 gap -1 (se 1.5)  ROI@0.95/p -6.8%  real ROI -
+   0.55-0.60  n   694 cov   1.7%  hit 57.6 stated 57.4 gap +0.2 (se 1.9)  ROI@0.95/p -4.7%  real ROI -
+   0.60-0.65  n   535 cov   1.3%  hit 60.4 stated 62.3 gap -2 (se 2.1)  ROI@0.95/p -8.1%  real ROI -
+   0.65-0.70  n   331 cov   0.8%  hit 65.6 stated 67.3 gap -1.8 (se 2.6)  ROI@0.95/p -7.5%  real ROI -
+   0.70-0.75  n   197 cov   0.5%  hit 72.6 stated 72.3 gap +0.3 (se 3.2)  ROI@0.95/p -4.4%  real ROI -
+   0.75-0.80  n    79 cov   0.2%  hit 79.7 stated 77 gap +2.7 (se 4.7)  ROI@0.95/p -1.6%  real ROI -
+   0.80-1.00  n    38 cov   0.1%  hit 76.3 stated 82.6 gap -6.3 (se 6.2)  ROI@0.95/p -12.3%  real ROI -
+   >=0.60 cov 2.9% n 1180 hit 65.7 stated 67 gap -1.4 se 1.4 ROIfair -7 real null(n 0)
+   >=0.65 cov 1.6% n 645 hit 70.1 stated 70.9 gap -0.8 se 1.8 ROIfair -6.1 real null(n 0)
+   >=0.70 cov 0.8% n 314 hit 74.8 stated 74.7 gap 0.1 se 2.5 ROIfair -4.7 real null(n 0)
+   >=0.75 cov 0.3% n 117 hit 78.6 stated 78.8 gap -0.2 se 3.8 ROIfair -5.1 real null(n 0)
+
+=== test 2025-07 on: 18533 fixtures (non-XR, both sides known) ===
+ WIN (1 or 2)
+   0.50-0.55  n  2278 cov  12.3%  hit 50.3 stated 52.4 gap -2.1 (se 1)  ROI@0.95/p -8.8%  real ROI -2.4% (n 420)
+   0.55-0.60  n  1570 cov   8.5%  hit 56.4 stated 57.4 gap -0.9 (se 1.2)  ROI@0.95/p -6.6%  real ROI 1% (n 347)
+   0.60-0.65  n   922 cov   5.0%  hit 59.9 stated 62.2 gap -2.4 (se 1.6)  ROI@0.95/p -8.5%  real ROI -6.3% (n 169)
+   0.65-0.70  n   613 cov   3.3%  hit 67 stated 67.3 gap -0.2 (se 1.9)  ROI@0.95/p -5.4%  real ROI -4.1% (n 156)
+   0.70-0.75  n   311 cov   1.7%  hit 74 stated 72.2 gap +1.7 (se 2.5)  ROI@0.95/p -2.8%  real ROI 3.8% (n 54)
+   0.75-0.80  n   188 cov   1.0%  hit 84 stated 77.3 gap +6.7 (se 3.1)  ROI@0.95/p 3.4%  real ROI 3.4% (n 36)
+   0.80-1.00  n   127 cov   0.7%  hit 85 stated 83.8 gap +1.2 (se 3.3)  ROI@0.95/p -3.4%  real ROI -2.7% (n 28)
+   >=0.60 cov 11.7% n 2161 hit 67.5 stated 67.7 gap -0.2 se 1 ROIfair -5.4 real -3.3(n 443)
+   >=0.65 cov 6.7% n 1239 hit 73.2 stated 71.7 gap 1.5 se 1.3 ROIfair -3.2 real -1.4(n 274)
+   >=0.70 cov 3.4% n 626 hit 79.2 stated 76.1 gap 3.1 se 1.7 ROIfair -1.1 real 2.2(n 118)
+   >=0.75 cov 1.7% n 315 hit 84.4 stated 79.9 gap 4.5 se 2.3 ROIfair 0.6 real 0.8(n 64)
+ BTTS (Yes or No)
+   0.50-0.55  n  9789 cov  52.8%  hit 51.7 stated 52.2 gap -0.6 (se 0.5)  ROI@0.95/p -6%  real ROI -6.9% (n 1843)
+   0.55-0.60  n  5385 cov  29.1%  hit 58.2 stated 57.4 gap +0.8 (se 0.7)  ROI@0.95/p -3.7%  real ROI -9.6% (n 921)
+   0.60-0.65  n  3167 cov  17.1%  hit 59.9 stated 61.8 gap -1.9 (se 0.9)  ROI@0.95/p -7.9%  real ROI -11.4% (n 686)
+   0.65-0.70  n   192 cov   1.0%  hit 66.1 stated 66 gap +0.2 (se 3.4)  ROI@0.95/p -4.7%  real ROI -8.5% (n 79)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 18.1% n 3359 hit 60.3 stated 62.1 gap -1.8 se 0.8 ROIfair -7.8 real -11.1(n 765)
+   >=0.65 cov 1.0% n 192 hit 66.1 stated 66 gap 0.2 se 3.4 ROIfair -4.7 real -8.5(n 79)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS Yes
+   0.50-0.55  n  5135 cov  27.7%  hit 53.2 stated 52.3 gap +1 (se 0.7)  ROI@0.95/p -3.2%  real ROI -4.1% (n 1138)
+   0.55-0.60  n  3697 cov  19.9%  hit 59.9 stated 57.5 gap +2.4 (se 0.8)  ROI@0.95/p -1%  real ROI -8.8% (n 673)
+   0.60-0.65  n  2601 cov  14.0%  hit 60.6 stated 61.8 gap -1.2 (se 1)  ROI@0.95/p -6.9%  real ROI -10.2% (n 629)
+   0.65-0.70  n   144 cov   0.8%  hit 66 stated 65.9 gap +0.1 (se 4)  ROI@0.95/p -4.9%  real ROI -7.3% (n 78)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 14.8% n 2745 hit 60.9 stated 62 gap -1.2 se 0.9 ROIfair -6.8 real -9.8(n 707)
+   >=0.65 cov 0.8% n 144 hit 66 stated 65.9 gap 0.1 se 4 ROIfair -4.9 real -7.3(n 78)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS No
+   0.50-0.55  n  4667 cov  25.2%  hit 49.9 stated 52.2 gap -2.3 (se 0.7)  ROI@0.95/p -9.1%  real ROI -11.5% (n 705)
+   0.55-0.60  n  1688 cov   9.1%  hit 54.5 stated 57.1 gap -2.6 (se 1.2)  ROI@0.95/p -9.5%  real ROI -12% (n 248)
+   0.60-0.65  n   566 cov   3.1%  hit 56.7 stated 61.9 gap -5.1 (se 2)  ROI@0.95/p -12.8%  real ROI -25.1% (n 57)
+   0.65-0.70  n    48 cov   0.3%  hit 66.7 stated 66.3 gap +0.4 (se 6.8)  ROI@0.95/p -4.2%  real ROI -100% (n 1)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 3.3% n 614 hit 57.5 stated 62.2 gap -4.7 se 2 ROIfair -12.2 real -26.4(n 58)
+   >=0.65 cov 0.3% n 48 hit 66.7 stated 66.3 gap 0.4 se 6.8 ROIfair -4.2 real -100(n 1)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ Home win 1
+   0.50-0.55  n  1796 cov   9.7%  hit 51.3 stated 52.4 gap -1.1 (se 1.2)  ROI@0.95/p -6.9%  real ROI -2% (n 332)
+   0.55-0.60  n  1250 cov   6.7%  hit 56.8 stated 57.4 gap -0.6 (se 1.4)  ROI@0.95/p -6%  real ROI -0.9% (n 272)
+   0.60-0.65  n   715 cov   3.9%  hit 59.7 stated 62.2 gap -2.5 (se 1.8)  ROI@0.95/p -8.7%  real ROI -8.2% (n 135)
+   0.65-0.70  n   429 cov   2.3%  hit 66.7 stated 67.2 gap -0.6 (se 2.3)  ROI@0.95/p -5.8%  real ROI -2.3% (n 109)
+   0.70-0.75  n   211 cov   1.1%  hit 71.6 stated 72.2 gap -0.6 (se 3.1)  ROI@0.95/p -5.9%  real ROI -6.2% (n 33)
+   0.75-0.80  n   133 cov   0.7%  hit 85 stated 77.5 gap +7.5 (se 3.6)  ROI@0.95/p 4.3%  real ROI 5.3% (n 27)
+   0.80-1.00  n    97 cov   0.5%  hit 87.6 stated 84.1 gap +3.5 (se 3.7)  ROI@0.95/p -0.7%  real ROI -0.6% (n 22)
+   >=0.60 cov 8.6% n 1585 hit 67 stated 67.5 gap -0.5 se 1.2 ROIfair -6 real -4.4(n 326)
+   >=0.65 cov 4.7% n 870 hit 73 stated 71.9 gap 1.1 se 1.5 ROIfair -3.7 real -1.7(n 191)
+   >=0.70 cov 2.4% n 441 hit 79.1 stated 76.4 gap 2.7 se 2 ROIfair -1.7 real -0.9(n 82)
+   >=0.75 cov 1.2% n 230 hit 86.1 stated 80.3 gap 5.8 se 2.6 ROIfair 2.2 real 2.7(n 49)
+ Away win 2
+   0.50-0.55  n   482 cov   2.6%  hit 46.3 stated 52.4 gap -6.1 (se 2.3)  ROI@0.95/p -16.1%  real ROI -4.3% (n 88)
+   0.55-0.60  n   320 cov   1.7%  hit 55 stated 57.4 gap -2.4 (se 2.8)  ROI@0.95/p -8.9%  real ROI 8% (n 75)
+   0.60-0.65  n   207 cov   1.1%  hit 60.4 stated 62.3 gap -1.9 (se 3.4)  ROI@0.95/p -7.6%  real ROI 1% (n 34)
+   0.65-0.70  n   184 cov   1.0%  hit 67.9 stated 67.4 gap +0.5 (se 3.5)  ROI@0.95/p -4.3%  real ROI -8.4% (n 47)
+   0.70-0.75  n   100 cov   0.5%  hit 79 stated 72.4 gap +6.6 (se 4.5)  ROI@0.95/p 3.8%  real ROI 19.7% (n 21)
+   0.75-0.80  n    55 cov   0.3%  hit 81.8 stated 76.8 gap +5 (se 5.7)  ROI@0.95/p 1.2%  real ROI -2.1% (n 9)
+   0.80-1.00  n    30 cov   0.2%  hit 76.7 stated 82.9 gap -6.3 (se 6.9)  ROI@0.95/p -12.2%  real ROI -10.4% (n 6)
+   >=0.60 cov 3.1% n 576 hit 68.9 stated 68.2 gap 0.8 se 1.9 ROIfair -4 real -0.2(n 117)
+   >=0.65 cov 2.0% n 369 hit 73.7 stated 71.4 gap 2.3 se 2.4 ROIfair -2 real -0.7(n 83)
+   >=0.70 cov 1.0% n 185 hit 79.5 stated 75.4 gap 4 se 3.2 ROIfair 0.4 real 9.2(n 36)
+   >=0.75 cov 0.5% n 85 hit 80 stated 79 gap 1 se 4.4 ROIfair -3.5 real -5.4(n 15)
+
+=== 2026-08 on: 4787 fixtures (non-XR, both sides known) ===
+ WIN (1 or 2)
+   0.50-0.55  n   575 cov  12.0%  hit 50.8 stated 52.3 gap -1.6 (se 2.1)  ROI@0.95/p -7.8%  real ROI -2.4% (n 420)
+   0.55-0.60  n   453 cov   9.5%  hit 60.5 stated 57.4 gap +3.1 (se 2.3)  ROI@0.95/p -0.1%  real ROI 1% (n 347)
+   0.60-0.65  n   223 cov   4.7%  hit 57.4 stated 62.2 gap -4.8 (se 3.2)  ROI@0.95/p -12.4%  real ROI -6.3% (n 169)
+   0.65-0.70  n   188 cov   3.9%  hit 67 stated 67.2 gap -0.2 (se 3.4)  ROI@0.95/p -5.3%  real ROI -4.1% (n 156)
+   0.70-0.75  n    80 cov   1.7%  hit 77.5 stated 72.2 gap +5.3 (se 5)  ROI@0.95/p 1.9%  real ROI 3.8% (n 54)
+   0.75-0.80  n    44 cov   0.9%  hit 86.4 stated 77.1 gap +9.2 (se 6.3)  ROI@0.95/p 6.4%  real ROI 3.4% (n 36)
+   0.80-1.00  n    36 cov   0.8%  hit 80.6 stated 83.4 gap -2.8 (se 6.2)  ROI@0.95/p -8.1%  real ROI -2.7% (n 28)
+   >=0.60 cov 11.9% n 571 hit 67.1 stated 67.8 gap -0.7 se 2 ROIfair -6.4 real -3.3(n 443)
+   >=0.65 cov 7.3% n 348 hit 73.3 stated 71.3 gap 2 se 2.4 ROIfair -2.4 real -1.4(n 274)
+   >=0.70 cov 3.3% n 160 hit 80.6 stated 76.1 gap 4.5 se 3.4 ROIfair 0.9 real 2.2(n 118)
+   >=0.75 cov 1.7% n 80 hit 83.8 stated 80 gap 3.8 se 4.5 ROIfair -0.1 real 0.8(n 64)
+ BTTS (Yes or No)
+   0.50-0.55  n  2420 cov  50.6%  hit 51.9 stated 52.3 gap -0.3 (se 1)  ROI@0.95/p -5.5%  real ROI -6.9% (n 1843)
+   0.55-0.60  n  1277 cov  26.7%  hit 58 stated 57.4 gap +0.6 (se 1.4)  ROI@0.95/p -4.1%  real ROI -9.6% (n 921)
+   0.60-0.65  n   988 cov  20.6%  hit 61 stated 62.1 gap -1.1 (se 1.5)  ROI@0.95/p -6.6%  real ROI -11.4% (n 686)
+   0.65-0.70  n   102 cov   2.1%  hit 61.8 stated 65.9 gap -4.2 (se 4.7)  ROI@0.95/p -11%  real ROI -8.5% (n 79)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 22.8% n 1090 hit 61.1 stated 62.5 gap -1.4 se 1.5 ROIfair -7.1 real -11.1(n 765)
+   >=0.65 cov 2.1% n 102 hit 61.8 stated 65.9 gap -4.2 se 4.7 ROIfair -11 real -8.5(n 79)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS Yes
+   0.50-0.55  n  1506 cov  31.5%  hit 54.2 stated 52.3 gap +1.8 (se 1.3)  ROI@0.95/p -1.6%  real ROI -4.1% (n 1138)
+   0.55-0.60  n   939 cov  19.6%  hit 59.2 stated 57.5 gap +1.7 (se 1.6)  ROI@0.95/p -2.3%  real ROI -8.8% (n 673)
+   0.60-0.65  n   907 cov  18.9%  hit 61.7 stated 62.1 gap -0.4 (se 1.6)  ROI@0.95/p -5.6%  real ROI -10.2% (n 629)
+   0.65-0.70  n    97 cov   2.0%  hit 62.9 stated 65.9 gap -3 (se 4.8)  ROI@0.95/p -9.4%  real ROI -7.3% (n 78)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 21.0% n 1004 hit 61.9 stated 62.5 gap -0.7 se 1.5 ROIfair -5.9 real -9.8(n 707)
+   >=0.65 cov 2.0% n 97 hit 62.9 stated 65.9 gap -3 se 4.8 ROIfair -9.4 real -7.3(n 78)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ BTTS No
+   0.50-0.55  n   915 cov  19.1%  hit 48.2 stated 52.1 gap -3.9 (se 1.7)  ROI@0.95/p -12.2%  real ROI -11.5% (n 705)
+   0.55-0.60  n   338 cov   7.1%  hit 54.7 stated 57.2 gap -2.4 (se 2.7)  ROI@0.95/p -9.2%  real ROI -12% (n 248)
+   0.60-0.65  n    81 cov   1.7%  hit 53.1 stated 61.9 gap -8.8 (se 5.4)  ROI@0.95/p -18.6%  real ROI -25.1% (n 57)
+   0.65-0.70  n     5 cov   0.1%  hit 40 stated 66.1 gap -26.1 (se 21.2)  ROI@0.95/p -42%  real ROI -100% (n 1)
+   0.70-0.75  n 0
+   0.75-0.80  n 0
+   0.80-1.00  n 0
+   >=0.60 cov 1.8% n 86 hit 52.3 stated 62.1 gap -9.8 se 5.2 ROIfair -19.9 real -26.4(n 58)
+   >=0.65 cov 0.1% n 5 hit 40 stated 66.1 gap -26.1 se 21.2 ROIfair -42 real -100(n 1)
+   >=0.70 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+   >=0.75 cov 0.0% n 0 hit null stated null gap null se null ROIfair null real null(n 0)
+ Home win 1
+   0.50-0.55  n   453 cov   9.5%  hit 50.3 stated 52.3 gap -2 (se 2.3)  ROI@0.95/p -8.6%  real ROI -2% (n 332)
+   0.55-0.60  n   354 cov   7.4%  hit 61 stated 57.4 gap +3.6 (se 2.6)  ROI@0.95/p 0.9%  real ROI -0.9% (n 272)
+   0.60-0.65  n   176 cov   3.7%  hit 57.4 stated 62.2 gap -4.8 (se 3.7)  ROI@0.95/p -12.5%  real ROI -8.2% (n 135)
+   0.65-0.70  n   131 cov   2.7%  hit 66.4 stated 67.2 gap -0.8 (se 4.1)  ROI@0.95/p -6.1%  real ROI -2.3% (n 109)
+   0.70-0.75  n    46 cov   1.0%  hit 71.7 stated 72.2 gap -0.4 (se 6.6)  ROI@0.95/p -5.8%  real ROI -6.2% (n 33)
+   0.75-0.80  n    32 cov   0.7%  hit 87.5 stated 77.3 gap +10.2 (se 7.4)  ROI@0.95/p 7.7%  real ROI 5.3% (n 27)
+   0.80-1.00  n    25 cov   0.5%  hit 84 stated 83.6 gap +0.4 (se 7.4)  ROI@0.95/p -4.1%  real ROI -0.6% (n 22)
+   >=0.60 cov 8.6% n 410 hit 65.9 stated 67.4 gap -1.5 se 2.3 ROIfair -7.6 real -4.4(n 326)
+   >=0.65 cov 4.9% n 234 hit 72.2 stated 71.3 gap 0.9 se 3 ROIfair -4 real -1.7(n 191)
+   >=0.70 cov 2.2% n 103 hit 79.6 stated 76.5 gap 3.1 se 4.2 ROIfair -1.2 real -0.9(n 82)
+   >=0.75 cov 1.2% n 57 hit 86 stated 80.1 gap 5.9 se 5.3 ROIfair 2.5 real 2.7(n 49)
+ Away win 2
+   0.50-0.55  n   122 cov   2.5%  hit 52.5 stated 52.3 gap +0.1 (se 4.5)  ROI@0.95/p -5%  real ROI -4.3% (n 88)
+   0.55-0.60  n    99 cov   2.1%  hit 58.6 stated 57.4 gap +1.2 (se 5)  ROI@0.95/p -3.4%  real ROI 8% (n 75)
+   0.60-0.65  n    47 cov   1.0%  hit 57.4 stated 62.3 gap -4.9 (se 7.1)  ROI@0.95/p -12.3%  real ROI 1% (n 34)
+   0.65-0.70  n    57 cov   1.2%  hit 68.4 stated 67.3 gap +1.1 (se 6.2)  ROI@0.95/p -3.4%  real ROI -8.4% (n 47)
+   0.70-0.75  n    34 cov   0.7%  hit 85.3 stated 72.3 gap +13 (se 7.7)  ROI@0.95/p 12.4%  real ROI 19.7% (n 21)
+   0.75-0.80  n    12 cov   0.3%  hit 83.3 stated 76.7 gap +6.6 (se 12.2)  ROI@0.95/p 3.1%  real ROI -2.1% (n 9)
+   0.80-1.00  n    11 cov   0.2%  hit 72.7 stated 82.9 gap -10.2 (se 11.3)  ROI@0.95/p -17.1%  real ROI -10.4% (n 6)
+   >=0.60 cov 3.4% n 161 hit 70.2 stated 68.7 gap 1.5 se 3.7 ROIfair -3.1 real -0.2(n 117)
+   >=0.65 cov 2.4% n 114 hit 75.4 stated 71.3 gap 4.1 se 4.2 ROIfair 0.7 real -0.7(n 83)
+   >=0.70 cov 1.2% n 57 hit 82.5 stated 75.3 gap 7.2 se 5.7 ROIfair 4.7 real 9.2(n 36)
+   >=0.75 cov 0.5% n 23 hit 78.3 stated 79.7 gap -1.4 se 8.4 ROIfair -6.6 real -5.4(n 15)

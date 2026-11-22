@@ -1,0 +1,6 @@
+skip2D false train lean cov 23.6% Double chance n 8057 gap 1.6 | ALL n 9252 gap 1.1 | Draw no bet n 981 gap -4.2 | BTTS n 8 gap -3.3 | Over goals n 69 gap -0.3 | Under goals n 137 gap 5.6
+skip2D false test lean cov 26.0% Double chance n 4101 gap 0.4 | ALL n 4671 gap 0.1 | Under goals n 52 gap 0.7 | Draw no bet n 460 gap -2.5 | Over goals n 44 gap 1 | BTTS n 14 gap 12.4
+skip2D false 26-08 lean cov 28.4% Double chance n 1133 gap 0.7 | ALL n 1314 gap 0.3 | Draw no bet n 134 gap -2.6 | Under goals n 13 gap 6.8 | Over goals n 25 gap -11.6 | BTTS n 9 gap 22.5
+skip2D true train lean cov 23.6% Double chance n 8796 gap 1.1 | ALL n 9404 gap 1.1 | Draw no bet n 394 gap -0.5 | BTTS n 8 gap -3.3 | Over goals n 69 gap -0.3 | Under goals n 137 gap 5.6
+skip2D true test lean cov 25.9% Double chance n 4405 gap 0.1 | ALL n 4726 gap 0.2 | Under goals n 52 gap 0.7 | Draw no bet n 211 gap 0.7 | Over goals n 44 gap 1 | BTTS n 14 gap 12.4
+skip2D true 26-08 lean cov 28.2% Double chance n 1213 gap 0.3 | ALL n 1325 gap 0.3 | Draw no bet n 65 gap -0.1 | Under goals n 13 gap 6.8 | Over goals n 25 gap -11.6 | BTTS n 9 gap 22.5

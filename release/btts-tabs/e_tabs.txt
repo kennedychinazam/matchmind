@@ -1,0 +1,31 @@
+measured bars {"BTS":0.62,"NBT":null,"O25":0.6,"O35":0.6,"U35":0.77}
+
+Winner BEFORE (official-pick fixtures, headline 1X2/DC)
+  train 2022-07..2025-06: listed 19833 of 40447 (49.0%), no-winner-pick fixtures among them 17% | all: hit 70 stated 70.2 gap -0.2 (se 0.3) ROI0.95 -5.2 real null(n 0) | top30/day: n 14828 hit 73 stated 73 gap 0.1 | mix {"1":6465,"2":1799,"1X":8293,"X":541,"X2":2735}
+  test 2025-07 on: listed 8195 of 18533 (44.2%), no-winner-pick fixtures among them 15% | all: hit 69.9 stated 69.9 gap 0 (se 0.5) ROI0.95 -4.9 real -4.1(n 1538) | top30/day: n 6271 hit 73 stated 72.5 gap 0.5 | mix {"1":2789,"2":873,"1X":3324,"X2":1019,"X":190}
+  2026-08 on: listed 2003 of 4787 (41.8%), no-winner-pick fixtures among them 12% | all: hit 69.1 stated 69.3 gap -0.2 (se 1) ROI0.95 -5.2 real -4.1(n 1538) | top30/day: n 1551 hit 72.3 stated 71.9 gap 0.4 | mix {"1":753,"2":251,"1X":728,"X":35,"X2":236}
+
+Winner AFTER (result rung at the Strong bar)
+  train 2022-07..2025-06: listed 16424 of 40447 (40.6%), no-winner-pick fixtures among them 0% | all: hit 79.4 stated 79.4 gap 0.1 (se 0.3) ROI0.95 -4.9 real null(n 0) | top30/day: n 12370 hit 80.1 stated 80 gap 0 | mix {"1":582,"2":102,"1X":8368,"1D":4345,"X2":1521,"2D":1506}
+  test 2025-07 on: listed 6952 of 18533 (37.5%), no-winner-pick fixtures among them 0% | all: hit 79.6 stated 79.3 gap 0.3 (se 0.5) ROI0.95 -4.6 real -3.3(n 1253) | top30/day: n 5289 hit 80.1 stated 79.9 gap 0.3 | mix {"1":230,"2":69,"1X":3589,"X2":614,"1D":1771,"2D":679}
+  2026-08 on: listed 1755 of 4787 (36.7%), no-winner-pick fixtures among them 0% | all: hit 79.8 stated 79.3 gap 0.5 (se 1) ROI0.95 -4.4 real -3.3(n 1253) | top30/day: n 1323 hit 80.3 stated 80 gap 0.4 | mix {"1":57,"2":19,"1D":451,"1X":878,"2D":189,"X2":161}
+
+O/U 2.5 BEFORE (official-pick fixtures, O2.5 or U2.5)
+  train 2022-07..2025-06: listed 19833 of 40447 (49.0%), no-winner-pick fixtures among them 17% | all: hit 57.5 stated 58.4 gap -0.9 (se 0.3) ROI0.95 -6.4 real null(n 0) | top30/day: n 14828 hit 58.7 stated 59.9 gap -1.2 | mix {"O25":6827,"U25":13006}
+  test 2025-07 on: listed 8195 of 18533 (44.2%), no-winner-pick fixtures among them 15% | all: hit 57.7 stated 58.4 gap -0.6 (se 0.5) ROI0.95 -6.2 real -8.3(n 1540) | top30/day: n 6271 hit 58.9 stated 59.8 gap -0.9 | mix {"O25":3444,"U25":4751}
+  2026-08 on: listed 2003 of 4787 (41.8%), no-winner-pick fixtures among them 12% | all: hit 58.2 stated 58.3 gap -0.1 (se 1.1) ROI0.95 -5.5 real -8.3(n 1540) | top30/day: n 1551 hit 60.7 stated 59.8 gap 0.9 | mix {"O25":994,"U25":1009}
+
+Goals AFTER (O2.5/O3.5/U3.5 at own bars)
+  train 2022-07..2025-06: listed 14518 of 40447 (35.9%), no-winner-pick fixtures among them 63% | all: hit 74.6 stated 73.4 gap 1.2 (se 0.4) ROI0.95 -3.5 real null(n 0) | top30/day: n 12004 hit 75.7 stated 74.2 gap 1.5 | mix {"U35":8672,"O25":5846}
+  test 2025-07 on: listed 6653 of 18533 (35.9%), no-winner-pick fixtures among them 64% | all: hit 71.7 stated 71.1 gap 0.5 (se 0.6) ROI0.95 -4.4 real -8.4(n 1214) | top30/day: n 5502 hit 72.6 stated 72.1 gap 0.5 | mix {"O25":3549,"U35":3104}
+  2026-08 on: listed 1779 of 4787 (37.2%), no-winner-pick fixtures among them 64% | all: hit 69 stated 68.9 gap 0.1 (se 1.1) ROI0.95 -4.7 real -8.4(n 1214) | top30/day: n 1422 hit 70.7 stated 69.7 gap 1 | mix {"O25":1217,"U35":562}
+
+BTTS BEFORE (official-pick fixtures, Yes or No)
+  train 2022-07..2025-06: listed 19833 of 40447 (49.0%), no-winner-pick fixtures among them 17% | all: hit 53.8 stated 55.2 gap -1.4 (se 0.4) ROI0.95 -7.3 real null(n 0) | top30/day: n 14828 hit 54.9 stated 56.2 gap -1.3 | mix {"BTS":7463,"NBT":12370}
+  test 2025-07 on: listed 8195 of 18533 (44.2%), no-winner-pick fixtures among them 15% | all: hit 53.9 stated 55 gap -1.1 (se 0.5) ROI0.95 -6.9 real -7.9(n 1539) | top30/day: n 6271 hit 54.8 stated 56 gap -1.1 | mix {"BTS":3954,"NBT":4241}
+  2026-08 on: listed 2003 of 4787 (41.8%), no-winner-pick fixtures among them 12% | all: hit 54.9 stated 55.1 gap -0.2 (se 1.1) ROI0.95 -5.4 real -7.9(n 1539) | top30/day: n 1551 hit 55.1 stated 56 gap -0.9 | mix {"BTS":1173,"NBT":830}
+
+BTTS AFTER (BTTS Yes at its bar)
+  train 2022-07..2025-06: listed 2072 of 40447 (5.1%), no-winner-pick fixtures among them 85% | all: hit 62.1 stated 63.5 gap -1.4 (se 1.1) ROI0.95 -7 real null(n 0) | top30/day: n 1779 hit 63.2 stated 63.6 gap -0.4 | mix {"BTS":2072}
+  test 2025-07 on: listed 1199 of 18533 (6.5%), no-winner-pick fixtures among them 87% | all: hit 61.9 stated 63.4 gap -1.6 (se 1.4) ROI0.95 -7.3 real -13.2(n 405) | top30/day: n 1166 hit 61.7 stated 63.5 gap -1.8 | mix {"BTS":1199}
+  2026-08 on: listed 563 of 4787 (11.8%), no-winner-pick fixtures among them 84% | all: hit 62.3 stated 63.7 gap -1.4 (se 2) ROI0.95 -7 real -13.2(n 405) | top30/day: n 541 hit 62.3 stated 63.8 gap -1.5 | mix {"BTS":563}

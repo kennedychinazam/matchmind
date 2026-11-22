@@ -1,0 +1,18 @@
+import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import http from 'node:http'; import { readFileSync, writeFileSync } from 'node:fs';
+const ROOT=process.env.ROOT||'/tmp/claude-0/wt-btts';
+const data=JSON.parse(readFileSync('/tmp/claude-0/expand/bt/data2.json','utf8'));
+const srv=http.createServer((q,r)=>{ if(q.url==='/'||q.url.startsWith('/index.html')){r.writeHead(200,{'content-type':'text/html'});r.end(readFileSync(ROOT+'/index.html'));} else {r.writeHead(404);r.end();} });
+await new Promise(r=>srv.listen(8152,'127.0.0.1',r));
+const b=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true});
+const ctx=await b.newContext();
+await ctx.route('**/*',rt=>{const u=rt.request().url(); if(u.startsWith('http://127.0.0.1')||u.includes('cdn.jsdelivr.net'))return rt.continue(); return rt.abort();});
+const pg=await ctx.newPage(); pg.on('pageerror',e=>console.log('pgerr',String(e.message).slice(0,150)));
+await pg.goto('http://127.0.0.1:8152/',{waitUntil:'domcontentloaded'});
+await pg.waitForFunction(()=>typeof footballEngine!=='undefined'&&typeof XR!=='undefined',null,{timeout:60000});
+await new Promise(r=>setTimeout(r,3000));
+await pg.addScriptTag({content:readFileSync('/tmp/claude-0/bb/xr/xrg-page.js','utf8')});
+const opt={targets:[2,3,848,531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37],clubFrom:'2024-07-01',ntFrom:'2022-01-01'};
+const out=await pg.evaluate(([d,o])=>xrgRun(d,o),[data,opt]);
+writeFileSync('/tmp/claude-0/bb/xr/xrg.json',JSON.stringify(out)); console.log(out.build,out.n,out.keys);
+await b.close(); srv.close();

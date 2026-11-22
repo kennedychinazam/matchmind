@@ -1,0 +1,16 @@
+
+== test 2025-07 on
+  floor 0.60 Straight win (1 / 2)   legs n  1670 hit 67.7 stated 68.1 gap -0.4 (se 1.1) ROI0.95 -5.9% real -4.4%(n 341) | daily double: days 264 won 51.5% stated 54.0% ROI0.95 -15.3% real -13.1% (n 55)
+  floor 0.60 BTTS Yes               legs n  2745 hit 60.9 stated 62 gap -1.2 (se 0.9) ROI0.95 -6.8% real -9.8%(n 707) | daily double: days 267 won 40.8% stated 40.4% ROI0.95 -8.8% real -16.5% (n 46)
+  floor 0.65 Straight win (1 / 2)   legs n   955 hit 73.6 stated 72.5 gap 1.1 (se 1.4) ROI0.95 -3.7% real -2%(n 206) | daily double: days 196 won 58.2% stated 57.8% ROI0.95 -9.7% real -7.9% (n 41)
+  floor 0.65 BTTS Yes               legs n   144 hit 66 stated 65.9 gap 0.1 (se 4) ROI0.95 -4.9% real -7.3%(n 78) | daily double: days 29 won 44.8% stated 43.6% ROI0.95 -7.3% real -24.3% (n 22)
+  floor 0.70 Straight win (1 / 2)   legs n   526 hit 79.3 stated 76.8 gap 2.5 (se 1.8) ROI0.95 -2% real -1.6%(n 97) | daily double: days 125 won 65.6% stated 62.2% ROI0.95 -4.9% real -13.3% (n 21)
+  floor 0.70 BTTS Yes               legs n     0 hit null stated null gap null (se null) ROI0.95 null% real null%(n 0) | daily double: days 0 won 0.0% stated 0.0% ROI0.95 0.0% real -
+
+== 2026-08 on (real prices)
+  floor 0.60 Straight win (1 / 2)   legs n   433 hit 66.5 stated 68 gap -1.5 (se 2.2) ROI0.95 -7.6% real -4.4%(n 341) | daily double: days 74 won 52.7% stated 53.0% ROI0.95 -11.1% real -13.1% (n 55)
+  floor 0.60 BTTS Yes               legs n  1004 hit 61.9 stated 62.5 gap -0.7 (se 1.5) ROI0.95 -5.9% real -9.8%(n 707) | daily double: days 75 won 42.7% stated 41.8% ROI0.95 -7.5% real -16.5% (n 46)
+  floor 0.65 Straight win (1 / 2)   legs n   257 hit 72.8 stated 72.1 gap 0.7 (se 2.8) ROI0.95 -4.2% real -2%(n 206) | daily double: days 54 won 61.1% stated 56.6% ROI0.95 -2.0% real -7.9% (n 41)
+  floor 0.65 BTTS Yes               legs n    97 hit 62.9 stated 65.9 gap -3 (se 4.8) ROI0.95 -9.4% real -7.3%(n 78) | daily double: days 25 won 36.0% stated 43.7% ROI0.95 -26.0% real -24.3% (n 22)
+  floor 0.70 Straight win (1 / 2)   legs n   126 hit 79.4 stated 77.1 gap 2.2 (se 3.7) ROI0.95 -2.2% real -1.6%(n 97) | daily double: days 28 won 67.9% stated 62.8% ROI0.95 -1.4% real -13.3% (n 21)
+  floor 0.70 BTTS Yes               legs n     0 hit null stated null gap null (se null) ROI0.95 null% real null%(n 0) | daily double: days 0 won 0.0% stated 0.0% ROI0.95 0.0% real -

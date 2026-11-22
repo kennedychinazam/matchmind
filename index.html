@@ -1143,7 +1143,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 367;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 368;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -3514,7 +3514,7 @@ function publishedStandings(table,home,away){
 }
 function publishedCombos(M,home,away){
  if(!M)return '';const C=M.combos,H=escapeHtml(home),A=escapeHtml(away);
- const list=[['1 & Over 2.5',C.hO25,H+' win and 3+ goals'],['1 & BTTS',C.hBTS,H+' win and both score'],['1 & Under 2.5',C.hU25,H+' win and under 3 goals'],
+ const list=[['1 & Over 2.5',C.hO25,H+' win and 3+ goals'],['1 & BTTS',C.hBTS,H+' win and both score'],
   ['1X & Over 1.5',C.hdO15,H+' or draw and 2+ goals'],['2 & Over 2.5',C.aO25,A+' win and 3+ goals'],['2 & BTTS',C.aBTS,A+' win and both score'],
   ['X2 & Over 1.5',C.adO15,'Draw or '+A+' and 2+ goals'],['BTTS & Over 2.5',C.btO25,'Both score and 3+ goals']].filter(r=>validProbability(r[1])).sort((x,y)=>y[1]-x[1]);
  if(!list.length)return '';
@@ -5451,9 +5451,12 @@ function rungsFor(P){
   rungs.push(P.pW >= P.pL ? R('1X', P.pW+P.pD) : R('X2', P.pD+P.pL));
   const goals = [];
   if(P.over){
-    goals.push(R('O25', P.over[2.5]), R('U25', 1-P.over[2.5]), R('U35', 1-P.over[3.5]));
+    goals.push(R('O25', P.over[2.5]), R('U35', 1-P.over[3.5]));
   }
-  if(P.btts != null) goals.push(R('BTS', P.btts), R('NBT', 1-P.btts));
+  /* BUILD 368 - Under 2.5 and BTTS No leave the ladder (owner: no Under 2.5 anywhere). Measured over 58,980
+     walk-forward fixtures: U2.5 never led the goals rung (U3.5 is always higher), so no pick changes. BTTS No
+     over-claims at every level (-4.7 at 0.60 and above, 2025-07 on), so only BTTS Yes stays. */
+  if(P.btts != null) goals.push(R('BTS', P.btts));
   goals.sort((a,b)=>b.prob-a.prob);
   if(goals.length) rungs.push(goals[0]);
   return rungs;
@@ -5512,6 +5515,10 @@ function leanPickFor(L, P, home, away){
   for(const r of rungsFor(P)){
     if(r.prob < LEAN_MIN) continue;
     if(r.prob >= sb) return null;               // a Strong call exists: not a Lean
+    /* BUILD 368 - an away Draw No Bet below the Strong bar over-claims (Lean 2D: -5.1, -7.9, -3.3 points
+       across the three windows). It is passed over, so the Draw-or-away rung after it is asked instead.
+       Lean DNB then lands within a point (-0.5 / +0.7 / -0.1). */
+    if(r.code === '2D') continue;
     const e = pickEdge(L, r.code, r.prob);
     if(e != null && e <= gateEdgeFor(L)) return null;
     return { code: r.code, prob: +r.prob.toFixed(3), market: pickMarket(r.code) };
@@ -6627,7 +6634,14 @@ function fxPredict(L,f){
    shift at which every window, this season included, is within 2 points; it is conservative by
    about a point on older seasons and costs about 5 points of Strong coverage, all of it U35.
    The other goals codes are within their error on that population and stay unshifted. */
-const CALIB_SHIFT = { U35: -0.03 };
+/* BUILD 368 - X2 AND 1D ARE SHIFTED, MEASURED THE SAME WAY (release/btts-tabs/, walk-forward, Strong picks, 44
+   non-XR competitions, 90-minute scores). Gap = hit minus stated, points, before -> after:
+       code   2022-07..2025-06         2025-07 on              2026-08 on
+       X2     -3.5 -> -1.2 (n 1521)    -2.1 -> -0.9 (n 614)    -2.5 -> -1.0 (n 161)
+       1D     +0.2 -> +1.9 (n 3420)    -2.6 -> -1.0 (n 1380)   -1.1 -> +0.7 (n 353)
+   -0.015 is the smallest step that brings every window within 2 points for both codes, Strong and Lean.
+   1X and 2D are within 2 points unshifted (1X -0.5 / +0.7 / -0.2) and stay as they are. */
+const CALIB_SHIFT = { U35: -0.03, X2: -0.015, '1D': -0.015 };
 /* Applied at the ONE place every selection is constructed, so the slip, the floors, the fair odds
    and the displayed confidence can never disagree about what the engine claims. */
 function calibrate(code, prob){
@@ -7267,7 +7281,7 @@ const TIP_HORIZONS = () => [[0, t('Today')], [3, t('Next 3 days')], [7, t('Next 
    moved to 'smart'; it had not, and the claim was removed rather than the code changed to match it —
    a comment that describes something the file does not do is the drift build 199 spent a whole build
    undoing. If the tab should open on the slips, that is a one-word change and Ken's call. */
-const TIP_TABS=()=>[['winner',t('Winner')],['ou','O/U 2.5'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
+const TIP_TABS=()=>[['winner',t('Winner')],['ou','Goals'],['btts','BTTS'],['smart',t('Smart Bet')],['slip',t('Slip Generator')]];
 function renderTipHorizon(){
   const box=$('tipHorizon'); if(!box) return;
   box.innerHTML = TIP_HORIZONS().map(([v,l])=>
@@ -9936,18 +9950,15 @@ function renderValueLadder(){
 
   /* 💰 rather than the ladder glyph: U+1FA9C is Unicode 13 and still tofu on older Android. */
   box.innerHTML = '<div class="card"><h2>💰 Value step-stake ledger</h2>'
-    + '<div class="subnote ctxprose" style="padding-top:0">$' + VLADDER_UNIT + ' on the Value card, $'
-    + VLADDER_UNIT + ' more after each losing day, ' + VLADDER_STEPS
-    + ' steps, then back to $' + VLADDER_UNIT + '. A win resets it.</div>'
+    + '<div class="subnote ctxprose" style="padding-top:0">$' + VLADDER_UNIT + ', +$' + VLADDER_UNIT
+    + ' per losing day, ' + VLADDER_STEPS + ' steps.</div>'
     + metrics
     + '<div class="sec-label" style="margin-top:14px">Step calculator</div>'
     + '<div class="field"><label>Your base stake ($)</label>'
     + '<input type="number" id="vlUnit" inputmode="decimal" min="1" max="100000" step="1" value="'
     + escapeHtml(String(st.unit)) + '"></div>'
     + grid
-    + '<div class="subnote ctxprose"><b style="color:var(--gold)">Staking more after a loss creates no '
-    + 'edge.</b> A full cycle risks ' + money(cum) + '. ' + APP_NAME + ' has no measured edge over the '
-    + 'bookmakers, so expect this to lose.</div>'
+    + '<div class="subnote ctxprose"><b style="color:var(--gold)">No edge: a full cycle risks ' + money(cum) + '.</b></div>'
     + '</div>';
 
   /* `change` rather than `input`: this render replaces the field, so reacting to every keystroke would
@@ -9994,10 +10005,9 @@ function renderDailyTracker(){
   /* build 328 - ALWAYS rendered, not only when the log is capped. It carries the two facts a reader
      cannot infer from the figures: where the count starts, and that it is the same on every device.
      The old empty-state paragraph said the first of those and only when there was nothing to show. */
-  const capNote = '<div class="subnote">Counting from ' + escapeHtml(recordStartText())
-    + ' · the same record on every device.'
-    + (capped ? ' Only the last ' + SLIP_HISTORY_DAYS + ' days are read, so earlier days have been dropped.' : '')
-    + '</div>';
+  const capNote = '<div class="subnote">Since ' + escapeHtml(recordStartText())
+    + (capped ? ' · last ' + SLIP_HISTORY_DAYS + ' days only' : '')
+    + '</div>';   // build 368 - one short line
   const dayRow  = [[7,'Past 7 days'],[30,'Past 30 days'],[0,allLabel]]
                     .map(([d,l]) => chip(escapeHtml(l), st.days === d, 'data-dt-days="' + d + '"')).join('');
 
@@ -10039,20 +10049,18 @@ function renderDailyTracker(){
       + (priced.length ? cell('ROI', (roi >= 0 ? '+' : '−') + Math.abs(roi).toFixed(1) + '%', col) : '')
       + '</div>'
       + (priced.length
-          ? '<div class="subnote">$' + DAILY_STAKE + ' flat on every settled day a bookmaker priced — $' + staked.toFixed(2)
-            + ' staked, $' + payout.toFixed(2) + ' returned'
-            + (rows.length > done.length ? '. ' + (rows.length - done.length) + ' slip(s) still awaiting results and not counted.' : '.')
+          ? '<div class="subnote">$' + DAILY_STAKE + ' a day · $' + staked.toFixed(2)
+            + ' staked · $' + payout.toFixed(2) + ' returned'
+            + (rows.length > done.length ? ' · ' + (rows.length - done.length) + ' pending' : '')
             + '</div>'
-          : '<div class="subnote"><b style="color:var(--gold)">No money is shown.</b> None of the settled cards in this view carries a bookmaker price on every leg, so there is no total to stake against.</div>')
+          : '<div class="subnote">No priced card settled yet.</div>')   // build 368 - one short line
       /* 🔑 BUILD 351 (WO-44) — the excluded cards are COUNTED ON SCREEN rather than silently
          dropped. A ledger that quietly narrows its own population is how a long-run figure becomes
          a short-run one (build 252's rule), and this exclusion is new, so it is named every time it
          bites. */
       + (done.length > priced.length
-          ? '<div class="subnote">' + (done.length - priced.length) + ' settled card'
-            + (done.length - priced.length === 1 ? '' : 's')
-            + ' had a leg with no bookmaker price, so ' + (done.length - priced.length === 1 ? 'it is' : 'they are')
-            + ' counted in the win rate and left out of the money.</div>' : '');
+          ? '<div class="subnote">' + (done.length - priced.length) + ' unpriced card'
+            + (done.length - priced.length === 1 ? '' : 's') + ' left out of the money.</div>' : '');
   }
 
   box.innerHTML = '<div class="card"><h2>📈 Performance &amp; profit tracker</h2>'
@@ -10563,7 +10571,7 @@ function renderDailySlips(){
                 grader, the tracker and the Value ladder; that is its own order, and this line is
                 the half that can be said truthfully without one. */
              + (_sharedSlips.error ? 'Could not read today’s issued cards. Try again shortly.'
-                                   : 'No card issued for this tier today. Cards are issued once, for everyone, only from priced legs at 70% or better, so a tier that cannot reach its odds band that way is not issued.')
+                                   : 'No card today: priced legs at 70%+ do not reach this band.')   // build 368 - one line
              + '</div></div>';
       continue;
     }
@@ -10651,11 +10659,9 @@ function renderDailySlips(){
          empty day and an unreachable target are not the same fact. Kept to one line each. */
       body = (ceiling != null)
         ? '<div class="subnote"><b style="color:var(--gold)">' + tier.target.toFixed(2)
-          + ' is out of reach today.</b> The best the day\u2019s qualifying legs reach is '
-          + ceiling.toFixed(2) + '. No slip is shown rather than a shorter one.</div>'
-        : '<div class="subnote"><b style="color:var(--gold)">Not enough qualifying fixtures today.</b> '
-          + 'This tier needs ' + tier.minLegs + ' legs; the day offers ' + (aim.pool || 0) + '. '
-          + 'Legs are never invented to fill the card.</div>';
+          + ' is out of reach today.</b> Best reachable: ' + ceiling.toFixed(2) + '.</div>'
+        : '<div class="subnote"><b style="color:var(--gold)">Not enough legs today</b> ('
+          + (aim.pool || 0) + ' of ' + tier.minLegs + ').</div>';   // build 368 - one short line
     } else {
       /* THE NUMBER SHOWN IS THE NUMBER ACHIEVED (build 218). A tier that cannot reach its target
          says so and prints what it did reach, rather than presenting a shortfall as the offer. */
@@ -10925,12 +10931,13 @@ function renderTips(){
      a footer, because the tab is where the number is read. */
   const noEdgeNote = $('tipNoEdge');
   if(noEdgeNote){
-    const off = (t === 'ou' || t === 'btts');
+    /* build 368 - the bar line describes lists made under the per-market rule; an issue written by an
+       earlier build keeps its own rows and gets no line that would misdescribe them */
+    const _ir = tipState.days === 0 ? tipsIssueRow('tips') : null;
+    const off = (t === 'ou' || t === 'btts') && (!_ir || (+_ir.build || 0) >= 368);
     noEdgeNote.classList.toggle('hidden', !off);
-    if(off) noEdgeNote.textContent =
-      'These probabilities are calibrated and honest, but on a held-out test of 5,773 matches the '
-      + 'engine showed NO measured edge over simply backing what this competition usually does. '
-      + 'They are shown for information and are kept out of Smart Bet slips.';
+    if(off) noEdgeNote.textContent = t === 'ou'   // build 368 - one short line: the bar each pick cleared
+      ? 'Over 2.5 / 3.5 at 60%+, Under 3.5 at 77%+.' : 'BTTS Yes at 62%+.';
   }
 }
 /* Local calendar date, `n` days from today. Local rather than UTC for the reason `localHM` exists:
@@ -11004,8 +11011,7 @@ function tipPickFor(market,P,f,L){
   /* build 299 - THE CODE TRAVELS WITH THE PICK NOW. It was never needed while a played fixture
      was hidden the moment it finished; a row that stays on the tab until its result lands has to
      be gradeable, and `gradePick` grades codes, not display labels. */
-  if(market==='ou') return P.over[2.5]>=0.5?{sel:'Over 2.5',prob:P.over[2.5],code:'O25'}:{sel:'Under 2.5',prob:1-P.over[2.5],code:'U25'};
-  if(market==='btts') return P.btts>=0.5?{sel:'BTTS Yes',prob:P.btts,code:'BTS'}:{sel:'BTTS No',prob:1-P.btts,code:'NBT'};
+  if(market==='ou' || market==='btts') return tipMarketPick(market, P);   // build 368 - its own market and bar
 
   /* SMART BET — the engine's strongest OPINION, which is not the same as its biggest number.
      Ranking by raw probability made every pick a "+1.5 handicap", because "doesn't lose by 2+" sits
@@ -11027,7 +11033,8 @@ function tipPickFor(market,P,f,L){
    still scores against a flat 0.5, exactly as before. */
 function smartRanked(P, f, L){
   const base = neutralSelections(L);
-  const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score','HT/FT'].includes(s.m));
+  const pool = allSelections(P,f).filter(s=>!['Double Chance','Draw No Bet','Correct score','HT/FT'].includes(s.m)
+                                           && s.code !== 'U25' && s.code !== 'NBT');   // build 368 - never offered
   const actionable = pool.filter(s=>s.prob >= 0.5);
   return (actionable.length ? actionable : pool)
     .map(s=>{ const b = base && base[s.key]!=null ? base[s.key] : null;
@@ -11096,8 +11103,54 @@ const TIP_TAB_NOTES = {};
    85's `smartRanked`: two callers that must agree share the function instead of each building its
    own list, which is what let the Tips number and the Analysis number drift apart for 44 builds.
    Lifted verbatim out of `renderTipList`; the only addition is `code`, which grading needs. */
+/* BUILD 368 - EACH TAB IS ITS OWN MARKET. Owner: the O/U and BTTS tabs reused the matches the Winner tab
+   predicted; a match with no clear winner can still be a strong BTTS or goals call. Each tab now lists a
+   fixture only when THAT market clears its own bar, whatever the winner call is. The bars are the lowest
+   threshold at which the selection is calibrated within 2 points in all three walk-forward windows
+   (2022-07..2025-06, 2025-07 on, 2026-08 on; release/btts-tabs/e_tabs.mjs):
+       BTTS Yes 0.62 (gap -1.4 / -1.6 / -1.4)   Over 2.5 0.60 (+0.2 / -0.1 / +1.0)   Under 3.5 0.77
+   Over 3.5 takes the Over 2.5 bar; it is eligible but almost never reaches it. No Under 2.5, no BTTS No.
+   The Winner tab lists the result rung of the ladder (1/X/2, DNB, DC) at the competition's Strong bar. */
+const TIP_BARS = { BTS: 0.62, O25: 0.60, O35: 0.60, U35: 0.77 };
+const TIP_GOALS = [['O25', 'Over 2.5'], ['O35', 'Over 3.5'], ['U35', 'Under 3.5']];
+const TIP_RESULT_CODES = ['1', 'X', '2', '1X', 'X2', '1D', '2D'];
+function tipMarketFixtureOk(L, f, P){
+  return !!(L && f && P && predictsComp(L) && !f.unbacked && !f.provisional && !P.unknownTeams);
+}
+function tipMarketPick(market, P){
+  if(!P) return null;
+  if(market === 'ou'){
+    if(!P.over) return null;
+    let best = null;
+    for(const [code, sel] of TIP_GOALS){
+      const raw = code === 'U35' ? 1 - P.over[3.5] : code === 'O35' ? P.over[3.5] : P.over[2.5];
+      const prob = calibrate(code, raw);
+      if(!(prob >= TIP_BARS[code])) continue;
+      const m = prob - TIP_BARS[code];
+      if(!best || m > best.m) best = { sel: sel, prob: prob, code: code, m: m };
+    }
+    return best;
+  }
+  if(market === 'btts'){
+    if(P.btts == null) return null;
+    const prob = calibrate('BTS', P.btts);
+    return prob >= TIP_BARS.BTS ? { sel: 'BTTS Yes', prob: prob, code: 'BTS', m: prob - TIP_BARS.BTS } : null;
+  }
+  return null;
+}
 function tipRankedRows(market, days){
   const rows=[];
+  if(market === 'ou' || market === 'btts'){   // build 368 - independent of the winner call
+    for(const {L,f} of collectUpcoming(days)){
+      if(kickoffPassed(f)) continue;
+      const P = fxPredict(L, f);
+      if(!tipMarketFixtureOk(L, f, P)) continue;
+      const tp = tipMarketPick(market, P); if(!tp) continue;
+      rows.push({L, f, sel: tp.sel, prob: tp.prob, tag: '', code: tp.code, m: tp.m});
+    }
+    rows.sort((a, b) => b.m - a.m);
+    return rows;
+  }
   for(const {L,f} of collectUpcoming(days)){
     /* ══ BUILD 309 — THE GATE REACHES THE LISTS, WHICH IS WHERE IT WAS MISSING ALL ALONG ═════
        Ken, 2026-09-08: *"any match that says NO STRONG READ should never print a prediction nor get
@@ -11118,7 +11171,14 @@ function tipRankedRows(market, days){
        both the live lists and `tipsFrozenSeed`, so the issued day and the tab cannot disagree. */
     if(!engineBacksFixture(L, f)) continue;
     const P=fxPredict(L,f);
-    if(!P){ if(market==='winner'&&f.pick) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:'',code:f.pick}); continue; }
+    if(!P){ if(market==='winner'&&f.pick&&TIP_RESULT_CODES.indexOf(f.pick)>=0) rows.push({L,f,sel:pickLabel(f.pick,f.home,f.away),prob:f.prob,tag:'',code:f.pick}); continue; }
+    if(market==='winner'){   // build 368 - the result rung at the Strong bar; a goals pick is the Goals tab's
+      /* a published pick is the record's answer and is never re-priced (build 199) */
+      const lp = (f.frozen && f.pick && f.prob != null) ? { code: f.pick, prob: f.prob } : ladderPick(P, f.home, f.away, L);
+      if(!lp || TIP_RESULT_CODES.indexOf(lp.code) < 0) continue;
+      rows.push({L,f,sel:pickLabel(lp.code,f.home,f.away),prob:lp.prob,tag:'',code:lp.code});
+      continue;
+    }
     const tp=tipPickFor(market,P,f,L);
     rows.push({L,f,sel:tp.sel,prob:tp.prob,tag:tp.m||'',edge:tp.edge,code:tp.code||null});
   }
@@ -11223,28 +11283,23 @@ function renderTipListForward(market, box){
   if(market === 'winner'){
     const legs = rows.filter(x => BOARD_WINNER_TAB_MARKETS.indexOf(x.r.m) >= 0).map((x, i) => boardLeg(x, 'winner', i));
     if(!legs.length){ box.innerHTML = '<div class="subnote">' + BOARD_FORWARD_EMPTY + '</div>'; return; }
-    renderTipListFrozen(market, legs, box, "From the robot's board, every fixture it passed in this window · " + legs.length);
+    renderTipListFrozen(market, legs, box, "Robot's board · " + legs.length);   // build 368 - one short line
     return;
   }
+  /* BUILD 368 - the Goals and BTTS forward lists apply the same per-market bar as Today, on every fixture in
+     the window, not only the ones the board passed for a winner call. Only the qualifying side is shown. */
   const info = [];
-  for(const x of rows){
-    const P = fxPredict(x.L, x.f); if(!P) continue;
-    const yes = market === 'ou' ? P.over[2.5] : P.btts;
-    if(yes == null) continue;
-    info.push({ L: x.L, f: x.f, yes: yes, top: Math.max(yes, 1 - yes) });
-  }
-  if(!info.length){ box.innerHTML = '<div class="subnote">' + BOARD_FORWARD_EMPTY + '</div>'; return; }
-  info.sort((a, b) => b.top - a.top);
-  const lab = market === 'ou' ? ['Over 2.5', 'Under 2.5'] : ['Both score', 'Not both'];
+  for(const x of tipRankedRows(market, tipState.days)) info.push({ L: x.L, f: x.f, sel: x.sel, prob: x.prob });
+  if(!info.length){ box.innerHTML = '<div class="subnote">Listed on the day they are issued.</div>'; return; }
   const refs = [];
   box.innerHTML = info.map(x => { const i = refs.length; refs.push(x);
     return '<div class="fxrow favrow" data-i="' + i + '"><span class="fxtime">' + escapeHtml(String(x.f.date || '').slice(5).replace('-','/'))
       + '<br>' + escapeHtml(String(localHM(x.f.date, x.f.time || ''))) + '</span>'
       + '<span class="fxteams"><span class="tline">' + crest(x.f.home) + escapeHtml(String(x.f.home)) + '</span>'
       + '<span class="tline">' + crest(x.f.away) + escapeHtml(String(x.f.away)) + '</span>'
-      + '<span class="lname muted">' + lab[0] + ' ' + (100 * x.yes).toFixed(0) + '% · ' + lab[1] + ' ' + (100 * (1 - x.yes)).toFixed(0) + '%</span></span>'
+      + '<span class="lname muted">' + escapeHtml(x.sel) + ' ' + (100 * x.prob).toFixed(0) + '%</span></span>'
       + '<span class="favright"><span class="muted" style="font-size:.7rem">info</span></span></div>'; }).join('')
-    + '<div class="subnote">Fixtures the robot passed in this window · ' + info.length + '</div>';
+    + '<div class="subnote">' + info.length + ' fixtures</div>';
   box.querySelectorAll('.fxrow.favrow').forEach(row => row.addEventListener('click', () => {
     const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f); }));
 }
@@ -11579,7 +11634,6 @@ async function analyze(){
       const list = [
         ['1 & Over 2.5',   C.hO25,  pred.pW * pred.over[2.5],        `${H} win and 3+ goals`],
         ['1 & BTTS',       C.hBTS,  pred.pW * pred.btts,             `${H} win and both score`],
-        ['1 & Under 2.5',  C.hU25,  pred.pW * (1-pred.over[2.5]),    `${H} win and under 3 goals`],
         ['1X & Over 1.5',  C.hdO15, (pred.pW+pred.pD) * pred.over[1.5], `${H} or draw and 2+ goals`],
         ['2 & Over 2.5',   C.aO25,  pred.pL * pred.over[2.5],        `${A} win and 3+ goals`],
         ['2 & BTTS',       C.aBTS,  pred.pL * pred.btts,             `${A} win and both score`],
@@ -19422,8 +19476,8 @@ function renderSlipUI(){
    labelled as the Tips lists label it. A board row whose fixture is not loaded is skipped and counted, never guessed.
    ⚠ `slipCandidates` IS NOT TOUCHED: `bankerOf` and `renderDailySlips` use it, and the robot publishes through them.
    Returns null when the board is not read, so the caller can say so instead of falling back to the phone. */
-const SLIP_BOARD_MARKETS = ['1X2', 'DC', 'DNB', 'OU35'];   // the markets the board carries: Winner, Double Chance, DNB, Goals U3.5
-const SLIP_BOARD_NOTE = "Only the robot's own picks are offered here, so markets it does not issue are not listed.";
+const SLIP_BOARD_MARKETS = ['1X2', 'DC', 'DNB', 'OU25', 'OU35', 'BTTS'];   // build 368: Over and BTTS Yes from the issued Tips   // the markets the board carries: Winner, Double Chance, DNB, Goals U3.5
+const SLIP_BOARD_NOTE = "Robot picks only.";   // build 368 - one short line
 const SLIP_BOARD_EMPTY = 'No eligible slip legs for these settings. Listed predictions must also be passed board picks, still upcoming, in the selected dates, leagues and markets, within the per-match risk limit.';
 const SLIP_BOARD_UNREAD = "The robot's board could not be read, so no slip can be built. It returns when the board loads.";
 let _slipBoardSkipped = 0;   // board rows whose fixture is not loaded on this device, last build of a slip
@@ -19442,6 +19496,24 @@ function slipCandidatesFromBoard(opt){
     let ok = false; for(const k of opt.markets) if(slipMarketMatch(k, sel)){ ok = true; break; }
     if(!ok) continue;
     out.push({ key: f.fxid, L: L, f: f, market: r.m, sel: sel.sel, code: r.p, prob: r.q, pDraw: (r.pd != null ? r.pd : null) });
+  }
+  /* BUILD 368 - BTTS Yes and Over goals reach the slip generator from today's ISSUED Tips (the Goals and BTTS
+     tabs), at the bars where they are calibrated within 2 points. Still the robot's picks, never the phone's.
+     Under 2.5 and BTTS No are never offered. */
+  if(opt.markets.has('BTTS') || opt.markets.has('OU25') || opt.markets.has('OU35')){
+    const row = tipsSharedRow('tips');
+    for(const l of (row && Array.isArray(row.legs) ? row.legs : [])){
+      if(!l || (l.tab !== 'btts' && l.tab !== 'ou') || TIP_BARS[l.code] == null || !(+l.p >= TIP_BARS[l.code])) continue;
+      const L = afState.leagues[l.lid], f = L ? (L.upcoming || []).find(u => u.fxid === l.fxid) : null;
+      if(!L || !f) continue;
+      if(opt.leagues && !opt.leagues.has(+L.id)) continue;
+      if(f.date < today || kickoffPassed(f)) continue;
+      if(opt.todayOnly && f.date !== today) continue;
+      const sel = { m: l.code === 'BTS' ? 'BTTS' : 'Goals', sel: l.code === 'BTS' ? 'BTTS Yes' : boardGoalsSel(l.code) };
+      let ok = false; for(const k of opt.markets) if(slipMarketMatch(k, sel)){ ok = true; break; }
+      if(!ok) continue;
+      out.push({ key: f.fxid, L: L, f: f, market: sel.m, sel: sel.sel, code: l.code, prob: +l.p, pDraw: null });
+    }
   }
   return out;
 }
@@ -22170,9 +22242,9 @@ function boardRowFor(fxid){
    ⚠ THE PUBLISHER STILL ISSUES TODAY WITH `tipRankedRows(tab, 0)` AND `bankerOf()`, so neither is touched: the forward
    windows branch to the board before they are reached. And unlike `boardTakeOver`, which lets the feed chip keep the
    phone's answer when the board is not loaded, these surfaces show NO pick then — they say the board could not be read. */
-const BOARD_WINNER_TAB_MARKETS = ['Winner', 'Double Chance', 'Draw No Bet', 'Goals'];
+const BOARD_WINNER_TAB_MARKETS = ['Winner', 'Double Chance', 'Draw No Bet'];   // build 368 - goals picks list on the Goals tab
 const TIP_INFO_TABS = ['ou', 'btts'];
-const TIP_INFO_NOTE = 'Information only. The robot does not issue picks in this market.';
+const TIP_INFO_NOTE = 'Not issued yet. Same bar as Today.';   // build 368
 const BOARD_FORWARD_EMPTY = 'The robot has not passed any fixture in this window yet. Picks appear up to 7 days ahead, once the engine clears the bar.';
 const BOARD_UNREAD_TEXT = "The robot's board could not be read, so no picks are shown here. They return when it loads.";
 function boardReady(){
