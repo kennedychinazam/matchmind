@@ -1809,7 +1809,7 @@ const _engCache = new WeakMap();
 /* ══ BUILD 366 — THE GOALS MARKETS FOLLOW THE CURRENT SCORING LEVEL ════════════════════════════
    Owner: the official Under goals picks hit 74.7% against a stated 78.7% (320 graded, almost all U3.5),
    and Smart Bet goals legs at 66-70% were losing.
-   CAUSE, MEASURED (calbt/, 64,874 walk-forward fixtures in 44 non-XR competitions, 2022-07 to 2026-11).
+   CAUSE, MEASURED (release/goal-level/, 64,874 walk-forward fixtures in 44 non-XR competitions, 2022-07 to 2026-11).
    The ratings carry no recency (HALF_LIFE 10000), so the total goals the engine expects is the
    competition's five-year level. That was right until this season: from 2026-08 the 44 competitions
    score 2.92 goals a match against the engine's 2.72, 35 of 41 competitions are under-predicted, and
@@ -6536,7 +6536,7 @@ function fxPredict(L,f){
    the -2 bar this build set for itself, and is left alone rather than corrected on a rule bent to
    include it. The bar was chosen before the numbers were read. */
 /* BUILD 366 - REFITTED WITH GOAL_LEVEL IN PLACE, ON THE POPULATION IT IS APPLIED TO: Strong U35 picks, priced
-   by this file in Chromium, walk-forward, 44 non-XR competitions (calbt/dump.mjs + shiftNew.mjs).
+   by this file in Chromium, walk-forward, 44 non-XR competitions (release/goal-level/dump.mjs + shiftNew.mjs).
    Gap = hit minus stated, points:
        shift      2022-07..2025-06    2025-07 on       2026-08 on
        -0.0175    +1.1 (n 5152)       +1.1 (n 2080)    -2.9 (n 429)
@@ -7759,10 +7759,10 @@ const DAILY_FLOOR_PRIMARY = {
    table below because `DAILY_TIER_FLOORS` is initialised before it and would otherwise read a
    constant that does not exist yet. The reasoning is at `DAILY_CARD_LEG_FLOORS`. */
 /* BUILD 366 - EVERY CARD LEG IS AT LEAST 70%, ON THE CALIBRATED PROBABILITY, AND `preferGoals` IS GONE.
-   Owner: his cards carried goals legs at 66-70% that lost. Measured walk-forward (calbt/legcal.mjs,
+   Owner: his cards carried goals legs at 66-70% that lost. Measured walk-forward (release/goal-level/legcal.mjs,
    2026-08 on, after GOAL_LEVEL): BTTS at 0.65-0.70 lands 62.6% against 66.3% stated (n 238) and Over 2.5
    64.9% against 67.0% (n 527), while every goals code at 0.70 and above lands within about a point.
-   The card replay (calbt/slipfinal.mjs, 2025-07 on, prices at 0.95 / p): build 365 (0.65, preferGoals)
+   The card replay (release/goal-level/slipfinal.mjs, 2025-07 on, prices at 0.95 / p): build 365 (0.65, preferGoals)
    built Safe on 355 of 454 days, 42.0% won against 42.6% stated, and 34.9% against 42.6% from 2026-08.
    At 0.70 Safe builds on 340 of 452 days and wins 47.9% against 42.7% (46.3% from 2026-08); 0.72 builds
    on 312 and wins 48.7%. 0.70 is the lowest floor whose legs are honest. Value and Bold rarely reach their bands from 70% legs, and
