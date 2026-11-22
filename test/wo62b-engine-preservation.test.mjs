@@ -9,7 +9,7 @@ const regions=[
     "name": "football engine",
     "start": "const footballEngine = {",
     "end": "const basketballEngine = {",
-    "sha256": "994b4145c3c619568e46e36277d9ac4947a976476e8ba5f9744a78ee2906739e"
+    "sha256": "2e3c6ff330f25844ef6548f6ddaf3f91bf39e678f22232c07b6d6951cb8870fc"
   },
   {
     "name": "basketball engine and existing payload scaffolding",

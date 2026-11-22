@@ -1132,7 +1132,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
    ================================================================ */
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';        // Supabase Project URL
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';  // anon/publishable key (safe to ship; RLS-protected)
-const APP_BUILD = 362;   // bump every release; shown in More → About and matches the service-worker version
+const APP_BUILD = 366;   // bump every release; shown in More → About and matches the service-worker version
 const PERSONAL_PROVIDER_INPUTS_ENABLED = false; // Public artifact; private master controls are unchanged.
 function personalProviderCheck(){ if(!PERSONAL_PROVIDER_INPUTS_ENABLED) throw Error('Personal provider requests are unavailable in the public application.'); }
 function applyAppName(){
@@ -1534,6 +1534,7 @@ const DAMPEN_OF_MATCHES = new WeakMap();
    ninth call site to forget, which is this project's signature defect (311, 316, 317). It is set
    BEFORE the dampen early-out, because a competition with no fitted DAMPEN still has a type. */
 const SHRINK_OF_MATCHES = new WeakMap();
+const LEAGUE_OF_MATCHES = new WeakMap();   // build 366, see GOAL_LEVEL
 /* ══ BUILD 341 — ONE DEFINITION OF A CUP (WO-05) ═══════════════════════════════════════════════
    "Is this a cup?" was asked of `XC_SHAPE.COMPS`, the nine competitions the XC filings SCORED. That list is a
    population, not a definition: when build 329 added the Europa League (3) and the Conference League (848) it was
@@ -1546,7 +1547,7 @@ const SHRINK_OF_MATCHES = new WeakMap();
    stays on the nine: its question is which caches predate build 320, and 3 and 848 postdate it.
    K for 3 and 848 is the cup value, by `MatchMind-CUP-DEF-PREREG.md` (filed before scoring; 32 is the default and
    8 did not clear its drop-one). */
-const CUP_COMPS = [2, 13, 45, 66, 81, 90, 96, 137, 143, 3, 848];
+const CUP_COMPS = [2, 13, 45, 66, 81, 90, 96, 137, 143, 3, 848, 531, 15, 12, 20, 533, 1, 4, 6, 19, 32, 29, 960, 36, 5, 10, 37];   // build 364: never a league source for xcSource
 const _CUP_COMPS = new Set(CUP_COMPS.map(String));
 function shrinkKFor(L){
   if(!L || L.id == null) return ENGINE2.SHRINK_K;
@@ -1556,6 +1557,7 @@ function shrinkKFor(L){
 function registerLeagueDampen(L){
   if(!L || !Array.isArray(L.matches)) return;
   SHRINK_OF_MATCHES.set(L.matches, shrinkKFor(L));
+  LEAGUE_OF_MATCHES.set(L.matches, L);   // build 366: the goal level reads which competition this is
   const v = dampenFor(L);
   if(typeof v === 'number') DAMPEN_OF_MATCHES.set(L.matches, v);
 }
@@ -1803,6 +1805,114 @@ function poissonPMF(lambda, k){
    when a reload builds a fresh array, and it can never reach localStorage. Same arrangement as
    `_teamSeq`, `_refSeq` and `_seasonSeq`. */
 const _engCache = new WeakMap();
+
+/* ══ BUILD 366 — THE GOALS MARKETS FOLLOW THE CURRENT SCORING LEVEL ════════════════════════════
+   Owner: the official Under goals picks hit 74.7% against a stated 78.7% (320 graded, almost all U3.5),
+   and Smart Bet goals legs at 66-70% were losing.
+   CAUSE, MEASURED (release/goal-level/, 64,874 walk-forward fixtures in 44 non-XR competitions, 2022-07 to 2026-11).
+   The ratings carry no recency (HALF_LIFE 10000), so the total goals the engine expects is the
+   competition's five-year level. That was right until this season: from 2026-08 the 44 competitions
+   score 2.92 goals a match against the engine's 2.72, 35 of 41 competitions are under-predicted, and
+   Over 3.5 lands 33.9% against 28.8% predicted. The backtest reproduces production: Strong U35 picks
+   from 2026-08 hit 75.5% against 79.3% stated (n 506), while every earlier half-season was honest or
+   conservative (+0.9 to +3.0). So it is not a fixed Poisson shape error that a static per-market
+   curve could fix: a curve fitted on 2022-2025 would have RAISED Under 3.5. It is the scoring level.
+   THE FIX. Expected goals for the goals markets only are multiplied by s, measured walk-forward from
+   results already played:
+     pool    every non-XR competition's goals in the last POOL_DAYS days against each competition's
+             own long-run average, shrunk by POOL_K matches toward 1;
+     league  this competition's last LEAGUE_N goals against its long-run average times the pool
+             factor, shrunk by LEAGUE_K matches toward 1.
+   s = pool x league. 1, 2 and X are untouched: the result grid keeps the unscaled rates. Goals
+   lines, BTTS, team totals and combos come from the scaled grid. The base rates the goals regress
+   toward (DAMPEN) are not moved, so the published panels, which price the published expected goals
+   against the published base-rate counts, give exactly the engine's number.
+   Chosen on 2022-07 to 2025-06 alone (summed log loss of O2.5, U3.5, BTTS): -0.00074 a match on the
+   training window, -0.0037 on 2025-07 onward and -0.0103 from 2026-08. CALIB_SHIFT.U35 is refitted
+   on the published population with this in place (see there). XR competitions are priced by XR and
+   are not scaled. A match array that is not a registered competition, the half-time engines and the
+   published-edition grid all get s = 1. */
+const GOAL_LEVEL = { ON: true, POOL_DAYS: 60, POOL_K: 500, LEAGUE_N: 300, LEAGUE_K: 300, MIN_HISTORY: 30 };
+const _glSums = new WeakMap();
+function _glPrefix(ms){
+  const c = _glSums.get(ms);
+  if(c && c.n === ms.length) return c.G;
+  const G = new Float64Array(ms.length + 1);
+  for(let i = 0; i < ms.length; i++){
+    const m = ms[i], ok = m && m.hg != null && m.ag != null;
+    G[i + 1] = G[i] + (ok ? (+m.hg) + (+m.ag) : 0);
+  }
+  _glSums.set(ms, { n: ms.length, G });
+  return G;
+}
+let _glPool = null, _glSig = '';
+function _glPoolState(){
+  const ls = []; let sig = '';
+  const lg = (typeof afState !== 'undefined' && afState && afState.leagues) ? afState.leagues : {};
+  for(const id of COMP_IDS){
+    const L = lg[id];
+    if(!L || !Array.isArray(L.matches) || L.matches.length < 200) continue;
+    if(L.sport && L.sport !== 'football') continue;
+    if(xrComp(L) || !predictsComp(L)) continue;
+    ls.push(L); sig += id + ':' + L.matches.length + ',';
+  }
+  if(_glPool && sig === _glSig) return _glPool;
+  const ev = [];
+  for(const L of ls){
+    const ms = L.matches, G = _glPrefix(ms);
+    for(let i = GOAL_LEVEL.MIN_HISTORY; i < ms.length; i++){
+      const m = ms[i]; if(!m || m.hg == null || m.ag == null) continue;
+      ev.push([m.date, (+m.hg) + (+m.ag), G[i] / i]);
+    }
+  }
+  ev.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const dates = new Array(ev.length), PG = new Float64Array(ev.length + 1), PM = new Float64Array(ev.length + 1);
+  for(let k = 0; k < ev.length; k++){ dates[k] = ev[k][0]; PG[k + 1] = PG[k] + ev[k][1]; PM[k + 1] = PM[k] + ev[k][2]; }
+  _glPool = { dates, PG, PM, last: ev.length ? ev[ev.length - 1][0] : null };
+  _glSig = sig;
+  return _glPool;
+}
+function _glLower(arr, x){ let lo = 0, hi = arr.length; while(lo < hi){ const m = (lo + hi) >> 1; if(arr[m] < x) lo = m + 1; else hi = m; } return lo; }
+function _glDay(d, n){ const t = Date.parse(String(d).slice(0, 10) + 'T00:00:00Z'); return isFinite(t) ? new Date(t + n * 864e5).toISOString().slice(0, 10) : null; }
+/* The multiplier for this engine's goals markets at `upTo` (null = now). 1 whenever it cannot be
+   measured. */
+function goalLevelFor(eng, upTo){
+  try{ return _goalLevelFor(eng, upTo); }catch(e){ return 1; }   // never let the level break a price
+}
+function _goalLevelFor(eng, upTo){
+  if(!GOAL_LEVEL.ON || !eng || eng.hgOf !== footballEngine.hgOf) return 1;
+  const ms = eng.matches; if(!Array.isArray(ms)) return 1;
+  const L = LEAGUE_OF_MATCHES.get(ms);
+  if(!L || xrComp(L)) return 1;
+  const i = (upTo != null && upTo < ms.length) ? upTo : ms.length;
+  if(i < GOAL_LEVEL.LEAGUE_N + GOAL_LEVEL.MIN_HISTORY) return 1;
+  const G = _glPrefix(ms), mu = G[i] / i;
+  if(!(mu > 0)) return 1;
+  const P = _glPoolState(); if(!P.last) return 1;
+  const asOf = (upTo != null && upTo < ms.length && ms[upTo] && ms[upTo].date) ? String(ms[upTo].date).slice(0, 10) : _glDay(P.last, 1);
+  const from = asOf && _glDay(asOf, -GOAL_LEVEL.POOL_DAYS);
+  let sp = 1;
+  if(asOf && from){
+    const j = _glLower(P.dates, asOf), i0 = _glLower(P.dates, from), n = j - i0;
+    if(n > 0){
+      const g = P.PG[j] - P.PG[i0], m = P.PM[j] - P.PM[i0], k = GOAL_LEVEL.POOL_K * (m / n);
+      sp = (g + k) / (m + k);
+    }
+  }
+  const N = GOAL_LEVEL.LEAGUE_N, K = GOAL_LEVEL.LEAGUE_K;
+  const gr = G[i] - G[i - N];
+  const sl = ((gr / N) / (mu * sp) * N + K) / (N + K);
+  const s = sp * sl;
+  return (isFinite(s) && s > 0.5 && s < 2) ? s : 1;
+}
+/* The rates object handed to marketsFor carries the multiplier, so every caller that rebuilds a
+   price from `P.raw.rates` (xcAdjust) keeps it without being edited. */
+function goalLevelRates(eng, upTo){
+  const r = eng.rates(upTo);
+  if(!r) return r;
+  const s = goalLevelFor(eng, upTo);
+  return s === 1 ? r : Object.assign({}, r, { gs: s });
+}
 
 const footballEngine = {
   matches: [],
@@ -2230,7 +2340,7 @@ const footballEngine = {
     const unknown = (teams[home]?0:1) + (teams[away]?0:1);
     const lambdaH = Math.max(.05, h.attackHome * a.defenceAway * avgH);
     const lambdaA = Math.max(.05, a.attackAway * h.defenceHome * avgA);
-    const out = this.marketsFor(lambdaH, lambdaA, this.rates(upTo), rhoOverride);
+    const out = this.marketsFor(lambdaH, lambdaA, goalLevelRates(this, upTo), rhoOverride);   // build 366
     if(out){ out.unknownTeams = unknown;
              out.unknownNames = [teams[home]?null:home, teams[away]?null:away].filter(Boolean); }
     return out;
@@ -2242,7 +2352,7 @@ const footballEngine = {
      nothing, while a 65% home win against a 45% baseline is a real opinion. */
   neutral(upTo){
     const {avgH, avgA} = this.strengths(upTo);
-    return this.marketsFor(avgH, avgA, this.rates(upTo));
+    return this.marketsFor(avgH, avgA, goalLevelRates(this, upTo));   // build 366: the baseline is scaled too
   },
 
   // every market's probability for a given pair of expected-goal rates
@@ -2363,8 +2473,21 @@ const footballEngine = {
        says so. Each is also clamped to its legs' minimum as a coherence guard — a joint probability
        can never exceed either leg, and if it ever did, the grid would be broken. */
     for(const k in cmb) cmb[k] /= total;
+    /* BUILD 366 — GOAL_LEVEL. With a multiplier on the rates object, every goals number (lines, BTTS,
+       team totals, combos and their raw copies) comes from the grid at the scaled expected goals,
+       damped toward the same base rates. 1X2, the handicap and the correct scores stay on this grid. */
+    const GS = (rates && rates.gs > 0 && rates.gs !== 1) ? rates.gs : 1;
+    if(GS !== 1){
+      const base = Object.assign({}, rates); delete base.gs;
+      const g = this.marketsFor(lambdaH * GS, lambdaA * GS, base, rhoOverride);
+      return {lambdaH, lambdaA, pW, pD, pL, over:g.over, btts:g.btts, hcap, team:g.team,
+              raw:Object.assign({}, raw, {over:g.raw.over, btts:g.raw.btts}), combos:g.combos,
+              topScores:scores.slice(0,5), topByPick,
+              goalScale:GS, goalsXgH:lambdaH * GS, goalsXgA:lambdaA * GS};
+    }
     return {lambdaH, lambdaA, pW, pD, pL, over, btts, hcap, team, raw, combos:cmb,
-            topScores:scores.slice(0,5), topByPick};    // topByPick replaced topByResult in build 117
+            topScores:scores.slice(0,5), topByPick,    // topByPick replaced topByResult in build 117
+            goalScale:1, goalsXgH:lambdaH, goalsXgA:lambdaA};
   },
 
   /* BUILD 150 — A CUTOFF, because these two panels were showing a match its own result.
@@ -3064,7 +3187,7 @@ function fixtureTimestamp(value){
  const date=value.slice(0,10),parsed=new Date(date+'T00:00:00.000Z');
  return Number.isFinite(+parsed)&&parsed.toISOString().slice(0,10)===date;
 }
-const FIXTURE_DISPLAY_SCHEMA={"type":"object","properties":{"cards":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"lcountry":{"type":"string","max":100,"nullable":false},"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"time":{"type":"string","max":12,"nullable":true},"status":{"type":"string","max":24,"nullable":false},"elapsed":{"type":"number","min":0,"max":200,"nullable":true,"integer":true},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"updated_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"provider":{"type":"string","max":80,"nullable":true},"home_logo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"away_logo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"llogo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"prediction":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"pick":{"type":"string","max":160,"nullable":true},"pick_prob":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"market":{"type":"string","max":160,"nullable":true},"p_home":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xg_home":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"kickoff":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"ktime":{"type":"string","max":12,"nullable":true},"made_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"withheld_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"final_pick":{"type":"string","max":160,"nullable":true},"build":{"type":"number","min":-1,"max":1000000,"nullable":false,"integer":true}},"required":["lid","lname","home","away","pick","pick_prob","market","p_home","p_draw","p_away","xg_home","xg_away","kickoff","ktime","made_at","withheld_at","final_pick","build"],"nullable":true},"analysis":{"type":"object","properties":{"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"history_source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"xg_home":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"result":{"type":"object","properties":{"p_home":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["p_home","p_draw","p_away"],"nullable":false},"goals":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":8},"combos":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"htft":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":9},"correct_scores":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"scorers":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":16},"form":{"type":"object","properties":{"home":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5},"away":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5}},"required":["home","away"],"nullable":false},"h2h":{"type":"array","items":{"type":"object","properties":{"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":false,"integer":true}},"required":["date","home","away","gh","ga"],"nullable":false},"max":5},"standings":{"type":"object","properties":{"season":{"type":"number","min":1900,"max":2200,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"rank":{"type":"number","min":1,"max":100,"nullable":false,"integer":true},"team":{"type":"string","max":160,"nullable":false},"played":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"won":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"drawn":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"gf":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"points":{"type":"number","min":-100,"max":1000,"nullable":false,"integer":true}},"required":["rank","team","played","won","drawn","lost","gf","ga","points"],"nullable":false},"max":64}},"required":["season","rows"],"nullable":false},"writeup":{"type":"object","properties":{"text":{"type":"string","max":32768,"nullable":false},"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["text","source","source_at"],"nullable":false}},"required":["source","source_at"],"nullable":false}},"required":["fxid","lid","lname","lcountry","date","time","status","elapsed","home","away","gh","ga","ft_h","ft_a","ht_h","ht_a","updated_at","provider","prediction"],"nullable":false},"max":1500},"board":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"ahead":{"type":"number","min":7,"max":7,"nullable":false,"integer":true},"builtAt":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"notPassed":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"noBars":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"f":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"l":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"n":{"type":"string","max":160,"nullable":false},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"p":{"type":"string","max":160,"nullable":true},"q":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"m":{"type":"string","max":160,"nullable":true},"g":{"type":"string","max":160,"nullable":true},"z":{"type":"boolean"},"pw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pd":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pq":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xh":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xa":{"type":"number","min":0,"max":100,"nullable":true,"integer":false}},"required":["f","l","n","d","t","h","a","p","q","m","g","z","pw","pd","pq","xh","xa"],"nullable":false},"max":1000}},"required":["v","ahead","builtAt","n","notPassed","noBars","rows"],"nullable":true},"records":{"type":"object","properties":{"engine":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"days":{"type":"map","max":5000,"key":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","values":{"type":"map","max":32,"key":"^[A-Za-z0-9 /.+_-]{1,60}$","values":{"type":"array","items":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"min":3,"max":3}}},"total":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"graded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"withheld":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"excluded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"pending":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"orphan":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"off":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ungradeable":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"voidLate":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["v","days","total","graded","withheld","excluded","pending","orphan","off","ungradeable","voidLate"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true},"clv":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"raw":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"devig":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"beat":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"tie":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"from":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"}},"required":["v","raw","devig","beat","tie","lost","from","to"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true}},"required":["engine","clv"],"nullable":false},"slips":{"type":"array","items":{"type":"object","properties":{"day":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"tier":{"type":"string","max":40,"nullable":false},"odds":{"type":"number","min":0,"max":1000000000000,"nullable":false,"integer":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"step":{"type":"string","max":80,"nullable":false},"legs":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":true,"integer":true},"code":{"type":"string","max":40,"nullable":false},"market":{"type":"string","max":60,"nullable":false},"p":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"o":{"type":"number","min":1,"max":1000000,"nullable":true,"integer":false},"tab":{"type":"string","max":30,"nullable":false},"rank":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"sel":{"type":"string","max":240,"nullable":false}},"required":["fxid","d","h","a","code","p"],"nullable":false},"max":90}},"required":["day","tier","odds","build","step","legs"],"nullable":false},"max":128},"competitions":{"type":"array","items":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"from":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"rates":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"btts":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o15":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o25":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o35":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["n","btts","o15","o25","o35"],"nullable":false},"standings":{"type":"object","properties":{"season":{"type":"number","min":1900,"max":2200,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"rank":{"type":"number","min":1,"max":100,"nullable":false,"integer":true},"team":{"type":"string","max":160,"nullable":false},"played":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"won":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"drawn":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"gf":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"points":{"type":"number","min":-100,"max":1000,"nullable":false,"integer":true}},"required":["rank","team","played","won","drawn","lost","gf","ga","points"],"nullable":false},"max":64}},"required":["season","rows"],"nullable":false}},"required":["lid","source","from","to"],"nullable":false},"max":100}},"required":["cards","board","records","slips"],"nullable":false};
+const FIXTURE_DISPLAY_SCHEMA={"type":"object","properties":{"cards":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"lcountry":{"type":"string","max":100,"nullable":false},"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"time":{"type":"string","max":12,"nullable":true},"status":{"type":"string","max":24,"nullable":false},"elapsed":{"type":"number","min":0,"max":200,"nullable":true,"integer":true},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ft_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_h":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"ht_a":{"type":"number","min":0,"max":100,"nullable":true,"integer":true},"updated_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"provider":{"type":"string","max":80,"nullable":true},"home_logo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"away_logo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"llogo":{"type":"string","max":300,"nullable":true,"pattern":"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"},"prediction":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"lname":{"type":"string","max":160,"nullable":false},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"pick":{"type":"string","max":160,"nullable":true},"pick_prob":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"market":{"type":"string","max":160,"nullable":true},"p_home":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xg_home":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"kickoff":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"ktime":{"type":"string","max":12,"nullable":true},"made_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"withheld_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"final_pick":{"type":"string","max":160,"nullable":true},"build":{"type":"number","min":-1,"max":1000000,"nullable":false,"integer":true}},"required":["lid","lname","home","away","pick","pick_prob","market","p_home","p_draw","p_away","xg_home","xg_away","kickoff","ktime","made_at","withheld_at","final_pick","build"],"nullable":true},"analysis":{"type":"object","properties":{"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"history_source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"xg_home":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"xg_away":{"type":"number","min":0,"max":100,"nullable":false,"integer":false},"result":{"type":"object","properties":{"p_home":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_draw":{"type":"number","min":0,"max":1,"nullable":false,"integer":false},"p_away":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["p_home","p_draw","p_away"],"nullable":false},"goals":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":8},"combos":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"htft":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":9},"correct_scores":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":12},"scorers":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","max":80,"nullable":false},"prob":{"type":"number","min":0,"max":1,"nullable":false,"integer":false}},"required":["label","prob"],"nullable":false},"max":16},"form":{"type":"object","properties":{"home":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5},"away":{"type":"array","items":{"type":"string","max":1,"nullable":false,"pattern":"^[WDL]$"},"max":5}},"required":["home","away"],"nullable":false},"h2h":{"type":"array","items":{"type":"object","properties":{"date":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"home":{"type":"string","max":160,"nullable":false},"away":{"type":"string","max":160,"nullable":false},"gh":{"type":"number","min":0,"max":100,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":100,"nullable":false,"integer":true}},"required":["date","home","away","gh","ga"],"nullable":false},"max":5},"standings":{"type":"object","properties":{"season":{"type":"number","min":1900,"max":2200,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"rank":{"type":"number","min":1,"max":100,"nullable":false,"integer":true},"team":{"type":"string","max":160,"nullable":false},"played":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"won":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"drawn":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"gf":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"points":{"type":"number","min":-100,"max":1000,"nullable":false,"integer":true}},"required":["rank","team","played","won","drawn","lost","gf","ga","points"],"nullable":false},"max":64}},"required":["season","rows"],"nullable":false},"writeup":{"type":"object","properties":{"text":{"type":"string","max":32768,"nullable":false},"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["text","source","source_at"],"nullable":false}},"required":["source","source_at"],"nullable":false}},"required":["fxid","lid","lname","lcountry","date","time","status","elapsed","home","away","gh","ga","ft_h","ft_a","ht_h","ht_a","updated_at","provider","prediction"],"nullable":false},"max":3000},"board":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"ahead":{"type":"number","min":7,"max":7,"nullable":false,"integer":true},"builtAt":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"notPassed":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"noBars":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"f":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"l":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"n":{"type":"string","max":160,"nullable":false},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"p":{"type":"string","max":160,"nullable":true},"q":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"m":{"type":"string","max":160,"nullable":true},"g":{"type":"string","max":160,"nullable":true},"z":{"type":"boolean"},"pw":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pd":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"pq":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"xh":{"type":"number","min":0,"max":100,"nullable":true,"integer":false},"xa":{"type":"number","min":0,"max":100,"nullable":true,"integer":false}},"required":["f","l","n","d","t","h","a","p","q","m","g","z","pw","pd","pq","xh","xa"],"nullable":false},"max":1000}},"required":["v","ahead","builtAt","n","notPassed","noBars","rows"],"nullable":true},"records":{"type":"object","properties":{"engine":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"days":{"type":"map","max":5000,"key":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","values":{"type":"map","max":32,"key":"^[A-Za-z0-9 /.+_-]{1,60}$","values":{"type":"array","items":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"min":3,"max":3}}},"total":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"graded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"withheld":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"excluded":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"pending":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"orphan":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"off":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ungradeable":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"voidLate":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["v","days","total","graded","withheld","excluded","pending","orphan","off","ungradeable","voidLate"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true},"clv":{"type":"object","properties":{"key":{"type":"string","max":8,"nullable":false},"payload":{"type":"object","properties":{"v":{"type":"number","min":1,"max":1,"nullable":false,"integer":true},"raw":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"devig":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"mean":{"type":"number","min":-1000000000,"max":1000000000,"nullable":false,"integer":false},"se":{"type":"number","min":0,"max":1000000000,"nullable":true,"integer":false}},"required":["n","mean","se"],"nullable":true},"beat":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"tie":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"from":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"}},"required":["v","raw","devig","beat","tie","lost","from","to"],"nullable":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"computed_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"}},"required":["key","payload","build","computed_at"],"nullable":true}},"required":["engine","clv"],"nullable":false},"slips":{"type":"array","items":{"type":"object","properties":{"day":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"tier":{"type":"string","max":40,"nullable":false},"odds":{"type":"number","min":0,"max":1000000000000,"nullable":false,"integer":false},"build":{"type":"number","min":0,"max":1000000,"nullable":false,"integer":true},"step":{"type":"string","max":80,"nullable":false},"legs":{"type":"array","items":{"type":"object","properties":{"fxid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"d":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"t":{"type":"string","max":12,"nullable":true},"h":{"type":"string","max":160,"nullable":false},"a":{"type":"string","max":160,"nullable":false},"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":true,"integer":true},"code":{"type":"string","max":40,"nullable":false},"market":{"type":"string","max":60,"nullable":false},"p":{"type":"number","min":0,"max":1,"nullable":true,"integer":false},"o":{"type":"number","min":1,"max":1000000,"nullable":true,"integer":false},"tab":{"type":"string","max":30,"nullable":false},"rank":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"sel":{"type":"string","max":240,"nullable":false}},"required":["fxid","d","h","a","code","p"],"nullable":false},"max":90}},"required":["day","tier","odds","build","step","legs"],"nullable":false},"max":128},"competitions":{"type":"array","items":{"type":"object","properties":{"lid":{"type":"number","min":1,"max":9007199254740991,"nullable":false,"integer":true},"source":{"type":"string","max":80,"nullable":false},"source_at":{"type":"string","max":40,"nullable":true,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T","format":"timestamp"},"from":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"to":{"type":"string","max":10,"nullable":false,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","format":"date"},"rates":{"type":"object","properties":{"n":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"btts":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o15":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o25":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"o35":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true}},"required":["n","btts","o15","o25","o35"],"nullable":false},"standings":{"type":"object","properties":{"season":{"type":"number","min":1900,"max":2200,"nullable":false,"integer":true},"rows":{"type":"array","items":{"type":"object","properties":{"rank":{"type":"number","min":1,"max":100,"nullable":false,"integer":true},"team":{"type":"string","max":160,"nullable":false},"played":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"won":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"drawn":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"lost":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"gf":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"ga":{"type":"number","min":0,"max":1000000000,"nullable":false,"integer":true},"points":{"type":"number","min":-100,"max":1000,"nullable":false,"integer":true}},"required":["rank","team","played","won","drawn","lost","gf","ga","points"],"nullable":false},"max":64}},"required":["season","rows"],"nullable":false}},"required":["lid","source","from","to"],"nullable":false},"max":100}},"required":["cards","board","records","slips"],"nullable":false};
 function fixtureProjection(value,s,path='display',depth=0){
  if(depth>12)throw Error('Display nesting exceeds limit');
  if(value===null){if(s.nullable)return;throw Error(path+': null not permitted');}
@@ -3093,7 +3216,7 @@ function fixtureEnvelope(value,screen){
     rule is now exactly those terms: accept while `as_of <= now` (+30s skew) and `now < expires_at`,
     with a hard 24-hour ceiling on the window. Fails closed on any unparseable timestamp. */
  if(value.version!=='matchmind-display/1'||value.screen!==screen||!fixtureText(value.edition_id,80)||!fixtureTimestamp(value.as_of)||!fixtureTimestamp(value.expires_at)||!Number.isFinite(from)||!Number.isFinite(until)||from>now+30000||until<=now||until<=from||until-from>86400000)throw Error('Display edition expired or unavailable');
- if(!Array.isArray(value.cards)||value.cards.length>1500||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>2097152)throw Error('Display inventory exceeds limit');
+ if(!Array.isArray(value.cards)||value.cards.length>3000||!Array.isArray(value.slips)||value.slips.length>128||new TextEncoder().encode(JSON.stringify(value)).byteLength>4194304)throw Error('Display inventory exceeds limit');
  fixtureProjection({cards:value.cards,board:value.board,records:value.records,slips:value.slips,...(Object.hasOwn(value,'competitions')?{competitions:value.competitions}:{})},FIXTURE_DISPLAY_SCHEMA);
  if(value.competitions){const seen=new Set();for(const c of value.competitions){if(seen.has(c.lid))throw Error('Duplicate published competition');seen.add(c.lid);const r=c.rates;if(r&&(r.btts>r.n||r.o15>r.n||r.o25>r.o15||r.o35>r.o25))throw Error('Inconsistent competition rates');}}
  /* This client reads v2. The 512 KiB bound belongs to old clients reading v1, which check their own screen response. */
@@ -3574,7 +3697,8 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  const panel=(id,box,content,note)=>{$(id).classList.remove('hidden');$(box).innerHTML=content||empty(note);};
  $('results').classList.add('published-detail');
  $('analysisText').classList.add('published');
- $('outcomeRows').innerHTML=v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.');
+ { const _ln=leanFor(f);   /* owner 2026-11-21: the tier and its 1X2 bar live in the match analysis, not the list */
+   $('outcomeRows').innerHTML=(v?'<div style="margin:2px 0 10px">'+(_ln?leanChip(f,_ln):fixturePrediction&&fixturePrediction.pick?'':TOSSUP_CHIP)+fixtureBarHtml({pW:v.pW,pD:v.pD,pL:v.pL})+'</div>':'')+(v?probRow(esc(fixturePrediction?fixturePrediction.home:f.home),v.pW)+probRow('Draw',v.pD)+probRow(esc(fixturePrediction?fixturePrediction.away:f.away),v.pL):empty('Result probabilities not published.')); }
  $('acc-result').classList.remove('hidden');
  $('resultSide').textContent='';$('formNote').classList.add('hidden');
  const xh=fixturePrediction&&typeof fixturePrediction.xg_home==='number'?fixturePrediction.xg_home:a.xg_home,xa=fixturePrediction&&typeof fixturePrediction.xg_away==='number'?fixturePrediction.xg_away:a.xg_away;
@@ -4897,7 +5021,12 @@ function gateBarFor(L){
    never stamp `withheld_at` on a pick issued before this build. */
 const STRONG_MIN = 0.75;
 const LEAN_MIN = 0.65;
-function strongBarFor(L){ return Math.max(STRONG_MIN, gateBarFor(L)); }
+function strongBarFor(L){
+  /* build 364 - an XR competition that has not passed its own walk-forward calibration test, and every
+     friendly, is capped at Lean: the Strong bar is set out of reach. */
+  if(typeof xrComp === 'function' && xrComp(L) && !XR_STRONG_OK.has(String(L.id))) return 1.01;
+  return Math.max(STRONG_MIN, gateBarFor(L));
+}
 function gateEdgeFor(L){
   const g = (L && afState.gate) ? afState.gate[L.id] : null;
   return (g && g.edgeFloor != null) ? Math.max(PICK_GATE.MIN_EDGE, g.edgeFloor) : PICK_GATE.MIN_EDGE;
@@ -6178,7 +6307,189 @@ function xcAdjust(L, f, P, eng){
   out.xcShift = +z.toFixed(4);
   return out;
 }
+/* ══ BUILD 364 — XR: ONE CROSS-COMPETITION RATING (CLUB ELO + NATIONAL ELO) ══════════════════════
+   The owner's complaint: a club new to a competition is priced as an average side until it builds
+   history in THAT competition (`footballEngine` only sees `L.matches`). XR rates every team from all of
+   its matches in every collected competition, in date order, so a Champions League debutant arrives
+   with its domestic record already in its rating.
+
+   CLUB ELO (ClubElo style). One rating per club, updated after every match in every club competition
+   the app loads (the 55 domestic and continental competitions, 60 months).
+     K        20 domestic, 30 continental and club-world competitions.
+     margin   World Football Elo multiplier: 1 for a one-goal margin or a draw, 1.5 for two,
+              (11+N)/8 for N of three or more.
+     home     an advantage per competition, learned online from that competition's results;
+              0 at a neutral venue (UEFA Super Cup, Club World Cup, a single-match UEFA final).
+     seed     a club first seen in a collected league starts at that league's current mean, so a
+              strong league's newcomer is not dragged to 1500. A club first seen in a continental
+              competition (its own league is not collected) starts at the league-strength prior for
+              that confederation: the running mean of every other such club, which the continental
+              results themselves move. No domestic fetch is needed for it.
+     decay    a club idle for more than 120 days is pulled 25% toward its pool mean.
+   NATIONAL ELO (World Football Elo style), a separate pool:
+     K        60 World Cup, 50 continental finals (Euro, AFCON, CHAN), 40 qualifiers and Nations
+              League, 20 friendlies. Same margin multiplier.
+     home     +100 for the home side; 0 at the finals tournaments, except for the host.
+   PRICE. The Elo difference d (home advantage included, in units of 400) is mapped to expected goals
+   with a Poisson model, lambdaH = exp(a + b*d), lambdaA = exp(a - b*d), whose a and b were fitted
+   by maximum likelihood on matches BEFORE the backtest window (bt/xr-run.mjs), then priced by the
+   engine's own `marketsFor`, so every market and the calibration step are the ones the app uses.
+   The walk-forward backtest and its per-competition gate are in XR_GATE below. */
+const XR = (() => {
+  const CONT = new Set([2,3,848,531,15,12,20,533,13]);
+  const CLUB_NEUTRAL = new Set([531,15]);
+  const NT_K = {1:60, 4:50, 6:50, 19:50, 32:40, 29:40, 960:40, 36:40, 5:40, 37:40, 10:20};
+  const NT_FINALS = new Set([1,4,6,19]);
+  /* Hosts by provider season. Euro 2020 was played across eleven countries and has no single host. */
+  const NT_HOSTS = {
+    '1:2014':['Brazil'], '1:2018':['Russia'], '1:2022':['Qatar'], '1:2026':['USA','Mexico','Canada'],
+    '4:2016':['France'], '4:2024':['Germany'],
+    '6:2015':['Equatorial Guinea'], '6:2017':['Gabon'], '6:2019':['Egypt'], '6:2021':['Cameroon'],
+    '6:2023':['Ivory Coast'], '6:2025':['Morocco'],
+    '19:2014':['South Africa'], '19:2016':['Rwanda'], '19:2018':['Morocco'], '19:2020':['Cameroon'],
+    '19:2022':['Algeria'], '19:2024':['Kenya','Uganda','Tanzania']
+  };
+  /* Fitted on matches before 2024-07-01 (club) and 2022-01-01 (national); see bt/xr-run.mjs. */
+  const FIT = { club:{a:0.23, b:0.90}, nt:{a:0.14, b:0.92} };
+  const PRIOR = { uefa:1450, caf:1450, other:1450 };
+  const isNT = (lid) => NT_K[lid] != null;
+  const margin = (gd) => { gd = Math.abs(gd); return gd <= 1 ? 1 : gd === 2 ? 1.5 : (11 + gd) / 8; };
+  const expect = (d) => 1 / (1 + Math.pow(10, -d / 400));
+  const days = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
+  const fam = (lid) => [12,20,533].includes(+lid) ? 'caf' : [2,3,848,531].includes(+lid) ? 'uefa' : 'other';
+  function neutralClub(m){ return CLUB_NEUTRAL.has(+m.lid) || ([2,3,848].includes(+m.lid) && /^final$/i.test(String(m.round||'').trim())); }
+  function create(){
+    return { r:{}, last:{}, pool:{}, poolSum:{}, poolN:{}, hfa:{}, n:{}, pre:new Map(), nt:{ r:{}, n:{} } };
+  }
+  function poolMean(S, key){ return S.poolN[key] ? S.poolSum[key] / S.poolN[key] : null; }
+  function seedClub(S, name, m){
+    if(S.r[name] != null) return;
+    const lid = +m.lid;
+    let key, v;
+    if(!CONT.has(lid)){ key = 'L' + lid; v = poolMean(S, key); if(v == null) v = 1500; }
+    else { key = 'U' + fam(lid); v = poolMean(S, key); if(v == null) v = PRIOR[fam(lid)]; }
+    S.r[name] = v; S.pool[name] = key; S.n[name] = 0;
+    S.poolSum[key] = (S.poolSum[key] || 0) + v; S.poolN[key] = (S.poolN[key] || 0) + 1;
+  }
+  function setR(S, name, v){ const k = S.pool[name]; S.poolSum[k] += v - S.r[name]; S.r[name] = v; }
+  function keyOf(m){ return m.date + '|' + m.home + '|' + m.away; }
+  /* One club match, in date order. Records the PRE-match state for walk-forward pricing. */
+  function stepClub(S, m){
+    const lid = +m.lid;
+    seedClub(S, m.home, m); seedClub(S, m.away, m);
+    for(const t of [m.home, m.away]){
+      const l = S.last[t];
+      if(l && days(l, m.date) > 120){ const pm = poolMean(S, S.pool[t]); if(pm != null) setR(S, t, pm + (S.r[t] - pm) * 0.75); }
+    }
+    const neutral = neutralClub(m);
+    const hk = CONT.has(lid) ? 'cont' : 'L' + lid;
+    const h = neutral ? 0 : (S.hfa[hk] != null ? S.hfa[hk] : 65);
+    const d = S.r[m.home] + h - S.r[m.away];
+    S.pre.set(keyOf(m), { d, nh:S.n[m.home], na:S.n[m.away], lid });
+    if(m.hg == null || m.ag == null) return;
+    const res = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+    const K = (CONT.has(lid) ? 30 : 20) * margin(m.hg - m.ag);
+    const dl = K * (res - expect(d));
+    setR(S, m.home, S.r[m.home] + dl); setR(S, m.away, S.r[m.away] - dl);
+    if(!neutral) S.hfa[hk] = h + 0.6 * (res - expect(d)) * 4;
+    S.n[m.home]++; S.n[m.away]++; S.last[m.home] = m.date; S.last[m.away] = m.date;
+  }
+  function ntHostAdv(m, t){
+    const hs = NT_HOSTS[(+m.lid) + ':' + (m.season || String(m.date).slice(0,4))];
+    return hs && hs.includes(t) ? 100 : 0;
+  }
+  function stepNT(S, m){
+    const T = S.nt, lid = +m.lid;
+    for(const t of [m.home, m.away]) if(T.r[t] == null){ T.r[t] = 1500; T.n[t] = 0; }
+    const h = NT_FINALS.has(lid) ? ntHostAdv(m, m.home) - ntHostAdv(m, m.away) : 100;
+    const d = T.r[m.home] + h - T.r[m.away];
+    S.pre.set(keyOf(m), { d, nh:T.n[m.home], na:T.n[m.away], lid, nt:true });
+    if(m.hg == null || m.ag == null) return;
+    const res = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+    const dl = NT_K[lid] * margin(m.hg - m.ag) * (res - expect(d));
+    T.r[m.home] += dl; T.r[m.away] -= dl; T.n[m.home]++; T.n[m.away]++;
+  }
+  /* Build from every loaded competition. `all` is [{lid,date,home,away,hg,ag,round,season}]. */
+  function build(all){
+    const S = create();
+    const ms = all.slice().sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0);
+    for(const m of ms) (isNT(m.lid) ? stepNT : stepClub)(S, m);
+    S.built = ms.length;
+    return S;
+  }
+  function lambdas(d, nt, fit){
+    const F = fit || (nt ? FIT.nt : FIT.club), x = d / 400;
+    return [Math.exp(F.a + F.b * x), Math.exp(F.a - F.b * x)];
+  }
+  /* The pre-match difference for a played fixture, or the current one for an upcoming fixture. */
+  function diffFor(S, lid, f){
+    const p = S.pre.get(keyOf(f));
+    if(p) return p;
+    lid = +lid;
+    if(isNT(lid)){
+      const T = S.nt, rh = T.r[f.home], ra = T.r[f.away];
+      const h = NT_FINALS.has(lid) ? ntHostAdv({lid, season:f.season, date:f.date}, f.home) - ntHostAdv({lid, season:f.season, date:f.date}, f.away) : 100;
+      return { d:(rh ?? 1500) + h - (ra ?? 1500), nh:T.n[f.home] || 0, na:T.n[f.away] || 0, lid, nt:true };
+    }
+    const m = { lid, round:f.round };
+    const prior = (t) => S.r[t] != null ? S.r[t] : (poolMean(S, 'U' + fam(lid)) ?? PRIOR[fam(lid)]);
+    const hk = CONT.has(lid) ? 'cont' : 'L' + lid;
+    const h = neutralClub(m) ? 0 : (S.hfa[hk] != null ? S.hfa[hk] : 65);
+    return { d:prior(f.home) + h - prior(f.away), nh:S.n[f.home] || 0, na:S.n[f.away] || 0, lid };
+  }
+  return { build, lambdas, diffFor, isNT, CONT, NT_K, FIT, keyOf, _margin:margin };
+})();
+
+/* XR_COMPS are priced by XR instead of the per-competition engine. Friendlies keep the per-competition
+   engine where it prices (it backtested better there: log loss 0.947 against XR 0.977) and fall back
+   to XR, and are never Strong. XR_STRONG_OK lists the competitions whose walk-forward Strong picks
+   (prob >= 0.75) landed within 2 points of their stated probability; every other XR competition is
+   capped at Lean until its own backtest passes. Backtest, 2024-07 on (clubs) and 2022-01 on (national):
+     UEL 0.792 v 0.800 (n 378) PASS · UCL 0.756 v 0.802 (432) · UECL 0.755 v 0.789 (565) ·
+     CAF CL 0.837 v 0.814 (241) · CAF CC 0.879 v 0.802 (190) · CWC 0.778 v 0.812 (50) · 531/533 n<10 ·
+     WC 0.821 v 0.805 (168) PASS · AFCON 0.818 v 0.798 (155) PASS · WCQ Africa 0.801 v 0.815 (266) PASS ·
+     Euro qual 0.846 v 0.838 (239) PASS · AFCON qual 0.826 v 0.810 (341) PASS · Euro 0.818 v 0.797 (51) ·
+     WCQ Europe 0.806 v 0.851 (212) · Nations League 0.776 v 0.811 (510) · CHAN 0.727 v 0.801 (73).
+   Full table: release/xr/XR-BACKTEST.md. */
+const XR_COMPS = new Set([2,3,848,531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37].map(String));
+const XR_STRONG_OK = new Set([3,1,6,29,960,36].map(String));
+const XR_FRIENDLY = '10';
+function xrComp(L){ return !!L && XR_COMPS.has(String(L.id)); }
+let _xrState = null, _xrAt = -1;
+function xrState(){
+  if(_xrState && _xrAt === _leaguesLoadedAt) return _xrState;
+  const all = [];
+  for(const id of Object.keys(afState.leagues || {})){
+    const L = afState.leagues[id]; if(!L || L.sport && L.sport !== 'football') continue;
+    for(const m of (L.matches || [])) if(m && m.hg != null && m.ag != null) all.push({lid:+L.id, date:m.date, home:m.home, away:m.away, hg:m.hg, ag:m.ag, round:m.round, season:m.season});
+  }
+  _xrState = XR.build(all); _xrAt = _leaguesLoadedAt;
+  return _xrState;
+}
+function xrPredict(L, f){
+  if(!xrComp(L) || !f) return null;
+  const S = xrState(), q = XR.diffFor(S, L.id, f);
+  if(!q || !isFinite(q.d)) return null;
+  const [lh, la] = XR.lambdas(q.d, !!q.nt);
+  const out = footballEngine.marketsFor(lh, la, null);
+  if(!out) return null;
+  /* A side XR has never seen is priced on the pool prior. The live rule never publishes that. */
+  out.unknownTeams = (q.nh ? 0 : 1) + (q.na ? 0 : 1);
+  out.unknownNames = [!q.nh ? f.home : null, !q.na ? f.away : null].filter(Boolean);
+  out.xr = { d:+q.d.toFixed(1), nh:q.nh, na:q.na };
+  return out;
+}
+/* The one place that decides which model prices an XR competition's fixture. */
+function xrOrEngine(L, f, engineP){
+  if(!xrComp(L)) return engineP;
+  if(String(L.id) === XR_FRIENDLY && engineP && !engineP.unknownTeams) return engineP;
+  return xrPredict(L, f) || engineP;
+}
 function fxPredict(L,f){
+  if(xrComp(L) && f){   // build 364
+    const tmp0 = (L.matches && L.matches.length>=15) ? Object.assign(Object.create(footballEngine),{matches:L.matches}) : null;
+    return xrOrEngine(L, f, tmp0 ? tmp0.predict(f.home,f.away) : null);
+  }
   if(!(L && L.matches && L.matches.length>=15 && f)) return null;
   const hit = _fxPredCache.get(f);
   if(hit && hit.n === L.matches.length) return hit.P;
@@ -6224,7 +6535,19 @@ function fxPredict(L,f){
    **BTS, O25 and 1X are untouched because they are already honest.** X2 reads -1.95σ, just inside
    the -2 bar this build set for itself, and is left alone rather than corrected on a rule bent to
    include it. The bar was chosen before the numbers were read. */
-const CALIB_SHIFT = { U35: -0.0175 };
+/* BUILD 366 - REFITTED WITH GOAL_LEVEL IN PLACE, ON THE POPULATION IT IS APPLIED TO: Strong U35 picks, priced
+   by this file in Chromium, walk-forward, 44 non-XR competitions (release/goal-level/dump.mjs + shiftNew.mjs).
+   Gap = hit minus stated, points:
+       shift      2022-07..2025-06    2025-07 on       2026-08 on
+       -0.0175    +1.1 (n 5152)       +1.1 (n 2080)    -2.9 (n 429)
+       -0.025     +1.2 (n 3825)       +0.5 (n 1504)    -2.6 (n 305)
+       -0.03      +1.3 (n 3059)       +1.2 (n 1124)    +0.2 (n 224)
+       -0.04      +1.9 (n 1782)       -1.0 (n 525)     -3.1 (n 97)
+   The training window alone does not ask for more than build 284's -0.0175. -0.03 is the smallest
+   shift at which every window, this season included, is within 2 points; it is conservative by
+   about a point on older seasons and costs about 5 points of Strong coverage, all of it U35.
+   The other goals codes are within their error on that population and stay unshifted. */
+const CALIB_SHIFT = { U35: -0.03 };
 /* Applied at the ONE place every selection is constructed, so the slip, the floors, the fair odds
    and the displayed confidence can never disagree about what the engine claims. */
 function calibrate(code, prob){
@@ -7435,7 +7758,18 @@ const DAILY_FLOOR_PRIMARY = {
 /* 🔑 BUILD 355 (WO-61 scope 4) — KEN'S BAND, NAMED. Declared here rather than beside the card
    table below because `DAILY_TIER_FLOORS` is initialised before it and would otherwise read a
    constant that does not exist yet. The reasoning is at `DAILY_CARD_LEG_FLOORS`. */
-const DAILY_CARD_FLOOR_LO = 0.65;
+/* BUILD 366 - EVERY CARD LEG IS AT LEAST 70%, ON THE CALIBRATED PROBABILITY, AND `preferGoals` IS GONE.
+   Owner: his cards carried goals legs at 66-70% that lost. Measured walk-forward (release/goal-level/legcal.mjs,
+   2026-08 on, after GOAL_LEVEL): BTTS at 0.65-0.70 lands 62.6% against 66.3% stated (n 238) and Over 2.5
+   64.9% against 67.0% (n 527), while every goals code at 0.70 and above lands within about a point.
+   The card replay (release/goal-level/slipfinal.mjs, 2025-07 on, prices at 0.95 / p): build 365 (0.65, preferGoals)
+   built Safe on 355 of 454 days, 42.0% won against 42.6% stated, and 34.9% against 42.6% from 2026-08.
+   At 0.70 Safe builds on 340 of 452 days and wins 47.9% against 42.7% (46.3% from 2026-08); 0.72 builds
+   on 312 and wins 48.7%. 0.70 is the lowest floor whose legs are honest. Value and Bold rarely reach their bands from 70% legs, and
+   then the card says the band is out of reach rather than taking weaker legs. `preferGoals` maximised
+   goals legs inside the band; the tiers now take the combination nearest the target, like any market.
+   LO and HI are both 0.70, so the band the lock checks is one value. */
+const DAILY_CARD_FLOOR_LO = 0.70;
 const DAILY_CARD_FLOOR_HI = 0.70;
 /* 🔑 BUILD 355 (WO-61 scope 4) — BOLD'S HT/FT OVERRIDE COMES INTO KEN'S BAND. Build 333 set it at
    0.45, which is the only floor whose measured gap is not materially negative. Ken's ruling of
@@ -7446,7 +7780,7 @@ const DAILY_CARD_FLOOR_HI = 0.70;
    costs nothing, so there was nothing to trade. Build 333 is not overruled on calibration; its
    floor is simply below the one Ken has now set for every card leg. */
 const DAILY_TIER_FLOORS = {
-  safe: { BTS: 0.65 },
+  safe: { BTS: DAILY_CARD_FLOOR_LO },   // build 366: was 0.65, now the 0.70 card floor
   bold: { '1/1':DAILY_CARD_FLOOR_LO, '1/X':DAILY_CARD_FLOOR_LO, '1/2':DAILY_CARD_FLOOR_LO,
           'X/1':DAILY_CARD_FLOOR_LO, 'X/X':DAILY_CARD_FLOOR_LO, 'X/2':DAILY_CARD_FLOOR_LO,
           '2/1':DAILY_CARD_FLOOR_LO, '2/X':DAILY_CARD_FLOOR_LO, '2/2':DAILY_CARD_FLOOR_LO }
@@ -7738,7 +8072,7 @@ const DAILY_TIERS = [
      the Bold tier over-claims by ~3.8 points under the shipped code. On sorted data Bold's incumbent
      reads -0.99 (-0.44 sigma). Both were the sorting bug talking. Found via §9 of
      `MatchMind-FTGOALS-DISPERSION-PREREG.md`; scored in `MatchMind-SLIPMIX-PREREG.md`. */
-  { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3, preferGoals:true,
+  { key:'safe',  name:'Safe',  target:2,  band:[2.00,  2.40], minLegs:2, maxLegs:3,
     blurb:'At least 2.00 at real bookmaker prices, from two or three legs.' },
   /* BUILD 301 - FOUR IS A HARD MAXIMUM, NOT A PREFERENCE. Build 297 restored Ken's build-235 spec as
      a LADDER - try four, fall back to seven - and on 2026-09-07 it fell back and issued a six-leg
@@ -7768,7 +8102,7 @@ const DAILY_TIERS = [
      band is set from what the market actually pays, never from what the tier would like to say.
 
      BUILD 301/302's OTHER RULE STILL BINDS: `band[0] == target`. 5.00 promised is 5.00 minimum. */
-  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:5, preferGoals:true,
+  { key:'value', name:'Value', target:5,  band:[5.00,  6.00], minLegs:3, maxLegs:5,
     blurb:'At least 5.00 at real bookmaker prices, from five legs at most.' },
   /* 🔑 BUILD 355 (WO-61 scope 3) - BOLD IS EIGHT LEGS, DOWN FROM ELEVEN. Ken, 2026-10-17:
      *"the legs in the bold are too much"* and *"10 odds max is 8."* Value stays at five on the same
@@ -7783,7 +8117,7 @@ const DAILY_TIERS = [
      over the same window: Bold builds on 12 of 26 days today, 7 at 8 legs alone, 15 at the new
      floor alone, and 3 with every rule in this build applied. The pool, not the cap, is what binds
      on the days it fails. `wo61-harness-2026-10-18.txt` carries the run. */
-  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:8, preferGoals:true,
+  { key:'bold',  name:'Bold',  target:10, band:[10.00, 12.50], minLegs:3, maxLegs:8,
     /* build 302 - the old blurb said "a one-in-ten shot at fair prices". The card is no longer
        priced at fair, so that sentence was quietly describing a different product than the one on
        screen: at market prices a 10.00 slip is a WORSE than one-in-ten shot, because the margin is
@@ -10093,7 +10427,7 @@ function renderDailySlips(){
                 grader, the tracker and the Value ladder; that is its own order, and this line is
                 the half that can be said truthfully without one. */
              + (_sharedSlips.error ? 'Could not read today’s issued cards. Try again shortly.'
-                                   : 'No card issued for this tier today. Cards are issued once, for everyone — and only from legs a bookmaker has priced, so a tier that cannot be filled from priced legs is not issued at all.')
+                                   : 'No card issued for this tier today. Cards are issued once, for everyone, only from priced legs at 70% or better, so a tier that cannot reach its odds band that way is not issued.')
              + '</div></div>';
       continue;
     }
@@ -11066,7 +11400,7 @@ async function analyze(){
              ? 'These are the stored pre-match probabilities, not a re-estimate.'
              : 'A complete stored pre-match probability vector is unavailable. No replacement probabilities are shown.'}</div>`
         : '');
-    $('xgInfo').textContent = `${boardProbabilitySource ? 'Separate local model expected goals' : 'Expected goals'} — ${home}: ${pred.lambdaH.toFixed(2)} · ${away}: ${pred.lambdaA.toFixed(2)}`;
+    $('xgInfo').textContent = `${boardProbabilitySource ? 'Separate local model expected goals' : 'Expected goals'} — ${home}: ${(pred.goalsXgH != null ? pred.goalsXgH : pred.lambdaH).toFixed(2)} · ${away}: ${(pred.goalsXgA != null ? pred.goalsXgA : pred.lambdaA).toFixed(2)}`;   // build 366: the goals-level figure the goals panel uses
 
     /* BUILD 141 — the form line, on the page where someone actually decides.
        It says what was measured and STOPS THERE. No adjusted percentage, because §58's holdout
@@ -11536,7 +11870,7 @@ let lastAdjusted = null;
 function applyContextToPrediction(L, pred, homeMult, awayMult){
   if(!L || !pred || (homeMult===1 && awayMult===1)) return null;
   const tmp = Object.create(footballEngine); tmp.matches = L.matches || [];
-  return tmp.marketsFor(pred.lambdaH*homeMult, pred.lambdaA*awayMult, tmp.rates());
+  return tmp.marketsFor(pred.lambdaH*homeMult, pred.lambdaA*awayMult, (pred.raw && pred.raw.rates) || tmp.rates());   // build 366: keeps the goal level
 }
 
 const ctxSeen = new Map();   // fxid -> rendered HTML, so re-opening a match costs nothing
@@ -11889,7 +12223,9 @@ function archivePrediction(L, f, p){
     fxid: f.fxid, lid: L.id, lname: L.name, kickoff: f.date, ktime: f.time || null,
     home: f.home, away: f.away,
     p_home:+p.pW.toFixed(4), p_draw:+p.pD.toFixed(4), p_away:+p.pL.toFixed(4),
-    xg_home:+p.lambdaH.toFixed(3), xg_away:+p.lambdaA.toFixed(3),
+    /* build 366 - the goals-level expected goals (GOAL_LEVEL), so the published goals panel, which prices this
+       pair, shows the engine's own goals numbers. 1X2 is published separately above and is unchanged. */
+    xg_home:+(p.goalsXgH != null ? p.goalsXgH : p.lambdaH).toFixed(3), xg_away:+(p.goalsXgA != null ? p.goalsXgA : p.lambdaA).toFixed(3),
     pick: f.pick, pick_prob:+(+f.prob).toFixed(4),   // THE PUBLISHED PICK. Never the headline.
     /* build 199 — stamped, not derived later, for build 120's reason: deriving the market from the
        code works today and breaks the first time a code is reused or renamed. */
@@ -18357,6 +18693,7 @@ const ANALYSIS_TIER = {
   45:{t:13}, 48:{t:13}, 143:{t:13}, 137:{t:13}, 81:{t:13}, 66:{t:13},
   88:{t:14}, 94:{t:14}, 2003:{t:14}, 2017:{t:14},
   233:{t:15}, 288:{t:15}, 200:{t:15}, 186:{t:15}, 202:{t:15}, 399:{t:15},
+  37:{t:9,s:2},   // build 364 - WC qualification play-offs, with the qualifiers
   19:{t:16}, 10:{t:19}, 667:{t:20}
 };
 function analysisTier(L){
@@ -19790,7 +20127,10 @@ async function loadCloudResults(){
    falls back safely: `gateBarFor`/`gateEdgeFor` to the global bar, `dampenFor` to the engine
    default, and `autoGate` measures a new competition's own bar once it has history. Verified at
    build 257 rather than trusted from the note. */
-const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865,
+  /* build 364 - UEFA Super Cup, Club World Cup, the three CAF club competitions and the European and
+     African national-team competitions. Collected by refresh-af af-45's date pass; priced by XR. */
+  531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37];
 /* ⚠ EVERY COMPETITION MUST BE A DECISION: fitted by id in LEAGUE_FIT_NAME, or listed here as
    deliberately unfitted. The lock asserts `COMP_IDS == fitted ∪ unfitted`, so a league added with
    no decision either way fails the suite rather than quietly predicting on a constant nobody chose.
@@ -19801,7 +20141,7 @@ const COMP_IDS = [39,140,135,78,61,88,94,40,71,2,3,848,13,141,136,79,62,89,95,30
    Inventing a value to fill the row is §17e's exact habit, and it is why 13 has sat here unfitted
    since build 159 rather than being given a plausible number. They become candidates for fitting
    when they have the history to support one — which is a measurement, not this build. */
-const LEAGUE_UNFITTED = [3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
+const LEAGUE_UNFITTED = [531,15,12,20,533,1,4,6,19,32,29,960,36,5,10,37,3,848,13,141,136,79,62,89,95,307,292,305,169,253,188,233,288,200,186,98,45,143,137,81,66,90,96,41,42,43,50,51,58,59,60,931,80,170,887,138,942,943,435,436,865];
 
 /* == BUILD 327 - KEN'S DIVISION RULE: WHICH COMPETITIONS MATCHMIND PREDICTS ======================
    Ken, 2026-09-16: *"We will remove from our analysis and tips section, all prediction from any league
@@ -20947,13 +21287,15 @@ function applyGatePass(L, display, personalOwner=_personalOwner, personalEpoch=_
     return true;
   }
   // predictions from the engine (needs enough history)
-  if(L.matches.length>=15){
+  if(L.matches.length>=15 || xrComp(L)){   // build 364 - XR prices a competition with no history of its own
     const tmp=Object.create(footballEngine); tmp.matches=L.matches;
+    const thin = L.matches.length < 15;
     for(const f of display){
       // for a played match, predict from only the matches BEFORE it (honest pre-match pick, no leakage)
-      const p = f._fin
+      const p0 = thin ? null : f._fin
         ? tmp.predict(f.home, f.away, Math.max(1, L.matches.findIndex(m=>m.date===f.date && m.home===f.home && m.away===f.away)))
         : xcAdjust(L, f, tmp.predict(f.home, f.away), tmp);   // build 324 — the record prices as the screens do
+      const p = xrOrEngine(L, f, p0);   // build 364 - XR's pre-match state is walk-forward for a played fixture
       if(p){
         const hp = headlinePick(p, f.home, f.away);
         /* FREEZE (build 62). A prediction is a claim made at a moment in time. Recomputing it
@@ -21854,10 +22196,10 @@ function boardBuild(){
       let pw = f.calc.pW, pd = f.calc.pD, pq = f.calc.pL, xh = null, xa = null;
       if(pw == null || pd == null || pq == null){
         const P = fxPredict(L, f);
-        if(P){ pw = P.pW; pd = P.pD; pq = P.pL; xh = P.lambdaH; xa = P.lambdaA; }
+        if(P){ pw = P.pW; pd = P.pD; pq = P.pL; xh = (P.goalsXgH != null ? P.goalsXgH : P.lambdaH); xa = (P.goalsXgA != null ? P.goalsXgA : P.lambdaA); }   // build 366
       } else {
         const P2 = fxPredict(L, f);
-        if(P2){ xh = P2.lambdaH; xa = P2.lambdaA; }
+        if(P2){ xh = (P2.goalsXgH != null ? P2.goalsXgH : P2.lambdaH); xa = (P2.goalsXgA != null ? P2.goalsXgA : P2.lambdaA); }   // build 366
       }
       if(pw == null || pd == null || pq == null) noBars++;
       rows.push({ f: f.fxid, l: L.id, n: L.name, d: f.date, t: f.time || null,
@@ -23527,7 +23869,7 @@ function renderFixtures(){
        form is worth cannot be pinned down, only that these picks did better. */
     const fm = (FORM_ADJ.ON && f.formM != null && f.formM >= FORM_ADJ.UP)
       ? `<span class="formflag" title="The side picked here is also ${f.formM} points better over its last ${FORM_ADJ.WIN} matches">🔥</span>` : '';
-    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span>${fixtureBarHtml(fixtureVector(L, f))}</span>${fm}${chip}</div>`;
+    return `<div class="fxrow favrow" data-i="${i}"><span class="mstar lft${isFavMatch(f.fxid)?'':' off'}" data-star="${i}">${isFavMatch(f.fxid)?'★':'☆'}</span>${timeCell}<span class="fxteams"><span class="tline">${crest(f.home)}${f.home}</span><span class="tline">${crest(f.away)}${f.away}</span></span>${fm}${chip}</div>`;
   };
 
   /* BUILD 129 — TOP MATCHES IS NOW RANKED BY EDGE, NOT BY FAME.

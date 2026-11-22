@@ -400,7 +400,7 @@ test('the existing prediction and grading behaviour is unchanged', async t => {
        line. U35 leads the goals group at 1-0.30 = 0.70 shifted to 0.6825 by CALIB_SHIFT.U35, which
        is the one calibration entry that exists and is visible right here. */
     assert.deepEqual(seen.rungs, ['2','2D','X2','U35']);
-    assert.deepEqual(seen.probs, [0.7, 0.8485, 0.875, 0.6825]);
+    assert.deepEqual(seen.probs, [0.7, 0.8485, 0.875, 0.67]);   // build 366: CALIB_SHIFT.U35 is -0.03
     assert.equal(seen.dnbVoid, 'void');
     assert.equal(seen.dnbHit, 'hit');
     assert.equal(seen.dnbMiss, 'miss');
@@ -410,7 +410,7 @@ test('the existing prediction and grading behaviour is unchanged', async t => {
     assert.deepEqual(seen.labels, ['Home to win','Draw','Away to win','Home or Draw','Draw or Away',
       'Home (Draw No Bet)','Away (Draw No Bet)','Either team']);
     assert.deepEqual(seen.markets, ['Winner','Double Chance','Draw No Bet','BTTS','Goals']);
-    assert.deepEqual(seen.calib, [0.8, 0.8, 0.7825]);
+    assert.deepEqual(seen.calib, [0.8, 0.8, 0.77]);
     await ctx.close();
   }
 });

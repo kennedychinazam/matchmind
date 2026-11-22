@@ -275,7 +275,7 @@ test('the patched page still boots clean on desktop and mobile', async t => {
 test('no statistical formula, market table or grading rule moved', async t => {
   const html = readFileSync(join(ROOT,'index.html'),'utf8');
   // Pinned so a settlement patch cannot quietly become a model change.
-  assert.match(html, /const CALIB_SHIFT = \{ U35: -0\.0175 \};/);
+  assert.match(html, /const CALIB_SHIFT = \{ U35: -0\.03 \};/);   // build 366 refit (goal-level-366.test.mjs)
   assert.match(html, /SHRINK_K_LEAGUE: 8,/);
   assert.match(html, /SHRINK_K_CUP: 32,/);
   assert.match(html, /RHO: -0\.08,/);

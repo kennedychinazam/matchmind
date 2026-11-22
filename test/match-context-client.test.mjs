@@ -16,7 +16,10 @@ const UNCHANGED_355={
  'function tableAsOf(':'bd5762b62d94f979163be6d18067f54d46bcd5199b7048b1bb3c356edeecbb96','function latestSeasonOf(':'c4cefd0770daca019051fb7a61ba4ffdcd23ded24b029b60e24f336b6771197c',
  'function formRow(':'3f5b78feb1d57ed1ae45106dfde1fb64e0a199aa2c655c251baa4f6d105406d4','  form(team, k=5, upTo){':'26254a60677484a70b441a3c7085b8199975f53060694e7c89a89a57f0c1111d',
  '  h2h(home, away, upTo){':'b63dd43775d23c6176b6ddc51dd4954e8073aea8f5af8a58ad7fb0c41cfdfe63','  scorerProbs(team, lambdaTeam, scorers){':'b14043a0fe579f42de9430f4ce864745a44a6f65afb1e14ebfb8669bd65e4805',
- '  rates(upTo){':'deaba1ea0c80ef1871d8390ec786df6a36fa0d260bc9beb64769735f4d555e7d','  marketsFor(':'63bcd53fa023945566645954975fc754bded4a03d32dab188b94246d9141fce5'};
+ '  rates(upTo){':'deaba1ea0c80ef1871d8390ec786df6a36fa0d260bc9beb64769735f4d555e7d','  marketsFor(':'ea38142421168ec91ecbbb8cd19de0987a3bb0c20a52e142d3b99bc085896281'};
+// Build 366: marketsFor gains the GOAL_LEVEL branch (taken only when the rates object carries `gs`) and three
+// return fields. The published grid passes rates without `gs`, so its numbers are those of Build 355; the
+// parity of those numbers is pinned in goal-level-366.test.mjs.
 test('Build 355 panel functions are unchanged',()=>{
  for(const [h,sha] of Object.entries(UNCHANGED_355))assert.equal(createHash('sha256').update(extract(h)).digest('hex'),sha,h);
 });
