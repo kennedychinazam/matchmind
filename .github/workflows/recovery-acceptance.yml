@@ -31,7 +31,7 @@ jobs:
           echo "PWA_PLAYWRIGHT=playwright-core" >> "$GITHUB_ENV"
           echo "PWA_EVIDENCE=${{ runner.temp }}/pwa-recovery-evidence.json" >> "$GITHUB_ENV"
       - name: Verify isolated account, storage, publisher, preview source and PWA lifecycle
-        run: node --test --test-concurrency=2 test/account-ownership.test.mjs test/navigation-history.test.mjs test/personal-storage-recovery.test.mjs test/personal-reconciliation.test.mjs test/personal-reconciliation-review.test.mjs test/recent-cache.test.mjs test/publisher-session.test.mjs test/preview-public-source.test.mjs test/preview-build-provenance.test.mjs test/issued-tip-bundle.test.mjs test/pwa-lifecycle.test.mjs test/fixture-delivery-cache.test.mjs test/fixture-delivery-robot.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/published-detail-restoration.test.mjs test/played-no-snapshot-headline.test.mjs
+        run: node --test --test-concurrency=2 test/account-ownership.test.mjs test/navigation-history.test.mjs test/personal-storage-recovery.test.mjs test/personal-reconciliation.test.mjs test/personal-reconciliation-review.test.mjs test/recent-cache.test.mjs test/publisher-session.test.mjs test/preview-public-source.test.mjs test/preview-build-provenance.test.mjs test/original-logos.test.mjs test/issued-tip-bundle.test.mjs test/pwa-lifecycle.test.mjs test/fixture-delivery-cache.test.mjs test/fixture-delivery-robot.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/published-detail-restoration.test.mjs test/played-no-snapshot-headline.test.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

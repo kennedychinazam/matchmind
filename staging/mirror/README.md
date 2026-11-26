@@ -4,6 +4,8 @@
 
 The current CLI in `refresh.mjs` uses `collectPublicEdition()` from `public-edition-source.mjs`. It reads only the five approved public screens through **POST `matchmind_display_v1`** on production `toqfdrcjzwnlydqekude`. These are read-only data RPCs. It does not query anonymous raw fixture/prediction tables or fall back to the legacy GET collectors. Those collectors remain synthetic regression fixtures, not a recovery route when public access fails.
 
+The original-logo collector also uses approved finite public RPC metadata: staging cards first, with a production public-screen supplement when older materializations omit logo fields. It never uses production raw-table GET. Stage/prod editions are independently consistent; every staging fixture must match exact source identity and approved original media URLs. Production advertised paging is not followed; missing destination membership fails.
+
 All screens must identify the same edition, capture and expiry. The source must be fresh, complete and inside the reviewed contract bounds; unsupported or inconsistent data stops publication. Raw provider history and competition facts are not fetched. Current-client detail parity remains a separate staging acceptance requirement; do not claim old Build 355 parity solely because the projection validates.
 
 Read-only observation at 09:05 UTC on 26 November: the approved production source validated at 1,342 cards, 303 predictions and 688,613 compact payload bytes. This is a point-in-time preflight, not a publication receipt. Staging status returned JSON null and its public Scores RPC returned HTTP 500 / `P0002` / `Verified real-data mirror unavailable`. No refresh, writer-token use, backend installation or deployment occurred.
