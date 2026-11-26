@@ -18,7 +18,28 @@ test('future/same-day/other league/non-AF/incomplete extra-time facts excluded',
 test('raw AI cache omitted without independent exact-content identity approval',()=>{const writeup={fxid:1,text:'Cached analysis',model:'approved-model',updated_at:stamp};assert.equal(project({writeup}),null);const writeupApproval={...fixture(),source_at:stamp,sha256:createHash('sha256').update(writeup.text).digest('hex')};assert.equal(project({writeup,writeupApproval}).writeup.text,writeup.text);assert.equal(project({writeup:{...writeup,text:'Altered'},writeupApproval}),null);});
 test('closed projection remains compatible with old cards and rejects private extras',()=>{const old=buildPresentationPayload({fixtures:[fixture()]});validatePresentationPayload(old);const a=project({board:board()});const p=buildPresentationPayload({fixtures:[{...fixture(),analysis:a}]});assert.deepEqual(p.cards[0].analysis,a);p.cards[0].analysis.raw={key:'secret'};assert.throws(()=>validatePresentationPayload(p),/unsupported/);});
 test('nested analysis probability vectors validated independently of prediction',()=>{const p=buildPresentationPayload({fixtures:[fixture()]});p.cards[0].analysis={source:'published-board',source_at:stamp,result:{p_home:.8,p_draw:.3,p_away:.2}};assert.throws(()=>validatePresentationPayload(p),/probability/);});
-test('browser and staging schema equal closed source schema; source proposal remains unchanged',()=>{const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');assert.deepEqual(JSON.parse(html.match(/const FIXTURE_DISPLAY_SCHEMA=(.*);\r?\n/)[1]),PAYLOAD_SCHEMA);const up=readFileSync(new URL('../staging/mirror/STAGING-analysis-up.sql',import.meta.url),'utf8');/* Fixed rollout order: analysis2 is written against the 1000-card text; STAGING-capacity2-up.sql then raises cards.max to 1500. */const t0=structuredClone(PAYLOAD_SCHEMA);t0.properties.cards.max=1000;const before=structuredClone(t0);delete before.properties.competitions;assert.deepEqual(JSON.parse(up.split('$schema$')[1]),before);const up2=readFileSync(new URL('../staging/mirror/STAGING-analysis2-up.sql',import.meta.url),'utf8');assert.deepEqual(JSON.parse(up2.split('$f0$')[1].replace(/^\$schema\$|\$schema\$$/g,'')),before);assert.deepEqual(JSON.parse(up2.split('$t0$')[1].replace(/^\$schema\$|\$schema\$$/g,'')),t0);const cap2=readFileSync(new URL('../staging/mirror/STAGING-capacity2-up.sql',import.meta.url),'utf8');assert.ok(cap2.includes('"prediction"],"nullable":false},"max":1000}$old$')&&cap2.includes('"prediction"],"nullable":false},"max":1500}$new$'));assert.match(up,/Isolated real-data preview required/);});
+test('production browser matches its explicit reviewed profile; staging SQL schema remains unchanged',()=>{
+ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ const browser=JSON.parse(html.match(/const FIXTURE_DISPLAY_SCHEMA=(.*);\r?\n/)[1]);
+ // HANDOVER 2.10: production supports 3000 cards; staging capacity2 remains 1500.
+ // HANDOVER 2.1 and RECONSTRUCTED=-1/backfillPredictions: the production reader
+ // must load and label historical reconstructions without counting them as issued picks.
+ // Existing production cards also carry optional HTTPS original-logo metadata;
+ // the closed staging materialization schema deliberately does not include those fields.
+ assert.equal(PAYLOAD_SCHEMA.properties.cards.max,1500);
+ const stagingCard=PAYLOAD_SCHEMA.properties.cards.items;
+ assert.equal(stagingCard.properties.prediction.properties.build.min,0);
+ for(const field of ['home_logo','away_logo','llogo'])assert.ok(!Object.hasOwn(stagingCard.properties,field));
+ const expectedProduction=structuredClone(PAYLOAD_SCHEMA);
+ expectedProduction.properties.cards.max=3000;
+ const productionCard=expectedProduction.properties.cards.items;
+ productionCard.properties.prediction.properties.build.min=-1;
+ const optionalLogo={type:'string',max:300,nullable:true,pattern:"^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$"};
+ for(const field of ['home_logo','away_logo','llogo'])productionCard.properties[field]=structuredClone(optionalLogo);
+ // Compare the entire nested schema. Only the explicit differences above are allowed;
+ // required keys, logo patterns, prediction semantics and every other bound stay strict.
+ assert.deepEqual(browser,expectedProduction);
+const up=readFileSync(new URL('../staging/mirror/STAGING-analysis-up.sql',import.meta.url),'utf8');/* Fixed rollout order: analysis2 is written against the 1000-card text; STAGING-capacity2-up.sql then raises cards.max to 1500. */const t0=structuredClone(PAYLOAD_SCHEMA);t0.properties.cards.max=1000;const before=structuredClone(t0);delete before.properties.competitions;assert.deepEqual(JSON.parse(up.split('$schema$')[1]),before);const up2=readFileSync(new URL('../staging/mirror/STAGING-analysis2-up.sql',import.meta.url),'utf8');assert.deepEqual(JSON.parse(up2.split('$f0$')[1].replace(/^\$schema\$|\$schema\$$/g,'')),before);assert.deepEqual(JSON.parse(up2.split('$t0$')[1].replace(/^\$schema\$|\$schema\$$/g,'')),t0);const cap2=readFileSync(new URL('../staging/mirror/STAGING-capacity2-up.sql',import.meta.url),'utf8');assert.ok(cap2.includes('"prediction"],"nullable":false},"max":1000}$old$')&&cap2.includes('"prediction"],"nullable":false},"max":1500}$new$'));assert.match(up,/Isolated real-data preview required/);});
 
 test('collector FINISHED alias retains genuine source history',()=>{const a=project({history:[h({status:'FINISHED'})]});assert.deepEqual(a.form,{home:['W'],away:['L']});assert.equal(a.h2h[0].gh,2);});
 
