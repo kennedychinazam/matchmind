@@ -1,6 +1,6 @@
 # AUD-08 — preview Scores detail edition identity
 
-25 November 2026. Open local acceptance finding; no hosted reproduction or change.
+Historical investigation from 25 November 2026. AUD-08 has since been reproduced deterministically and fixed locally; see MM03-PREVIEW-REVIEW.md. Hosted acceptance remains open. No hosted mutation occurred during this investigation.
 
 The wider synthetic detail run failed `real-preview: Scores refuses cross-edition issued identity while retaining source analysis`: the expected headline was `Published pick unavailable`, but the displayed headline was `1 DNB · 75%`. Its source equivalent passed. The same preview test passed when run alone. The isolated pass does not resolve the inconsistent identity handling. The source and generated preview were both tested with external requests blocked and invented teams.
 

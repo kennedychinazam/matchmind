@@ -1,4 +1,4 @@
-# Remaining storage recovery work
+# Storage recovery acceptance protocol and remaining gates
 
 This continues MM-01, STOR-01 and STOR-02 in ISSUE-REGISTER.md. The offline recovery correction is a local candidate; these further items remain open. Preserve original owner and legacy data and require explicit authorization before hosted changes. No phone data has been cleared.
 
@@ -20,7 +20,9 @@ The acceptance suite includes cache failure isolation, denied/blocked/version-co
 6. Restore asynchronously with owner/source/epoch and freshness fences. A late IDB result must not replace a newer public edition or another owner's data. Provider-only cached material must remain inaccessible to ordinary clients after publisher authority is lost.
 7. Acceptance must cover near-quota upgrade, IDB denied/blocked/version conflict, interrupted transaction, two concurrent tabs, rollback, expired data, source/owner change, custom imports, fresh-device cloud hydration and physical browser/PWA contexts. Measure startup/egress before publication.
 
-## Corrupt partition reconciliation
+## Corrupt partition reconciliation — locally implemented
+
+The protocol below is now implemented and locally accepted; see MM01-RECOVERY-REVIEW.md. It remains the acceptance specification. Physical-phone, controlled legacy cleanup and older-tab gates are still open.
 
 1. Distinguish malformed JSON, unsupported personal/provenance shape, blocked reads and quota errors. Keep the original bytes untouched and sync paused for unreadable data. Current local code validates durable hydration metadata and fails closed.
 2. A future reconciliation flow must first create a versioned durable backup under the same owner association, verify its digest and byte length, then read it back after transaction completion. A backup failure must prevent replacement. Do not rely on a second localStorage copy when quota is the original problem.

@@ -24,6 +24,8 @@ jobs:
         with:
           node-version: '24.19.0'
       - run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
+      - name: Prepare isolated SQL fixture image
+        run: docker pull postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
       - name: Configure synthetic browser tests
         run: |
           echo "MM_TEST_CHROMIUM=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
@@ -31,7 +33,7 @@ jobs:
           echo "PWA_PLAYWRIGHT=playwright-core" >> "$GITHUB_ENV"
           echo "PWA_EVIDENCE=${{ runner.temp }}/pwa-recovery-evidence.json" >> "$GITHUB_ENV"
       - name: Verify isolated account, storage, publisher, preview source and PWA lifecycle
-        run: node --test --test-concurrency=2 test/account-ownership.test.mjs test/navigation-history.test.mjs test/personal-storage-recovery.test.mjs test/personal-reconciliation.test.mjs test/personal-reconciliation-review.test.mjs test/recent-cache.test.mjs test/publisher-session.test.mjs test/preview-public-source.test.mjs test/preview-build-provenance.test.mjs test/original-logos.test.mjs test/issued-tip-bundle.test.mjs test/pwa-lifecycle.test.mjs test/fixture-delivery-cache.test.mjs test/fixture-delivery-robot.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/published-detail-restoration.test.mjs test/played-no-snapshot-headline.test.mjs
+        run: node --test --test-concurrency=2 test/account-ownership.test.mjs test/navigation-history.test.mjs test/personal-storage-recovery.test.mjs test/personal-reconciliation.test.mjs test/personal-reconciliation-review.test.mjs test/recent-cache.test.mjs test/publisher-session.test.mjs test/preview-public-source.test.mjs test/preview-build-provenance.test.mjs test/original-logos.test.mjs test/issued-tip-bundle.test.mjs test/pwa-lifecycle.test.mjs test/fixture-delivery-cache.test.mjs test/fixture-delivery-robot.test.mjs test/fixture-delivery-consumers.test.mjs test/fixture-delivery-ui.test.mjs test/real-preview-mirror.test.mjs test/published-detail-restoration.test.mjs test/played-no-snapshot-headline.test.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

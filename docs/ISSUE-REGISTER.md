@@ -2,7 +2,7 @@
 
 This register continues the existing repair branch and all prior work. Local candidate status does not mean deployed or released. Only kennedychinazam/matchmind, kennedychinazam/matchmind-preview and their two identified Supabase projects are in scope. EDUVANTA is excluded.
 
-Verification: final cumulative 219/219, primary fixture UI 19/19, and independent mirror browser/build 8/8 passed with no selected-test failures or skips. PWA/QA receipts match source e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d. Two Docker SQL cases were not run; hosted staging and physical-phone acceptance remain open. Historical v1–v5 receipts and independent v2 72-test review remain preserved.
+Verification: final cumulative 219/219, primary fixture UI 19/19, and independent mirror browser/build 8/8 passed with no selected-test failures or skips. PWA/QA receipts match source e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d. Two Docker SQL cases subsequently passed on local Docker Desktop; hosted staging and physical-phone acceptance remain open. Historical v1–v5 receipts and independent v2 72-test review remain preserved.
 
 Current execution follows [REPAIR-QUEUE.md](REPAIR-QUEUE.md): one agent/job, primary assessment and testing, then the next agent. MM-01 local recovery review is recorded in [MM01-RECOVERY-REVIEW.md](MM01-RECOVERY-REVIEW.md); Local MM-01/MM-02/MM-03 work and MM-04 read-only plan were assessed sequentially and accepted by primary. Exact scopes and remaining gates are in MM01-RECOVERY-REVIEW.md, MM02-CONTAINMENT-REVIEW.md, MM03-PREVIEW-REVIEW.md and MM04-CAPACITY-REVIEW.md.
 
@@ -75,3 +75,5 @@ Production physical allocation 424,283,283 bytes; staging18,192,051 at09:24UTC. 
 ## Authorization and safety boundaries
 
 Continue local implementation and isolated tests. On 26 November the user authorized necessary commits, pushes and merges after the initial job is verified fully done. Deployment remains separately gated. Retention deletion, credential/cache revocation and account deletion require a concrete reviewed action; none has been executed. Do not clear phone personal data during diagnosis.
+
+26 November Docker follow-up: the local desktop-linux context uses the Docker Desktop named pipe. The two synthetic SQL mirror cases passed independently after replacing the test-only hard-coded Unix socket. The selected verification total is 273 across source/UI/PWA 271 and SQL 2; hosted staging/physical gates remain separate.

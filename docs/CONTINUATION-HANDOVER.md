@@ -24,7 +24,7 @@ Follow the original MM-01 to MM-29 hierarchy, with later findings attached to th
 
 6. v5 corrects the inherited detail renderer: a later withheld marker no longer replaces an issued claim with No pick. The original pick, confidence and 1X2 vector remain intact; the note states that backing changed. Empty records still create no pick. This detail change is presentation only and does not change model, grading or stored claims. v5 also fixes a cache clock-boundary defect found in the wider run: creation and expiry share one captured timestamp, covered by a deterministic regression.
 
-Current verification: 219/219 cumulative, 19/19 primary fixture UI, 8/8 independent mirror browser/build checks passed. PWA/QA receipts match exact source e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d. Two Docker SQL cases are unrun; hosted and physical acceptance remain open. See MatchMind-verification-v6.txt for exact source/patch/Git receipts. Historical v1–v5 artifacts are retained.
+Current verification: 219/219 cumulative, 19/19 primary fixture UI, 8/8 independent mirror browser/build checks passed. PWA/QA receipts match exact source e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d. Two Docker SQL cases also passed on local Docker Desktop; hosted and physical acceptance remain open. See MatchMind-verification-v6.txt for exact source/patch/Git receipts. Historical v1–v5 artifacts are retained.
 
 ## Sequential 26 November review
 
@@ -47,3 +47,5 @@ Next gate: separately authorize and complete fresh hosted MatchMind preview from
 Current tracking is maintained in these docs and REPAIR-QUEUE.md. The older work/update-continuation-tracking.mjs generator describes the25 Nov v5 state and must not overwrite this26 Nov record. Versioned v6 packaging records exact receipts and Git action outcomes.
 
 Deployment preflight follow-up: the original-logo collector's old raw-table metadata path returned HTTP 401. Its approved public-RPC replacement passed 25/25 independent tests and a live-public/simulated-staging projection check for 1,342 fixtures. No raw fallback or history paging is used; full destination membership and original identity/URLs are required. App source remains e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d; final repair commit/push details are in v6 verification.
+
+26 November Docker follow-up: the local desktop-linux context uses the Docker Desktop named pipe. The two synthetic SQL mirror cases passed independently after replacing the test-only hard-coded Unix socket. The selected verification total is 273 across source/UI/PWA 271 and SQL 2; hosted staging/physical gates remain separate.

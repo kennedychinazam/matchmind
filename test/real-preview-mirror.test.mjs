@@ -62,7 +62,7 @@ for(const corrupt of [false,true])test('destination readback '+(corrupt?'rejects
 });
 
 const db='mm-mirror-'+process.pid;
-const docker=(a,input)=>execFileSync('docker',['--host=unix:///var/run/docker.sock',...a],{input,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe']}).trim();
+const docker=(a,input)=>execFileSync('docker',a,{input,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe']}).trim();
 function sql(s,role,token){const prefix=(token?`set request.headers='${JSON.stringify({'x-mm-preview-token':token})}';`:'')+(role?`set role ${role};`:'');return docker(['exec','-i',db,'psql','-X','-qAt','-U','postgres','-v','ON_ERROR_STOP=1'],prefix+s);}
 const literal=x=>"'"+JSON.stringify(x).replaceAll("'","''")+"'::jsonb";
 let originalHashes;
