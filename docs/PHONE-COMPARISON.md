@@ -25,3 +25,5 @@ User correction: both phones installed from `https://kennedychinazam.github.io/m
 The public served assets and this chat's worker observations are recorded in `MatchMind-deployment-comparison-v3.json`. Both physical-phone checks remain open.
 
 26 November hosted-preview evidence: source7038d3a deployed preview368. A fresh isolated desktop Chrome profile had active /matchmind-preview/sw.js, scope /matchmind-preview/, cache mm-real-preview-v368-original-logos and exact cached/offline HTML0cd996e84c5419df108a5f05d19db9ba24f39b61ef34d2d0d6e0adda97ce0f53. This is served/desktop evidence, not either phone’s installed state. Hosted full acceptance remains open on AUD-09; no device data was accessed or cleared.
+
+Final26November preview checkpointcccdfb6passed227preflight and202hosted mobile checks. Exact latest captured shell63942886... controlled/offline replay passed locally; worker696500b6... and logo mappings are unchanged. An extra live desktop navigation timeout was retained as incomplete. Neither phone was accessed, changed, cleared or diagnosed as hardware-specific.
