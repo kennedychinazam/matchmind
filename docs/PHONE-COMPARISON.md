@@ -8,7 +8,7 @@ User correction: both phones installed from `https://kennedychinazam.github.io/m
 | Previous preview use | User reports prior preview use | Not reported | Current preview prefixes localStorage/IndexedDB names |
 | Browser and version | Chrome installation confirmed; exact version unknown | Chrome installation confirmed; exact version unknown | In-app browser; synthetic acceptance also uses configured Chromium |
 | Browser tab or installed home-screen/PWA | User reports installed app; standalone context unmeasured | User reports installed app; standalone context unmeasured | Browser tabs, standalone false |
-| Visible app build on device | 368, confirmed by user | 368, confirmed by user | Production 368, preview 358 |
+| Visible app build on device | 368, confirmed by user | 368, confirmed by user | Production 368; preview now368after approved26November rollout |
 | Installed worker bytes/scope on device | Unknown | Unknown | Matching activated worker paths for each app; no waiting/installing worker |
 | Local storage exception and stage | Not directly measured | No reported error; stage unknown | Deterministic injected quota/blocked/corrupt cases are covered in isolated tests |
 | Personal favourites/records | Do not clear or export during diagnosis | Do not clear or export during diagnosis | Synthetic data only in tests |
@@ -23,3 +23,5 @@ User correction: both phones installed from `https://kennedychinazam.github.io/m
 6. Do not clear storage, unregister workers, uninstall the PWA, sign out, force an update or change phone settings during comparison. Preserve unsynced data before any later recovery action.
 
 The public served assets and this chat's worker observations are recorded in `MatchMind-deployment-comparison-v3.json`. Both physical-phone checks remain open.
+
+26 November hosted-preview evidence: source7038d3a deployed preview368. A fresh isolated desktop Chrome profile had active /matchmind-preview/sw.js, scope /matchmind-preview/, cache mm-real-preview-v368-original-logos and exact cached/offline HTML0cd996e84c5419df108a5f05d19db9ba24f39b61ef34d2d0d6e0adda97ce0f53. This is served/desktop evidence, not either phone’s installed state. Hosted full acceptance remains open on AUD-09; no device data was accessed or cleared.

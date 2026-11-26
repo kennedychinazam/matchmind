@@ -105,7 +105,7 @@ try{
    for(let i=0;i<80&&!(_sharedSlips.loaded&&_sharedSlips.day===todayStrLocal()&&_tipsPrev.loaded&&_tipsPrev.forDay===todayStrLocal());i++)await new Promise(r=>setTimeout(r,250));
    return{today:todayStrLocal(),prev:dayStrLocal(-1),loaded:_sharedSlips.loaded&&_tipsPrev.loaded&&!_sharedSlips.error&&!_tipsPrev.error};});
   check(tipsReady.loaded,width+'px Tips issue reads completed for '+tipsReady.today+' and '+tipsReady.prev);
-  const issues=[tipsReady.today,tipsReady.prev].map(day=>slipsScreen.slips.find(x=>x.tier==='tips'&&x.day===day&&x.legs.length)).filter(Boolean);
+  const issues=[tipsReady.today,tipsReady.prev].map(day=>slipsScreen.slips.find(x=>x.tier==='tips'&&x.day===day&&Array.isArray(x.legs))).filter(Boolean);
   const dateText=day=>new Date(day+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
   console.log('TIPS CASE '+width+'px reader day '+tipsReady.today+', published issues '+(issues.map(x=>x.day).join(' and ')||'none'));
   if(!issues.length){
@@ -123,6 +123,7 @@ try{
      const bar=$('tipIssueBar');
      return{issue:bar.dataset.issue,label:$('tipIssueLabel').textContent,switches:[...bar.querySelectorAll('[data-issue]')].map(b=>b.dataset.issue+(b.classList.contains('active')?'*':'')),
       foot:$('tipList').querySelector('.subnote')?.textContent||'',banker:$('bankerCard').textContent,
+      marketEmpty:$('tipMarketEmpty')?.textContent||'',issueVisible:!bar.classList.contains('hidden'),
       rows:[...$('tipList').querySelectorAll('.fxrow')].map(r=>({sel:r.querySelector('.lname b').textContent,prob:r.querySelector('.predchip').textContent,mark:(r.querySelector('.tip-outcome')?.textContent||'').replace(/[^A-Za-z]/g,'')})),
       overflow:document.documentElement.scrollWidth>innerWidth+1||bar.scrollWidth>bar.clientWidth+1};},{day:issue.day,market,verified,many:issues.length>1});
     const tag=width+'px Tips '+issue.day+' '+market;
@@ -131,6 +132,8 @@ try{
     check(seen.rows.length===legs.length&&seen.rows.every((r,i)=>r.sel===legs[i].sel&&r.prob===Math.round(legs[i].p*100)+'%'),tag+' original selections, order and probabilities');
     const m=/^(\d+) of (\d+) results verified/.exec(seen.foot);
     check(m&&+m[2]===legs.length&&(exact?+m[1]===verified:+m[1]>0||!verified),tag+' counter '+verified+' of '+legs.length+': '+seen.foot);
+    const marketLabel={winner:'Winner',ou:'Goals',btts:'BTTS'}[market];
+    check(seen.issueVisible&&seen.marketEmpty===(legs.length?'':'No '+marketLabel+' selections in this issue.'),tag+' distinguishes an empty issued market from an absent issue');
     check(seen.rows.every(r=>['Won','Lost','Void','Pending'].includes(r.mark))&&seen.rows.filter(r=>r.mark!=='Pending').length===+m[1]&&!seen.overflow,tag+' every row states Won, Lost, Void or Pending');
    }
   }

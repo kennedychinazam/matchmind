@@ -9386,7 +9386,7 @@ async function tipsPrevLoad(){
 }
 function tipsIssues(){
   const today = todayStrLocal(), out = [];
-  const add = (day, rows) => { if((rows || []).some(r => r && r.tier === 'tips' && Array.isArray(r.legs) && r.legs.length)) out.push({ day: day, rows: rows }); };
+  const add = (day, rows) => { if((rows || []).some(r => r && r.tier === 'tips' && Array.isArray(r.legs))) out.push({ day: day, rows: rows }); };
   if(_sharedSlips.loaded && _sharedSlips.day === today) add(today, _sharedSlips.rows);
   if(_tipsPrev.loaded && _tipsPrev.forDay === today) add(_tipsPrev.day, _tipsPrev.rows);
   return out;                                       // newest first
@@ -9431,7 +9431,9 @@ function tipsFrozenLegs(tab){
   const legs = r.legs.filter(l => l && l.tab === tab
       && !(function(){ const id = legCompId(l); return id != null && NO_PREDICT_COMPS.indexOf(id) >= 0; })())
     .sort((a,b) => (a.rank||0) - (b.rank||0));
-  return legs.length ? legs : null;
+  // An issued market with no selections remains part of that immutable issue.
+  // Only the absence of an issued row returns null and permits an unread fallback.
+  return legs;
 }
 /* A stored leg is identified by date|home|away, which is what a match row actually carries - build
    265's lesson, that `fxid` is absent from cached match objects. The live fixture is looked up only
@@ -11226,6 +11228,10 @@ function renderTipListFrozen(market, legs, box, footer){
     + settled + ' of ' + graded.length + ' settled'
     + (_part ? ' · ' + _part[1] + ' had already kicked off when the day was issued' : '')
     + '</div>');
+  if(!legs.length && footer == null){
+    const label = {winner:'Winner',ou:'Goals',btts:'BTTS'}[market];
+    box.insertAdjacentHTML('beforeend', '<div class="subnote" id="tipMarketEmpty">No ' + label + ' selections in this issue.</div>');
+  }
   box.querySelectorAll('.fxrow.favrow').forEach(row => row.addEventListener('click', () => {
     const r = refs[+row.dataset.i]; if(r) openFixture(r.L.id, r.f); }));
   box.querySelectorAll('.mstar[data-star]').forEach(st => st.addEventListener('click', e => {
@@ -11243,18 +11249,24 @@ function renderTipList(market){
      `TIPS_FREEZE_TABS` carries the measurement that makes re-pricing a played fixture unacceptable. */
   renderTipIssueBar();
   const frozen = (tipState.days === 0) ? tipsFrozenLegs(market) : null;
-  if(frozen){ renderTipListFrozen(market, frozen, box); return; }
+  if(frozen !== null){ renderTipListFrozen(market, frozen, box); return; }
   if(tipState.days !== 0){ renderTipListForward(market, box); return; }   // build 345 - the forward look is the robot's board
+  const today = todayStrLocal(), currentRead = _sharedSlips.loaded && _sharedSlips.day === today,
+    previousRead = _tipsPrev.loaded && _tipsPrev.forDay === today;
+  if(currentRead && _sharedSlips.error || previousRead && _tipsPrev.error){
+    box.innerHTML = '<div class="subnote" id="tipIssueUnavailable">Tips are temporarily unavailable. Please try again.</div>';
+    return;
+  }
+  // Completed issue reads establish absence; a device ranking cannot substitute an issue.
+  if(currentRead && previousRead){
+    box.innerHTML = '<div class="subnote" id="tipIssueEmpty">No Tips have been issued for today or yesterday.</div>';
+    return;
+  }
   const rows = tipRankedRows(market, tipState.days);
   if(!rows.length){
     /* Build 201 — this used to say "no priceable fixtures yet", which read as a broken app on any
        day the window simply had no football in it. The window is now a user choice, so the message
        names it. */
-    /* Today, with both issue reads complete and neither holding Tips: say exactly that. */
-    if(tipState.days === 0 && _sharedSlips.loaded && _sharedSlips.day === todayStrLocal() && !_sharedSlips.error
-       && _tipsPrev.loaded && _tipsPrev.forDay === todayStrLocal() && !_tipsPrev.error){
-      box.innerHTML = '<div class="subnote" id="tipIssueEmpty">No Tips have been issued for today or yesterday.</div>';
-      return; }
     box.innerHTML = `<div class="subnote">Nothing to rank in this window. Widen it above, or check
       back on a matchday \u2014 the engine prices fixtures as they are published.</div>`;
     return; }
