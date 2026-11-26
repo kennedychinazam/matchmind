@@ -1,6 +1,7 @@
 // Read-only hosted acceptance; fixed staging RPCs and the separate preview URL. No production access.
 import {createRequire} from 'node:module';
 import {writeFileSync} from 'node:fs';
+import {datedForecastExpectation} from './forecast-verification.mjs';
 const require=createRequire(import.meta.url),pw=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
 /* MM_BROWSER selects the engine (chromium default, unchanged). Firefox and WebKit use the
    Playwright-installed build; --no-sandbox and MM_TEST_CHROMIUM are Chromium-only. */
@@ -176,27 +177,34 @@ try{
    if(!pair||!publishedPrediction(pair.f))return null;const {f}=pair,p=publishedPrediction(f),snapshot=JSON.stringify(afState.archive);
    afState.filter='all';afState.archiveDate=null;navTo('predict');afState.selectedDate=f.date;renderFixtures();
    const newShown=afState.selectedDate===f.date;
-   const absent=!newShown||![...$('fixtureList').querySelectorAll('.fxrow')].some(r=>r.querySelector('.fxteams')?.textContent.includes(p.home));
+   const exactRows=()=>[...$('fixtureList').querySelectorAll('.fxrow')].filter(r=>{try{const key=JSON.parse(r.querySelector('[data-selection-key]')?.dataset.selectionKey);return key[0]==='prediction'&&key[1]===id;}catch{return false;}});
+   const absent=!newShown||exactRows().length===0;
    afState.selectedDate=p.kickoff;renderFixtures();const oldShown=afState.selectedDate===p.kickoff;
-   const oldRow=oldShown?[...$('fixtureList').querySelectorAll('.fxrow')].find(r=>r.querySelector('.fxteams')?.textContent.includes(p.home)):null;
-   const want=chipCode(p.pick)+' · '+probabilityPercent(p.pick_prob,0);
+   const oldRows=oldShown?exactRows():[],oldRow=oldRows[0],oldChip=oldRow?.querySelector('.predchip');
    showPublishedFixture(pair.L,f);const oldHero=$('heroPick').closest('.hero'),oldKey=oldHero.dataset.selectionKey;
-   /* Original date outside the strip: the forecast has no feed row, so its detail must carry the
-      original pick, probability and kickoff. Inside the strip the feed row is still required. */
-   const badge=oldShown?oldRow?.querySelector('.predchip')?.textContent:($('heroPick').textContent===want&&oldHero.dataset.originalKickoff===p.kickoff+'T'+(p.ktime||'')&&oldHero.dataset.originalProbability===String(p.pick_prob)?want:null);
+   const hero={badge:$('heroPick').textContent,selectionKey:oldHero.dataset.selectionKey,probability:oldHero.dataset.originalProbability,
+    kickoff:oldHero.dataset.originalKickoff,publishedAt:oldHero.dataset.publishedAt};
+   const old=oldChip?{badge:oldChip.textContent,selectionKey:oldChip.dataset.selectionKey,probability:oldChip.dataset.originalProbability??null}:null;
    const row=(_sharedSlips.rows||[]).find(r=>r.legs?.some(l=>l.fxid===id&&l.code!==p.pick)),leg=row?.legs.find(l=>l.fxid===id&&l.code!==p.pick);let issued=null;
    if(leg){openIssuedForecast(leg);const hero=$('heroPick').closest('.hero');issued={matches:$('heroPick').textContent===chipCode(leg.code)+' · '+probabilityPercent(leg.p,0),distinct:hero.dataset.selectionKey!==oldKey,original:hero.dataset.originalProbability===String(leg.p),date:hero.dataset.originalKickoff===leg.d+'T'+(leg.t||'')};}
-   return{absent,dated:badge===want,issued,unchanged:snapshot===JSON.stringify(afState.archive),id,newShown,oldShown};
+   return{absent,old,oldCount:oldRows.length,hero,issued,unchanged:snapshot===JSON.stringify(afState.archive),id,newShown,oldShown};
   });
   if(dated){
    console.log('DATED CASE '+width+'px fixture '+dated.id+' new date '+(dated.newShown?'inside':'outside')+' strip, original date '+(dated.oldShown?'inside':'outside')+' strip');
-   check(dated.absent&&dated.dated&&dated.unchanged,width+'px older published forecast stays on original date without replacing issued selections');
+   const want=datedForecastExpectation(union.get(dated.id));
+   // Pending rows expose the rounded issued probability; graded rows retain its exact
+   // value as data. Every state also proves exact probability in the dated hero.
+   const rowExact=!dated.oldShown||dated.oldCount===1&&dated.old?.selectionKey===want.selectionKey&&dated.old.badge===want.badge
+    &&(want.graded?dated.old.probability===want.probability:dated.old.probability===null||dated.old.probability===want.probability);
+   const heroExact=dated.hero.badge===want.pendingBadge&&dated.hero.selectionKey===want.selectionKey&&dated.hero.probability===want.probability
+    &&dated.hero.kickoff===want.kickoff&&dated.hero.publishedAt===want.publishedAt;
+   check(dated.absent&&rowExact&&heroExact&&dated.unchanged,width+'px older published forecast stays on original date without replacing issued selections: '+JSON.stringify({id:dated.id,absent:dated.absent,rowExact,heroExact,archiveUnchanged:dated.unchanged,expectedOutcome:want.outcome}));
    if(dated.issued)check(Object.values(dated.issued).every(Boolean),width+'px separate issued selection opens its own original probability and dated identity');
    else console.log('UNAVAILABLE CASE '+width+'px separate issued selection for rescheduled fixture');
   }else console.log('UNAVAILABLE CASE '+width+'px rescheduled historical forecast in current approved inventory');
 
   // These checks inspect the actual rendered generated preview, not source-code markers.
-  const cases=[['published',history.cards.find(c=>c.prediction)],['no-pick',history.cards.find(c=>!c.prediction&&c.analysis)],['completed',history.cards.find(c=>['FT','AET','PEN'].includes(c.status))],['dnb',history.cards.find(c=>['1D','2D'].includes(c.prediction?.pick))]];
+  const cases=[['published',history.cards.find(c=>c.prediction)],['no-pick',history.cards.find(c=>!c.prediction&&c.analysis)],['completed',history.cards.find(c=>['FT','FINISHED','AET','PEN'].includes(c.status))],['dnb',history.cards.find(c=>['1D','2D'].includes(c.prediction?.pick))]];
   const detailEvidence=[];
   for(const [label,card] of cases){
    if(!card){console.log('UNAVAILABLE CASE '+width+'px '+label+' in current approved hosted inventory');continue;}
