@@ -50,10 +50,17 @@ const GUEST_INIT=`function initSupabase(){
  }};
  renderAccount();
 }`;
+export function realPreviewBuild(index){
+ const build=Number(index.match(/const APP_BUILD\s*=\s*(\d+)[;\s]/)?.[1]);
+ if(!Number.isSafeInteger(build)||build<1)throw Error('Candidate build is missing');
+ return build;
+}
 export function realTransform(index,manifest,logos=null){
+ const build=realPreviewBuild(index);
  let {html}=transform(index,manifest);
+ html=once(html,`window.__MM_STAGING__={ref:'${STAGING_REF}',build:358};`,`window.__MM_STAGING__={ref:'${STAGING_REF}',build:${build}};`);
  html=html.replaceAll('window.localStorage','window.__MM_REAL_STORAGE__').replace(/\blocalStorage\b/g,'window.__MM_REAL_STORAGE__').replace(/\bindexedDB\b/g,'window.__MM_REAL_IDB__');
- html=once(html,'<head>',"<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rdcbnvfnxenrpnnwxszs.supabase.co; form-action 'none'; object-src 'none'; base-uri 'self'\">"+REAL_GUARD);
+ html=once(html,'<head>',"<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rdcbnvfnxenrpnnwxszs.supabase.co; form-action 'none'; object-src 'none'; base-uri 'self'\">"+REAL_GUARD.replace('Build 358',`Build ${build}`));
  const banner=html.match(/b\.textContent='STAGING [^']*';/g);if(banner?.length!==1)throw Error('Staging banner changed');html=once(html,banner[0],"b.textContent='READ-ONLY PREVIEW · awaiting verified real data';");
  const start=html.indexOf('function initSupabase(){'),end=html.indexOf('// Only a verified deletion completion',start);if(start<0||end<start)throw Error('Guest init boundary changed');
  html=html.slice(0,start)+GUEST_INIT+'\n'+html.slice(end);
@@ -77,17 +84,19 @@ self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==R
  if(u.pathname.endsWith('/sw.js')){e.respondWith(fetch(e.request));return;}
  e.respondWith(fetch(e.request).then(r=>{if(r.ok&&SHELL.some(p=>new URL(p,ROOT).pathname===u.pathname))caches.open(CACHE).then(c=>c.put(e.request,r.clone()));return r;}).catch(()=>caches.match(e.request)));
 });`;
+export function realPreviewWorker(build){return REAL_SW.replace('mm-real-preview-v358-original-logos',`mm-real-preview-v${build}-original-logos`);}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const out=resolve(process.argv[2]||join(root,'staging/real-dist'));mkdirSync(out,{recursive:true});
  const logoArg=process.argv.indexOf('--logos'),qa=process.argv.includes('--qa-no-logos');
  if(logoArg<0&&!qa)throw Error('Original logo catalog required; QA must explicitly opt out');
  const logos=logoArg<0?null:JSON.parse(readFileSync(resolve(process.argv[logoArg+1]),'utf8'));
- const t=realTransform(readFileSync(join(root,'index.html'),'utf8'),readFileSync(join(root,'manifest.webmanifest'),'utf8'),logos);
+ const index=readFileSync(join(root,'index.html'),'utf8'),build=realPreviewBuild(index);
+ const t=realTransform(index,readFileSync(join(root,'manifest.webmanifest'),'utf8'),logos);
  if(logos)writeFileSync(join(out,'LOGO-MANIFEST.json'),JSON.stringify(logos)+'\n');
  for(const bad of ['toqfdrcjzwnlydqekude','sb_secret_','service_role'])if(t.html.includes(bad))throw Error('Unsafe real preview binding');
- writeFileSync(join(out,'index.html'),t.html);writeFileSync(join(out,'manifest.webmanifest'),t.manifest);writeFileSync(join(out,'sw.js'),REAL_SW);
+ writeFileSync(join(out,'index.html'),t.html);writeFileSync(join(out,'manifest.webmanifest'),t.manifest);writeFileSync(join(out,'sw.js'),realPreviewWorker(build));
  for(const f of ['icon-192.png','icon-512.png'])copyFileSync(join(root,f),join(out,f));
  const hashes=Object.fromEntries(['index.html','manifest.webmanifest','sw.js','icon-192.png','icon-512.png',...(logos?['LOGO-MANIFEST.json']:[])].map(f=>[f,createHash('sha256').update(readFileSync(join(out,f))).digest('hex')]));
- writeFileSync(join(out,'BUILD-INFO.json'),JSON.stringify({build:358,mode:'real-read-only',staging_project:STAGING_REF,output_sha256:hashes},null,2)+'\n');
+ writeFileSync(join(out,'BUILD-INFO.json'),JSON.stringify({build,mode:'real-read-only',staging_project:STAGING_REF,source_index_sha256:createHash('sha256').update(index).digest('hex'),output_sha256:hashes},null,2)+'\n');
  console.log(JSON.stringify({mode:'real-read-only',files:logos?7:6,index_sha256:hashes['index.html']}));
 }

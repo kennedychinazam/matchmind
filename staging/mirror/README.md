@@ -1,5 +1,25 @@
 # Isolated real-data preview
 
+## Current repair candidate — 26 November 2026
+
+The current CLI in `refresh.mjs` uses `collectPublicEdition()` from `public-edition-source.mjs`. It reads only the five approved public screens through **POST `matchmind_display_v1`** on production `toqfdrcjzwnlydqekude`. These are read-only data RPCs. It does not query anonymous raw fixture/prediction tables or fall back to the legacy GET collectors. Those collectors remain synthetic regression fixtures, not a recovery route when public access fails.
+
+All screens must identify the same edition, capture and expiry. The source must be fresh, complete and inside the reviewed contract bounds; unsupported or inconsistent data stops publication. Raw provider history and competition facts are not fetched. Current-client detail parity remains a separate staging acceptance requirement; do not claim old Build 355 parity solely because the projection validates.
+
+Read-only observation at 09:05 UTC on 26 November: the approved production source validated at 1,342 cards, 303 predictions and 688,613 compact payload bytes. This is a point-in-time preflight, not a publication receipt. Staging status returned JSON null and its public Scores RPC returned HTTP 500 / `P0002` / `Verified real-data mirror unavailable`. No refresh, writer-token use, backend installation or deployment occurred.
+
+Before hosted staging acceptance:
+
+1. Finish local candidate review and exact-source regression/PWA receipts. Preserve `BUILD-INFO.json` with source and output hashes; use original logos for a hosted build. `--qa-no-logos` artifacts are local QA only.
+2. Review existing protected environment/token bindings using metadata only. Do not paste or retrieve token values. Do not reinstall historical SQL or rotate credentials merely because these older instructions exist.
+3. Prepare the preview workflow to check out the exact reviewed repair commit. It currently still names the older `codex/wo62b-public-release-20261110` branch. The template is not evidence that the candidate has been deployed.
+4. Obtain separate authorization for the concrete staging refresh/Pages deployment. The user's conditional commit/push/merge permission does not by itself change this deployment gate. Keep production unchanged.
+5. Require fresh source capture, successful staging-only publication and readback, expected build/source/output hashes, actual hosted consumer parity and mobile/PWA acceptance. A local source projection or synthetic browser pass is not hosted acceptance.
+
+## Historical setup and capacity notes
+
+The notes below preserve prior rollout history. In particular, their GET/raw-reader description predates the current bounded-RPC repair and must not be used to reopen anonymous raw access. Installation and migration instructions are not new execution authorization.
+
 Production `toqfdrcjzwnlydqekude` is a GET-only anonymous source in the protected runner. The browser uses only staging `rdcbnvfnxenrpnnwxszs`. Nothing here installs `matchmind-settlement/2`, changes production, or generates forecasts.
 
 ## Protected setup required before installation

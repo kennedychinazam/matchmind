@@ -39,14 +39,6 @@ jobs:
         with:
           node-version: '20'
 
-      # The browser profile is kept between runs so each open reads only what is new, not five seasons.
-      - name: Restore the browser profile
-        uses: actions/cache/restore@v4
-        with:
-          path: mm-profile
-          key: mm-profile-${{ github.run_id }}
-          restore-keys: mm-profile-
-
       - name: Install the browser driver
         working-directory: robot
         run: npm install --no-save --no-audit --no-fund playwright-core@1.63.0
@@ -56,16 +48,8 @@ jobs:
         env:
           MM_PUBLISHER_EMAIL: ${{ secrets.MM_PUBLISHER_EMAIL }}
           MM_PUBLISHER_PASSWORD: ${{ secrets.MM_PUBLISHER_PASSWORD }}
-          MM_PROFILE_DIR: ${{ github.workspace }}/mm-profile
           MM_CHANNEL: chrome
         run: node publish.mjs
-
-      - name: Save the browser profile
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: mm-profile
-          key: mm-profile-${{ github.run_id }}
 
   # A FAILED PUBLISHER RUN USED TO REACH NOBODY. There was no `if: failure()` step, no issue, no
   # webhook and no badge anywhere in this repository, so the only surfacing was GitHub's default

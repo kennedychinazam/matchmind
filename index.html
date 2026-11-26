@@ -1002,7 +1002,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
     <div class="card">
       <h2>🔒 Your data</h2>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl" data-i18n="Clear cached data">Clear cached data</div><div class="sd">Scores, fixtures and predictions stored on this phone. Your account and favourites are not touched.</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/></svg></span><div><div class="sl" data-i18n="Clear cached data">Clear cached data</div><div class="sd">Recent football cache only. Accounts, favourites, personal records, settings, custom imports, settled history and legacy copies are kept.</div></div></div>
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
       <div class="setrow">
@@ -3746,7 +3746,7 @@ function renderPublishedAnalysis(L,f,p=null,kind='prediction'){
  _matchContextPending=f&&Number.isSafeInteger(f.fxid)&&f.fxid>0?renderMatchContext(L,f,S):null;
  renderMatchOdds(f);
  { const why=kind==='prediction'&&!f._pickUnavailable?noPickReason(L,f):'';
-   if(why){ if(!(p&&p.pick&&!p.withheld_at)){$('heroPick').textContent='No pick';$('heroConf').textContent='';}
+   if(why){ if(!(p&&p.pick)){$('heroPick').textContent='No pick';$('heroConf').textContent='';}
      $('heroStrong').textContent=(p&&p.withheld_at?'Pick withdrawn. ':'')+why; }
    else $('heroStrong').textContent=p&&p.withheld_at?'Pick withdrawn':''; }
  $('heroStrong').classList.toggle('hidden',!$('heroStrong').textContent);
@@ -6092,7 +6092,7 @@ function noPickReason(L, f){
     if(exceptional) return '';
     if(leanFor(f)) return '';
     const p = f._displayCard && f._displayCard.prediction;
-    if(p && p.withheld_at) return PICK_STATUS.withheld.why;
+    if(p && p.withheld_at) return p.pick ? 'This published pick is no longer backed. The original forecast is retained.' : PICK_STATUS.withheld.why;
     const res = fixtureResult(L, f, smap);
     if(res || (u && unsettled90(u))){
       if(f.pick && pickIsRebuilt(f)) return PICK_STATUS.rebuilt.why;
@@ -19270,17 +19270,18 @@ async function matchDetail(s){
     const navigationTurn=typeof _navScrollEpoch==='number'?_navScrollEpoch:null;
     let {L,f}=ensureLeagueFromScore(s);
     try{
-      const scores=_fixtureDelivery.screens.get('scores'),history=await fixtureDisplayLoad('history');
-      if(scores&&(history.edition_id!==scores.edition_id||history.as_of!==scores.as_of))throw Error('Display edition changed');
+      const selected=s._displayEdition,history=await fixtureDisplayLoad('history');
+      if(!selected||history.edition_id!==selected.edition_id||history.as_of!==selected.as_of)throw Error('Display edition changed');
       const original=history.cards.find(c=>c.fxid===s.fxid);
-      if(original&&original.home===s.home&&original.away===s.away){
+      if(original){
+        if(original.lid!==s.lid||original.home!==s.home||original.away!==s.away)throw Error('Display fixture identity changed');
         const current=f._displayCard||original;
-        f=fixturePresentationRow({...current,prediction:original.prediction},null);
-        const i=L.upcoming.findIndex(x=>x.fxid===f.fxid);if(i>=0)L.upcoming[i]=f;
+        f={...fixturePresentationRow({...current,prediction:original.prediction},null),_displayEdition:selected};
       }
     }catch{f={...f,_pickUnavailable:!f._displayCard?.prediction};}
     if(detailTurn!==_analysisGeneration||curView!==originView||!fixtureDeliveryCurrent(requestContext)
       ||navigationTurn!==null&&_navScrollEpoch!==navigationTurn)return;
+    const i=L.upcoming.findIndex(x=>x.fxid===f.fxid);if(i>=0)L.upcoming[i]=f;
     showPublishedFixture(L,f);return;
   }
   const credential=credentialContext();
@@ -21649,6 +21650,7 @@ async function loadCloudLeagues(force){
   const fixtureSource={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
   const personalOwner=_personalOwner, personalEpoch=_cloudAccountEpoch;
   if(!supa) return;
+  if(!_leaguesLoadedAt){await restoreRecentCache();if(!fixtureDeliveryCurrent(fixtureSource)||!fixtureRawCurrent())return;void migrateRecentCache();}
   /* BUILD 208 — the throttle is tested BEFORE anything is fetched. It used to sit BELOW
      `await loadArchive()`, so a call that was about to decline still paid for three or four
      `predictions` pages first. */
@@ -23203,7 +23205,13 @@ async function afScoresFromCloud(){
     // pull the whole browsable window (+1 day of UTC slack each side so local-date grouping is exact)
     const dm = new Date(Date.now()-(SCORES_PAST_DAYS+1)*86400000).toISOString().slice(0,10);
     const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
-    const { data, error } = await fetchAllRows('fixtures', SCORES_COLS, q => q.gte('date', dm).lte('date', dp));
+    // Retain the exact envelope with its rows, independent of later screen-cache changes.
+    const context={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+    const edition=await fixtureAccess()?null:await fixtureDisplayLoad('scores');
+    if(!fixtureDeliveryCurrent(context))return false;
+    const { data, error } = edition?{data:edition.cards.filter(r=>r.date>=dm&&r.date<=dp),error:null}
+      :await fetchAllRows('fixtures', SCORES_COLS, q => q.gte('date', dm).lte('date', dp));
+    if(!fixtureDeliveryCurrent(context))return false;
     if(error) return scoresReadFailed(error.message||error.code||'error');
     // freshRows drops orphaned rows from a RETIRED collector; dedupeProviders drops the free twin
     // of a competition the Pro collector is also writing RIGHT NOW. Two different problems — the
@@ -23213,11 +23221,11 @@ async function afScoresFromCloud(){
     // authoritative: rebuild the Scores feed entirely from the cloud (clears any stale old-provider data)
     let newest = 0;
     for(const r of rows){ const u = Date.parse(r.updated_at||''); if(u > newest) newest = u; }
-    const edition = fixtureDeliveryCurrent(_fixtureDelivery) && !fixtureRawCurrent() ? _fixtureDelivery.screens.get('scores') : null;
     const publicCards=new Map((edition&&edition.cards||[]).map(c=>[c.fxid,c]));
     afState.scores = { at: Date.now(), dataAt: newest || null, editionAsOf:edition?edition.as_of:null, editionUntil:edition?edition.expires_at:null, v: SCORES_CACHE_V, source:'cloud', list: rows.map(r=>Object.assign({
       fxid:r.fxid, lid:r.lid, lname:r.lname, lcountry:r.lcountry||'', llogo:r.llogo||'', season:r.season,
       _presentation:!!edition,_displayCard:publicCards.get(r.fxid)||null,
+      _displayEdition:edition?Object.freeze({edition_id:edition.edition_id,as_of:edition.as_of}):null,
       date:r.date, time:r.time, ldate:localDateOf(r), status:normStatus(r.status), elapsed:r.elapsed,   // build 114
       home:r.home, away:r.away, gh:r.gh, ga:r.ga,
       /* build 357 - the marker and the raw final travel with the row so the feed can say the
@@ -23268,9 +23276,11 @@ function ensureLeagueFromScore(s){
   const L = afState.leagues[s.lid];
   if(!(fixtureRawCurrent()))L._presentation=true;
   let f = L.upcoming.find(x=>x.fxid===s.fxid);
-  if(s._displayCard){
-    const card={...s._displayCard,prediction:s._displayCard.prediction||f?._displayCard?.prediction||null};
-    const published=fixturePresentationRow(card,null);
+  if(s._displayCard||!fixtureRawCurrent()){
+    // A same-fixture league row may carry a different edition's prediction.
+    // Only the selected card and history matching its provenance may supply a claim.
+    const card=s._displayCard||{...s,prediction:null};
+    const published={...fixturePresentationRow(card,null),_displayEdition:s._displayEdition||null};
     if(f){const i=L.upcoming.indexOf(f);L.upcoming[i]=published;}else L.upcoming.push(published);
     f=published;
   }else if(!f){f={fxid:s.fxid,date:s.date,time:s.time,home:s.home,away:s.away,status:s.status,_presentation:!fixtureRawCurrent()};L.upcoming.push(f);}
@@ -23743,7 +23753,7 @@ ${legalGap('An email address for privacy requests, on the project’s own domain
 <li>the last 400 Smart Bet cards this device has shown;</li>
 <li>an offline copy of the app itself.</li>
 </ul>
-<p>None of it is transmitted unless you are signed in. You can remove all of it with More → Your data → Clear cached data, or by deleting the app.</p>
+<p>None of it is transmitted unless you are signed in. More → Your data → Clear cached data removes only the recent football cache. It keeps accounts, favourites, personal records, settings, custom imports, settled history and legacy copies; it is not a complete device-data removal tool.</p>
 <h3>5. What is not personal data</h3>
 <p>The published forecasts are stored against a match, not against a person, and they are kept indefinitely. The record exists precisely so that it cannot be altered after the event. Deleting your account does not remove them, because they are not information about you.</p>
 <h3>6. Who else is involved, and where data goes</h3>
@@ -23829,7 +23839,7 @@ ${legalGap('A contact email on the project’s own domain. The domain does not e
 <ul>
 <li><b>Request account deletion</b>: More → Your data → Delete my account. The app reports the server’s acknowledgement; completed erasure and device sign-out are not independently verified. Device copies and backups are retained.</li>
 <li><b>Switch notifications off</b>: More → Settings → Notifications.</li>
-<li><b>Clear everything this device has stored</b>: More → Your data → Clear cached data.</li>
+<li><b>Clear the recent football cache</b>: More → Your data → Clear cached data. Personal data, custom imports, settled history and legacy copies are kept.</li>
 </ul>
 <h3>Post</h3>
 <p>${APP_NAME} is free and takes no payments, and no postal address is published for it. A registered business address belongs here once there is a registered business.</p>
@@ -24836,13 +24846,84 @@ function storageReport(){
 
 // Personal data is never assigned to an identity merely because that identity signs in.
 let _personalOwner = null, _personalReady = true, _personalCloudReady = false, _personalHasPartition = false;
+let _personalStorageError = null, _cacheStorageError = null;
 const _personalMemory = new Map();
+// A failed read is not permission to replace its bytes with reset defaults. Keep only
+// edits made in this owner's known reset session, separately from readable partitions.
+const _personalReadBaselines=new Map(),_personalReadEdits=new Map();
+let _personalRecoveryReview=null,_personalRecoveryTurn=0;
+// Keep the original preference source until a cloud merge has been durably saved.
+// A provisional write or in-memory recovery snapshot is not an older local partition.
+const _personalMergeOrigins = new Map();
 const PERSONAL_PREFIX = 'mm_personal_v1:';
+function storageFailure(error,stage){
+  const name=String(error&&error.name||'Error');
+  const kind=name==='QuotaExceededError'||name==='NS_ERROR_DOM_QUOTA_REACHED'?'quota':
+    name==='SyntaxError'||error?.message==='Invalid personal partition'?'corrupt':
+    name==='SecurityError'||name==='NotAllowedError'?'unavailable':'failed';
+  return {kind,name,stage,at:new Date().toISOString()};
+}
+function personalStorageMessage(){
+  const kind=_personalStorageError?.kind;
+  return kind==='quota'?'Device storage quota reached. Personal changes are retained in this session; sync is paused.':
+    kind==='corrupt'?'Saved personal data could not be read. The original is retained; sync is paused to protect it.':
+    kind==='unavailable'?'This browser is blocking personal storage. Sync is paused.':
+    'Personal storage is unavailable. Sync is paused; local data is retained.';
+}
+function personalStorageNotice(){
+  if(_personalReady)return '';
+  const r=_personalRecoveryReview,own=r&&personalIdentity(r.owner,r.epoch),review=own&&r.phase==='review';
+  const recovery=authUser&&_personalStorageError?.kind==='corrupt'?review?
+    `<p>Verified backup saved on this device. Review: ${r.candidate.favL.length+r.candidate.favT.length+r.candidate.favM.length} favourites and ${r.candidate.record.length} record entries from your cloud copy plus changes made in this session. Theme: ${escapeHtml(r.candidate.theme)}. Timezone: ${escapeHtml(r.candidate.prefs.tz||'device default')}.</p><p>The unreadable original and your session changes remain in the backup. Close other MatchMind tabs before continuing.</p><button class="btn" id="personalRecoveryUse">Use reviewed copy</button> <button class="btn" id="personalRecoveryCancel">Keep current data</button>`:
+    `<p>${escapeHtml(own&&r.message||'Review a cloud copy together with changes made in this session. Nothing is replaced until you choose it; the original is backed up first.')}</p><button class="btn" id="personalRecoveryReview"${own&&r.phase==='busy'?' disabled':''}>Review recovery</button>`:'';
+  return `<div class="notice" role="status">${personalStorageMessage()} <button class="btn" id="personalRetry">Retry storage</button>${recovery}</div>`;
+}
+function bindPersonalRetry(){
+  const b=$('personalRetry');if(b)b.addEventListener('click',retryPersonalStorage);
+  $('personalRecoveryReview')?.addEventListener('click',reviewPersonalRecovery);
+  $('personalRecoveryUse')?.addEventListener('click',usePersonalRecovery);
+  $('personalRecoveryCancel')?.addEventListener('click',()=>{++_personalRecoveryTurn;_personalRecoveryReview=null;renderAccount();});
+}
+async function retryPersonalStorage(){
+  const owner=authUser?authUser.id:null,epoch=_cloudAccountEpoch;
+  // Never select or write another identity's in-memory snapshot during a retry.
+  if(owner!==_personalOwner)return false;
+  personalSelect(owner);
+  if(!personalToken(owner,epoch)){renderAccount();return false;}
+  // Capture provenance BEFORE a recovery write. A real snapshot must become durable even
+  // offline; an empty first-login device must still wait for its original cloud preferences.
+  if(owner!==null)personalMergeOrigin(owner);
+  const saveNow=owner===null||_personalHasPartition;
+  const saved=saveNow&&personalStore(owner,epoch);
+  if(saveNow&&!saved){renderAccount();return false;}
+  const merged=owner!==null&&await cloudPullMerge();
+  if(!personalIdentity(owner,epoch))return false;
+  personalRefresh();renderAccount();
+  return !!(saved||merged)&&personalToken(owner,epoch);
+}
 function personalKey(owner){ return PERSONAL_PREFIX + (owner == null ? 'UNASSIGNED' : 'owner:' + encodeURIComponent(owner)); }
-function personalToken(owner,epoch){ return _personalReady && _personalOwner===owner && epoch===_cloudAccountEpoch && (owner===null ? !authUser : !!authUser && authUser.id===owner); }
-function personalSnapshot(owner,epoch){ if(!personalToken(owner,epoch)) throw Error('Personal owner changed'); return {record:afState.record,favL:afState.favL,favT:afState.favT,favM:afState.favM,
+function personalMergeOrigin(owner){
+  const key=personalKey(owner);
+  if(!_personalMergeOrigins.has(key))_personalMergeOrigins.set(key,{hadPartition:_personalHasPartition,
+    preferences:{theme:themeMode,aiProvider,aiCompare,prefs:{...prefs},notif:{...notif}}});
+  return _personalMergeOrigins.get(key);
+}
+function personalReadOrigin(p){
+  if(!Object.hasOwn(p,'preferenceOrigin'))return null;
+  const o=p.preferenceOrigin,b=o?.preferences;
+  if(!o||o.v!==1||!b||!['dark','light','auto'].includes(b.theme)||typeof b.aiProvider!=='string'||typeof b.aiCompare!=='string'||
+    !b.prefs||typeof b.prefs.tz!=='string'||typeof b.prefs.lang!=='string'||typeof b.prefs.edgeOnly!=='boolean'||
+    !b.notif||['kickoff','result','digest'].some(k=>typeof b.notif[k]!=='boolean'))throw Error('Invalid personal partition');
+  return {hadPartition:false,preferences:b};
+}
+function personalIdentity(owner,epoch){ return _personalOwner===owner && epoch===_cloudAccountEpoch && (owner===null ? !authUser : !!authUser && authUser.id===owner); }
+function personalToken(owner,epoch){ return _personalReady && personalIdentity(owner,epoch); }
+function personalFields(){return {record:afState.record,favL:afState.favL,favT:afState.favT,favM:afState.favM,
   favTab:afState.favTab,favAt:afState.favAt,favDel:afState.favDel,
-  prefs:{...prefs},notif:{...notif},theme:themeMode,aiProvider,aiCompare}; }
+  prefs:{...prefs},notif:{...notif},theme:themeMode,aiProvider,aiCompare};}
+function personalSnapshot(owner,epoch){ if(!personalIdentity(owner,epoch)||(!_personalReady&&_personalStorageError?.stage!=='personal-write')) throw Error('Personal owner changed'); return {...personalFields(),
+  ...(!_personalCloudReady&&_personalMergeOrigins.get(personalKey(owner))?.hadPartition===false?
+    {preferenceOrigin:{v:1,preferences:_personalMergeOrigins.get(personalKey(owner)).preferences}}:{})}; }
 function personalApply(p){
   if(p!==null && (typeof p!=='object' || Array.isArray(p) ||
     ['record','favL','favT','favM'].some(k=>p[k]!=null && !Array.isArray(p[k])) ||
@@ -24857,14 +24938,171 @@ function personalApply(p){
 }
 function personalCurrent(owner,epoch){ return _personalReady && _personalOwner===owner && authUser && authUser.id===owner && epoch===_cloudAccountEpoch; }
 function personalStore(owner,epoch){
-  if(!personalToken(owner,epoch))return false;
-  try{const raw=JSON.stringify(personalSnapshot(owner,epoch)); _personalMemory.set(personalKey(_personalOwner),raw); localStorage.setItem(personalKey(_personalOwner),raw);_personalHasPartition=true;return true;}
-  catch(e){try{toast('Personal data could not be saved on this device');}catch(_){} return false;}
+  if(!personalToken(owner,epoch)){
+    if(personalIdentity(owner,epoch)&&_personalStorageError?.stage==='personal-read'&&_personalReadBaselines.has(personalKey(owner))){
+      try{_personalReadEdits.set(personalKey(owner),JSON.stringify(personalFields()));}catch(_){}
+    }
+    // Further edits while a write is paused must survive the retry too. Never snapshot the
+    // defaults of a failed/corrupt read, or transfer a previous owner's in-memory data.
+    if(personalIdentity(owner,epoch)&&_personalStorageError?.stage==='personal-write'){
+      try{_personalMemory.set(personalKey(owner),JSON.stringify(personalSnapshot(owner,epoch)));}catch(_){}
+    }
+    return false;
+  }
+  try{const raw=JSON.stringify(personalSnapshot(owner,epoch)); _personalMemory.set(personalKey(owner),raw); localStorage.setItem(personalKey(owner),raw);_personalHasPartition=true;_personalStorageError=null;return true;}
+  catch(e){_personalStorageError=storageFailure(e,'personal-write');_personalReady=false;_personalCloudReady=false;try{toast(personalStorageMessage());renderAccount();}catch(_){} return false;}
 }
 function personalSelect(owner){
-  _personalOwner=owner; _personalReady=false; personalApply(null);
-  try{preserveLegacy(); const key=personalKey(owner); const stored=localStorage.getItem(key); const raw=_personalMemory.has(key)?_personalMemory.get(key):stored; _personalHasPartition=raw!==null; if(raw!==null){const parsed=JSON.parse(raw); if(parsed===null)throw Error('Invalid personal partition'); personalApply(parsed);} _personalReady=true;}
-  catch(e){try{toast('Personal data could not be read; sync is paused');}catch(_){} }
+  ++_personalRecoveryTurn;_personalRecoveryReview=null;
+  if(personalIdentity(owner,_cloudAccountEpoch)&&!_personalReady&&_personalStorageError?.stage==='personal-read'&&_personalReadBaselines.has(personalKey(owner))){
+    try{_personalReadEdits.set(personalKey(owner),JSON.stringify(personalFields()));}catch(_){}
+  }
+  _personalOwner=owner; _personalReady=false; _personalHasPartition=false;personalApply(null);
+  try{const key=personalKey(owner); const stored=localStorage.getItem(key); const raw=_personalMemory.has(key)?_personalMemory.get(key):stored; _personalHasPartition=raw!==null;
+    if(raw!==null){
+      const parsed=JSON.parse(raw);if(parsed===null)throw Error('Invalid personal partition');const origin=personalReadOrigin(parsed);personalApply(parsed);
+      if(origin&&!_personalMergeOrigins.has(key))_personalMergeOrigins.set(key,origin);
+      // Another tab may have repaired this same owner's partition since the failed read.
+      // Merge only this owner's known reset-session edits, never the unreadable original.
+      if(_personalReadEdits.has(key)&&_personalReadBaselines.has(key)){
+        const merged=personalRecoveryMerge(personalRecoveryValid(personalFields()),personalRecoveryValid(JSON.parse(_personalReadEdits.get(key))),personalRecoveryValid(JSON.parse(_personalReadBaselines.get(key))));
+        const mergedRaw=JSON.stringify({...merged,...(parsed.preferenceOrigin?{preferenceOrigin:parsed.preferenceOrigin}:{})});
+        personalApply(merged);_personalMemory.set(key,mergedRaw);_personalReadEdits.delete(key);_personalReadBaselines.delete(key);
+        try{localStorage.setItem(key,mergedRaw);if(localStorage.getItem(key)!==mergedRaw)throw Error('Personal recovery write not confirmed');}
+        catch(e){_personalStorageError=storageFailure(e,'personal-write');_personalCloudReady=false;return;}
+      }
+    }
+    _personalReady=true;_personalStorageError=null;
+  }
+  catch(e){_personalStorageError=storageFailure(e,'personal-read');const key=personalKey(owner);
+    if(!_personalReadBaselines.has(key))_personalReadBaselines.set(key,JSON.stringify(personalFields()));
+    if(_personalReadEdits.has(key))try{personalApply(JSON.parse(_personalReadEdits.get(key)));}catch(_){}
+    try{toast(personalStorageMessage());}catch(_){} }
+}
+
+// Dedicated immutable recovery backups. Ordinary cache clear/reset never opens this DB.
+const PERSONAL_RECOVERY_DB='mm_personal_recovery_v1:'+encodeURIComponent(new URL('.',location.href).pathname);
+async function personalRecoveryTransaction(mode,action){
+  const db=await new Promise((resolve,reject)=>{
+    let settled=false,request;const finish=(e,result)=>{if(settled){result?.close();return;}settled=true;clearTimeout(timer);e?reject(e):resolve(result);};
+    const timer=setTimeout(()=>finish(new Error('Recovery backup open timed out')),2000);
+    try{request=indexedDB.open(PERSONAL_RECOVERY_DB,1);}catch(e){finish(e);return;}
+    request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('backups'))request.result.createObjectStore('backups',{keyPath:'id'});};
+    request.onsuccess=()=>{request.result.onversionchange=()=>request.result.close();finish(null,request.result);};
+    request.onerror=()=>finish(request.error);request.onblocked=()=>finish(new Error('Recovery backup blocked'));
+  });
+  try{return await new Promise((resolve,reject)=>{
+    let result,error;const tx=db.transaction('backups',mode),store=tx.objectStore('backups'),timer=setTimeout(()=>fail(new Error('Recovery backup transaction timed out')),3000);
+    const fail=e=>{error=e;try{tx.abort();}catch(_){};};
+    tx.oncomplete=()=>{clearTimeout(timer);resolve(result);};tx.onabort=()=>{clearTimeout(timer);reject(error||tx.error||new Error('Recovery backup aborted'));};tx.onerror=()=>{};
+    try{action(store,value=>result=value,fail);}catch(e){fail(e);}
+  });}finally{db.close();}
+}
+function personalRecoveryRows(){return personalRecoveryTransaction('readonly',(store,done,fail)=>{const q=store.getAll();q.onsuccess=()=>done(q.result);q.onerror=()=>fail(q.error);});}
+function personalRecoveryValid(s){
+  const object=o=>o&&typeof o==='object'&&!Array.isArray(o),id=x=>typeof x==='string'&&x.length>0||Number.isSafeInteger(x)&&x>0;
+  if(!object(s)||['record','favL','favT','favM'].some(k=>!Array.isArray(s[k]))||
+    s.favL.some(x=>!Number.isSafeInteger(x)||x<=0)||s.favT.some(x=>typeof x!=='string'||!x)||
+    [...s.record,...s.favM].some(x=>!object(x)||!id(x.fxid))||!object(s.prefs)||!object(s.notif)||
+    !['dark','light','auto'].includes(s.theme)||!AI_PROVIDERS.some(p=>p.id===s.aiProvider)||
+    typeof s.aiCompare!=='string'||s.aiCompare&&!AI_PROVIDERS.some(p=>p.id===s.aiCompare)||
+    ['tz','lang'].some(k=>typeof s.prefs[k]!=='string')||typeof s.prefs.edgeOnly!=='boolean'||
+    ['kickoff','result','digest'].some(k=>typeof s.notif[k]!=='boolean'))throw Error('Unsupported recovery copy');
+  for(const field of ['favAt','favDel']){
+    if(!object(s[field])||Object.keys(s[field]).some(k=>!['L','T','M'].includes(k)))throw Error('Unsupported favourite stamps');
+    for(const kind of ['L','T','M'])if(!object(s[field][kind])||Object.entries(s[field][kind]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||!Number.isFinite(v)||v<0))throw Error('Unsupported favourite stamps');
+  }
+  return s;
+}
+function personalRecoveryCloud(data,owner){
+  if(!data||typeof data!=='object'||Array.isArray(data)||data.user_id!==owner)throw Error('No validated cloud copy');
+  const cp=data.prefs??{};if(typeof cp!=='object'||Array.isArray(cp))throw Error('Unsupported cloud preferences');
+  const settings=cp.settings??cp,n=cp.notif??{};
+  if(!settings||typeof settings!=='object'||Array.isArray(settings)||!n||typeof n!=='object'||Array.isArray(n))throw Error('Unsupported cloud preferences');
+  return personalRecoveryValid({record:data.record??[],favL:data.fav_leagues??[],favT:data.fav_teams??[],favM:data.fav_matches??[],favTab:'matches',
+    favAt:cp.favAt??{L:{},T:{},M:{}},favDel:cp.favDel??{L:{},T:{},M:{}},
+    prefs:{tz:settings.tz??'',lang:settings.lang??'',edgeOnly:settings.edgeOnly??false},
+    notif:{kickoff:n.kickoff??false,result:n.result??false,digest:n.digest??false},theme:cp.theme??'dark',aiProvider:cp.aiProvider??'gemini',aiCompare:cp.aiCompare??''});
+}
+function personalRecoveryMerge(base,edits,baseline){
+  const s=JSON.parse(JSON.stringify(base)),uniq=(a,b)=>[...new Set([...a,...b])];
+  s.favAt=favMergeStamps(s.favAt,edits.favAt);s.favDel=favMergeStamps(s.favDel,edits.favDel);
+  s.favL=uniq(s.favL,edits.favL).filter(k=>favKeep('L',k,s.favAt,s.favDel));
+  s.favT=uniq(s.favT,edits.favT).filter(k=>favKeep('T',k,s.favAt,s.favDel));
+  const byId=(a,b)=>[...new Map([...a,...b].map(x=>[String(x.fxid),x])).values()];
+  s.favM=byId(s.favM,edits.favM).filter(x=>favKeep('M',x.fxid,s.favAt,s.favDel));s.record=byId(s.record,edits.record);
+  for(const k of ['theme','aiProvider','aiCompare','favTab'])if(edits[k]!==baseline[k])s[k]=edits[k];
+  for(const k of ['tz','lang','edgeOnly'])if(edits.prefs[k]!==baseline.prefs[k])s.prefs[k]=edits.prefs[k];
+  for(const k of ['kickoff','result','digest'])if(edits.notif[k]!==baseline.notif[k])s.notif[k]=edits.notif[k];
+  return personalRecoveryValid(s);
+}
+async function personalRecoveryVerify(row,c){
+  if(!row||row.v!==1||row.owner!==c.owner||row.key!==c.key||row.raw!==c.raw||typeof row.sessionRaw!=='string'||typeof row.baselineRaw!=='string'||
+    row.bytes!==new TextEncoder().encode(row.raw+row.sessionRaw+row.baselineRaw).length||row.bytes>8*1024*1024||!Number.isFinite(row.at)||!Number.isSafeInteger(row.seq)||row.seq<1||
+    row.id!==c.key+':'+row.sha+':'+row.sessionSha+':'+row.baselineSha+':'+row.seq||
+    row.sha!==await recentCacheDigest(row.raw)||row.sessionSha!==await recentCacheDigest(row.sessionRaw)||row.baselineSha!==await recentCacheDigest(row.baselineRaw))throw Error('Recovery backup could not be verified');
+  personalRecoveryValid(JSON.parse(row.sessionRaw));personalRecoveryValid(JSON.parse(row.baselineRaw));return row;
+}
+async function personalRecoveryBackup(c,sessionRaw,baselineRaw){
+  const row={v:1,owner:c.owner,key:c.key,raw:c.raw,sessionRaw,baselineRaw,at:Date.now(),sha:await recentCacheDigest(c.raw),sessionSha:await recentCacheDigest(sessionRaw),baselineSha:await recentCacheDigest(baselineRaw)};
+  row.id=c.key+':'+row.sha+':'+row.sessionSha+':'+row.baselineSha;row.bytes=new TextEncoder().encode(row.raw+sessionRaw+baselineRaw).length;
+  if(row.bytes>8*1024*1024)throw Error('Recovery backup exceeds device bound');
+  await personalRecoveryTransaction('readwrite',(store,done,fail)=>{const q=store.getAll();q.onerror=()=>fail(q.error);q.onsuccess=()=>{try{
+    if(!personalRecoveryCurrent(c))throw Error('Recovery context changed');
+    const old=q.result.filter(x=>x.owner===row.owner&&x.key===row.key&&x.raw===row.raw).sort((a,b)=>b.seq-a.seq)[0];
+    if(old&&old.sessionRaw===row.sessionRaw&&old.baselineRaw===row.baselineRaw){if(old.sha!==row.sha||old.sessionSha!==row.sessionSha||old.baselineSha!==row.baselineSha)throw Error('Conflicting recovery backup');row.id=old.id;}
+    else{if(q.result.length>=64||q.result.reduce((n,x)=>{if(!Number.isSafeInteger(x.bytes)||x.bytes<0||!Number.isSafeInteger(x.seq)||x.seq<1||x.bytes!==new TextEncoder().encode(x.raw+x.sessionRaw+x.baselineRaw).length)throw Error('Invalid backup inventory');return n+x.bytes;},row.bytes)>32*1024*1024)throw Error('Recovery backup capacity reached');row.seq=Math.max(0,...q.result.map(x=>x.seq))+1;if(!Number.isSafeInteger(row.seq))throw Error('Recovery backup sequence exhausted');row.id+=':'+row.seq;store.add(row);}
+    done(true);
+  }catch(e){fail(e);}};});
+  const verified=(await personalRecoveryRows()).find(x=>x.id===row.id);await personalRecoveryVerify(verified,c);return verified;
+}
+function personalRecoveryCurrent(c){
+  return c.turn===_personalRecoveryTurn&&personalIdentity(c.owner,c.epoch)&&supa===c.client&&!_personalReady&&_personalStorageError?.kind==='corrupt'&&
+    localStorage.getItem(c.key)===c.raw&&JSON.stringify(personalFields())===c.liveRaw;
+}
+function personalRecoveryFail(c,message){
+  if(c.turn===_personalRecoveryTurn&&personalIdentity(c.owner,c.epoch)){_personalRecoveryReview={...c,phase:'failed',message};renderAccount();}
+  return false;
+}
+async function reviewPersonalRecovery(){
+  const owner=authUser?.id,epoch=_cloudAccountEpoch,key=personalKey(owner);
+  if(!owner||!personalIdentity(owner,epoch)||_personalReady||_personalStorageError?.kind!=='corrupt'||!_personalReadBaselines.has(key))return false;
+  const c={owner,epoch,key,client:supa,turn:++_personalRecoveryTurn,raw:null,liveRaw:JSON.stringify(personalFields())};
+  _personalRecoveryReview={...c,phase:'busy',message:'Preserving the original and session changes, then checking your cloud copy…'};renderAccount();
+  try{
+    c.raw=localStorage.getItem(key);if(typeof c.raw!=='string'||!personalRecoveryCurrent(c))throw Error('Recovery context changed');
+    const baselineRaw=_personalReadBaselines.get(key),baseline=personalRecoveryValid(JSON.parse(baselineRaw)),live=personalRecoveryValid(JSON.parse(c.liveRaw));
+    const prior=(await personalRecoveryRows()).filter(x=>x.owner===owner&&x.key===key&&x.raw===c.raw).sort((a,b)=>b.seq-a.seq)[0];
+    if(!personalRecoveryCurrent(c))throw Error('Recovery context changed');
+    let session=live;
+    if(prior){await personalRecoveryVerify(prior,c);session=personalRecoveryMerge(personalRecoveryMerge(baseline,JSON.parse(prior.sessionRaw),JSON.parse(prior.baselineRaw)),live,baseline);}
+    const backup=await personalRecoveryBackup(c,JSON.stringify(session),baselineRaw);
+    if(!personalRecoveryCurrent(c))throw Error('Recovery context changed');
+    const result=await c.client.from('app_state').select('*').eq('user_id',owner).maybeSingle();
+    if(!personalRecoveryCurrent(c)||result.error)throw Error('Cloud recovery unavailable');
+    const cloud=personalRecoveryCloud(result.data,owner),candidate=personalRecoveryMerge(cloud,session,baseline);
+    _personalRecoveryReview={...c,phase:'review',backupId:backup.id,candidate,cloudRaw:JSON.stringify(cloud)};renderAccount();return true;
+  }catch{return personalRecoveryFail(c,'Recovery could not be prepared. Nothing was replaced. Keep this session open and try again when device storage and your cloud connection are available.');}
+}
+async function usePersonalRecovery(){
+  const c=_personalRecoveryReview;if(!c||c.phase!=='review')return false;
+  _personalRecoveryReview={...c,phase:'busy',message:'Checking the reviewed copy before saving…'};renderAccount();
+  try{
+    if(!personalRecoveryCurrent(c))throw Error('Recovery changed');
+    const backup=(await personalRecoveryRows()).find(x=>x.id===c.backupId);await personalRecoveryVerify(backup,c);
+    if(!personalRecoveryCurrent(c))throw Error('Recovery changed');
+    const result=await c.client.from('app_state').select('*').eq('user_id',c.owner).maybeSingle();
+    if(!personalRecoveryCurrent(c)||result.error||JSON.stringify(personalRecoveryCloud(result.data,c.owner))!==c.cloudRaw)throw Error('Reviewed cloud copy changed');
+    const raw=JSON.stringify(personalRecoveryValid(c.candidate));
+    // No await between the final original-byte check and this explicit user-selected replacement.
+    if(!personalRecoveryCurrent(c))throw Error('Recovery changed');localStorage.setItem(c.key,raw);
+    if(localStorage.getItem(c.key)!==raw)throw Error('Recovery write not confirmed');
+    _personalMemory.set(c.key,raw);_personalMergeOrigins.delete(c.key);_personalReadBaselines.delete(c.key);_personalReadEdits.delete(c.key);
+    personalApply(c.candidate);_personalHasPartition=true;_personalReady=true;_personalCloudReady=true;_personalStorageError=null;
+    ++_personalRecoveryTurn;_personalRecoveryReview=null;_cloudSync={owner:c.owner,status:'idle'};personalRefresh();renderAccount();
+    cloudPush();toast('Reviewed data saved on this device. The original backup is retained. Cloud sync is not yet verified.');
+    return true;
+  }catch{return personalRecoveryFail(c,'The reviewed copy could not be saved safely. Nothing was confirmed; the backup is retained. Review recovery again before retrying.');}
 }
 function personalRefresh(){
   // Redraw all surfaces that can show favourites or personal record immediately on transition.
@@ -24873,60 +25111,221 @@ function personalRefresh(){
   try{if(curFavHome || curFavAway) setFavRow(curFavHome,curFavAway);}catch(e){}
 }
 function preserveLegacy(){
-  const raw=localStorage.getItem('mm_state');
-  if(raw!==null){
-    let state; try{state=JSON.parse(raw);}catch(e){state=null;}
-    const ambiguous=state && (Object.prototype.hasOwnProperty.call(state,'prefs') || Object.prototype.hasOwnProperty.call(state,'notif') || (state.af && ['record','favL','favT','favM','favTab','favAt','favDel'].some(k=>Object.prototype.hasOwnProperty.call(state.af,k))));
-    if(!state || state.personalPartitionVersion!==1 || ambiguous){
-      const saved=localStorage.getItem('mm_state_UNASSIGNED');
-      if(saved===null) localStorage.setItem('mm_state_UNASSIGNED',raw);
-      else if(saved!==raw) throw Error('Unassigned legacy backup already exists');
-    }
-  }
+  // Preserve legacy and existing backup bytes IN PLACE. They have no proven owner and are
+  // never imported, overwritten or removed. Duplicating the whole cache can itself exhaust quota.
 }
 
 function cacheStateKey(){
-  if(localStorage.getItem('mm_state_cache_v2')!==null)return 'mm_state_cache_v2';
-  const legacy=localStorage.getItem('mm_state');
-  if(legacy!==null){
+  return 'mm_state_cache_v2'; // Legacy mm_state is read-only, regardless of its shape.
+}
+/* Recent cache: optional, app-scoped IndexedDB. Personal partitions remain synchronous.
+   One slot per owner, at most four slots, at most three bounded generations per slot. */
+const RECENT_CACHE_DB='mm_recent_v1:'+encodeURIComponent(new URL('.',location.href).pathname);
+const RECENT_CACHE_MAX_BYTES=8*1024*1024,RECENT_CACHE_TOTAL_BYTES=32*1024*1024,RECENT_CACHE_MAX_SLOTS=4;
+let _recentCacheFlight=Promise.resolve(),_recentCacheRevision=0,_recentCacheSampleBasketball='';
+function recentCacheSlot(owner){return owner===null?'guest':'owner:'+encodeURIComponent(owner);}
+function recentCacheContext(){return {owner:authUser?authUser.id:null,epoch:_cloudAccountEpoch,source:_fixtureInputSource,raw:fixtureRawCurrent(),
+  leagues:_leaguesLoadedAt,presentation:_presentationAsOf,explicit:_dataSourceExplicit};}
+function recentCacheCurrent(c){return c.owner===(authUser?authUser.id:null)&&c.epoch===_cloudAccountEpoch&&c.source===_fixtureInputSource&&(!c.raw||fixtureRawCurrent());}
+function recentCacheShape(s){
+  const keys=['footballSource','personalPartitionVersion','fb','bb','scorerText','chip','af'];
+  const afKeys=['season','lv','leagues','leagueOrder','activeLeagueId','selectedDate','filter','logos','scores'];
+  return !!(s&&s.personalPartitionVersion===1&&typeof s.footballSource==='string'&&Array.isArray(s.fb)&&Array.isArray(s.bb)&&
+    typeof s.scorerText==='string'&&typeof s.chip==='string'&&s.af&&typeof s.af==='object'&&!Array.isArray(s.af)&&
+    Object.keys(s).every(k=>keys.includes(k))&&Object.keys(s.af).every(k=>afKeys.includes(k)));
+}
+function recentCacheProtected(s){return s.footballSource==='custom-csv'||
+  !!s.scorerText&&s.scorerText!==SAMPLE_SCORERS||!!s.bb.length&&JSON.stringify(s.bb)!==_recentCacheSampleBasketball;}
+async function recentCacheDigest(raw){
+  if(!crypto.subtle)throw new DOMException('Cache integrity unavailable','NotSupportedError');
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw))),n=>n.toString(16).padStart(2,'0')).join('');
+}
+function recentCacheOpen(){return new Promise((resolve,reject)=>{
+  let done=false,request;
+  const finish=(error,db)=>{if(done){if(db)db.close();return;}done=true;clearTimeout(timer);error?reject(error):resolve(db);};
+  const timer=setTimeout(()=>finish(new DOMException('Cache open timed out','TimeoutError')),2000);
+  try{request=indexedDB.open(RECENT_CACHE_DB,1);}catch(e){finish(e);return;}
+  request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('slots'))request.result.createObjectStore('slots',{keyPath:'slot'});};
+  request.onsuccess=()=>{const db=request.result;db.onversionchange=()=>db.close();finish(null,db);};
+  request.onerror=()=>finish(request.error||new Error('Cache open failed'));
+  request.onblocked=()=>finish(new DOMException('Cache upgrade blocked','InvalidStateError'));
+});}
+async function recentCacheTransaction(mode,action){
+  const db=await recentCacheOpen();
+  try{return await new Promise((resolve,reject)=>{
+    let result,error;const tx=db.transaction('slots',mode),store=tx.objectStore('slots');
+    const timer=setTimeout(()=>fail(new DOMException('Cache transaction timed out','TimeoutError')),3000);
+    const fail=e=>{error=e;try{tx.abort();}catch(_){};};
+    tx.oncomplete=()=>{clearTimeout(timer);resolve(result);};tx.onerror=()=>{};tx.onabort=()=>{clearTimeout(timer);reject(error||tx.error||new DOMException('Cache transaction aborted','AbortError'));};
+    try{action(store,value=>{result=value;},fail);}catch(e){fail(e);}
+  });}finally{db.close();}
+}
+function recentCacheReadSlot(slot){return recentCacheTransaction('readonly',(store,done,fail)=>{
+  const r=store.get(slot);r.onsuccess=()=>done(r.result||null);r.onerror=()=>fail(r.error);
+});}
+function recentCacheBytes(row){return ['active','previous','prepared'].reduce((n,k)=>{
+  const g=row?.[k];if(!g)return n;
+  if(!Number.isSafeInteger(g.bytes)||g.bytes<1||g.bytes>RECENT_CACHE_MAX_BYTES||typeof g.raw!=='string'||new TextEncoder().encode(g.raw).length!==g.bytes)throw Error('Invalid recent cache inventory');
+  return n+g.bytes;
+},0);}
+async function recentCacheVerify(g,slot,allowExpired=false){
+  if(!g||g.v!==1||g.slot!==slot||typeof g.raw!=='string'||g.bytes!==new TextEncoder().encode(g.raw).length||g.bytes>RECENT_CACHE_MAX_BYTES||
+    typeof g.id!=='string'||!Number.isFinite(g.at)||g.at>Date.now()+60000||
+    (g.expires===null?g.protected!==true:!Number.isFinite(g.expires)||g.expires<=g.at||g.expires-g.at>86400000)||
+    (!allowExpired&&g.expires!==null&&g.expires<=Date.now())||g.sha!==await recentCacheDigest(g.raw))throw Error('Invalid or expired recent cache');
+  const s=JSON.parse(g.raw);if(!recentCacheShape(s)||g.protected!==recentCacheProtected(s))throw Error('Invalid recent cache shape');return s;
+}
+async function recentCacheWrite(raw,c,current=()=>recentCacheCurrent(c),{onlyIfEmpty=false}={}){
+  const s=JSON.parse(raw);if(!recentCacheShape(s))throw Error('Personal or unsupported data refused in cache');
+  if(s.footballSource==='provider'&&!fixtureRawCurrent())throw new DOMException('Provider cache is not authorized','AbortError');
+  const bytes=new TextEncoder().encode(raw).length;if(bytes>RECENT_CACHE_MAX_BYTES)throw new DOMException('Recent cache exceeds application bound','QuotaExceededError');
+  const slot=recentCacheSlot(c.owner),protectedData=recentCacheProtected(s),createdAt=Date.now();
+  const g={v:1,slot,id:crypto.randomUUID(),at:createdAt,expires:protectedData?null:createdAt+86400000,protected:protectedData,bytes,sha:await recentCacheDigest(raw),raw};
+  const before=await recentCacheReadSlot(slot);
+  if(onlyIfEmpty&&before)throw new DOMException('A cache generation already exists','AbortError');
+  if(before?.active){await recentCacheVerify(before.active,slot,true);if(before.active.at>g.at)throw new DOMException('A newer cache is already committed','AbortError');}
+  if(before?.previous)await recentCacheVerify(before.previous,slot,true);
+  const previousId=await recentCacheTransaction('readwrite',(store,done,fail)=>{
+    const r=store.getAll();r.onerror=()=>fail(r.error);r.onsuccess=()=>{try{
+      if(!current())throw new DOMException('Cache context changed','AbortError');
+      const rows=r.result,old=rows.find(x=>x.slot===slot),next={slot,active:old?.active||null,previous:old?.previous||null,prepared:g};
+      if(onlyIfEmpty&&old)throw new DOMException('A cache generation appeared during migration','AbortError');
+      if(JSON.stringify(old||null)!==JSON.stringify(before))throw new DOMException('Cache changed during preparation','AbortError');
+      if(rows.length>RECENT_CACHE_MAX_SLOTS||!old&&rows.length>=RECENT_CACHE_MAX_SLOTS||
+        rows.filter(x=>x.slot!==slot).reduce((n,x)=>n+recentCacheBytes(x),0)+recentCacheBytes(next)>RECENT_CACHE_TOTAL_BYTES)throw new DOMException('Recent cache capacity reached','QuotaExceededError');
+      store.put(next);done(old?.active?.id||null);
+    }catch(e){fail(e);}};
+  });
+  const prepared=await recentCacheReadSlot(slot);
+  if(prepared?.prepared?.id!==g.id)throw new DOMException('Concurrent cache write','AbortError');
+  await recentCacheVerify(prepared.prepared,slot,true);
+  await recentCacheTransaction('readwrite',(store,done,fail)=>{
+    const r=store.get(slot);r.onerror=()=>fail(r.error);r.onsuccess=()=>{try{
+      const row=r.result;if(!current()||row?.prepared?.id!==g.id||(row?.active?.id||null)!==previousId)throw new DOMException('Cache context or generation changed','AbortError');
+      store.put({slot,active:row.prepared,previous:row.active||null});done(true);
+    }catch(e){fail(e);}};
+  });
+  const verified=await recentCacheReadSlot(slot);if(verified?.active?.id!==g.id)throw new DOMException('Cache changed before readback','AbortError');
+  await recentCacheVerify(verified.active,slot,true);return {slot,id:g.id,sha:g.sha,bytes:g.bytes};
+}
+function recentCacheFailure(e,c){
+  if(!recentCacheCurrent(c))return;
+  const first=!saveFailed;saveFailed=_cacheStorageError=storageFailure(e,'football-cache-write');
+  if(first)try{toast('Offline cache could not be saved. Personal data was saved.');}catch(_){}
+}
+function recentCacheSchedule(raw,c){
+  const revision=++_recentCacheRevision;
+  _recentCacheFlight=_recentCacheFlight.catch(()=>{}).then(async()=>{
+    const current=()=>revision===_recentCacheRevision&&recentCacheCurrent(c);
+    if(!current())return false;
+    try{await recentCacheWrite(raw,c,current);if(current()){saveFailed=null;_cacheStorageError=null;return true;}return false;}
+    catch(e){if(current())recentCacheFailure(e,c);return false;}
+  });
+  return _recentCacheFlight;
+}
+async function restoreRecentCache(){
+  if(_dataSourceExplicit)return false;
+  const c=recentCacheContext(),revision=_recentCacheRevision;
+  const current=()=>recentCacheCurrent(c)&&revision===_recentCacheRevision&&c.leagues===_leaguesLoadedAt&&c.presentation===_presentationAsOf&&c.explicit===_dataSourceExplicit;
+  try{
+    const row=await recentCacheReadSlot(recentCacheSlot(c.owner));if(!current()||!row)return false;
+    let s,previous=false;try{s=await recentCacheVerify(row.active,row.slot);}catch{if(!row.previous)return false;s=await recentCacheVerify(row.previous,row.slot);previous=true;}
+    if(!current()||s.footballSource==='provider'&&!fixtureRawCurrent()&&!recentCacheProtected(s))return false;
+    const restored=restoreState(s);if(restored){if(!recentCacheProtected(s))setDataChip('Cached data');if(previous)toast('Loaded the previous verified cache; the latest cache could not be read.');refreshTeams();renderFixtures();renderScores();}return restored;
+  }catch{return false;}
+}
+async function migrateRecentCache(){
+  const c=recentCacheContext();let copied=0,retained=0;
+  for(const key of ['mm_state_cache_v2','mm_public_state_v1']){
     try{
-      const v=JSON.parse(legacy);
-      const ambiguous=!v || v.personalPartitionVersion!==1 || Object.prototype.hasOwnProperty.call(v,'afKey') ||
-        Object.prototype.hasOwnProperty.call(v,'prefs') || Object.prototype.hasOwnProperty.call(v,'notif') ||
-        (v.af && ['record','favL','favT','favM','favTab','favAt','favDel'].some(k=>Object.prototype.hasOwnProperty.call(v.af,k)));
-      if(ambiguous)return 'mm_state_cache_v2';
-    }catch(e){return 'mm_state_cache_v2';}
+      const raw=localStorage.getItem(key);if(raw===null)continue;const s=JSON.parse(raw);
+      if(!recentCacheShape(s)||recentCacheProtected(s)||s.footballSource==='provider'&&!fixtureRawCurrent()){retained++;continue;}
+      if((await recentCacheReadSlot(recentCacheSlot(c.owner)))?.active){retained++;continue;} // Never replace a newer generation with a legacy cache.
+      const receipt=await recentCacheWrite(raw,c,()=>recentCacheCurrent(c)&&(s.footballSource!=='provider'||fixtureRawCurrent()),{onlyIfEmpty:true});
+      const row=await recentCacheReadSlot(receipt.slot);
+      if(recentCacheCurrent(c)&&row?.active?.id===receipt.id&&row.active.raw===raw&&localStorage.getItem(key)===raw){
+        await recentCacheVerify(row.active,receipt.slot,true);copied++;
+        // An older app tab may still write this key without participating in a lock.
+        // localStorage has no atomic compare-and-delete; retain originals for controlled cleanup.
+      }
+    }catch(e){recentCacheFailure(e,c);}
   }
-  return 'mm_state';
+  return {copied,retained};
+}
+function resetRecentCache(){
+  const c=recentCacheContext(),revision=++_recentCacheRevision;
+  _recentCacheFlight=_recentCacheFlight.catch(()=>{}).then(()=>recentCacheTransaction('readwrite',(store,done,fail)=>{
+    if(revision!==_recentCacheRevision||c.owner!==(authUser?authUser.id:null)||c.epoch!==_cloudAccountEpoch){done(false);return;}
+    const r=store.delete(recentCacheSlot(c.owner));r.onsuccess=()=>done(true);r.onerror=()=>fail(r.error);
+  })).catch(()=>{if(c.owner===(authUser?authUser.id:null)&&c.epoch===_cloudAccountEpoch)toast('Cache reset could not be completed. Imported data may return after reload.');return false;});
+  return _recentCacheFlight;
+}
+function personalStorageDiagnostics(){
+  // Explicit local diagnostics contain counts and error types, never stored contents or identities.
+  const sizes={personal:0,legacy:0,cache:0};let readable=true;
+  try{for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i),group=key?.startsWith(PERSONAL_PREFIX)?'personal':
+      ['mm_state','mm_state_UNASSIGNED'].includes(key)?'legacy':
+      ['mm_public_state_v1','mm_state_cache_v2'].includes(key)?'cache':null;
+    if(group)sizes[group]+=(localStorage.getItem(key)||'').length*2;
+  }}catch{readable=false;}
+  return {readable,bytes:sizes,personal:_personalStorageError,cache:_cacheStorageError,ready:_personalReady};
+}
+async function clearRecentCache(){
+  ++_recentCacheRevision;await _recentCacheFlight;
+  const c=recentCacheContext(),slot=recentCacheSlot(c.owner);
+  let removed=0,retained=0;
+  const known=await recentCacheReadSlot(slot);let verified=true;
+  for(const k of ['active','previous','prepared'])if(known?.[k])try{await recentCacheVerify(known[k],slot,true);}catch{verified=false;}
+  const result=await recentCacheTransaction('readwrite',(store,done,fail)=>{
+    const r=store.get(slot);r.onerror=()=>fail(r.error);r.onsuccess=()=>{try{
+      if(!recentCacheCurrent(c))throw new DOMException('Cache context changed','AbortError');
+      const row=r.result;if(!row){done('empty');return;}
+      if(JSON.stringify(row)!==JSON.stringify(known))throw new DOMException('Cache changed during clear','AbortError');
+      if(!verified||['active','previous','prepared'].some(k=>row[k]&&row[k].protected!==false)){done('retained');return;}
+      store.delete(slot);done('removed');
+    }catch(e){fail(e);}};
+  });
+  if(result==='removed'){if(await recentCacheReadSlot(slot))throw Error('Cache removal not confirmed');removed++;}
+  if(result==='retained')retained++;
+  // Only current, explicitly nonpersonal cache formats are regenerable. Legacy, credentials,
+  // custom input, malformed data and all owner partitions remain untouched, including on failure.
+  for(const key of ['mm_public_state_v1','mm_state_cache_v2']){
+    const raw=localStorage.getItem(key);if(raw===null)continue;
+    let s;try{s=JSON.parse(raw);}catch{retained++;continue;}
+    if(!recentCacheShape(s)||recentCacheProtected(s)){retained++;continue;}
+    localStorage.removeItem(key);
+    if(localStorage.getItem(key)!==null)throw Error('Cache removal was not confirmed');
+    removed++;
+  }
+  _cacheStorageError=null;saveFailed=null;
+  return {removed,retained};
 }
 function saveState(){
   favPrune();   // build 275 -- keep the favourite stamp maps bounded before they are written
+  if(!personalStore(_personalOwner,_cloudAccountEpoch))return false;
   try{
-    preserveLegacy();
-    if(!personalStore(_personalOwner,_cloudAccountEpoch)) throw Error('Personal data could not be saved');
     const privateSource=fixtureRawCurrent();
-    localStorage.setItem(privateSource?cacheStateKey():'mm_public_state_v1', JSON.stringify({
-      footballSource:_fixtureInputSource,
+    recentCacheSchedule(JSON.stringify({
+      footballSource:privateSource&&_fixtureInputSource!=='custom-csv'?'provider':_fixtureInputSource,
       personalPartitionVersion:1,
       fb: privateSource||_fixtureInputSource==='custom-csv'?footballEngine.matches:[], bb: basketballEngine.matches,
       scorerText: $('scorerData').value,
       chip: $('dataChip').textContent.replace('● ',''),
       af: privateSource?{season: afState.season, lv: LEAGUE_PACK_V, leagues: packLeagues(trimForCache(afState.leagues)), leagueOrder: afState.leagueOrder, activeLeagueId: afState.activeLeagueId, selectedDate: afState.selectedDate, filter: afState.filter, logos: afState.logos, scores: afState.scores}:{}
-    }, dropExtras));
+    }, dropExtras),recentCacheContext());
   }catch(e){
     /* Storage unavailable (private mode) or the quota is full. The app still works either way, so
        this stays caught — but it is now RECORDED and shown, instead of vanishing. */
     const first = !saveFailed;
-    saveFailed = { at: new Date().toISOString(), name: String(e && e.name || e) };
-    _personalReady=false;
-    _cloudSync={owner:authUser&&authUser.id,status:'failed'}; try{renderAccount();}catch(_){}
+    saveFailed = _cacheStorageError = storageFailure(e,'football-cache-write');
     if(first){
-      try{ console.warn('MatchMind: saveState failed —', saveFailed.name,
-                        '— favourites, record and the scores cache will not persist.'); }catch(_){}
-      try{ toast('Storage full — favourites and results may not be saved'); }catch(_){}
+      try{ console.warn('MatchMind: optional cache write failed —', saveFailed.name); }catch(_){}
+      try{ toast('Offline cache could not be saved. Personal data was saved.'); }catch(_){}
     }
   }
   if(_personalReady) cloudPush();   // only after successful local preservation
+  return true;
 }
 
 /* ================================================================
@@ -24965,6 +25364,7 @@ function onAuth(user){
   if((was&&was.id)!==(user&&user.id)){ credentialSelect(authUser ? authUser.id : null); renderAISettings(); }
   renderAccount();
   if((was&&was.id)!==(user&&user.id)) personalRefresh();
+  if((was&&was.id)!==(user&&user.id)){void restoreRecentCache();void migrateRecentCache();}
   if(authUser && (!was || was.id !== authUser.id)) cloudPullMerge();   // just logged in → pull + merge
   if(isPublisher() && _leaguesLoadedAt){ try{ refreshSkills(); }catch(e){} }   // build 324 — the publisher measures once signed in
   if((was&&was.id)!==(user&&user.id) || !isPublisher()) { try{ publisherAuthorityRefresh(); }catch(e){} }   // the server decides; refreshSkills runs once it answers
@@ -25006,13 +25406,14 @@ async function authLogout(){
   toast('Logged out');
 }
 async function cloudPullMerge(){
-  if(!supa || !authUser || !personalCurrent(authUser.id,_cloudAccountEpoch)) return;
-  const owner=authUser.id,epoch=_cloudAccountEpoch, hadPartition=_personalHasPartition;
-  const preferenceBefore=JSON.stringify({theme:themeMode,aiProvider,aiCompare,prefs,notif});
+  if(!supa || !authUser || !personalCurrent(authUser.id,_cloudAccountEpoch)) return false;
+  const owner=authUser.id,epoch=_cloudAccountEpoch,key=personalKey(owner);
+  const origin=personalMergeOrigin(owner);
+  const {hadPartition,preferences:preferenceBefore}=origin;
   _personalCloudReady=false; ++_cloudPushVersion; clearTimeout(_cloudPushT);
   try{
     const {data, error}=await supa.from('app_state').select('*').eq('user_id', owner).maybeSingle();
-    if(!personalCurrent(owner,epoch))return;
+    if(!personalCurrent(owner,epoch))return false;
     if(error) throw error;
     if(data!==null && (typeof data!=='object' || Array.isArray(data) || data.user_id!==owner ||
       ['fav_leagues','fav_teams','fav_matches','record'].some(k=>data[k]!=null && !Array.isArray(data[k])) ||
@@ -25023,13 +25424,16 @@ async function cloudPullMerge(){
          the unioned arrays -- so a removal made on EITHER device survives the round trip instead of
          being quietly unioned away and then pushed back up as a resurrection. See favMark/favKeep. */
       const cprefs = data.prefs || {};
-      if(!hadPartition && preferenceBefore===JSON.stringify({theme:themeMode,aiProvider,aiCompare,prefs,notif})){
-        if(['dark','light','auto'].includes(cprefs.theme)) themeMode=cprefs.theme;
-        if(AI_PROVIDERS.some(p=>p.id===cprefs.aiProvider)) aiProvider=cprefs.aiProvider;
-        if(typeof cprefs.aiCompare==='string' && (!cprefs.aiCompare || AI_PROVIDERS.some(p=>p.id===cprefs.aiCompare))) aiCompare=cprefs.aiCompare;
+      if(!hadPartition){
+        // Keep each genuine edit made while the read was pending; restore untouched settings
+        // independently so changing a theme cannot cause a default timezone to replace the cloud.
+        if(themeMode===preferenceBefore.theme&&['dark','light','auto'].includes(cprefs.theme)) themeMode=cprefs.theme;
+        if(aiProvider===preferenceBefore.aiProvider&&AI_PROVIDERS.some(p=>p.id===cprefs.aiProvider)) aiProvider=cprefs.aiProvider;
+        if(aiCompare===preferenceBefore.aiCompare&&typeof cprefs.aiCompare==='string' && (!cprefs.aiCompare || AI_PROVIDERS.some(p=>p.id===cprefs.aiCompare))) aiCompare=cprefs.aiCompare;
         const settings=cprefs.settings && typeof cprefs.settings==='object' && !Array.isArray(cprefs.settings) ? cprefs.settings : cprefs;
-        if(typeof settings.tz==='string') prefs.tz=settings.tz; if(typeof settings.lang==='string') prefs.lang=settings.lang; if(typeof settings.edgeOnly==='boolean') prefs.edgeOnly=settings.edgeOnly;
-        if(cprefs.notif && typeof cprefs.notif==='object' && !Array.isArray(cprefs.notif)) for(const k of ['kickoff','result','digest']) if(typeof cprefs.notif[k]==='boolean') notif[k]=cprefs.notif[k];
+        for(const k of ['tz','lang'])if(prefs[k]===preferenceBefore.prefs[k]&&typeof settings[k]==='string')prefs[k]=settings[k];
+        if(prefs.edgeOnly===preferenceBefore.prefs.edgeOnly&&typeof settings.edgeOnly==='boolean')prefs.edgeOnly=settings.edgeOnly;
+        if(cprefs.notif && typeof cprefs.notif==='object' && !Array.isArray(cprefs.notif)) for(const k of ['kickoff','result','digest']) if(notif[k]===preferenceBefore.notif[k]&&typeof cprefs.notif[k]==='boolean') notif[k]=cprefs.notif[k];
         try{applyTheme();renderAISettings();renderNotif();renderTzSetting();if(LANGUAGES_ON) renderLangSetting();applyStaticI18n();}catch(e){}
       }
       const favAt  = favMergeStamps(afState.favAt,  cprefs.favAt);
@@ -25043,9 +25447,11 @@ async function cloudPullMerge(){
       afState.record = mergeById(afState.record, data.record, 'fxid');
     }
     _personalCloudReady=true;
-    saveState();   // persists locally + pushes the merged result back up
+    const saved=saveState();   // persist the merged preferences before any upload
+    if(saved&&personalCurrent(owner,epoch)&&_personalMergeOrigins.get(key)===origin)_personalMergeOrigins.delete(key);
     if(lastTab==='favs') renderFavs(); else if(lastTab==='predict') renderFixtures(); else if(lastTab==='tips') renderTips();
-  }catch{if(epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner){_personalCloudReady=false;_cloudSync={owner,status:'failed'};renderSyncBadge();const node=$('acctStatus');if(node)node.textContent='Sync failed. Local data is retained; try again.';}}
+    return saved;
+  }catch{if(epoch===_cloudAccountEpoch&&authUser&&authUser.id===owner){_personalCloudReady=false;_cloudSync={owner,status:'failed'};renderSyncBadge();const node=$('acctStatus');if(node)node.textContent='Sync failed. Local data is retained; try again.';}return false;}
 }
 function renderSyncBadge(){
   const node=$('acctSynced');if(!node)return;
@@ -25080,11 +25486,12 @@ function renderAccount(){
   /* Owner decision 2026-11-21: the separation of pre-sign-in data stays, the notice about it is not shown. */
   renderSyncBadge();
   if(!cloudEnabled()){
-    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'')+'<div class="subnote">The account service is unavailable. Sign-in and cross-device sync will be available when the server connection is restored. Personal service keys are not required.</div>';
+    box.innerHTML=quarantineNotice+personalStorageNotice()+'<div class="subnote">The account service is unavailable. Sign-in and cross-device sync will be available when the server connection is restored. Personal service keys are not required.</div>';
+    bindPersonalRetry();
     return;
   }
   if(authUser){
-    box.innerHTML=quarantineNotice+(!_personalReady?'<div class="notice">Personal storage is unavailable. Sync is paused; data may not be saved on this device.</div>':'')+`<div class="acctrow">
+    box.innerHTML=quarantineNotice+personalStorageNotice()+`<div class="acctrow">
       <div class="avatar">${escapeHtml(accountInitials())}</div>
       <div style="flex:1; min-width:0">
         <div class="sl">Hi, ${escapeHtml(accountName())} 👋</div>
@@ -25093,7 +25500,7 @@ function renderAccount(){
     $('acctLogout').addEventListener('click', authLogout);
   } else {
     const isLogin = authMode !== 'signup';
-    box.innerHTML = quarantineNotice + (!_personalReady?'<div class="notice">Personal storage is unavailable. Data may not be saved on this device.</div>':'') + `<div class="notice">${isLogin
+    box.innerHTML = quarantineNotice + personalStorageNotice() + `<div class="notice">${isLogin
         ? 'Log in to sync your favourites and prediction record across your devices.'
         : 'Create an account to sync your favourites and record across devices. Your data stays private to you.'}</div>`
       + (isLogin ? '' : `<div class="field"><input id="acctName" type="text" placeholder="your name" autocomplete="name"></div>`)
@@ -25105,6 +25512,7 @@ function renderAccount(){
     $('acctPrimary').addEventListener('click', isLogin ? authLogin : authSignup);
     $('acctToggle').addEventListener('click', e=>{ e.preventDefault(); authMode = isLogin ? 'signup' : 'login'; renderAccount(); });
   }
+  bindPersonalRetry();
 }
 function accountName(){
   const m = authUser && authUser.user_metadata;
@@ -25115,10 +25523,13 @@ function accountInitials(){
   const ini = parts.length>=2 ? parts[0][0]+parts[1][0] : (accountName().trim().slice(0,2) || '?');
   return ini.toUpperCase();
 }
-function restoreState(){
+function restoreState(snapshot=null){
   try{
-    const s = JSON.parse(localStorage.getItem('mm_public_state_v1')||localStorage.getItem(cacheStateKey())||localStorage.getItem('mm_state')||'null');
-    if(s && !(fixtureRawCurrent()) && s.footballSource!=='custom-csv')return false;
+    let s = snapshot||JSON.parse(localStorage.getItem('mm_public_state_v1')||localStorage.getItem(cacheStateKey())||localStorage.getItem('mm_state')||'null');
+    if(s && !(fixtureRawCurrent()) && s.footballSource!=='custom-csv'){
+      if(!snapshot||!recentCacheProtected(s))return false;
+      s={...s,footballSource:'sample',fb:[],af:{}}; // Retain owned custom basketball/scorers without exposing raw provider football.
+    }
     if(!s) return false;
     /* BUILD 356 - THE SAVED KEY IS RESTORED BEFORE THE CORPUS CHECK, NOT AFTER IT.
        `saveState` writes `afKey` and the match corpus into one blob, and this function used to
@@ -25131,9 +25542,9 @@ function restoreState(){
        widens no credential: the key was already being persisted by `saveState` and already being
        restored whenever a corpus happened to exist. It only makes that restoration consistent. */
     // Legacy ownerless keys are retained in storage but never activated.
-    if(!s.fb || !s.fb.length) return false;
-    _fixtureInputSource=s.footballSource==='custom-csv'?'custom-csv':'provider';
-    footballEngine.matches = s.fb;
+    if(!s.fb?.length&&!s.bb?.length&&!s.scorerText)return false;
+    _fixtureInputSource=s.footballSource==='custom-csv'?'custom-csv':s.footballSource==='sample'?'sample':'provider';
+    if(s.fb?.length)footballEngine.matches = s.fb;
     if(s.bb && s.bb.length) basketballEngine.matches = s.bb;
     if(s.scorerText){ $('scorerData').value = s.scorerText; loadScorers(s.scorerText, false); }
     if(s.af){
@@ -26177,16 +26588,14 @@ function renderNewcomerSweep(){
 { const b=$('acBtn'); if(b) b.addEventListener('click', renderAcca); }
 { const b=$('dmBtn'); if(b) b.addEventListener('click', renderDeep); }
 try{ fillLongShotLeagues(); }catch(e){}
-$('clearCacheBtn').addEventListener('click', ()=>{
-  if(!confirm('Clear cached scores, fixtures and predictions on this device?\n\nYour account, favourites and prediction record are kept.')) return;
+$('clearCacheBtn').addEventListener('click', async()=>{
+  if(!confirm('Clear the recent football cache on this device?\n\nYour account, favourites, personal prediction record, custom imports, settled history and legacy copies are kept.')) return;
   try{
-    afState.scores = null; afState.leagues = {}; afState.leagueOrder = []; afState.activeLeagueId = null;
-    for(const L of Object.values(afState.leagues||{})){ L._neutral = null; }
-    ctxSeen.clear();
-    saveState();
-  }catch(e){}
-  toast('Cached data cleared — reloading');
-  setTimeout(()=>location.reload(), 700);
+    const result=await clearRecentCache();
+    toast(result.removed?'Recent cache cleared. Current matches remain visible until reload.':
+      'No removable recent cache. Personal and legacy data are kept.');
+  }catch(e){toast('Cache clearing could not be completed. Personal data is kept.');}
+  // Never reload automatically: paused sync may leave unsaved personal changes in memory.
 });
 // Sign out lives in the Account card only (build 91) — two log-out buttons is one too many.
 
@@ -26254,6 +26663,7 @@ $('loadCsvBtn').addEventListener('click', ()=>{
   reader.readAsText(f);
 });
 $('resetBtn').addEventListener('click', ()=>{
+  void resetRecentCache();
   try{ localStorage.removeItem(fixtureRawCurrent()?cacheStateKey():'mm_public_state_v1'); }catch(e){}
   _fixtureInputSource='sample';
   footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
@@ -26264,11 +26674,13 @@ $('resetBtn').addEventListener('click', ()=>{
   _dataSourceExplicit = true;   // build 214 — a deliberate choice is never overwritten
   setDataChip('Sample data');
 });
-$('saveScorersBtn').addEventListener('click', ()=>{
+$('saveScorersBtn').addEventListener('click', async()=>{
+  const owner=_personalOwner,epoch=_cloudAccountEpoch,text=$('scorerData').value;
   loadScorers($('scorerData').value, false);   // typed/pasted by the user = real data
   updateStats();
-  saveState();
-  alert(`Saved ${scorers.length} players.`);
+  const count=scorers.length,saved=saveState()&&await _recentCacheFlight;
+  if(!personalIdentity(owner,epoch)||$('scorerData').value!==text)return;
+  alert(saved?`Saved ${count} players on this device.`:`Loaded ${count} players, but the data could not be saved on this device. Keep your original input.`);
 });
 $('afLoadBtn').addEventListener('click', afLoadAll);
 $('discoverBtn').addEventListener('click', ()=>{ currentSport='football'; afDiscover(); });
@@ -26308,11 +26720,13 @@ try{ if($('compCount')) $('compCount').textContent = String(COMP_IDS.length); }c
 
 footballEngine.load(parseCSV(SAMPLE_FOOTBALL));
 basketballEngine.load(parseCSV(SAMPLE_BASKETBALL));
+_recentCacheSampleBasketball=JSON.stringify(basketballEngine.matches);
 loadScorers(SAMPLE_SCORERS, true);
 $('scorerData').value = SAMPLE_SCORERS;
 // API-Football key: paste yours in the Data tab once — it is saved on your device only
 if(restoreState()){ refreshTeams(); renderFixtures(); renderScores(); }
 else refreshTeams();
+void restoreRecentCache();void migrateRecentCache();
 /* BUILD 214 — the badge is corrected the moment the restored state is on screen. Without this a
    cached boot showed "Sample data" over eleven restored competitions for the whole ~30 seconds the
    cloud refresh takes, which is the same wrong-badge bug in a smaller window. */

@@ -1,22 +1,16 @@
-// Production transport is GET-only, anonymous and fixed-host; only mapped public fields leave the runner.
+// The CLI reads only the approved public RPC. Legacy GET collectors below remain as synthetic
+// regression fixtures; they are not a production fallback when the public reader fails.
 import {createHash} from 'node:crypto';
 import {projectFixtureAnalysis,HISTORY_COLUMNS,HISTORY_DAYS,COMPETITION_COLUMNS,COMPETITION_AHEAD_DAYS,competitionFrom,projectCompetition} from './analysis-projection.mjs';
 import {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {CARD_SCHEMA,PAYLOAD_SCHEMA,validatePresentationPayload,legacyPresentationPayload} from '../../backend/fixture-delivery/contract.mjs';
-export const SOURCE='https://toqfdrcjzwnlydqekude.supabase.co';
+import {collectPublicEdition} from './public-edition-source.mjs';
+import {SOURCE,SOURCE_KEY,project,windowFor,previousIssueEnabled} from './source-contract.mjs';
+export {SOURCE,project,windowFor,previousIssueEnabled} from './source-contract.mjs';
 export const TARGET='https://rdcbnvfnxenrpnnwxszs.supabase.co';
-const SOURCE_KEY='sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';
 const TARGET_KEY='sb_publishable_WKB88h4KAPtLVphsfNF9fg_W90ym80y';
 export const digest=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
-export function project(value,schema){
- if(value===null)return null;
- if(schema.type==='array')return value.map(x=>project(x,schema.items));
- if(schema.type==='object')return Object.fromEntries(Object.entries(schema.properties).filter(([k])=>Object.hasOwn(value,k)).map(([k,s])=>[k,project(value[k],s)]));
- if(schema.type==='map')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,project(v,schema.values)]));
- return value;
-}
-export function windowFor(now){const d=new Date(now);const day=d.toISOString().slice(0,10);return{from:new Date(Date.parse(day)-6*86400000).toISOString().slice(0,10),to:new Date(Date.parse(day)+7*86400000).toISOString().slice(0,10),day};}
 const fixtureCols=Object.keys(CARD_SCHEMA.properties).filter(x=>!['prediction','analysis'].includes(x)).join(',');
 const predictionCols=['fxid',...Object.keys(CARD_SCHEMA.properties.prediction.properties)].join(',');
 const columnsByTable={fixtures:fixtureCols,predictions:predictionCols,shared_records:'key,payload,build,computed_at',daily_slips:'day,tier,odds,build,step,legs'};
@@ -43,7 +37,6 @@ export async function readPages(table,columns,filters,order,fetcher=fetch){
    is the current and the previous UTC day: whole rows, in source order, never truncated. It is OFF
    unless MM_MIRROR_PREVIOUS_ISSUE=1, because the installed staging publisher refuses any slip whose
    day is not the current one. Turn it on only after STAGING-tips-continuity-up.sql is installed. */
-export const previousIssueEnabled=(env=process.env)=>env.MM_MIRROR_PREVIOUS_ISSUE==='1';
 /* Per-competition facts for Build 355 parity (goal-market base rates and the league table). GET-only,
    explicit columns, AF-only. The finished window (analysis-projection.mjs COMPETITION_MONTHS) is read in
    half-year slices so every slice stays inside readPages' 1000-row bound; a slice over the bound, or any
@@ -184,7 +177,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  try{
   const extract=process.argv[2]==='--extract';
   if(!extract&&!process.env.MM_STAGING_MIRROR_TOKEN)throw Error('Protected MM_STAGING_MIRROR_TOKEN binding required');
-  const snapshot=await stableCollect();const request=requestFor(snapshot);
+  const snapshot=await collectPublicEdition();const request=requestFor(snapshot);
   if(extract){if(!process.argv[3])throw Error('Private output path required');writeFileSync(process.argv[3],JSON.stringify(request),{mode:0o600});console.log(JSON.stringify({...request,payload_text:undefined,analysis_warnings:snapshot.analysis_warnings}));}
   else {const receipt=await publish(request,process.env.MM_STAGING_MIRROR_TOKEN);const verified=await verifyDestination(request,receipt);console.log(JSON.stringify({...receipt,...verified,analysis_warnings:snapshot.analysis_warnings}));}
  }catch(e){console.error(e.message);process.exitCode=1;}

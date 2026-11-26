@@ -1,5 +1,7 @@
 # MatchMind handover — 22 November 2026
 
+Historical handover preserved below. For current repairs, authorization, device information and open work, read [CONTINUATION-HANDOVER.md](CONTINUATION-HANDOVER.md) and [ISSUE-REGISTER.md](ISSUE-REGISTER.md). No candidate in this continuation has been pushed, merged or deployed.
+
 This document is the full handover for the MatchMind production work carried out in this session. It covers what was done, what is left, a suggested path for each open item, and what each repository is for. Production is live and healthy at the time of writing.
 
 ---

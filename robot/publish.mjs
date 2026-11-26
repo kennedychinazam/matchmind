@@ -31,13 +31,13 @@
    app reported an archive failure. MM_DRY_RUN=1 runs signed out for local testing and fails only if the
    app does not load. */
 import { chromium } from 'playwright-core';
+import { openPublisherBrowser } from './session.mjs';
 
 const APP_URL  = process.env.MM_APP_URL || 'https://kennedychinazam.github.io/matchmind/';
 const SUPA_URL = 'https://toqfdrcjzwnlydqekude.supabase.co';
 const SUPA_KEY = 'sb_publishable_wrXk5NFfWkrCdLgiQsaMHg_7lRPeO4-';   // the public key the app itself ships
 const EMAIL    = process.env.MM_PUBLISHER_EMAIL || '';
 const PASSWORD = process.env.MM_PUBLISHER_PASSWORD || '';
-const PROFILE  = process.env.MM_PROFILE_DIR || './mm-profile';
 const CHANNEL  = process.env.MM_CHANNEL || 'chrome';
 const DRY_RUN  = process.env.MM_DRY_RUN === '1';
 const TIMEZONE = 'Africa/Lagos';               // the day the app computes is the day its readers live in
@@ -258,9 +258,7 @@ async function main() {
   let before = { predictions:null, slipsToday:null, sharedBars:null };
   log('start', { app: APP_URL, dryRun: DRY_RUN, channel: CHANNEL, today, before });
 
-  const ctx = await chromium.launchPersistentContext(PROFILE, {
-    channel: CHANNEL, headless: true, timezoneId: TIMEZONE, viewport: { width: 412, height: 915 },
-  });
+  const {browser,context:ctx} = await openPublisherBrowser(chromium,CHANNEL,TIMEZONE);
   let code = 0;
   try {
     let page = watchPage(ctx.pages()[0] || await ctx.newPage());
@@ -395,7 +393,7 @@ async function main() {
       log('DRY RUN complete (signed out: nothing is expected to publish)');
     }
   } finally {
-    await ctx.close();
+    await browser.close(); // Destroy the whole per-run context, including its authentication state.
   }
   return code;
 }

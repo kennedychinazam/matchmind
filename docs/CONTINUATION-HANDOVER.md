@@ -1,0 +1,47 @@
+# MatchMind continuation handover — current work
+
+Updated 26 November 2026, Africa/Lagos. Continue this chat and the existing branch; preserve the completed work.
+
+## Working state
+
+- Branch: codex/storage-publisher-recovery-20261125. Verified candidate Git checkpoint is recorded in the versioned v6 verification artifact. Base: 7ab3cd021b986797861b54d181ae64716dd44336.
+- Production main baseline: 2b42b1a8c24b58305cc263e6b293ab7931c8661f, Build 368. Last direct preview observation (25 November) was Build 358; no deployment was performed here.
+- No merge, deployment, workflow trigger, database mutation, account deletion or phone-data clearing has occurred. Necessary verified repair-branch Git actions are recorded in the v6 verification artifact. The user now conditionally authorizes necessary commits/pushes/merges after verified job completion; deployment still needs separate authorization.
+- Only the two named MatchMind repositories and Supabase projects toqfdrcjzwnlydqekude / rdcbnvfnxenrpnnwxszs are allowed. EDUVANTA must never be accessed.
+
+## Current execution order
+
+Follow the original MM-01 to MM-29 hierarchy, with later findings attached to their owning item. One agent works one job, then primary code/test/visual assessment must accept the local result before the next agent starts. See [REPAIR-QUEUE.md](REPAIR-QUEUE.md). MM-01 local corrupt-owner reconciliation is accepted; its physical and controlled-legacy gates remain open. MM-02 containment, MM-03 local preview identity/acceptance, and MM-04 read-only capacity review are accepted. Next is MM-05 after fresh hosted staging acceptance; no later agent has started. See [MM01-RECOVERY-REVIEW.md](MM01-RECOVERY-REVIEW.md) for exact per-job source hashes and tests.
+
+## Completed local work and review history
+
+1. v1 prepared storage failure isolation, retry, conservative cache clearing, ephemeral publisher contexts, bounded public staging transport, build provenance and PWA acceptance. Its 66 tests passed locally; independent review ran 65 and lacked the Chrome channel for one.
+2. v2 fixed defaults replacing cloud light theme/Tokyo preferences; retained per-field edits and initial merge provenance. The session test now uses configured Chromium. Independent review confirmed all 72 tests and matching hashes.
+3. Independent review found v2 offline data-loss regression: an existing owner recovered writable storage but cloud failure left their new favourite only in memory while Retry storage disappeared. Four new tests reproduced failures.
+4. v3 persists a real selected owner snapshot before any cloud read, returns local-storage success independently of cloud failure, and retains retry when the local write still fails. Empty first-login defaults still wait for cloud hydration. First-device edits carry versioned hydration metadata through reload; this metadata is validated, excluded from cloud payloads and removed from the durable partition after successful cloud merge/persistence. Account/epoch fences remain active.
+
+5. v4 moves future bulk-cache writes to app/owner-scoped IndexedDB while personal writes remain independent. SHA-256 and transaction/readback checks guard preparation and promotion. Bounds are 8 MiB per generation, 32 MiB total and four owner slots. Current and previous generations are retained; custom inputs and corrupt originals are protected. Source/owner/epoch/live-load fences reject stale restoration. Copy-only legacy migration retains original localStorage blobs because older tabs have no atomic compare-and-delete protocol.
+
+6. v5 corrects the inherited detail renderer: a later withheld marker no longer replaces an issued claim with No pick. The original pick, confidence and 1X2 vector remain intact; the note states that backing changed. Empty records still create no pick. This detail change is presentation only and does not change model, grading or stored claims. v5 also fixes a cache clock-boundary defect found in the wider run: creation and expiry share one captured timestamp, covered by a deterministic regression.
+
+Current verification: 219/219 cumulative,19/19 primary fixture UI,8/8 independent mirror browser/build checks passed. PWA/QA receipts match exact source e330b7d8ae8e2165cd675454be95aa687834293fe0c1679eb667e4b638cd788d. Two Docker SQL cases are unrun; hosted and physical acceptance remain open. See MatchMind-verification-v6.txt for exact source/patch/Git receipts. Historical v1–v5 artifacts are retained.
+
+## Sequential 26 November review
+
+MM-01 adds verified immutable owner backups and explicit cloud/session reconciliation, including offline edits and external same-owner repair. MM-02 audit strengthens actual browser-run/auth/cleanup tests; hosted cached sessions remain untouched. MM-03 binds Scores history to the selected edition and removes foreign league prediction borrowing; AUD-08 is locally fixed. Test harness corrections preserve installed production 3000/4 MiB versus staging 1500/2 MiB policies; neither bound was changed. MM-04 measures production 424,283,283 bytes/staging 18,192,051 at 09:24 UTC and proposes gated retention/alerts without cleanup or claimed billing headroom. Primary assessed every agent before starting the next; detailed review files are MM01-RECOVERY-REVIEW.md through MM04-CAPACITY-REVIEW.md.
+
+## User device information and pending input
+
+User correction: both S20 Ultra and S23 installed from https://kennedychinazam.github.io/matchmind/. Only S20 reports the errors. The user reports prior preview use on S20 and suspects a connection; the historical preview build and cause remain unverified. The earlier different-link account is superseded. The user subsequently confirmed Chrome installation and visible Build 368 on both phones. Exact Chrome versions and installed worker/storage state are still unmeasured. Do not infer hardware-specific failure. Compare exact URL/build/worker/context first, then collect only safe error stage/type and app-key byte counts. Never request credentials or clear personal storage.
+
+This chat's in-app browser works. It observed production Build 368 and preview Build 358 with distinct active worker paths; neither observation proves either phone's active worker bytes or storage state. Served worker hashes also do not prove installed worker identity. Browser tabs used for research are temporary; there is no manual takeover pending.
+
+## Capacity and remaining work
+
+Historical 25 November read-only measurements at 20:19 Lagos: production 421.2 decimal MB, staging 18.2 MB. Fixtures/odds/cron remain leading consumers. The physical size rose by about 3.98 MB relative to the handover snapshot; exact interval and billed metrics differ. Prepare measured retention proposals while preserving forecast, pricing and incident evidence. No delete/vacuum/upgrade authorization is implied.
+
+All original 29 items and later audits are retained in [ISSUE-REGISTER.md](ISSUE-REGISTER.md). Prior source audits, limits and naming research are archived in [the source handover](handovers/2026-11-25-source-handover.md); original 22 November context remains in HANDOVER.md.
+
+Next gate: separately authorize and complete fresh hosted MatchMind preview from the exact verified repair commit, with protected environment checks, source capture/readback, original-logo build, deployed hashes and mobile/PWA consumer acceptance. The source is valid read-only, but staging still returns500 mirror unavailable. Then start MM-05 in the original hierarchy; do not jump into later broad source changes. MM-01 phone/legacy gates, MM-02 existing hosted cache/session lifecycle, MM-04 archive/restore/billing/retention gates and all remaining original items stay open. Release build assignment is still pending; APP_BUILD368 here is local QA, not a new production release.
+
+Current tracking is maintained in these docs and REPAIR-QUEUE.md. The older work/update-continuation-tracking.mjs generator describes the25 Nov v5 state and must not overwrite this26 Nov record. Versioned v6 packaging records exact receipts and Git action outcomes.

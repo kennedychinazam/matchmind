@@ -3,14 +3,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
+import {realTransform} from '../staging/build-real-preview.mjs';
 const chromium=createRequire(import.meta.url)('playwright-core').chromium;
 const HTML=readFileSync(process.env.MM_FIXTURE_CONSUMER_HTML || new URL('../index.html',import.meta.url),'utf8');
-async function pageFor(t,{query='',seed=null}={}){
+async function pageFor(t,{query='',seed=null,html=HTML}={}){
  const executablePath=process.env.MM_TEST_CHROMIUM;assert.ok(executablePath&&existsSync(executablePath),'local offline Chromium required');
  const browser=await chromium.launch({executablePath,args:['--no-sandbox','--disable-background-networking','--disable-component-update','--disable-sync']});t.after(()=>browser.close());
  const context=await browser.newContext({serviceWorkers:'block',viewport:{width:390,height:844}});
  if(seed)await context.addInitScript(s=>{for(const [key,value] of Object.entries(s))localStorage.setItem(key,value);},seed);
- await context.route('**/*',r=>r.request().url()==='http://fixture-consumer.test/'+query?r.fulfill({status:200,contentType:'text/html',body:HTML}):r.abort());
+ await context.route('**/*',r=>r.request().url()==='http://fixture-consumer.test/'+query?r.fulfill({status:200,contentType:'text/html',body:html}):r.abort());
  const page=await context.newPage();await page.goto('http://fixture-consumer.test/'+query);return page;
 }
 async function installReadSpy(page){await page.evaluate(()=>{
@@ -113,4 +114,22 @@ test('a previously issued pick remains visible when later marked as no longer ba
  });
  assert.match(got.pick,/Frozen Home/,'marking an issued pick as no longer backed must not erase the original published claim');
  assert.match(got.note,/withdrawn|no longer|stopped backing|unbacked/i,'the changed backing must be represented honestly beside the preserved issued claim');
+ assert.doesNotMatch(got.note,/never offered|not graded/i,'a later backing marker does not establish that the original pick was never issued');
 });
+
+for(const [mode,html]of [['source',HTML],['preview',realTransform(HTML,readFileSync(new URL('../manifest.webmanifest',import.meta.url),'utf8')).html]]){
+ for(const issued of [true,false])test(`${mode}: withdrawn ${issued?'DNB claim stays exact':'empty record creates no pick'}`,async t=>{
+  const page=await pageFor(t,{html});
+  const got=await page.evaluate(issued=>{
+   const p={lid:39,lname:'Original Competition',home:'Original Home',away:'Original Away',pick:issued?'1D':null,pick_prob:issued?.75:null,market:'DNB',p_home:.6,p_draw:.2,p_away:.2,kickoff:'2099-11-03',ktime:'12:00',made_at:'2026-11-03T10:00:00Z',withheld_at:'2026-11-03T10:01:00Z',final_pick:null,build:355};
+   const r={fxid:990360,lid:39,lname:'Current Competition',date:'2099-11-03',time:'12:00',status:'NS',home:'Current Home',away:'Current Away',prediction:p};
+   const original=JSON.stringify(r),f=fixturePresentationRow(r,{rows:[{f:r.fxid,p:'2',q:.99,pw:.005,pd:.005,pq:.99}]}),L={id:39,name:r.lname,country:'Synthetic',matches:[],upcoming:[f],_presentation:true};
+   showPublishedFixture(L,f);
+   return {pick:$('heroPick').textContent,conf:$('heroConf').textContent,home:$('heroHome').textContent,away:$('heroAway').textContent,note:$('heroStrong').textContent,bars:$('outcomeRows').textContent,dnb:$('heroDnb').textContent,unchanged:JSON.stringify(r)===original,vector:[f.pW,f.pD,f.pL]};
+  },issued);
+  assert.equal(got.unchanged,true);assert.deepEqual(got.vector,[.6,.2,.2]);
+  assert.match(got.bars,/60.0%/);assert.doesNotMatch(got.bars,/99.0%/);
+  if(issued){assert.match(got.home,/Original Home/);assert.match(got.away,/Original Away/);assert.match(got.pick,mode==='source'?/Original Home/:/1 DNB/);assert.match(got.pick+' '+got.conf,/75/);assert.match(got.dnb,/excludes draws/);assert.match(got.note,/no longer backed/);assert.doesNotMatch(got.note,/never offered|not graded/i);}
+  else{assert.equal(got.pick,'No pick');assert.equal(got.conf,'');assert.equal(got.dnb,'');}
+ });
+}

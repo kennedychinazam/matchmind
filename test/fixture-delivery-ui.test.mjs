@@ -25,16 +25,17 @@ test('public fixture screens use fixed edition RPCs and retain original probabil
  const page=await open(t);await synthetic(page);
  const result=await page.evaluate(async()=>{await loadCloudLeagues(true);const L=afState.leagues[39],f=L.upcoming[0];return{presentation:L._presentation,matches:L.matches.length,vector:[f.pW,f.pD,f.pL],pick:f.pick,raw:rawCalls,requests:displayCalls};});
  assert.equal(result.presentation,true);assert.equal(result.matches,0);assert.deepEqual(result.vector,[.6,.25,.15]);assert.equal(result.pick,'1');assert.deepEqual(result.raw,[]);
- assert.ok(result.requests.every(x=>x.name==='matchmind_fixture_access_v1'||Object.keys(x.args).join()==='screen'));
+ const display=result.requests.filter(x=>x.name==='matchmind_display_v1');assert.ok(display.length>0);
+ assert.ok(display.every(x=>Object.keys(x.args).join()==='screen'&&['scores','predictions','history','records','slips'].includes(x.args.screen)));
 });
 test('published detail shows stored bars without fitting a partial corpus or using AI',async t=>{
  const page=await open(t);await synthetic(page);
- const result=await page.evaluate(async()=>{await loadCloudLeagues(true);let fits=0;footballEngine.predict=()=>{fits++;throw Error('must not fit');};const L=afState.leagues[39];await openFixture(39,L.upcoming[0]);return{fits,pick:$('heroPick').textContent,bars:$('outcomeRows').textContent,note:$('analysisText').textContent};});
- assert.equal(result.fits,0);assert.match(result.pick,/Synthetic Home/);assert.match(result.bars,/60\.0%/);assert.match(result.bars,/25\.0%/);assert.match(result.bars,/15\.0%/);assert.match(result.note,/published/i);
+ const result=await page.evaluate(async()=>{await loadCloudLeagues(true);let fits=0;footballEngine.predict=()=>{fits++;throw Error('must not fit');};const L=afState.leagues[39];await openFixture(39,L.upcoming[0]);await _matchContextPending;return{fits,pick:$('heroPick').textContent,bars:$('outcomeRows').textContent,note:$('analysisText').textContent};});
+ assert.equal(result.fits,0);assert.match(result.pick,/Synthetic Home/);assert.match(result.bars,/60\.0%/);assert.match(result.bars,/25\.0%/);assert.match(result.bars,/15\.0%/);assert.match(result.note,/^The written analysis is unavailable right now\. Reopen the match to try again\.$/);
 });
 test('bounded scores retain status and regulation components without direct table requests',async t=>{
  const page=await open(t);await synthetic(page);
- const result=await page.evaluate(async()=>{await afScoresFromCloud();return{names:afState.scores.list.map(x=>x.home),raw:rawCalls,content:$('scoresList').textContent};});
+ const result=await page.evaluate(async()=>{await afScoresFromCloud();afState.scoresDate=afState.scores.list[0].ldate;navTo('scores');renderScores();return{names:afState.scores.list.map(x=>x.home),raw:rawCalls,content:$('scoresList').textContent};});
  assert.deepEqual(result.names,['Synthetic Home']);assert.deepEqual(result.raw,[]);assert.match(result.content,/Synthetic Home/);
 });
 test('expired presentation fails closed without using a cached provider corpus',async t=>{
@@ -52,19 +53,43 @@ test('a partial published vector is rejected rather than completed from another 
  const result=await page.evaluate(async()=>{const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});data.cards[0].prediction.p_home=null;try{fixtureEnvelope(data,'predictions');return false;}catch{return true;}});
  assert.equal(result,true,'unknown and incomplete probabilities must not become an accepted issued vector');
 });
-test('multibyte display payloads enforce both actual server byte budgets',async t=>{
+test('production browser and staging mirror retain their distinct reviewed byte and card bounds',async t=>{
  const page=await open(t);await synthetic(page);
  const cases=await page.evaluate(async()=>{
   const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'}),base=data.cards[0],out=[];
-  const run=(kind,n)=>{const d={...data,board:null,cards:Array.from({length:n},(_,i)=>({...base,fxid:i+1,prediction:null,...(kind==='legacy'?{home:'界'.repeat(160),away:'外'.repeat(160),lname:'競'.repeat(160),lcountry:'国'.repeat(100)}:{analysis:{source:'synthetic-approved',source_at:data.as_of,writeup:{text:'界'.repeat(4000),source:'synthetic-approved',source_at:data.as_of}}})}))};const payload={cards:d.cards,board:d.board,records:d.records,slips:d.slips},wire=JSON.stringify(payload),legacy=JSON.stringify({...payload,cards:payload.cards.map(({analysis,...c})=>c)});let rejected=false;try{fixtureEnvelope(d,'predictions');}catch{rejected=true;}out.push({kind,payload,chars:wire.length,bytes:new TextEncoder().encode(wire).length,legacyBytes:new TextEncoder().encode(legacy).length,rejected});};
-  run('legacy',300);run('expanded-accepted',70);run('expanded-rejected',200);return out;
+  const run=(kind,n,{writeup=false,invalid=false}={})=>{
+   const d={...data,board:null,cards:Array.from({length:n},(_,i)=>({...base,fxid:i+1,prediction:null,
+    ...(kind==='legacy-multibyte'?{home:'界'.repeat(160),away:'外'.repeat(160),lname:'競'.repeat(160),lcountry:'国'.repeat(100)}:{}),
+    ...(writeup?{analysis:{source:'synthetic-approved',source_at:data.as_of,writeup:{text:'界'.repeat(4000),source:'synthetic-approved',source_at:data.as_of}}}:{})}))};
+   if(invalid)d.cards[0].analysis.raw_provider_payload={unapproved:true};
+   const payload={cards:d.cards,board:d.board,records:d.records,slips:d.slips},wire=JSON.stringify(payload);
+   let rejected=false;try{fixtureEnvelope(d,'predictions');}catch{rejected=true;}
+   out.push({kind,payload,n,chars:wire.length,bytes:new TextEncoder().encode(wire).length,browserBytes:new TextEncoder().encode(JSON.stringify(d)).length,rejected});
+  };
+  run('legacy-multibyte',300);run('shared-byte-range',70,{writeup:true});
+  run('production-byte-range',200,{writeup:true});run('over-production-byte-bound',350,{writeup:true});
+  run('shared-card-limit',1500);run('production-card-range',1501);run('production-card-limit',3000);run('over-production-card-bound',3001);
+  run('nested-unapproved',1,{writeup:true,invalid:true});return out;
  });
- for(const c of cases){let serverRejected=false;try{validatePresentationPayload(c.payload);}catch{serverRejected=true;}assert.equal(c.rejected,serverRejected,c.kind+' browser agrees with actual typed server validator');}
- const [legacy,accepted,expanded]=cases;
- assert.ok(legacy.chars<524288&&legacy.bytes>524288&&legacy.bytes<2097152);assert.equal(legacy.rejected,false,'v2 reader: only the 2 MiB edition bound applies');
- assert.ok(accepted.legacyBytes<524288&&accepted.bytes>524288&&accepted.bytes<2097152);assert.equal(accepted.rejected,false);
- assert.ok(expanded.chars<2097152&&expanded.bytes>2097152);assert.equal(expanded.rejected,true);
+ // HANDOVER 2.10: production admission is 3000 cards / 4 MiB. The reviewed
+ // staging materialization contract remains 1500 cards / 2 MiB; neither is widened here.
+ for(const c of cases){
+  let mirrorRejected=false;try{validatePresentationPayload(c.payload);}catch{mirrorRejected=true;}
+  const invalid=c.kind==='nested-unapproved';
+  assert.equal(c.rejected,invalid||c.n>3000||c.browserBytes>4194304,c.kind+' production policy');
+  assert.equal(mirrorRejected,invalid||c.n>1500||c.bytes>2097152,c.kind+' staging policy');
+  if(!invalid&&c.n<=1500&&c.browserBytes<=2097152)assert.equal(c.rejected,mirrorRejected,c.kind+' shared schema/budget range');
+  if(invalid)assert.equal(c.rejected,mirrorRejected,'nested unapproved fields remain rejected by both contracts');
+ }
+ const [legacy,shared,production,oversized,card1500,card1501,card3000,card3001]=cases;
+ assert.ok(legacy.chars<524288&&legacy.bytes>524288&&legacy.browserBytes<2097152);
+ assert.ok(shared.bytes>524288&&shared.browserBytes<2097152);
+ assert.ok(production.chars<2097152&&production.bytes>2097152&&production.browserBytes<4194304);
+ assert.equal(production.rejected,false);assert.ok(oversized.browserBytes>4194304);assert.equal(oversized.rejected,true);
+ for(const c of [card1500,card1501,card3000,card3001])assert.ok(c.browserBytes<2097152,'card-count cases isolate count from byte admission');
+ assert.equal(card3000.rejected,false);assert.equal(card3001.rejected,true);
 });
+
 test('calendar, board authority and record identity follow the same semantic contract as the server',async t=>{
  const page=await open(t);await synthetic(page);
  const result=await page.evaluate(async()=>{const {data}=await supa.rpc('matchmind_display_v1',{screen:'predictions'});const mutate=[x=>{x.cards[0].date='2026-99-99';},x=>{x.board.rows[0].pw=.8;x.board.rows[0].pd=.8;x.board.rows[0].pq=.8;},x=>{x.board.rows[0].h='Other team';},x=>{x.board.rows[0].f=123;},x=>{x.records.clv={key:'engine',payload:{v:1,raw:null,devig:null,beat:0,tie:0,lost:0,from:null,to:null},build:355,computed_at:x.as_of};}];return mutate.map(fn=>{const c=JSON.parse(JSON.stringify(data));fn(c);try{fixtureEnvelope(c,'predictions');return false;}catch{return true;}});});

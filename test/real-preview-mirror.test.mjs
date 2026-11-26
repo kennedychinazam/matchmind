@@ -5,6 +5,7 @@ import {readFileSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {readPages,project,publish,requestFor,digest,windowFor,verifyDestination} from '../staging/mirror/refresh.mjs';
 import {CARD_SCHEMA} from '../backend/fixture-delivery/contract.mjs';
@@ -13,7 +14,7 @@ const root=new URL('../',import.meta.url),R=f=>readFileSync(new URL(f,root),'utf
 const dir=mkdtempSync(join(tmpdir(),'mm-real-test-'));
 const logoFixtures=[{fxid:990888,lid:39,home:'Harbor Athletic',away:'Granite United',home_logo:'https://media.api-sports.io/football/teams/1.png',away_logo:'https://media.api-sports.io/football/teams/2.png',llogo:'https://media.api-sports.io/football/leagues/39.png'}];
 writeFileSync(join(dir,'logos.json'),JSON.stringify({version:'matchmind-original-logos/1',fixtures:logoFixtures,content_sha256:digest(logoFixtures)}));
-execFileSync(process.execPath,[new URL('../staging/build-real-preview.mjs',import.meta.url).pathname,dir,'--logos',join(dir,'logos.json')]);
+execFileSync(process.execPath,[fileURLToPath(new URL('../staging/build-real-preview.mjs',import.meta.url)),dir,'--logos',join(dir,'logos.json')]);
 const html=readFileSync(join(dir,'index.html'),'utf8');
 const fixtureClock=Date.now();
 function fixture(){
@@ -65,6 +66,8 @@ const docker=(a,input)=>execFileSync('docker',['--host=unix:///var/run/docker.so
 function sql(s,role,token){const prefix=(token?`set request.headers='${JSON.stringify({'x-mm-preview-token':token})}';`:'')+(role?`set role ${role};`:'');return docker(['exec','-i',db,'psql','-X','-qAt','-U','postgres','-v','ON_ERROR_STOP=1'],prefix+s);}
 const literal=x=>"'"+JSON.stringify(x).replaceAll("'","''")+"'::jsonb";
 let originalHashes;
+// SQL setup belongs only to SQL acceptance; browser/build checks run independently.
+test.describe('synthetic SQL mirror',()=>{
 test.before(async()=>{
  docker(['run','-d','--name',db,'--network','none','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36']);
  let ready=false;for(let i=0;i<80;i++){try{if(docker(['logs',db]).includes('init process complete')){docker(['exec',db,'pg_isready','-U','postgres']);ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,250));}assert.ok(ready);
@@ -97,6 +100,7 @@ test('server rejects checksum, coverage, synthetic and unpublished changes witho
  }
  const h=JSON.parse(sql("select public.mm_preview_display_v1('history');",'anon'));
  assert.equal(h.cards[0].prediction.pick_prob,.64);assert.equal(h.cards[0].prediction.made_at,JSON.parse(request().payload_text).cards[0].prediction.made_at);
+});
 });
 
 async function open(t,width){
@@ -147,7 +151,8 @@ for(const width of [320,390])test('real mode is guest-only, staging-only, readab
   afState.selectedDate=date;navTo('predict');renderFixtures();
   return{retained,issued,notReissued,dated,unchanged,originalArchive:original===JSON.stringify(afState.archive),overflow:document.documentElement.scrollWidth>innerWidth+1};
  });
- assert.ok(presentation.retained.predicate);assert.match(presentation.retained.badge,/1 DNB.*81%/);assert.equal(presentation.retained.probability,'0.807');assert.equal(presentation.retained.status,'');assert.match(presentation.retained.note,/^(Loading the written analysis…|The written analysis is unavailable right now\. Reopen the match to try again\.)$/);   // Build 361: the per-match context, never an invented write-upassert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.notReissued&&presentation.dated&&presentation.unchanged&&presentation.originalArchive);assert.ok(presentation.issued.opened);assert.match(presentation.issued.badge,/1X.*86%/);assert.equal(presentation.issued.probability,'0.8618');assert.notEqual(presentation.issued.key,presentation.retained.key);assert.notEqual(presentation.issued.kickoff,presentation.retained.kickoff);assert.equal(presentation.overflow,false);
+ assert.ok(presentation.retained.predicate);assert.match(presentation.retained.badge,/1 DNB.*81%/);assert.equal(presentation.retained.probability,'0.807');assert.equal(presentation.retained.status,'');assert.match(presentation.retained.note,/^(Loading the written analysis…|The written analysis is unavailable right now\. Reopen the match to try again\.)$/);   // Build 361: the per-match context, never an invented write-up
+ assert.match(presentation.retained.vector,/58.9%/);assert.ok(presentation.notReissued&&presentation.dated&&presentation.unchanged&&presentation.originalArchive);assert.ok(presentation.issued.opened);assert.match(presentation.issued.badge,/1X.*86%/);assert.equal(presentation.issued.probability,'0.8618');assert.notEqual(presentation.issued.key,presentation.retained.key);assert.notEqual(presentation.issued.kickoff,presentation.retained.kickoff);assert.equal(presentation.overflow,false);
  const archiveView=await page.evaluate(async()=>{
   const original=fixtureTable,date=new Date(Date.now()-12*86400000).toISOString().slice(0,10),p={fxid:990888,lname:'Example League',kickoff:date,ktime:'20:00',home:'Harbor Athletic',away:'Granite United',pick:'1D',pick_prob:.807};
   fixtureTable=name=>{const q={select(){return q},eq(){return q},order(){return Promise.resolve({data:[p],error:null})},in(){return Promise.resolve({data:[{fxid:p.fxid,date:todayStrLocal(),time:'20:00',status:'PST'}],error:null})}};return q;};

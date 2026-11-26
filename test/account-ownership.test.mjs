@@ -41,13 +41,13 @@ test('populated B merges only B data, and logout and reload preserve A separatel
  });assert.doesNotMatch(r.guest,/A private/);assert.match(r.b,/B cloud/);assert.doesNotMatch(r.b,/A private/);assert.ok(r.writes.every(x=>x.user_id!=='B'||!JSON.stringify(x).includes('A private')));
  await p.reload();const restored=await p.evaluate(async()=>{cloudEnabled=()=>true;aiShadowGate=async()=>{};supa={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({error:null,data:null})})})})};const guest=JSON.stringify(afState.favT);onAuth({id:'A'});await new Promise(r=>setTimeout(r,0));return {guest,a:afState.favT};});assert.doesNotMatch(restored.guest,/A private/);assert.deepEqual(restored.a,['A private']);
 });
-test('guest and failed legacy preservation never enter an account or upload',async t=>{
+test('legacy backup write failure cannot block an isolated account or import ownerless data',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
   afState.favT=['guest private'];saveState();const legacy=JSON.stringify({af:{favT:['old private']}});localStorage.setItem('mm_state',legacy);
   const proto=Storage.prototype, old=proto.setItem;proto.setItem=function(k,v){if(k==='mm_state_UNASSIGNED')throw Error('synthetic quota');return old.call(this,k,v);};
   let writes=0;cloudEnabled=()=>true;aiShadowGate=async()=>{};supa={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null,error:null})})}),upsert:async()=>{writes++;return{error:null};}})};
   onAuth({id:'B'});saveState();cloudPush();await new Promise(r=>setTimeout(r,1300));const result={legacy:localStorage.getItem('mm_state'),shown:JSON.stringify(afState.favT),writes,badge:$('acctSynced').textContent};proto.setItem=old;return result;
- });assert.equal(r.legacy,JSON.stringify({af:{favT:['old private']}}));assert.doesNotMatch(r.shown,/guest private|old private/);assert.equal(r.writes,0);assert.notEqual(r.badge,'synced');
+ });assert.equal(r.legacy,JSON.stringify({af:{favT:['old private']}}));assert.doesNotMatch(r.shown,/guest private|old private/);assert.ok(r.writes>0);assert.equal(r.badge,'synced');
 });
 test('failed cloud read cannot acknowledge or overwrite the owner partition',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
@@ -110,7 +110,7 @@ test('delayed fixture operation cannot record or upload under a different owner'
 });
 test('v1 marker does not excuse ownerless personal fields from quarantine',async t=>{
  const legacy=JSON.stringify({personalPartitionVersion:1,fb:[{x:1}],af:{record:[{fxid:1,pick:'ambiguous'}]}});const p=await open(t,legacy);
- const r=await p.evaluate(()=>({backup:localStorage.getItem('mm_state_UNASSIGNED'),state:JSON.stringify(afState.record)}));assert.equal(r.backup,legacy);assert.doesNotMatch(r.state,/ambiguous/);
+ const r=await p.evaluate(()=>({original:localStorage.getItem('mm_state'),backup:localStorage.getItem('mm_state_UNASSIGNED'),state:JSON.stringify(afState.record)}));assert.equal(r.original,legacy);assert.equal(r.backup,null);assert.doesNotMatch(r.state,/ambiguous/);
 });
 test('pending notification permission cannot write or change the next account',async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
@@ -153,7 +153,7 @@ test('pending notification type change cannot subscribe the next account',async 
 });
 test('legacy personal data stays unassigned and the account box shows no notice about it',async t=>{
  const legacy=JSON.stringify({fb:[{x:1}],af:{favT:['unassigned-private']}});const p=await open(t,legacy);
- const r=await p.evaluate(async()=>{cloudEnabled=()=>true;aiShadowGate=async()=>{};supa={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null,error:null})})}),upsert:async()=>({error:null})})};onAuth({id:'B'});await new Promise(r=>setTimeout(r,0));return{text:$('acctBox').textContent,backup:localStorage.getItem('mm_state_UNASSIGNED')};});
+ const r=await p.evaluate(async()=>{cloudEnabled=()=>true;aiShadowGate=async()=>{};supa={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null,error:null})})}),upsert:async()=>({error:null})})};onAuth({id:'B'});await new Promise(r=>setTimeout(r,0));return{text:$('acctBox').textContent,original:localStorage.getItem('mm_state'),backup:localStorage.getItem('mm_state_UNASSIGNED')};});
  assert.doesNotMatch(r.text,/retained unassigned|not imported into this account/i);   // owner decision 2026-11-21: notice hidden, separation kept
- assert.doesNotMatch(r.text,/unassigned-private/);assert.equal(r.backup,legacy);
+ assert.doesNotMatch(r.text,/unassigned-private/);assert.equal(r.original,legacy);assert.equal(r.backup,null);
 });

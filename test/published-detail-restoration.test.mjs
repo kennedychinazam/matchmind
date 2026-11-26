@@ -63,9 +63,9 @@ async function installScores(page,status,{delay=false,historyEdition=false}={}){
   const date=todayStrLocal(),asof=new Date(Date.now()-1000).toISOString(),expires=new Date(Date.now()+3600000).toISOString();
   const prediction={lid:141,lname:'Segunda Division',home:'Leganes',away:'Burgos',pick:'1D',pick_prob:.75,market:'DNB',p_home:.6,p_draw:.2,p_away:.2,xg_home:1.7,xg_away:.8,kickoff:date,ktime:'20:00',made_at:asof,withheld_at:null,final_pick:null,build:355};
   const card={fxid:990998,lid:141,lname:'Segunda Division',lcountry:'Spain',date,time:'20:00',status,elapsed:status==='2H'?60:null,home:'Leganes',away:'Burgos',gh:2,ga:1,ft_h:status==='FT'?2:null,ft_a:status==='FT'?1:null,ht_h:1,ht_a:0,updated_at:asof,provider:'af',prediction,analysis:{source:'published-board',source_at:asof,result:{p_home:.51,p_draw:.29,p_away:.2},xg_home:1.8,xg_away:.9,goals:[{label:'Over 2.5',prob:.56}],form:{home:['W','D'],away:['L','W']},h2h:[{date:'2026-08-10',home:'Leganes',away:'Burgos',gh:2,ga:1}]}};
-  window.expectedCard=card;window.rawScoreCalls=[];const historyGate=delay?new Promise(resolve=>window.releaseHistory=resolve):Promise.resolve();supa={auth:{getSession:async()=>({data:{session:null},error:null})},from:name=>{rawScoreCalls.push(name);throw Error('no raw reader');},rpc:async(name,args)=>{
+  window.expectedCard=card;window.historyEditionOverride=null;window.rawScoreCalls=[];const historyGate=delay?new Promise(resolve=>window.releaseHistory=resolve):Promise.resolve();supa={auth:{getSession:async()=>({data:{session:null},error:null})},from:name=>{rawScoreCalls.push(name);throw Error('no raw reader');},rpc:async(name,args)=>{
    if(name==='matchmind_fixture_access_v1')return{data:{version:'matchmind-fixture-access/1',raw_allowed:false},error:null};
-   const screen=args.screen;if(screen==='history')await historyGate;return{data:{version:'matchmind-display/1',edition_id:screen==='history'&&historyEdition?'66666666-1111-4666-8666-666666666666':'55555555-1111-4555-8555-555555555555',as_of:asof,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?[{...card,prediction:screen==='scores'?null:prediction}]:[],board:null,records:{engine:null,clv:null},slips:[]},error:null};
+   const screen=args.screen;if(screen==='history')await historyGate;return{data:{version:'matchmind-display/1',edition_id:screen==='history'&&window.historyEditionOverride?window.historyEditionOverride:screen==='history'&&historyEdition?'66666666-1111-4666-8666-666666666666':'55555555-1111-4555-8555-555555555555',as_of:asof,expires_at:expires,screen,cards:['scores','predictions','history'].includes(screen)?[{...card,prediction:screen==='scores'?null:prediction}]:[],board:null,records:{engine:null,clv:null},slips:[]},error:null};
   }};fixtureDeliveryReset();afState.leagues={};afState.leagueOrder=[];afState.filter='all';afState.scoreFilter='all';afState.scoresDate=date;footballEngine.predict=()=>{throw Error('no refit');};footballEngine.marketsFor=()=>{throw Error('no generation');};
  },{status,delay,historyEdition});
 }
@@ -88,4 +88,35 @@ for(const [mode,html]of [['source',source],['real-preview',generated]])for(const
   if(!$('heroHome').textContent.includes(home)||!$('outcomeRows').textContent.includes(home)||!$('outcomeRows').textContent.includes('60.0%'))out.push({home,missing:true});
   for(const el of document.querySelectorAll('#view-detail .plabel,#view-detail .tname>div:not(.venue)')){if(!el.getClientRects().length)continue;const r=document.createRange();r.selectNodeContents(el);const lines=new Set([...r.getClientRects()].filter(x=>x.width&&x.height).map(x=>Math.round(x.top))).size;if(lines>2)out.push({home,text:el.textContent,lines});if(getComputedStyle(el).webkitLineClamp!=='none'&&getComputedStyle(el).webkitLineClamp!=='')out.push({home,clamped:true});}
  }return out;});assert.deepEqual(violations,[]);
+});
+
+for(const [mode,html] of [['source',source],['real-preview',generated]])for(const disruption of ['cleared-before-click','replaced-before-click','changed-during-read','foreign-league-row'])test(`${mode}: Scores provenance survives ${disruption}`,async t=>{
+ const page=await open(t,html,320);await installScores(page,'FT',{delay:disruption==='changed-during-read',historyEdition:disruption!=='changed-during-read'});
+ await page.evaluate(async disruption=>{
+  await afScoresFromCloud();navTo('scores');renderScores();
+  if(disruption==='cleared-before-click')_fixtureDelivery.screens.clear();
+  if(disruption==='replaced-before-click')_fixtureDelivery.screens.set('scores',{..._fixtureDelivery.screens.get('scores'),edition_id:'66666666-1111-4666-8666-666666666666'});
+  if(disruption==='foreign-league-row'){
+   const f=fixturePresentationRow(expectedCard,null);f._displayEdition={edition_id:'66666666-1111-4666-8666-666666666666',as_of:expectedCard.analysis.source_at};
+   afState.leagues[141]={id:141,name:'Segunda Division',country:'Spain',matches:[],upcoming:[f],_presentation:true};
+  }
+  const original=matchDetail;matchDetail=s=>window.pendingDetail=original(s);
+ },disruption);
+ await page.locator('#scoresList .scrow .tline').first().click();
+ if(disruption==='changed-during-read')await page.evaluate(()=>{_fixtureDelivery.screens.clear();window.historyEditionOverride='66666666-1111-4666-8666-666666666666';releaseHistory();});
+ await page.evaluate(()=>pendingDetail);
+ const r=await page.evaluate(()=>({pick:$('heroPick').textContent,bars:$('outcomeRows').textContent,overflow:document.documentElement.scrollWidth>innerWidth+1}));
+ assert.match(r.pick,/Published pick unavailable/);assert.match(r.bars,/51.0%/);assert.doesNotMatch(r.bars,/60.0%/);assert.equal(r.overflow,false);
+ if(process.env.MM_UI_SCREENSHOTS){mkdirSync(process.env.MM_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.MM_UI_SCREENSHOTS+`/${mode}-320-${disruption}.png`,fullPage:true});}
+});
+
+for(const [mode,html] of [['source',source],['real-preview',generated]])for(const cache of ['clear','replace'])test(`${mode}: same-edition Scores history preserves issued DNB after cache ${cache}`,async t=>{
+ const page=await open(t,html,320);await installScores(page,'FT');
+ await page.evaluate(async cache=>{await afScoresFromCloud();navTo('scores');renderScores();
+  if(cache==='clear')_fixtureDelivery.screens.clear();else _fixtureDelivery.screens.set('scores',{edition_id:'66666666-1111-4666-8666-666666666666',as_of:'2026-01-01T00:00:00Z'});
+  const original=matchDetail;matchDetail=s=>window.pendingDetail=original(s);
+ },cache);
+ await page.locator('#scoresList .scrow .tline').first().click();await page.evaluate(()=>pendingDetail);
+ const r=await page.evaluate(()=>({pick:$('heroPick').textContent,bars:$('outcomeRows').textContent,card:afState.leagues[141].upcoming[0]._displayCard,overflow:document.documentElement.scrollWidth>innerWidth+1}));
+ assert.match(r.pick,/DNB|draw no bet/i);assert.match(r.bars,/60.0%/);assert.doesNotMatch(r.bars,/51.0%|75.0%/);assert.equal(r.card.prediction.pick_prob,.75);assert.equal(r.card.analysis.result.p_home,.51);assert.equal(r.overflow,false);
 });
