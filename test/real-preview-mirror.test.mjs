@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {readPages,project,publish,requestFor,digest,windowFor,verifyDestination} from '../staging/mirror/refresh.mjs';
 import {CARD_SCHEMA} from '../backend/fixture-delivery/contract.mjs';
+import {collectPublicEdition} from '../staging/mirror/public-edition-source.mjs';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
 const root=new URL('../',import.meta.url),R=f=>readFileSync(new URL(f,root),'utf8');
 const dir=mkdtempSync(join(tmpdir(),'mm-real-test-'));
@@ -100,6 +101,30 @@ test('server rejects checksum, coverage, synthetic and unpublished changes witho
  }
  const h=JSON.parse(sql("select public.mm_preview_display_v1('history');",'anon'));
  assert.equal(h.cards[0].prediction.pick_prob,.64);assert.equal(h.cards[0].prediction.made_at,JSON.parse(request().payload_text).cards[0].prediction.made_at);
+});
+test('bounded public membership publishes against the unchanged historical-reference SQL guard',async()=>{
+ const capture=new Date(),w=windowFor(capture),current=fixture(),oldDate=days=>new Date(Date.parse(w.from)-days*86400000).toISOString().slice(0,10);
+ const referenced={...current,fxid:990889,date:oldDate(1),prediction:null},unreferenced={...current,fxid:990890,date:oldDate(2),prediction:null};
+ const board={v:1,ahead:7,builtAt:capture.toISOString(),n:1,notPassed:0,noBars:0,rows:[{f:referenced.fxid,l:referenced.lid,n:referenced.lname,d:referenced.date,t:referenced.time,h:referenced.home,a:referenced.away,p:null,q:null,m:null,g:null,z:true,pw:.6,pd:.2,pq:.2,xh:1.8,xa:.9}]};
+ const snapshot=await collectPublicEdition(capture,async(u,o)=>{
+  assert.equal(u.pathname,'/rest/v1/rpc/matchmind_display_v1');assert.equal(o.method,'POST');
+  const screen=JSON.parse(o.body).screen,body={version:'matchmind-display/1',edition_id:'11111111-2222-4333-8444-555555555555',as_of:new Date(+capture-1000).toISOString(),expires_at:new Date(+capture+3600000).toISOString(),screen,
+   cards:['scores','predictions','history'].includes(screen)?[current,referenced,unreferenced].map(c=>({...c,prediction:screen==='scores'?null:c.prediction})):[],
+   board:screen==='predictions'?board:null,records:{engine:null,clv:null},slips:[]};
+  return{ok:true,text:async()=>JSON.stringify(body)};
+ });
+ assert.deepEqual(snapshot.payload.cards.map(c=>c.fxid),[current.fxid,referenced.fxid]);assert.equal(snapshot.window_cards,1);
+ assert.equal(snapshot.analysis_warnings[0].membership.excluded_unreferenced_outside_window_cards,1);
+ const dirty=requestFor({...snapshot,payload:{...snapshot.payload,cards:[...snapshot.payload.cards,unreferenced]},cards:3});
+ const prior=sql("select public.mm_preview_status_v1()->>'edition_id';",'anon');
+ assert.throws(()=>sql(`select public.mm_preview_publish_v1(${literal(dirty)});`,'anon','synthetic-test-token-synthetic-test-token'),/Unreferenced historical source row/);
+ assert.equal(sql("select public.mm_preview_status_v1()->>'edition_id';",'anon'),prior);
+ const receipt=JSON.parse(sql(`select public.mm_preview_publish_v1(${literal(requestFor(snapshot))});`,'anon','synthetic-test-token-synthetic-test-token'));
+ assert.equal(receipt.cards,2);assert.equal(receipt.predictions,1);
+ const readback=JSON.parse(sql("select public.mm_preview_display_v1('predictions');",'anon'));
+ assert.deepEqual(readback.cards.map(c=>c.fxid).sort((a,b)=>a-b),[current.fxid,referenced.fxid]);
+ assert.deepEqual(readback.cards.find(c=>c.fxid===current.fxid).prediction,current.prediction);
+ assert.equal(sql('select jsonb_object_agg(relation_name,fingerprint) from mm_preview_mirror.qa_backup'),originalHashes);
 });
 });
 
