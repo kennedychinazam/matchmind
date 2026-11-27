@@ -1,6 +1,6 @@
 # MatchMind continuation handover â€” current work
 
-Updated 26 November 2026, Africa/Lagos. Continue this chat and the existing branch; preserve the completed work.
+Updated 27 November 2026, Africa/Lagos. Continue this chat and the existing branch; preserve the completed work.
 
 ## Working state
 
@@ -11,7 +11,7 @@ Updated 26 November 2026, Africa/Lagos. Continue this chat and the existing bran
 
 ## Current execution order
 
-Follow the original MM-01 to MM-29 hierarchy, with later findings attached to their owning item. One agent works one job, then primary code/test/visual assessment must accept the local result before the next agent starts. See [REPAIR-QUEUE.md](REPAIR-QUEUE.md). MM-01 local corrupt-owner reconciliation is accepted; its physical and controlled-legacy gates remain open. MM-02 containment, MM-03 local preview identity/acceptance, and MM-04 read-only capacity review are accepted. Fresh hosted staging acceptance has passed. MM-05 has started with one agent performing local read-only inspection; no later job has started. See [MM01-RECOVERY-REVIEW.md](MM01-RECOVERY-REVIEW.md) for exact per-job source hashes and tests.
+Follow the original MM-01 to MM-29 hierarchy, with later findings attached to their owning item. One agent works one job, then primary code/test/visual assessment must accept the local result before the next agent starts. See [REPAIR-QUEUE.md](REPAIR-QUEUE.md). MM-01 local corrupt-owner reconciliation is accepted; its physical and controlled-legacy gates remain open. MM-02 containment, MM-03 local preview identity/acceptance, and MM-04 read-only capacity review are accepted. Fresh hosted staging acceptance has passed. MM-05 local behavioral repair and synthetic verification are accepted; hosted rollout remains open. Next is MM-06 read-only inspection. See [MM01-RECOVERY-REVIEW.md](MM01-RECOVERY-REVIEW.md) for exact per-job source hashes and tests.
 
 ## Completed local work and review history
 
@@ -75,3 +75,14 @@ Primary accepted the collector correction after26 focused checks, the real empty
 **MM-03 hosted preview acceptance is complete for this bounded public guest preview. Next job: MM-05 AI fixture prompt/cache provenance and atomic quota reservation.** MM-01 physical phones/controlled legacy cleanup, MM-02 existing hosted publisher sessions/cache lifecycle, MM-04 billing/retention/archive/restore and all later register items remain open. No production main merge/deployment, SQL migration, token rotation, cleanup or phone-data clearing occurred. Production main remains2b42b1a8c24b58305cc263e6b293ab7931c8661f. EDUVANTA was not accessed.
 
 Latest worker proof: served worker SHA256696500b6f7720196f525c3571079bc462d3af207a090025a51da4e4bbf4f0377 and original-logo fixture mappings are byte/field-identical to the prior accepted deployment. The generated HTML differs only in embedded catalog edition/source timestamps. The additional latest live desktop navigation timed out and is retained as incomplete, not a pass. An isolated fresh install/control/offline replay of exact latest HTML639428862aae71e9d560a42bbcdff4861eb28a60245c60771c64711cc7ae63c3 passed and preserved personal/unrelated-cache test markers. Prior live scope/control and four-phase local update/rollback proofs remain valid for the unchanged worker code; no live rollback or physical-phone proof is claimed.
+
+MM-05 progressed from inspection to authorized local implementation. Named live ai-analyze remainsv17 (sourceSHAf6fba8320f767a0c9eabb1cd7430d2484c70cb26ae06f746d72b1eee5ac8545b); catalog-only review confirms missing provenance and atomic usage routines. Primary reviewed the actual handler/catalog and accepted the scoped local plan. See [MM05-AI-SECURITY-REVIEW.md](MM05-AI-SECURITY-REVIEW.md). No MM-05 hosted changes or provider calls occurred. MM-06 has not started.
+
+
+## MM-05 local acceptance — 27 November 2026
+
+Primary accepted the local AI prompt/provenance, atomic quota/work and client fencing repair after an independently clean54/54handler/PostgreSQL/client/credential run (0failed/skipped/cancelled), exact-v17 patch reconstruction and successful17module Deno bundle. Exact-app desktop PWA proof is PASS for appSHA2569fce3822952e48394f99f5a480e28987b64f96092973a94e81bdcced7eba2c98. Primary additionally fixed a reproduced nullable SQL completion guard and account/day/target quota-display and known-pending fallback issues. Preserved failures include the original quota race, repeated-refund draft, malformed completion, and earlier test-harness errors. See MM05-AI-SECURITY-REVIEW.md.
+
+This is local behavioral acceptance. Hosted AI remainsv17; SQL is an unexecuted proposal. Strict Deno type checking remains unsuccessful (baseline40diagnostics/candidate35, including four new implicit callback bindings); bundling is not a type pass. Remote SDK pinning, concrete stop/drain/isolation of old work, matched SQL/Edge/client installation, rollback and hosted verification remain release gates. No AI deployment/migration/provider invocation, quota reset, cleanup or phone-data clearing occurred.
+
+Next job: MM-06 server-side pre-kickoff prediction issuance and immutable published fields. Start one read-only inspection agent only after this primary acceptance; require a concrete local plan before repair. MM-01 physical/legacy, MM-02 hosted-session, MM-04 billing/retention/archive/restore and MM-05 hosted gates remain open. Original29IDs/order and later attached findings are preserved.

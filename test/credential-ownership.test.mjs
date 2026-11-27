@@ -72,12 +72,12 @@ test('replacement prevents a queued proxy dispatch',async t=>{
   credentialSave('ai:claude','replacement');unblock();return {rejected:await work,requests};
  });assert.ok(r.rejected);assert.equal(r.requests,0);
 });
-test('switch during throttle cannot dispatch either owner key',async t=>{
+test('switch during throttle cannot dispatch either owner key',{timeout:30000},async t=>{
  const p=await open(t);const r=await p.evaluate(async()=>{
   onAuth({id:'A'});credentialSave('af','a');$('afKeyUse').checked=true;let wake,requests=0;const original=window.setTimeout;
-  window.setTimeout=(fn)=>{wake=fn;return 1;};window.fetch=async()=>{requests++;return {ok:true,json:async()=>({response:[]})};};
+  window.setTimeout=(fn,delay,...args)=>{if(delay>=60000){wake=fn;return 1;}return original(fn,delay,...args);};window.fetch=async()=>{requests++;return {ok:true,json:async()=>({response:[]})};};
   for(let i=0;i<9;i++)afRate.push(Date.now());const work=afFetch('/fixtures').then(()=>false,()=>true);onAuth({id:'B'});credentialSave('af','b');$('afKeyUse').checked=true;
-  afRate.length=0;wake();const rejected=await work;window.setTimeout=original;return {rejected,requests};
+  try{if(!wake)throw Error('synthetic throttle did not start');afRate.length=0;wake();const rejected=await work;return {rejected,requests};}finally{window.setTimeout=original;}
  });assert.ok(r.rejected);assert.equal(r.requests,0);
 });
 test('proxy failure after switch cannot launch personal fallback',async t=>{

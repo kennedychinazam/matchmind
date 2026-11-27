@@ -2823,6 +2823,8 @@ async function proxySession(){
 // Calls the proxy. Throws an Error carrying flags the caller uses to decide whether to fall back.
 async function callProxy(payload, providerId, credential=credentialContext()){
   credentialCheck(credential);
+  const targetFxid = pendingMetaFxid || null;
+  const requestBody = JSON.stringify(payload===null ? {} : {prompt:AI_PROMPT+payload,provider:providerId,fxid:targetFxid});
   const session = await proxySession();
   credentialCheck(credential);
   if(session && (!session.user || session.user.id!==credential.owner || !credential.owner)) throw Error("Credential session changed; retry.");
@@ -2831,14 +2833,22 @@ async function callProxy(payload, providerId, credential=credentialContext()){
   const res = await aiQueued(()=> { credentialCheck(credential); return fetch(SUPA_URL + '/functions/v1/ai-analyze', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'authorization':'Bearer '+accessToken, 'apikey': SUPA_KEY },
-    body: JSON.stringify(payload===null ? {} : { prompt: AI_PROMPT + payload, provider: providerId, fxid: pendingMetaFxid || null })
+    body: requestBody
   }); });
   credentialCheck(credential);
   let j = {}; try{ j = await res.json(); }catch(_){}
   credentialCheck(credential);
+  if(j.ok && Object.hasOwn(j,'fxid') && j.fxid!==targetFxid) throw Error('AI response belongs to a different fixture. Please reopen the match.');
+  mergeQuota(j,credential); // Dispatched failures can retain an allocation; keep the scoped counter accurate.
   if(!res.ok || !j.ok){
-    const e = new Error('AI service unavailable (HTTP '+res.status+').');
+    const message = j.inProgress ? 'This analysis is already being prepared. Please try again shortly.'
+      : j.allocationRetained ? 'The AI request could not be completed. It still counts toward the daily allowance.'
+      : j.quotaExceeded ? 'Your daily AI request allowance has been used.'
+      : 'AI service unavailable (HTTP '+res.status+').';
+    const e = new Error(message);
     e.quotaExceeded = !!j.quotaExceeded;
+    e.inProgress = !!j.inProgress;
+    e.allocationRetained = !!j.allocationRetained;
     e.needsLogin    = res.status===401;
     e.notConfigured = res.status===503;
     throw e;
@@ -2852,12 +2862,16 @@ async function callProxy(payload, providerId, credential=credentialContext()){
 }
 /* One place that decides what the quota counters are, so a response that omits a field can never
    blank a number the app already knew. */
-function mergeQuota(j){
+function mergeQuota(j,credential=credentialContext()){
+  credentialCheck(credential);
+  const day = new Date().toISOString().slice(0,10);
+  if(j && j.quota_day!=null && j.quota_day!==day) return;
+  if(j && j.clearQuota===true){ aiQuota=null; return; }
   if(!j || (j.limit==null && j.used==null)) return;
-  const prev = aiQuota || {};
-  const used  = j.used  != null ? j.used  : (prev.used  != null ? prev.used  : 0);
-  const limit = j.limit != null ? j.limit : (prev.limit != null ? prev.limit : null);
-  aiQuota = { used, limit };
+  const prev = aiQuota && aiQuota.day===day && aiQuota.owner===credential.owner && aiQuota.epoch===credential.epoch ? aiQuota : {};
+  const used = Number.isSafeInteger(j.used) && j.used>=0 ? j.used : (prev.used ?? null);
+  const limit = Number.isSafeInteger(j.limit) && j.limit>0 ? j.limit : (prev.limit ?? null);
+  aiQuota = { used, limit, day, owner:credential.owner, epoch:credential.epoch };
 }
 // Ask the server which providers it has keys for (used to label the Settings chips).
 async function refreshServerProviders(){
@@ -2873,10 +2887,11 @@ async function runAIWriter(providerId, payload, credential=credentialContext()){
   const p = aiProviderById(providerId), ownKey = PERSONAL_PROVIDER_INPUTS_ENABLED ? aiKeys[providerId] : null;
   let serverErr = null;
   if(supa){
-    try{ const j = await callProxy(payload, providerId, credential); return { text:j.text, via:'server', label:j.providerLabel || p.name }; }
+    try{ const j = await callProxy(payload, providerId, credential); return { text:j.text, via:'server', label:j.providerLabel || p.name, sourceScope:j.source_scope || 'legacy' }; }
     catch(e){
       credentialCheck(credential);
       serverErr = e;
+      if(e.inProgress || e.allocationRetained) throw e;
       // Out of quota is a deliberate stop, not a failure to route around — unless the user has
       // their own key, in which case they're paying and shouldn't be limited.
       if(e.quotaExceeded && !ownKey) throw e;
@@ -2895,11 +2910,15 @@ function syncAIKeyField(){
 }
 // "· 2 of 5 today" — only meaningful for analyses that used the shared server allowance
 function quotaNote(via){
-  if(via!=='server' || !aiQuota || aiQuota.limit==null) return '';
+  const credential=credentialContext();
+  if(via!=='server' || !aiQuota || aiQuota.used==null || aiQuota.limit==null || aiQuota.owner!==credential.owner || aiQuota.epoch!==credential.epoch || aiQuota.day!==new Date().toISOString().slice(0,10)) return '';
   const u = aiQuota.used==null ? 0 : aiQuota.used;
-  return `  (${u} of ${aiQuota.limit} free analyses used today.)`;
+  return `  (${u} of ${aiQuota.limit} daily AI requests used.)`;
 }
+function aiWriterBasis(result){ return result.sourceScope==='shared' ? 'verified fixture data' : 'the engine output above'; }
 function renderAISettings(){
+  const credential=credentialContext();
+  if(aiQuota && (aiQuota.day!==new Date().toISOString().slice(0,10) || aiQuota.owner!==credential.owner || aiQuota.epoch!==credential.epoch)) aiQuota=null;
   if(!PERSONAL_PROVIDER_INPUTS_ENABLED){
     if($('aiServerStatus')) $('aiServerStatus').textContent='AI analysis availability is managed by MatchMind.';
     return;
@@ -2914,7 +2933,7 @@ function renderAISettings(){
     if(aiServerProviders===null) st.textContent = 'Sign in to use the shared AI allowance.';
     else if(!aiServerProviders.length) st.textContent = 'No shared AI configured on the server yet. A personal key below still works.';
     else st.innerHTML = `● = written by the app's own AI, no key needed`
-      + ((aiQuota && aiQuota.limit!=null) ? ` · <b>${Math.max(0, aiQuota.limit-(aiQuota.used||0))} of ${aiQuota.limit}</b> left today` : '')
+      + ((aiQuota && aiQuota.used!=null && aiQuota.limit!=null) ? ` · <b>${Math.max(0, aiQuota.limit-(aiQuota.used||0))} of ${aiQuota.limit}</b> left today` : '')
       + `. A personal key below skips the daily limit.`;
   }
   const cc = $('aiCompareChips');
@@ -3691,7 +3710,7 @@ async function renderMatchContext(L,f,s){
   const r=await runAIWriter(aiProvider,enginePayloadStr(ctx),credential);
   if(gen!==_analysisGeneration)return;
   $('analysisText').textContent=deLatex(r.text);
-  $('verdictBox').textContent=`✨ Written by ${r.label} from the engine output above.`+quotaNote(r.via);
+  $('verdictBox').textContent=`✨ Written by ${r.label} from ${aiWriterBasis(r)}.`+quotaNote(r.via);
  }catch(e){
   if(gen!==_analysisGeneration)return;
   $('verdictBox').textContent+=`  (${e.message} Showing the built-in analysis. The predictions above are unaffected.)`;
@@ -11806,7 +11825,7 @@ async function analyze(){
       if(analysisTurn!==_analysisGeneration) return;
       $('analysisHeading').textContent = 'Professional AI Write-up · ' + r.label;
       $('analysisText').textContent = deLatex(r.text);
-      $('verdictBox').textContent = `✨ Written by ${r.label} from the engine output above.` + quotaNote(r.via);
+      $('verdictBox').textContent = `✨ Written by ${r.label} from ${aiWriterBasis(r)}.` + quotaNote(r.via);
       // head-to-head compare against a second provider (#20)
       if(aiCompare && aiCompare!==aiProvider){
         const _p2 = aiProviderById(aiCompare);

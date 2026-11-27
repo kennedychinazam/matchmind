@@ -1,0 +1,189 @@
+--- a/index.ts
++++ b/index.ts
+@@ -18,1 +18,3 @@
+-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
++import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
++import { secureGeneration } from "./backend/ai-generation/generation-service.mjs";
++import { prepareProvider } from "./backend/ai-generation/provider-fetch.mjs";
+@@ -205,163 +207,15 @@
+-    // ---- what are they asking for? ----
+-    let body = {};
+-    try { body = await req.json(); } catch (_) {}
+-    const { prompt, provider, mode, fxid } = body as { prompt?: string; provider?: string; mode?: string; fxid?: number };
+-    const wantContext = mode === "context";
+-
+-    /* One analysis per fixture, shared by everyone (build 81).
+-       Ken watched his Gemini allowance drain by re-opening the same match: each visit was a fresh
+-       generation, per user, per tab. But a match write-up is the same for every reader — so the
+-       first person to open a fixture pays for it and the rest read the stored copy. Returned BEFORE
+-       the quota check, so a cache hit costs nobody anything. Twelve hours, because a pre-match
+-       write-up goes stale as team news lands. */
+-    if (!wantContext && fxid) {
+-      const { data: hit } = await admin.from("match_analysis")
+-        .select("text, model, updated_at").eq("fxid", fxid).maybeSingle();
+-      if (hit?.text && Date.now() - new Date(hit.updated_at).getTime() < 12*3600*1000) {
+-        return json({ ok: true, cached: true, text: hit.text, providerLabel: hit.model || null }, 200, origin);
+-      }
+-    }
+-
+-    /* Serve a cached lookup before touching the quota. Team news for a given fixture is the same for
+-       everyone, and it barely changes hour to hour, so one grounded prompt can serve every tester.
+-       Cache entries older than 6 hours are refetched, since late team news matters most. */
+-    if (wantContext && fxid) {
+-      const { data: hit } = await admin.from("match_context")
+-        .select("payload, updated_at").eq("fxid", fxid).maybeSingle();
+-      if (hit?.payload && Date.now() - new Date(hit.updated_at).getTime() < 6*3600*1000) {
+-        return json({ ok: true, cached: true, mode: "context",
+-                      context: hit.payload.context, sources: hit.payload.sources || [] }, 200, origin);
+-      }
+-    }
+-
+-    const have = available();
+-    if (!have.length) {
+-      return json({ ok: false, error: "No AI provider is configured yet. Add a key in Edge Functions → Secrets." }, 503, origin);
+-    }
+-    // a bare request just reports what's on offer, so the app can build its provider menu
+-    if (!prompt) {
+-      return json({ ok: true, providers: have.map((id) => ({ id, label: PROVIDERS[id].label })), limit: DAILY_LIMIT }, 200, origin);
+-    }
+-    if (prompt.length > MAX_PROMPT_CHARS) {
+-      return json({ ok: false, error: "That request is too large to analyse." }, 413, origin);
+-    }
+-
+-    let id = have.includes(provider ?? "") ? provider! : have[0];
+-    /* Context mode is only honest on a provider that can actually search. Without retrieval a model
+-       answers team-news questions from stale training data and sounds just as confident, so we
+-       refuse rather than serve a plausible fiction. */
+-    if (wantContext && !PROVIDERS[id].groundedBody) {
+-      const grounded = have.find((x) => PROVIDERS[x].groundedBody);
+-      if (!grounded) {
+-        return json({ ok: false, error: "Live team news needs a provider that can search the web. Add a GEMINI_KEY." }, 503, origin);
+-      }
+-      id = grounded;
+-    }
+-    const P = PROVIDERS[id];
+-
+-    // ---- daily quota ----
+-    // Counted per user per UTC day. Checked before the call so a rejected request costs nothing.
+-    const today = new Date().toISOString().slice(0, 10);
+-    const { data: usage } = await admin
+-      .from("ai_usage").select("count").eq("user_id", user.id).eq("day", today).maybeSingle();
+-    const used = usage?.count ?? 0;
+-    if (used >= DAILY_LIMIT) {
+-      return json({
+-        ok: false, quotaExceeded: true, used, limit: DAILY_LIMIT,
+-        error: `You've used all ${DAILY_LIMIT} AI analyses for today. They reset at midnight UTC.`,
+-      }, 429, origin);
+-    }
+-
+-    // ---- call the provider ----
+-    // Providers with a `models` list get retried down it on 404 (retired model name); every other
+-    // status stops immediately, since retrying a rate-limit or an auth failure helps nobody.
+-    const key = keyFor(id);
+-    const candidates = P.models && P.models.length ? P.models : [null];
+-    // NB: name this `usedModel`, not `used` — `used` is the quota counter above, and redeclaring it
+-    // stops the whole function parsing, which silently kills the AI (it did exactly that in build 43).
+-    let res, raw = "", usedModel = null, retriedRateLimit = false, payload = null;
+-    for (const model of candidates) {
+-      try {
+-        // context mode needs live retrieval, so it uses the grounded body when the provider has one
+-      payload = wantContext && P.groundedBody
+-        ? P.groundedBody(CONTEXT_BRIEF + prompt)
+-        : P.body(OUTPUT_RULE + prompt);
+-      res = await fetch(P.url(key, model), { method: "POST", headers: P.headers(key), body: JSON.stringify(payload) });
+-      } catch (e) {
+-        console.error(`ai-analyze ${id} network: ${String(e)}`);
+-        return json({ ok: false, error: "The AI service didn't respond. Try again in a moment." }, 502, origin);
+-      }
+-      raw = await res.text();
+-      usedModel = model;
+-      if (res.ok) break;
+-      if (res.status === 404 && candidates.length > 1) {
+-        console.error(`ai-analyze ${id}: model "${model}" returned 404, trying the next one`);
+-        continue;
+-      }
+-      /* 429 = the free tier's 10-per-minute ceiling, and it is genuinely transient. Opening a match
+-         fires two calls (write-up + team news), so browsing five fixtures briefly exceeds it. One
+-         patient retry turns "try again shortly" into a result the user never had to think about. */
+-      if (res.status === 429 && !retriedRateLimit) {
+-        retriedRateLimit = true;
+-        /* Two waits, not one (build 62). Eleven testers share a single free-tier key, so collisions
+-           are between people, not just between one person's own tabs — and a single 5s pause lands
+-           everyone back on the ceiling together. 6s then 12s spreads them out. */
+-        let ok429 = false;
+-        for (const waitMs of [6000, 12000]) {
+-          console.error(`ai-analyze ${id}: rate-limited, waiting ${waitMs}ms then retrying`);
+-          await new Promise((r) => setTimeout(r, waitMs));
+-          try {
+-            res = await fetch(P.url(key, model), { method: "POST", headers: P.headers(key), body: JSON.stringify(payload) });
+-            raw = await res.text();
+-            if (res.ok) { ok429 = true; break; }
+-            if (res.status !== 429) break;
+-          } catch (_) { /* fall through to the error path below */ }
+-        }
+-        if (ok429) break;
+-      }
+-      break;
+-    }
+-    if (!res.ok) {
+-      // log the provider's real complaint, but don't leak it to the browser — it can contain key hints
+-      console.error(`ai-analyze ${id} HTTP ${res.status} (model ${usedModel}): ${raw.slice(0, 500)}`);
+-      const msg = res.status === 429
+-        ? "Too many AI requests in the last minute — this is the free tier's ceiling, not an error. Wait about a minute and reopen the match."
+-        : res.status === 404
+-        ? "No usable AI model was found — the provider may have retired it. Set a GEMINI_MODEL secret to the current name."
+-        : "The AI service returned an error. The engine's own numbers are unaffected.";
+-      return json({ ok: false, error: msg, status: res.status }, 502, origin);
+-    }
+-    if (usedModel) console.log(`ai-analyze ${id}: model ${usedModel}`);
+-
+-    let text = "";
+-    try { text = P.parse(JSON.parse(raw)); } catch (_) {}
+-    if (!text.trim()) {
+-      console.error(`ai-analyze ${id}: empty reply — ${raw.slice(0, 300)}`);
+-      return json({ ok: false, error: "The AI returned an empty response. Try again." }, 502, origin);
+-    }
+-
+-    // ---- count it (only successful analyses are charged against the quota) ----
+-    const { error: upErr } = await admin
+-      .from("ai_usage").upsert({ user_id: user.id, day: today, count: used + 1 }, { onConflict: "user_id,day" });
+-    if (upErr) console.error(`ai-analyze quota write: ${upErr.message}`);
+-
+-    // store it so the next reader of this fixture pays nothing
+-    if (!wantContext && fxid && text) {
+-      const { error: aErr } = await admin.from("match_analysis")
+-        .upsert({ fxid, text, model: usedModel || id, updated_at: new Date().toISOString() }, { onConflict: "fxid" });
+-      if (aErr) console.error(`ai-analyze analysis cache: ${aErr.message}`);
+-    }
+-
+-    let sources = [], context = null;
+-    if (wantContext && P.sources) {
+-      try { sources = P.sources(JSON.parse(raw)); } catch (_) {}
+-      context = readContext(text, sources.length > 0);
+-      // cache so eleven testers looking at the same fixture cost one grounded prompt, not eleven
+-      if (fxid) {
+-        const { error: cErr } = await admin.from("match_context")
+-          .upsert({ fxid, payload: { context, sources }, updated_at: new Date().toISOString() }, { onConflict: "fxid" });
+-        if (cErr) console.error(`ai-analyze cache write: ${cErr.message}`);
+-      }
+-    }
+-    return json({ ok: true, text, sources, context, cached: false, mode: wantContext ? "context" : "analysis",
+-                  provider: id, providerLabel: P.label, used: used + 1, limit: DAILY_LIMIT }, 200, origin);
++    let body = {};
++    try { body = await req.json(); } catch (_) {}
++    const result = await secureGeneration({
++      admin, user, body, dailyLimit: DAILY_LIMIT, providers: PROVIDERS, available,
++      prepare: ({id,P,prompt,wantContext}) => prepareProvider({id,P,key:keyFor(id),prompt,wantContext,outputRule:OUTPUT_RULE,contextBrief:CONTEXT_BRIEF,readContext}),
++      rawAccess: async () => {
++        const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
++        if (!anonKey) return false;
++        const caller = createClient(Deno.env.get("SUPABASE_URL")!,anonKey,{global:{headers:{Authorization:auth}},auth:{persistSession:false,autoRefreshToken:false}});
++        const r = await caller.rpc("matchmind_fixture_access_v1",{});
++        return !r.error && r.data?.version === "matchmind-fixture-access/1" && r.data.raw_allowed === true
++          && typeof r.data.expires_at === "string" && Date.parse(r.data.expires_at) > Date.now();
++      },
++    });
++    return json(result.body, result.status, origin);
+@@ -369,1 +223,1 @@
+-    console.error("ai-analyze fatal: " + String(e));
++    console.error("ai-analyze generation failed");

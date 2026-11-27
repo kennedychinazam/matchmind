@@ -33,3 +33,12 @@ Primary accepted the collector correction after26 focused checks, the real empty
 **MM-03 hosted preview acceptance is complete for this bounded public guest preview. Next job: MM-05 AI fixture prompt/cache provenance and atomic quota reservation.** MM-01 physical phones/controlled legacy cleanup, MM-02 existing hosted publisher sessions/cache lifecycle, MM-04 billing/retention/archive/restore and all later register items remain open. No production main merge/deployment, SQL migration, token rotation, cleanup or phone-data clearing occurred. Production main remains2b42b1a8c24b58305cc263e6b293ab7931c8661f. EDUVANTA was not accessed.
 
 MM-05 is now the active job: one agent is inspecting prompt/cache provenance and quota/deduplication locally. No MM-05 edits or hosted actions are authorized by that inspection phase. Primary will review its concrete plan, implementation and meaningful synthetic tests before MM-06 begins.
+
+
+## MM-05 local acceptance — 27 November 2026
+
+Primary accepted the local AI prompt/provenance, atomic quota/work and client fencing repair after an independently clean54/54handler/PostgreSQL/client/credential run (0failed/skipped/cancelled), exact-v17 patch reconstruction and successful17module Deno bundle. Exact-app desktop PWA proof is PASS for appSHA2569fce3822952e48394f99f5a480e28987b64f96092973a94e81bdcced7eba2c98. Primary additionally fixed a reproduced nullable SQL completion guard and account/day/target quota-display and known-pending fallback issues. Preserved failures include the original quota race, repeated-refund draft, malformed completion, and earlier test-harness errors. See MM05-AI-SECURITY-REVIEW.md.
+
+This is local behavioral acceptance. Hosted AI remainsv17; SQL is an unexecuted proposal. Strict Deno type checking remains unsuccessful (baseline40diagnostics/candidate35, including four new implicit callback bindings); bundling is not a type pass. Remote SDK pinning, concrete stop/drain/isolation of old work, matched SQL/Edge/client installation, rollback and hosted verification remain release gates. No AI deployment/migration/provider invocation, quota reset, cleanup or phone-data clearing occurred.
+
+Next job: MM-06 server-side pre-kickoff prediction issuance and immutable published fields. Start one read-only inspection agent only after this primary acceptance; require a concrete local plan before repair. MM-01 physical/legacy, MM-02 hosted-session, MM-04 billing/retention/archive/restore and MM-05 hosted gates remain open. Original29IDs/order and later attached findings are preserved.
