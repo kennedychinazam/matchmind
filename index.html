@@ -12958,9 +12958,21 @@ async function stampPublicationPrices(rows){
     if(price != null && price > 1) r.odds_at_pick = price;   // 1.0 or less is not a price
   }
 }
+function predictionWriteContext(){
+  return {client:supa,owner:authUser&&authUser.id,epoch:_cloudAccountEpoch,authority:_publisherAuthority};
+}
+function predictionWriteCurrent(c){
+  return !!(c&&c.client===supa&&c.owner&&authUser&&c.owner===authUser.id&&c.epoch===_cloudAccountEpoch
+    &&c.authority===_publisherAuthority&&isPublisher());
+}
+function predictionQueuedBeforeKickoff(r){
+  const ko=kickoffUTC(r.kickoff,r.ktime);
+  return !!(ko&&Date.now()<ko.getTime());
+}
 async function flushPredictionArchive(){
-  if(!archiveWritable() || (!archiveQueue.size && !driftQueue.size)) return;   // build 280
-  const fresh = [...archiveQueue.values()];
+  const context=predictionWriteContext();
+  if(!predictionWriteCurrent(context) || !archiveWritable() || (!archiveQueue.size && !driftQueue.size)) return;
+  let fresh = [...archiveQueue.values()];
   const moved = [...driftQueue.values()];
   archiveQueue.clear(); driftQueue.clear();
   try{
@@ -12973,7 +12985,12 @@ async function flushPredictionArchive(){
       /* ignoreDuplicates is the whole mechanism. Two devices racing on the same fixture both send
          an insert; the first lands, the second is discarded by the primary key rather than
          overwriting it. `onConflict` names the key that decides. */
-      const ins = await fixtureTable('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true });
+      // Prices can await across kickoff, sign-out or client replacement. The original write context
+      // must still own dispatch; server admission remains authoritative at the actual insert.
+      if(!predictionWriteCurrent(context) || !archiveWritable()) return;
+      fresh=fresh.filter(predictionQueuedBeforeKickoff);
+      const ins = fresh.length ? await fixtureTable('predictions').upsert(fresh, { onConflict:'fxid', ignoreDuplicates:true }) : null;
+      if(!predictionWriteCurrent(context)) return;
       /* THE LINE WHOSE ABSENCE COST EIGHT DAYS. A denied insert comes back as `{ error }`, not as a
          throw, so without this the batch vanishes and the app carries on looking healthy. Nothing is
          re-queued: `archivePrediction` re-queues on the next load anyway, because the fixture still
@@ -12982,9 +12999,10 @@ async function flushPredictionArchive(){
       /* READ BACK, because the row that won may not be the row this device sent. Optimistically
          trusting our own payload is how two phones end up showing different "frozen" picks, which
          is the exact incoherence this build exists to remove. */
-      const { data, error: readErr } = await fixtureTable('predictions')
+      const { data, error: readErr } = fresh.length ? await fixtureTable('predictions')
         .select('fxid,pick,pick_prob,market,made_at,withheld_at,final_pick,p_home,p_draw,p_away,xg_home,xg_away,build')
-        .in('fxid', fresh.map(r => r.fxid));
+        .in('fxid', fresh.map(r => r.fxid)) : {data:[],error:null};
+      if(!predictionWriteCurrent(context)) return;
       if(readErr) archiveFailure('read back', readErr);
       if(data){
         afState.archive = afState.archive || {};
@@ -13000,6 +13018,7 @@ async function flushPredictionArchive(){
        a `final_pick` yet. Once written they are read back and never re-sent, so the cost is paid
        once globally rather than per device — but paying it as 645 sequential requests on a phone on
        mobile data is not acceptable, so the remainder is put back and goes out on the next flush. */
+    if(!predictionWriteCurrent(context)) return;
     const rest = moved.slice(DRIFT_PER_FLUSH);
     for(const r of rest) driftQueue.set(r.fxid, r);
     if(rest.length){ clearTimeout(archiveTimer); archiveTimer = setTimeout(flushPredictionArchive, 4000); }
@@ -13012,6 +13031,7 @@ async function flushPredictionArchive(){
          with only the entry gate in place: **17 went out**. The untried remainder has its optimistic
          local guard released exactly as a failure would, so nothing is lost and the next load
          re-queues it. */
+      if(!predictionWriteCurrent(context)) return;
       if(!archiveWritable()){
         for(let k = bi; k < batch.length; k++){
           const a2 = afState.archive && afState.archive[batch[k].fxid];
@@ -13022,13 +13042,14 @@ async function flushPredictionArchive(){
       const up = await fixtureTable('predictions')
         .update({ final_pick:r.final_pick, final_prob:r.final_prob, final_at:r.final_at })
         .eq('fxid', r.fxid);
+      if(!predictionWriteCurrent(context)) return;
       if(up && up.error && archiveFailure('drift', up.error)){
         /* release the optimistic local guard so the next load re-queues this one */
         const a = afState.archive && afState.archive[r.fxid];
         if(a) a.finalPick = r._wasFinal || null;
       }
     }
-  }catch(e){ archiveFailure('flush', e); }   /* still never interrupts the app — but never silent */
+  }catch(e){ if(predictionWriteCurrent(context)) archiveFailure('flush', e); }   /* still never interrupts the app — but never silent */
 }
 
 /* ══ BUILD 362 — THE LEAN STORE ══════════════════════════════════════════════════════════════

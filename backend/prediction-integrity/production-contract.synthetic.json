@@ -1,0 +1,1011 @@
+{
+  "captured_at_utc": "2026-11-27T02:49:05.623489+00:00",
+  "capture_sha256": "ef0fbddd3d9359b570a90a721cfbcd8713ec3fc669067400c6cf8db3f9150f67",
+  "columns": [
+    {
+      "name": "fxid",
+      "type": "bigint",
+      "table": "fixtures",
+      "default": null,
+      "not_null": true
+    },
+    {
+      "name": "lid",
+      "type": "bigint",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "date",
+      "type": "date",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "time",
+      "type": "text",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "status",
+      "type": "text",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "home",
+      "type": "text",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "away",
+      "type": "text",
+      "table": "fixtures",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "fxid",
+      "type": "bigint",
+      "table": "predictions",
+      "default": null,
+      "not_null": true
+    },
+    {
+      "name": "lid",
+      "type": "integer",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "lname",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "kickoff",
+      "type": "date",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "ktime",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "home",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "away",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "p_home",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "p_draw",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "p_away",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "xg_home",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "xg_away",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "pick",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "pick_prob",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "build",
+      "type": "integer",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "made_at",
+      "type": "timestamp with time zone",
+      "table": "predictions",
+      "default": "now()",
+      "not_null": false
+    },
+    {
+      "name": "market",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "final_pick",
+      "type": "text",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "final_prob",
+      "type": "real",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "final_at",
+      "type": "timestamp with time zone",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "withheld_at",
+      "type": "timestamp with time zone",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "odds_at_pick",
+      "type": "numeric",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "odds_at_pick_at",
+      "type": "timestamp with time zone",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    },
+    {
+      "name": "odds_snap_id",
+      "type": "bigint",
+      "table": "predictions",
+      "default": null,
+      "not_null": false
+    }
+  ],
+  "policies": [
+    {
+      "cmd": "SELECT",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "tablename": "fixtures",
+      "permissive": "PERMISSIVE",
+      "policyname": "public read fixtures",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "( SELECT mm_fixture_delivery.raw_allowed() AS raw_allowed)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "fixtures",
+      "permissive": "RESTRICTIVE",
+      "policyname": "mm_source_raw_fence",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "( SELECT mm_fixture_delivery.raw_allowed() AS raw_allowed)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "fixtures",
+      "permissive": "PERMISSIVE",
+      "policyname": "mm_source_raw_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "true",
+      "roles": [
+        "mm_display_materializer"
+      ],
+      "tablename": "fixtures",
+      "permissive": "PERMISSIVE",
+      "policyname": "materializer_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "true",
+      "roles": [
+        "mm_match_context"
+      ],
+      "tablename": "fixtures",
+      "permissive": "PERMISSIVE",
+      "policyname": "match_context_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "true",
+      "roles": [
+        "public"
+      ],
+      "tablename": "predictions",
+      "permissive": "PERMISSIVE",
+      "policyname": "read predictions",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "public"
+      ],
+      "tablename": "predictions",
+      "permissive": "PERMISSIVE",
+      "policyname": "write predictions",
+      "schemaname": "public",
+      "with_check": "(((auth.jwt() ->> 'email'::text) = 'publisher@example.invalid'::text) AND (kickoff <= (((now() AT TIME ZONE 'utc'::text))::date + 5)))"
+    },
+    {
+      "cmd": "UPDATE",
+      "qual": "(((auth.jwt() ->> 'email'::text) = 'publisher@example.invalid'::text) AND (EXISTS ( SELECT 1\n   FROM fixtures f\n  WHERE ((f.fxid = predictions.fxid) AND (f.date >= ((now() AT TIME ZONE 'utc'::text))::date)))))",
+      "roles": [
+        "public"
+      ],
+      "tablename": "predictions",
+      "permissive": "PERMISSIVE",
+      "policyname": "update prediction drift",
+      "schemaname": "public",
+      "with_check": "(((auth.jwt() ->> 'email'::text) = 'publisher@example.invalid'::text) AND (EXISTS ( SELECT 1\n   FROM fixtures f\n  WHERE ((f.fxid = predictions.fxid) AND (f.date >= ((now() AT TIME ZONE 'utc'::text))::date)))))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "( SELECT mm_fixture_delivery.raw_allowed() AS raw_allowed)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "predictions",
+      "permissive": "RESTRICTIVE",
+      "policyname": "mm_source_raw_fence",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "( SELECT mm_fixture_delivery.raw_allowed() AS raw_allowed)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "predictions",
+      "permissive": "PERMISSIVE",
+      "policyname": "mm_source_raw_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "true",
+      "roles": [
+        "mm_display_materializer"
+      ],
+      "tablename": "predictions",
+      "permissive": "PERMISSIVE",
+      "policyname": "materializer_read",
+      "schemaname": "public",
+      "with_check": null
+    }
+  ],
+  "grants": [
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "DELETE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "DELETE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "DELETE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "fixtures",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "INSERT",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "SELECT",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "UPDATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "DELETE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRUNCATE",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "REFERENCES",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "service_role",
+      "grantor": "postgres",
+      "table_name": "predictions",
+      "is_grantable": "NO",
+      "table_schema": "public",
+      "table_catalog": "postgres",
+      "privilege_type": "TRIGGER",
+      "with_hierarchy": "NO"
+    }
+  ],
+  "effective_columns": [
+    {
+      "role": "authenticated",
+      "column": "fxid",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "lid",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "lname",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "kickoff",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "ktime",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "home",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "away",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "p_home",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "p_draw",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "p_away",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "xg_home",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "xg_away",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "pick",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "pick_prob",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "build",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "made_at",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "market",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "final_pick",
+      "update": true
+    },
+    {
+      "role": "authenticated",
+      "column": "final_prob",
+      "update": true
+    },
+    {
+      "role": "authenticated",
+      "column": "final_at",
+      "update": true
+    },
+    {
+      "role": "authenticated",
+      "column": "withheld_at",
+      "update": true
+    },
+    {
+      "role": "authenticated",
+      "column": "odds_at_pick",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "odds_at_pick_at",
+      "update": false
+    },
+    {
+      "role": "authenticated",
+      "column": "odds_snap_id",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "fxid",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "lid",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "lname",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "kickoff",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "ktime",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "home",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "away",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "p_home",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "p_draw",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "p_away",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "xg_home",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "xg_away",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "pick",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "pick_prob",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "build",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "made_at",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "market",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "final_pick",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "final_prob",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "final_at",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "withheld_at",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "odds_at_pick",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "odds_at_pick_at",
+      "update": false
+    },
+    {
+      "role": "anon",
+      "column": "odds_snap_id",
+      "update": false
+    },
+    {
+      "role": "service_role",
+      "column": "fxid",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "lid",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "lname",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "kickoff",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "ktime",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "home",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "away",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "p_home",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "p_draw",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "p_away",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "xg_home",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "xg_away",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "pick",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "pick_prob",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "build",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "made_at",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "market",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "final_pick",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "final_prob",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "final_at",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "withheld_at",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "odds_at_pick",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "odds_at_pick_at",
+      "update": true
+    },
+    {
+      "role": "service_role",
+      "column": "odds_snap_id",
+      "update": true
+    }
+  ]
+}
