@@ -62,7 +62,8 @@ export function realTransform(index,manifest,logos=null){
  html=html.replaceAll('window.localStorage','window.__MM_REAL_STORAGE__').replace(/\blocalStorage\b/g,'window.__MM_REAL_STORAGE__').replace(/\bindexedDB\b/g,'window.__MM_REAL_IDB__');
  html=once(html,'<head>',"<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rdcbnvfnxenrpnnwxszs.supabase.co; form-action 'none'; object-src 'none'; base-uri 'self'\">"+REAL_GUARD.replace('Build 358',`Build ${build}`));
  const banner=html.match(/b\.textContent='STAGING [^']*';/g);if(banner?.length!==1)throw Error('Staging banner changed');html=once(html,banner[0],"b.textContent='READ-ONLY PREVIEW · awaiting verified real data';");
- const start=html.indexOf('function initSupabase(){'),end=html.indexOf('// Only a verified deletion completion',start);if(start<0||end<start)throw Error('Guest init boundary changed');
+ const endAnchor='const _deletedAccountOwners = new WeakMap();';
+ const start=html.indexOf('function initSupabase(){'),end=html.indexOf(endAnchor,start);if(start<0||end<start||html.indexOf(endAnchor,end+endAnchor.length)!==-1)throw Error('Guest init boundary changed');
  html=html.slice(0,start)+GUEST_INIT+'\n'+html.slice(end);
  html=once(html,'function renderAccount(){',"function renderAccount(){ $('acctBox').textContent='Read-only development preview · guest mode'; return; ");
  html=once(html,"computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;","computedAt:p.board?.builtAt||null,build:null,at:Date.now()};_boardIx=null;");

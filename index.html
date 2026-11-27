@@ -624,7 +624,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
   <div class="topbar">
     <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><rect x="20.5" y="3" width="7" height="5" rx="1.6" fill="var(--gold)"/><circle cx="24" cy="27" r="16.5" fill="none" stroke="var(--gold)" stroke-width="3.4"/><path d="M15.5 35 V20 L24 29.5 L32.5 20 V35" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span id="brandName"></span> <span class="pro">PRO</span></div>
     <div class="topright">
-      <div class="chip-status" id="dataChip">● <b>Sample data</b></div>
+      <div class="chip-status" id="dataChip">● <b>Loading</b></div>
       <button class="iconbtn" id="searchOpen" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;display:block"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     </div>
   </div>
@@ -651,6 +651,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
     <div class="datebar" id="scoresDateBar"></div>
     <div class="card">
       <div class="muted" id="scoresMeta">Loading matches…</div>
+      <button type="button" class="btn hidden" id="scoresRetry" style="min-height:44px;margin-top:8px">Retry</button>
       <div id="scoresList"></div>
     </div>
   </div>
@@ -667,7 +668,8 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
       <div class="datebar" id="dateBar"></div>
       <div class="card" id="fixtureList"></div>
     </div>
-    <div class="status" id="fixturesMeta" role="status">Matches temporarily unavailable. Please try again.</div>
+    <div class="status" id="fixturesMeta" role="status">Loading matches…</div>
+    <button type="button" class="btn hidden" id="fixturesRetry" style="min-height:44px;margin:8px 0">Retry</button>
 
     <!-- Compatibility-only discovery nodes. Public provider discovery is disabled by policy. -->
     <div hidden aria-hidden="true" id="discoverCard">
@@ -1028,6 +1030,7 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
     <div class="card">
       <h2>🎯 How the engine is doing</h2>
       <div class="muted" id="moreRecordLine" style="line-height:1.5"></div>
+      <button type="button" class="btn hidden" id="moreRecordRetry" style="min-height:44px;margin-top:8px">Retry</button>
       <div id="moreRecordBreak" style="margin-top:10px"></div>
       <div id="moreLeanRecord"></div>
       <!-- BUILD 353 (WO-58) - Ken, 2026-10-17, of the closing-line panel that sat here: "ALSO
@@ -3190,6 +3193,96 @@ function activateLeague(id){
   setDataChip('Live · '+L.name);
 }
 
+/* Public read recovery: memory-only status, scoped attempts and read-only deadlines. */
+const PUBLIC_READ_TIMEOUT_MS=12000,PUBLIC_READ_BUDGET_MS=45000;
+let _publicReadGeneration=0,_publicRecoveryTimer=null;
+const _publicReads={scores:null,analysis:null,records:null};
+function publicReadContext(){
+ return {client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+}
+function publicReadState(name){
+ const s=_publicReads[name];return s&&fixtureDeliveryCurrent(s)?s:{state:'idle',accepted:false,at:0};
+}
+function publicReadBegin(name){
+ const prior=publicReadState(name),s={...prior,...publicReadContext(),generation:++_publicReadGeneration,state:'loading'};
+ _publicReads[name]=s;publicReadPaint(name);return s;
+}
+function publicReadCurrent(name,attempt){
+ return _publicReads[name]===attempt&&fixtureDeliveryCurrent(attempt);
+}
+function publicReadFinish(name,attempt,state,metadata={}){
+ if(!publicReadCurrent(name,attempt))return false;
+ Object.assign(attempt,metadata,{state,at:Date.now()});if(state==='loaded'||state==='empty')attempt.accepted=true;
+ publicReadPaint(name);return true;
+}
+async function publicReadRequest(factory,context,deadline=Date.now()+PUBLIC_READ_TIMEOUT_MS){
+ const timeout=Math.min(PUBLIC_READ_TIMEOUT_MS,deadline-Date.now());
+ if(timeout<=0)throw Error('Public read deadline exceeded');
+ const expires=Date.now()+timeout,controller=new AbortController();let timer;
+ const stopped=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Public read deadline exceeded'));},timeout);});
+ try{
+  if(context&&!fixtureDeliveryCurrent(context))throw Error('Public read context changed');
+  const q=factory(),operation=q&&typeof q.abortSignal==='function'?q.abortSignal(controller.signal):q;
+  const result=await Promise.race([operation,stopped]);
+  if(Date.now()>=expires){controller.abort();throw Error('Public read deadline exceeded');}
+  if(context&&!fixtureDeliveryCurrent(context))throw Error('Public read context changed');return result;
+ }finally{clearTimeout(timer);}
+}
+function publicReadButton(name,state){
+ const id={scores:'scoresRetry',analysis:'fixturesRetry',records:'moreRecordRetry'}[name],button=$(id);
+ if(button){button.classList.toggle('hidden',state!=='failed');button.disabled=state==='loading';button.textContent=supa?'Retry':'Reload';}
+}
+function publicReadPaint(name){
+ const s=publicReadState(name);publicReadButton(name,s.state);
+ if(name==='analysis'){
+  const el=$('fixturesMeta');if(el){el.setAttribute?.('role','status');el.textContent=s.state==='loading'?'Loading matches…':s.state==='failed'?(s.accepted&&_presentationUntil>Date.now()?'Refresh failed. Showing the last loaded edition.':'Matches temporarily unavailable.') : '';}
+ }
+ try{refreshDataChip();}catch{}
+}
+function publicScoresStatus(){
+ const s=publicReadState('scores'),el=$('scoresMeta');if(!el)return;
+ publicReadButton('scores',s.state);
+ const have=!!(afState.scores&&afState.scores.list&&afState.scores.list.length);
+ if(s.state==='failed'){
+  if(have)el.innerHTML='<b style="color:var(--red)">Refresh failed</b> · '+el.innerHTML;
+  else el.textContent='Matches temporarily unavailable.';
+ }else if(s.state==='loading'&&!have)el.textContent='Loading matches…';
+ try{refreshDataChip();}catch{}
+}
+function publicActiveResource(){
+ const view=typeof curView==='string'?curView:lastTab;return view==='scores'?'scores':view==='data'?'records':'analysis';
+}
+function publicDataChip(){
+ if(_dataSourceExplicit||fixtureRawCurrent())return false;
+ const name=publicActiveResource(),s=publicReadState(name),el=$('dataChip');if(!el)return true;
+ let accepted=s.accepted,asOf=s.asOf,until=s.until;
+ if(name==='scores'&&!accepted&&afState.scores?.source==='cloud'){accepted=true;asOf=Date.parse(afState.scores.editionAsOf||'');until=Date.parse(afState.scores.editionUntil||'');}
+ if(name==='analysis'&&!accepted&&_presentationAsOf){accepted=true;asOf=_presentationAsOf;until=_presentationUntil;}
+ if(typeof curView==='string'&&curView==='tips'&&typeof _sharedSlips!=='undefined'&&_sharedSlips.loaded){accepted=!_sharedSlips.error;}
+ const expired=accepted&&Number.isFinite(until)&&until<=Date.now(),hours=Number.isFinite(asOf)?Math.floor((Date.now()-asOf)/3600000):0;
+ const text=expired?'Edition expired':s.state==='failed'?'Unavailable':accepted?(hours>=7?'Edition · '+hours+'h old':'Published'):!supa?'Unavailable':'Loading';
+ _chipBase='Public';el.textContent='● '+text;el.style.whiteSpace='nowrap';
+ el.title=accepted&&Number.isFinite(asOf)?'Published '+new Date(asOf).toISOString().slice(0,16).replace('T',' ')+' UTC':'';return true;
+}
+function publicReadRetry(name){
+ if(!supa){location.reload();return Promise.resolve(false);}
+ if(publicReadState(name).state==='loading')return Promise.resolve(false);
+ return name==='scores'?afScores(true):name==='records'?loadSharedRecords():loadFixturePresentation();
+}
+function publicReadRecover(){
+ if(_publicRecoveryTimer!==null||!supa||document.visibilityState==='hidden')return false;
+ _publicRecoveryTimer=setTimeout(()=>{
+  _publicRecoveryTimer=null;if(!supa||document.visibilityState==='hidden')return;
+  const name=publicActiveResource(),s=publicReadState(name),age=Date.now()-(s.at||0),limit=name==='records'?600000:name==='analysis'?300000:120000;
+  if(s.state!=='loading'&&(name==='scores'||s.state==='failed'||s.state==='idle'||age>limit))Promise.resolve(publicReadRetry(name)).catch(()=>{});
+  if(name!=='scores')Promise.resolve(loadCloudResults()).catch(()=>{});
+ },250);return true;
+}
+function publicReadInstall(){
+ for(const[name,id]of Object.entries({scores:'scoresRetry',analysis:'fixturesRetry',records:'moreRecordRetry'})){const button=$(id);if(button)button.addEventListener('click',()=>{Promise.resolve(publicReadRetry(name)).catch(()=>{});});}
+ window.addEventListener('online',publicReadRecover);
+}
+
 /* Bounded provider presentation, version 1. Raw source access is a server decision,
    never a query-string, a local cache, a stored role or the fact of being signed in. */
 const FIXTURE_PRIVATE_TABLES = new Set(['fixtures','fixtures_lean','competitions','predictions','daily_slips','odds_snapshots','odds_latest','shared_records','predictions_retired']);
@@ -3212,7 +3305,7 @@ async function fixtureAccess(){
  if(!fixtureDeliveryCurrent(_fixtureDelivery))fixtureDeliveryReset();
  const c=_fixtureDelivery;
  if(!c.promise)c.promise=(async()=>{try{
-   const r=await c.client.rpc('matchmind_fixture_access_v1',{});
+   const r=await publicReadRequest(()=>c.client.rpc('matchmind_fixture_access_v1',{}),c);
    if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))return false;
    const expires=Date.parse(r.data&&r.data.expires_at||'');
    c.rawAllowed=!!(!r.error&&r.data&&r.data.version==='matchmind-fixture-access/1'&&r.data.raw_allowed===true&&c.owner&&Number.isFinite(expires)&&expires>Date.now()&&expires<=Date.now()+61000);
@@ -3302,6 +3395,7 @@ function publishedCompetitionsAccept(value){
 }
 function publishedCompetition(lid){return _publishedCompetitions.byLid.get(lid)||null;}
 async function fixtureDisplayLoad(screen){
+ const deadline=arguments[1]||Date.now()+PUBLIC_READ_BUDGET_MS;
  if(!['scores','predictions','history','records','slips'].includes(screen))throw Error('Unsupported display screen');
  if(!supa)throw Error('Display server unavailable');
  if(!fixtureDeliveryCurrent(_fixtureDelivery))fixtureDeliveryReset();
@@ -3314,16 +3408,16 @@ async function fixtureDisplayLoad(screen){
   /* A new edition is published every few minutes. When one lands while this screen (or its history
      pages) is being read, the read is restarted on the newer edition instead of failing the screen. */
   for(let attempt=1;;attempt++){
-   try{return await fixtureDisplayAttempt(c,screen);}
+   try{return await fixtureDisplayAttempt(c,screen,deadline);}
    catch(e){if(attempt>=4||!/Display edition changed/.test(String(e&&e.message)))throw e;c.screens.clear();}
   }
  })();
  c.screenPending.set(screen,pending);
  try{return await pending;}finally{if(c.screenPending.get(screen)===pending)c.screenPending.delete(screen);}
 }
-async function fixtureDisplayAttempt(c,screen){
+async function fixtureDisplayAttempt(c,screen,deadline){
  {
-  const r=await c.client.rpc('matchmind_display_v1',{screen});
+  const r=await publicReadRequest(()=>c.client.rpc('matchmind_display_v1',{screen}),c,deadline);
   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during display read');
   if(r.error)throw Error('Bounded display unavailable');
   /* `history_paged` is the one key a window-only edition adds to the history screen; it is taken off
@@ -3331,7 +3425,7 @@ async function fixtureDisplayAttempt(c,screen){
   const paged=screen==='history'&&!!r.data&&typeof r.data==='object'&&r.data.history_paged===true;
   let body=r.data;if(paged){body={...r.data};delete body.history_paged;}
   const payload=fixtureEnvelope(body,screen),prior=c.screens.values().next().value;
-  if(paged)await fixtureHistoryPages(c,payload);   // the server says the edition holds only the window   // the server says the edition holds only the window
+  if(paged)await fixtureHistoryPages(c,payload,deadline);   // the server says the edition holds only the window   // the server says the edition holds only the window
   if(c.newestAsOf&&Date.parse(payload.as_of)<c.newestAsOf)throw Error('Obsolete display edition');
   if(prior&&(prior.edition_id!==payload.edition_id||prior.as_of!==payload.as_of)){
    if(Date.parse(payload.as_of)<Date.parse(prior.as_of))throw Error('Obsolete display edition');
@@ -3344,8 +3438,9 @@ async function fixtureDisplayAttempt(c,screen){
 /* Two screens that must come from one edition: if an edition lands between the two reads, read
    both again on the newer edition (a few times at most) rather than failing. */
 async function fixtureDisplayPair(a,b){
+ const deadline=Date.now()+PUBLIC_READ_BUDGET_MS;
  for(let attempt=1;;attempt++){
-  const [x,y]=await Promise.all([fixtureDisplayLoad(a),fixtureDisplayLoad(b)]);
+  const [x,y]=await Promise.all([fixtureDisplayLoad(a,deadline),fixtureDisplayLoad(b,deadline)]);
   if(x.edition_id===y.edition_id&&x.as_of===y.as_of)return [x,y];
   if(attempt>=4)throw Error('Display edition changed');
   if(_fixtureDelivery&&_fixtureDelivery.screens)_fixtureDelivery.screens.clear();
@@ -3358,12 +3453,12 @@ async function fixtureDisplayPair(a,b){
    are read to the end: a page that fails, changes edition or never ends fails the whole history read
    rather than showing a silently shortened record. */
 const FIXTURE_HISTORY_MAX_PAGES=400;
-async function fixtureHistoryPages(c,payload){
+async function fixtureHistoryPages(c,payload,deadline=Date.now()+PUBLIC_READ_BUDGET_MS){
  const merged=new Map();for(const r of payload.cards)merged.set(r.fxid,r);
  let cursor=null;
  for(let page=0;;page++){
   if(page>=FIXTURE_HISTORY_MAX_PAGES)throw Error('History exceeds the page bound');
-  const r=await c.client.rpc('matchmind_history_v1',cursor?{before_date:cursor.date,before_fxid:cursor.fxid}:{});
+  const r=await publicReadRequest(()=>c.client.rpc('matchmind_history_v1',cursor?{before_date:cursor.date,before_fxid:cursor.fxid}:{}),c,deadline);
   if(c!==_fixtureDelivery||!fixtureDeliveryCurrent(c))throw Error('Account changed during history read');
   if(r.error||!r.data)throw Error('History unavailable');
   if(typeof r.data!=='object'||Array.isArray(r.data)||!Object.hasOwn(r.data,'next'))throw Error('History page without a cursor');
@@ -3457,10 +3552,11 @@ let _presentationAsOf = 0;   // as_of of the accepted edition; the header chip s
      'loaded'  `afState.archive` is what the source actually returned */
 let _archiveRead = 'pending';
 async function loadFixturePresentation(){
- try{
-  const c={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
+ const existing=publicReadState('analysis');if(existing.state==='loading'&&existing.promise)return existing.promise;
+ const attempt=publicReadBegin('analysis'),c=attempt;
+ const run=(async()=>{try{
   const [p,h]=await fixtureDisplayPair('predictions','history');
-  if(!fixtureDeliveryCurrent(c))return;
+  if(!publicReadCurrent('analysis',attempt))return;
   if(p.edition_id!==h.edition_id||p.as_of!==h.as_of)throw Error('Display edition changed during publication read');
   const cards=new Map();for(const r of [...h.cards,...p.cards])cards.set(r.fxid,r);
   const leagues={},archive={},cloudFix={};
@@ -3476,10 +3572,12 @@ async function loadFixturePresentation(){
   _boardRecord={state:p.board?'loaded':'empty',payload:p.board,computedAt:p.as_of,build:null,at:Date.now()};_boardIx=null;
   _leaguesLoadedAt=Date.now();_loadIssues=[];_loadShort=0;_presentationUntil=Date.parse(p.expires_at)||0;_presentationAsOf=Date.parse(p.as_of)||0;
   _archiveRead='loaded';   /* the archive above IS the accepted edition, so a missing row is a read result */
+  publicReadFinish('analysis',attempt,cards.size?'loaded':'empty',{asOf:_presentationAsOf,until:_presentationUntil});
   renderFixtures();renderFavs();renderTips();refreshDataChip();
   loadLeans();   // build 362 - the frozen Leans of this edition, not awaited
-  if($('fixturesMeta'))$('fixturesMeta').textContent='';
+  publicReadPaint('analysis');
  }catch(e){
+  if(!publicReadCurrent('analysis',attempt))return;
   /* BUILD 357 - A FAILED REFRESH MUST NOT EMPTY A SCREEN THAT ALREADY HAS A GOOD EDITION.
      This catch used to clear afState.leagues on ANY failure. One of those failures is the
      'Obsolete display edition' refusal, which fires when a lagging replica answers with an
@@ -3501,11 +3599,8 @@ async function loadFixturePresentation(){
    setDataChip('Unavailable');
    _boardRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};}
   renderFixtures();
-  const el=$('fixturesMeta')||$('discoverStatus');
-  if(el)el.textContent=keep
-   ?'Showing the published edition already loaded; a newer one could not be read just now.'
-   :'Matches temporarily unavailable. Please try again.';
- }
+  publicReadFinish('analysis',attempt,'failed');
+ }})();attempt.promise=run;try{return await run;}finally{if(publicReadCurrent('analysis',attempt))attempt.promise=null;}
 }
 /* Public detail panels consume only the bounded published edition. They never fit a model,
    read protected source tables, or start an AI/provider request. An unissued selection does
@@ -3970,7 +4065,7 @@ function setDataChip(text){
   el.innerHTML = '● <b>'+text+'</b>';
   el.removeAttribute('title');
 }
-setInterval(()=>{ if(_chipBase && /^(Live|Published)/.test(_chipBase)) setDataChip(_chipBase); }, 300000);
+setInterval(()=>{if(publicDataChip())return;if(_chipBase && /^(Live|Published)/.test(_chipBase))setDataChip(_chipBase);},300000);
 
 /* ══ BUILD 214 — THE HEADER BADGE SAID "Sample data" ON TOP OF 23,033 REAL MATCHES ═══════════════
    Read from a live device on 2026-08-26: the chip in the global header read **"● Sample data"**
@@ -3988,6 +4083,7 @@ setInterval(()=>{ if(_chipBase && /^(Live|Published)/.test(_chipBase)) setDataCh
    deliberate act and the badge keeps saying so. This only replaces the DEFAULT. */
 let _dataSourceExplicit = false;
 function refreshDataChip(){
+  if(publicDataChip())return;
   if(_dataSourceExplicit) return;                       // the user said what they wanted
   if(_presentationAsOf){setDataChip('Published');return;}
   if(afState.activeLeagueId && afState.leagues && afState.leagues[afState.activeLeagueId]) return;   // activateLeague owns the label
@@ -19085,6 +19181,7 @@ function navTo(t,options={}){
   // restore scroll: returning to a feed brings you back to where you tapped; detail/first-visit start at top
   const target = (t!=='detail' && (t in scrollPos)) ? scrollPos[t] : 0;
   curView = t;
+  try{refreshDataChip();}catch{}
   navigationScroll(target);
 }
 function showFeed(){
@@ -22897,31 +22994,33 @@ let _engineRecord = { state: 'pending', payload: null, computedAt: null, build: 
 let _clvRecord = { state: 'pending', payload: null, computedAt: null, build: null, at: 0 };
 let _engineRecordLoading = null;
 function loadSharedRecords(){
-  if(_engineRecordLoading) return _engineRecordLoading;
-  _engineRecord.at = Date.now();
-  _engineRecordLoading = (async () => {
-    try{
-      if(!supa) throw new Error('offline');
-      const q = await fixtureTable(RECORDS_TABLE).select('key,payload,build,computed_at')
-        .in('key', [ENGINE_RECORD_KEY, CLV_RECORD_KEY]).limit(4);
-      if(q.error) throw q.error;
-      const byKey = k => ((q.data || []).filter(x => x.key === k)[0] || null);
-      const r = byKey(ENGINE_RECORD_KEY);
-      _engineRecord = { state: r ? 'loaded' : 'empty', payload: r ? r.payload : null,
-                        computedAt: r ? r.computed_at : null, build: r ? r.build : null, at: Date.now() };
-      const c = byKey(CLV_RECORD_KEY);
-      _clvRecord = { state: c ? 'loaded' : 'empty', payload: c ? c.payload : null,
-                     computedAt: c ? c.computed_at : null, build: c ? c.build : null, at: Date.now() };
-    }catch(e){
-      /* A failed read keeps nothing from before: an old figure shown as current is the defect. */
-      _engineRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
-      _clvRecord = { state: 'failed', payload: null, computedAt: null, build: null, at: Date.now() };
-    }
-    try{ renderStrongPicks(); }catch(e){}
-    try{ renderMoreRecord(); }catch(e){}
-    return _engineRecord;
-  })().finally(()=>{_engineRecordLoading=null;});
-  return _engineRecordLoading;
+ const prior=publicReadState('records');if(prior.state==='loading'&&prior.promise)return prior.promise;
+ const attempt=publicReadBegin('records');_engineRecord.at=Date.now();
+ const run=(async()=>{try{
+  if(!supa)throw Error('offline');
+  const deadline=Date.now()+PUBLIC_READ_BUDGET_MS,raw=await fixtureAccess();
+  if(!publicReadCurrent('records',attempt))return _engineRecord;
+  let q;
+  if(raw){
+   q=await publicReadRequest(()=>attempt.client.from(RECORDS_TABLE).select('key,payload,build,computed_at').in('key',[ENGINE_RECORD_KEY,CLV_RECORD_KEY]).limit(4),attempt,deadline);
+   if(!fixtureRawCurrent())throw Error('Record source authority expired');
+  }else{
+   const payload=await fixtureDisplayLoad('records',deadline);
+   q={error:null,data:fixturePublicRows(RECORDS_TABLE,payload).filter(r=>r.key===ENGINE_RECORD_KEY||r.key===CLV_RECORD_KEY)};
+  }
+  if(!publicReadCurrent('records',attempt))return _engineRecord;if(q.error)throw q.error;
+  const byKey=k=>(q.data||[]).find(x=>x.key===k)||null,r=byKey(ENGINE_RECORD_KEY),c=byKey(CLV_RECORD_KEY),at=Date.now();
+  _engineRecord={state:r?'loaded':'empty',payload:r?r.payload:null,computedAt:r?r.computed_at:null,build:r?r.build:null,at};
+  _clvRecord={state:c?'loaded':'empty',payload:c?c.payload:null,computedAt:c?c.computed_at:null,build:c?c.build:null,at};
+  publicReadFinish('records',attempt,r||c?'loaded':'empty',{asOf:r?Date.parse(r.computed_at||''):NaN});
+ }catch(e){
+  if(!publicReadCurrent('records',attempt))return _engineRecord;
+  _engineRecord={state:'failed',payload:null,computedAt:null,build:null,at:Date.now()};_clvRecord={..._engineRecord};
+  publicReadFinish('records',attempt,'failed');
+ }
+ try{renderStrongPicks();}catch{}try{renderMoreRecord();}catch{}return _engineRecord;
+ })();attempt.promise=run;_engineRecordLoading=run;
+ run.finally(()=>{if(_engineRecordLoading===run)_engineRecordLoading=null;if(publicReadCurrent('records',attempt))attempt.promise=null;}).catch(()=>{});return run;
 }
 /* ONE tally over the shared row: hits, misses and voids per day per market. A void returned the stake,
    so it leaves the denominator exactly as `tallyPicks` has always done (build 119). */
@@ -23249,35 +23348,28 @@ const SCORES_COLS = 'fxid,lid,lname,lcountry,llogo,season,date,time,status,elaps
    on screen are, and do not touch localStorage at all. Showing stale scores that admit their age is
    what build 83 already does with "Updated 14 min ago"; showing nothing while claiming there is
    nothing to show is the one thing Milestone 8 forbids. */
-function scoresReadFailed(msg){
-  const have = !!(afState.scores && afState.scores.list && afState.scores.list.length);
-  renderScores();                     // repaint the last good list — or clear, if there never was one
-  const el = $('scoresMeta');
-  if(have){
-    // renderScores already states source age, visible count and competition narrowing.
-    // Preserve that disclosure when the next read fails instead of hiding the full slate count.
-    el.innerHTML = '<b style="color:var(--red)">Refresh failed</b> · ' + el.innerHTML;
-  } else {
-    el.textContent = 'Matches temporarily unavailable. Please try again.';
-  }
-  return true;
+function scoresReadFailed(msg,attempt){
+ const active=attempt||publicReadBegin('scores');if(!publicReadFinish('scores',active,'failed'))return true;
+ renderScores();return true;
 }
 
 // read the scores window from the shared cloud collector (fixtures table); returns true if it rendered
 async function afScoresFromCloud(){
-  if(!supa) return false;
-  try{
+  if(!supa)return false;
+  const prior=publicReadState('scores');if(prior.state==='loading'&&prior.promise)return prior.promise;
+  const attempt=publicReadBegin('scores');
+  const run=(async()=>{try{
     // pull the whole browsable window (+1 day of UTC slack each side so local-date grouping is exact)
     const dm = new Date(Date.now()-(SCORES_PAST_DAYS+1)*86400000).toISOString().slice(0,10);
     const dp = new Date(Date.now()+(SCORES_AHEAD_DAYS+1)*86400000).toISOString().slice(0,10);
     // Retain the exact envelope with its rows, independent of later screen-cache changes.
     const context={client:supa,owner:authUser&&authUser.id||null,epoch:_cloudAccountEpoch};
     const edition=await fixtureAccess()?null:await fixtureDisplayLoad('scores');
-    if(!fixtureDeliveryCurrent(context))return false;
+    if(!publicReadCurrent('scores',attempt))return false;
     const { data, error } = edition?{data:edition.cards.filter(r=>r.date>=dm&&r.date<=dp),error:null}
       :await fetchAllRows('fixtures', SCORES_COLS, q => q.gte('date', dm).lte('date', dp));
-    if(!fixtureDeliveryCurrent(context))return false;
-    if(error) return scoresReadFailed(error.message||error.code||'error');
+    if(!publicReadCurrent('scores',attempt))return false;
+    if(error)return scoresReadFailed('unavailable',attempt);
     // freshRows drops orphaned rows from a RETIRED collector; dedupeProviders drops the free twin
     // of a competition the Pro collector is also writing RIGHT NOW. Two different problems — the
     // staleness fence cannot see this one, because both collectors are live and both look fresh.
@@ -23296,10 +23388,12 @@ async function afScoresFromCloud(){
       /* build 357 - the marker and the raw final travel with the row so the feed can say the
          90-minute score is unavailable instead of silently showing a dash on a played match. */
       settlement:r.settlement, raw_gh:r.raw_gh, raw_ga:r.raw_ga }, aetOf(r))) };
+    publicReadFinish('scores',attempt,rows.length?'loaded':'empty',{asOf:edition?Date.parse(edition.as_of):newest,until:edition?Date.parse(edition.expires_at):NaN});
     gradeRecord(afState.scores.list);   // a wider window also grades more of the record
     saveState(); renderScores();
     return true;
-  }catch(e){ try{ return scoresReadFailed(e.message||e); }catch(_){ return true; } }
+  }catch(e){if(!publicReadCurrent('scores',attempt))return false;try{return scoresReadFailed('unavailable',attempt);}catch{return true;}}
+ })();attempt.promise=run;try{return await run;}finally{if(publicReadCurrent('scores',attempt))attempt.promise=null;}
 }
 async function afScores(silent){
   if(!(silent && afState.scores && afState.scores.list && afState.scores.list.length)) $('scoresMeta').textContent = 'Loading matches…';
@@ -23361,6 +23455,9 @@ function renderScoresDateBar(){
 }
 
 function renderScores(){
+ try{return renderScoresRows();}finally{publicScoresStatus();}
+}
+function renderScoresRows(){
   if(navigationRetains('scores'))return;
   const box = $('scoresList');
   // default to today, and don't strand the user on a date that has scrolled out of the window
@@ -23599,12 +23696,13 @@ async function openFixture(leagueId, f, btn){
    carrying the record while the goals markets are dragging it, and that is exactly the question
    the new 70% floor was meant to act on. */
 function renderMoreRecord(){
+  publicReadPaint('records');
   const line = $('moreRecordLine'); if(!line) return;
   if(_engineRecord.state !== 'pending' && Date.now() - _engineRecord.at > RECORD_TTL_MS) loadSharedRecords();   // build 325
   const stats = recordStats();
   if(!stats || !stats.n){
     line.textContent = _engineRecord.state === 'pending' ? 'Reading the shared record…'
-      : _engineRecord.state === 'failed' ? 'Could not read the shared record. It is tried again when this tab is reopened.'
+      : _engineRecord.state === 'failed' ? 'Record temporarily unavailable.'
       : 'No graded picks since ' + recordFromText() + ' yet.';   // build 328; build 353 - the record's own start
     const b = $('moreRecordBreak'); if(b) b.innerHTML = '';
     return;
@@ -24086,9 +24184,13 @@ function buildCompsDrop(boxId){
      then had no control anywhere able to widen the feed back out, on Scores or on Predict. In the
      public presentation shape L.matches is empty; published competitions are now admitted above.
      The empty state remains recoverable when no competition was published. */
-  if(!all.length) html = item('all','🌍 All competitions', 0)
-    + (isScores ? '<div class="subnote" style="margin-bottom:4px">No competitions on this date.</div>'
-                : '<div class="subnote" style="margin-bottom:4px">No competitions loaded yet. Server-managed competitions appear after the next normal refresh.</div>');
+  if(!all.length){
+    const read=publicReadState(isScores?'scores':'analysis');
+    const uncertain=read.state==='failed'||read.state==='loading'||(read.state==='idle'&&!_dataSourceExplicit&&!fixtureRawCurrent());
+    const note=uncertain?(read.state==='failed'||!supa?'Competitions temporarily unavailable.':'Loading competitions…')
+      :isScores?'No competitions on this date.':'No competitions in this edition.';
+    html=item('all','🌍 All competitions',uncertain?'—':0)+'<div class="subnote" style="margin-bottom:4px">'+note+'</div>';
+  }
   if(PERSONAL_PROVIDER_INPUTS_ENABLED) html += `<div class="lgitem" data-discover="1" style="border-top:1px solid var(--border); color:var(--gold); font-weight:700"><span>＋ Discover more competitions</span><span class="muted">scan</span></div>`;
   box.innerHTML = html;
   box.querySelectorAll('.lgitem[data-f]').forEach(it=>it.addEventListener('click', ()=>{
@@ -26941,7 +27043,7 @@ if(window.matchMedia){
   const onmq = ()=>{ if(themeMode==='auto') applyTheme(); };
   mq.addEventListener ? mq.addEventListener('change', onmq) : mq.addListener(onmq);
 }
-setupBackHandler();
+setupBackHandler();publicReadInstall();
 loadAISettings(); personalSelect(null); renderAISettings();   // keys remain device-local; personal choices are partitioned
 loadAFExtras();                         // API-Football extras opt-in (build 40)
 if(supa) refreshServerProviders();      // ask the proxy which writers it has keys for (build 39)
@@ -27024,7 +27126,7 @@ setInterval(()=>{
   loadCloudResults();
   if(lastTab==='scores' && document.visibilityState!=='hidden') afScores(true);
 }, 120000);
-document.addEventListener('visibilitychange', ()=>{ if(supa && document.visibilityState==='visible'){ loadCloudResults(); if(lastTab==='scores') afScores(true); } });
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')publicReadRecover();});
 /* 🚨 BUILD 297 — cause 2 of the two-phones defect: a tab opened before an upload keeps running the
    old code forever, and one of Ken's handsets was showing best-effort cards that build 292 had
    deleted. Checked on boot and on every return to the foreground; the shared slip makes the CARD
