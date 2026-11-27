@@ -109,3 +109,8 @@ test('remembered endpoint retry cannot complete after owner switch',async()=>{
  const pending=deferred();h.options.deleteReply=()=>pending.promise;const work=h.disable();await flush();assert.equal(h.writes.length,2);
  h.switchTo('B');const before=h.snapshot();pending.resolve({error:null});await work;assert.deepEqual(h.snapshot(),before);
 });
+
+
+test('pending account deletion cannot start a new push-disable operation',async()=>{
+ const h=harness();h.ctx.accountDeletionBlocked=()=>true;await h.disable();assert.equal(h.writes.length,0);assert.equal(h.saves.length,0);assert.notEqual(h.$('notifState').textContent,'Turning notifications off'+String.fromCharCode(8230));
+});

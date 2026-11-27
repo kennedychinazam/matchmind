@@ -110,6 +110,7 @@ declare uid uuid=(document->>'user_id')::uuid;d date=(statement_timestamp() at t
  key_ text;src jsonb;w mm_ai_generation.work%rowtype;used_ integer;t uuid;
 begin
  if uid is null or lim is null or lim<1 or mode_ not in ('analysis','context') or provider_ not in ('gemini','claude','deepseek','kimi') or ver is null or length(ver)>100 or h !~ '^[a-f0-9]{64}$' then raise exception 'Invalid AI allocation';end if;
+ if to_regprocedure('public.mm_deletion_generation_guard_v1(uuid)') is not null then execute 'select public.mm_deletion_generation_guard_v1($1)' using uid;end if;
  if not priv then src=mm_ai_generation.source(fx);if src is null or src->>'source_hash'<>h then return jsonb_build_object('status','source_changed');end if;end if;
  key_=encode(sha256(convert_to(jsonb_build_array(case when priv then uid::text else 'shared' end,fx,mode_,provider_,ver,h)::text,'UTF8')),'hex');
  -- Usage row first, then work row, is the lock order for every mutation below.
@@ -141,6 +142,7 @@ end$$;
 create function public.mm_ai_mark_dispatch_v1(work_key text,lease_token uuid,user_id uuid) returns jsonb language plpgsql security invoker set search_path=pg_catalog as $$
 declare w mm_ai_generation.work%rowtype;
 begin
+ if to_regprocedure('public.mm_deletion_generation_guard_v1(uuid)') is not null then execute 'select public.mm_deletion_generation_guard_v1($1)' using user_id;end if;
  select * into w from mm_ai_generation.work x where x.work_key=mm_ai_mark_dispatch_v1.work_key;
  if not found or w.owner_id is distinct from user_id then return jsonb_build_object('ok',false);end if;
  perform 1 from public.ai_usage u where u.user_id=w.owner_id and u.day=w.day for update;

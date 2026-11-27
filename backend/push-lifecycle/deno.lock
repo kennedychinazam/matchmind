@@ -1,0 +1,109 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:web-push@3.6.7": "3.6.7"
+  },
+  "npm": {
+    "agent-base@7.1.4": {
+      "integrity": "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="
+    },
+    "asn1.js@5.4.1": {
+      "integrity": "sha512-+I//4cYPccV8LdmBLiX8CYvf9Sp3vQsrqu2QNXRcrbiWvcx/UdlFiqUJJzxRQxgsZmvhXhn4cSKeSmoFjVdupA==",
+      "dependencies": [
+        "bn.js",
+        "inherits",
+        "minimalistic-assert",
+        "safer-buffer"
+      ]
+    },
+    "bn.js@4.12.5": {
+      "integrity": "sha512-3aRg6/JxfffFD+OlOjOFR3Vo79l39ooBTFucxx+MT3dhCtzn3EmiUPQo+6/OZuI2jbXi3YKgmiTFBgChQMwIRQ=="
+    },
+    "buffer-equal-constant-time@1.0.1": {
+      "integrity": "sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA=="
+    },
+    "debug@4.4.3": {
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "dependencies": [
+        "ms"
+      ]
+    },
+    "ecdsa-sig-formatter@1.0.11": {
+      "integrity": "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==",
+      "dependencies": [
+        "safe-buffer"
+      ]
+    },
+    "http_ece@1.2.0": {
+      "integrity": "sha512-JrF8SSLVmcvc5NducxgyOrKXe3EsyHMgBFgSaIUGmArKe+rwr0uphRkRXvwiom3I+fpIfoItveHrfudL8/rxuA=="
+    },
+    "https-proxy-agent@7.0.6": {
+      "integrity": "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==",
+      "dependencies": [
+        "agent-base",
+        "debug"
+      ]
+    },
+    "inherits@2.0.4": {
+      "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ=="
+    },
+    "jwa@2.0.1": {
+      "integrity": "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==",
+      "dependencies": [
+        "buffer-equal-constant-time",
+        "ecdsa-sig-formatter",
+        "safe-buffer"
+      ]
+    },
+    "jws@4.0.1": {
+      "integrity": "sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==",
+      "dependencies": [
+        "jwa",
+        "safe-buffer"
+      ]
+    },
+    "minimalistic-assert@1.0.1": {
+      "integrity": "sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A=="
+    },
+    "minimist@1.2.8": {
+      "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA=="
+    },
+    "ms@2.1.3": {
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="
+    },
+    "safe-buffer@5.2.1": {
+      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="
+    },
+    "safer-buffer@2.1.2": {
+      "integrity": "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg=="
+    },
+    "web-push@3.6.7": {
+      "integrity": "sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==",
+      "dependencies": [
+        "asn1.js",
+        "http_ece",
+        "https-proxy-agent",
+        "jws",
+        "minimist"
+      ],
+      "bin": true
+    }
+  },
+  "redirects": {
+    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/auth-js@2.119.2/denonext/auth-js.mjs": "0732bb8902c05fd8b72fd72dc6676b45b54b0daf6e6fb683c68858176a112e66",
+    "https://esm.sh/@supabase/functions-js@2.119.2/denonext/functions-js.mjs": "75548f6b2c2017ba566fae400831fd181b2df2408d2c02502de3cc034c70c95a",
+    "https://esm.sh/@supabase/phoenix@0.4.5/denonext/phoenix.mjs": "40bd2a70829cd847848baac58e635bacd83fd62188f6624b44e2c295341004eb",
+    "https://esm.sh/@supabase/postgrest-js@2.119.2/denonext/postgrest-js.mjs": "a895ab4672102edc04cfa084460cdeb5f5e0bdf67847eafd9f493ce95e0b3756",
+    "https://esm.sh/@supabase/realtime-js@2.119.2/denonext/realtime-js.mjs": "c22aa641972b170e3eb8cb24f651d3a67b8a455e224df6385ae4f376a29ddcbe",
+    "https://esm.sh/@supabase/storage-js@2.119.2/denonext/storage-js.mjs": "c990980d22c66435e6cb76f00e453ce53ff6b608d32612e28b42eee8be9a8e2f",
+    "https://esm.sh/@supabase/supabase-js@2.119.2": "e7729dec88af13b1d17953717407c06705450383f619c26efa6d542b8f73f8c3",
+    "https://esm.sh/@supabase/supabase-js@2.119.2/denonext/dist/tracingRegistry.mjs": "529e146bb4d00e2bb8817718291608903aa9c23eacf3b13e14c9d7a0cd4d1949",
+    "https://esm.sh/@supabase/supabase-js@2.119.2/denonext/supabase-js.mjs": "014da52afdf1ae9ff710c94bba49a209946a7dfe2aa8cbd0868dd5237e4a1843",
+    "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
+    "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
+    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9"
+  }
+}

@@ -55,3 +55,14 @@ test('known quota refusal can still use explicitly enabled personal-key fallback
 test('proxy preserves known pending and retained flags without exposing raw server errors',async()=>{
  for(const flag of ['inProgress','allocationRetained']){const s=setup({ok:false,status:409,response:{ok:false,[flag]:true,error:'RAW internal detail',used:1,limit:5,quota_day:day}});await assert.rejects(s.c.callProxy('x','gemini',s.credential),e=>e[flag]===true&&!e.message.includes('RAW'));}
 });
+
+
+test('deleting owner cannot start proxy work or a personal-key fallback',async()=>{
+ const s=setup();s.c.accountDeletionBlocked=()=>true;await assert.rejects(s.c.callProxy('x','gemini',s.credential),e=>e.inProgress===true);assert.equal(s.calls.length,0);
+});
+test('deletion intent added while proxy is queued prevents later dispatch',async()=>{
+ const s=setup({waitQueue:true});s.c.accountDeletionBlocked=()=>false;const work=s.c.callProxy('x','gemini',s.credential);await Promise.resolve();s.c.accountDeletionBlocked=()=>true;s.releaseQueue();await assert.rejects(work,e=>e.inProgress===true);assert.equal(s.calls.length,0);
+});
+test('another owner deletion intent cannot block current owner proxy',async()=>{
+ const s=setup();s.c.accountDeletionBlocked=owner=>owner==='ownerB';await s.c.callProxy('x','gemini',s.credential);assert.equal(s.calls.length,1);
+});

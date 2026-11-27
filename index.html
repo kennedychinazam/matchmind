@@ -579,6 +579,8 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
  #results.published-detail .prow.published-long-label{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:6px 8px}
  #results.published-detail .prow.published-long-label .plabel{grid-column:1/-1;width:auto}
 }
+
+#accountDeletionDialog::backdrop{background:rgba(0,0,0,.65);backdrop-filter:blur(2px)}
 </style>
 </head>
 <body>
@@ -1006,10 +1008,20 @@ document.title = APP_NAME_FULL + ': Statistical Football Forecasts';
         <button class="btn" id="clearCacheBtn">Clear</button>
       </div>
       <div class="setrow">
-        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Requests account deletion. Device copies are retained; completed erasure is not independently verified.</div></div></div>
+        <div class="setleft"><span class="setico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 12h10l1-12"/><path d="M10 11v5M14 11v5"/></svg></span><div><div class="sl" style="color:var(--red)">Delete my account</div><div class="sd">Remove your account and cloud data.</div></div></div>
         <button class="btn" id="delAcctBtn" style="border-color:var(--red); color:var(--red)">Delete</button>
       </div>
       <div class="subnote" id="delAcctNote"></div>
+      <dialog id="accountDeletionDialog" aria-labelledby="accountDeletionTitle" aria-describedby="accountDeletionDescription" style="margin:auto;max-width:calc(100vw - 32px);width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;border:1px solid var(--line,#293b57);border-radius:16px;padding:24px;background:var(--bg2,#101b2e);color:var(--text)">
+        <form id="accountDeletionForm" novalidate>
+          <h2 id="accountDeletionTitle">Delete your account?</h2>
+          <p id="accountDeletionDescription" class="subnote" style="margin:10px 0 20px">This permanently deletes your account and cloud data.</p>
+          <div class="field"><label for="accountDeletionPassword">Password</label><input id="accountDeletionPassword" type="password" autocomplete="current-password" maxlength="1024" required></div>
+          <div class="field"><label for="accountDeletionConfirm">Type DELETE to confirm</label><input id="accountDeletionConfirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required></div>
+          <div id="accountDeletionError" class="status" role="status" aria-live="polite"></div>
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button class="btn" id="accountDeletionCancel" type="button">Cancel</button><button class="btn" type="submit" style="background:#b42332;color:#fff;border-color:#b42332">Delete account</button></div>
+        </form>
+      </dialog>
     </div>
 
     <div class="sec-label">Accuracy</div>
@@ -2823,6 +2835,7 @@ async function proxySession(){
 // Calls the proxy. Throws an Error carrying flags the caller uses to decide whether to fall back.
 async function callProxy(payload, providerId, credential=credentialContext()){
   credentialCheck(credential);
+  if(credential.owner&&typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(credential.owner)){const e=Error('Account deletion is pending. AI requests are paused.');e.inProgress=true;throw e;}
   const targetFxid = pendingMetaFxid || null;
   const requestBody = JSON.stringify(payload===null ? {} : {prompt:AI_PROMPT+payload,provider:providerId,fxid:targetFxid});
   const session = await proxySession();
@@ -2830,7 +2843,7 @@ async function callProxy(payload, providerId, credential=credentialContext()){
   if(session && (!session.user || session.user.id!==credential.owner || !credential.owner)) throw Error("Credential session changed; retry.");
   const accessToken=session && session.access_token;
   if(typeof accessToken!=='string' || !accessToken){ const e = new Error('Sign in to use AI analysis.'); e.needsLogin = true; throw e; }
-  const res = await aiQueued(()=> { credentialCheck(credential); return fetch(SUPA_URL + '/functions/v1/ai-analyze', {
+  const res = await aiQueued(()=> { credentialCheck(credential); if(credential.owner&&typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(credential.owner)){const e=Error('Account deletion is pending. AI requests are paused.');e.inProgress=true;throw e;} return fetch(SUPA_URL + '/functions/v1/ai-analyze', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'authorization':'Bearer '+accessToken, 'apikey': SUPA_KEY },
     body: requestBody
@@ -25397,10 +25410,93 @@ function initSupabase(){
   }catch(e){ supa = null; }
   renderAccount();
 }
-// Only a verified deletion completion adds a UID; SDK refresh events cannot reattach it.
+// Acknowledged detachment is also remembered for this SDK client.
 const _deletedAccountOwners = new WeakMap();
+
+// App/backend/owner-scoped deletion intent. No session token or personal payload is persisted.
+var _deletionPausedAccount=null;
+function deletionPause(client,user,epoch){return Object.freeze({client,owner:user.id,user:Object.freeze({id:user.id}),epoch});}
+function accountDeletionScope(){return {app:new URL('.',location.href).pathname,backend:SUPA_URL};}
+function accountDeletionKey(owner){
+  const scope=accountDeletionScope();
+  return 'mm_account_deletion_v1:'+encodeURIComponent(scope.app)+':'+encodeURIComponent(scope.backend)+':'+encodeURIComponent(owner);
+}
+function accountDeletionValid(v,owner){
+  const scope=accountDeletionScope();
+  return !!v&&v.version===1&&v.owner===owner&&v.app===scope.app&&v.backend===scope.backend&&
+    ['pending','acknowledged','completed'].includes(v.state)&&(v.intent==null||(typeof v.intent==='string'&&v.intent.length<=100))&&
+    Object.keys(v).every(k=>['version','owner','app','backend','state','intent'].includes(k));
+}
+function accountDeletionVerificationKey(owner,intent){
+  if(typeof intent!=='string'||!intent||intent.length>100)throw Error('Invalid deletion intent');
+  return accountDeletionKey(owner).replace('mm_account_deletion_v1:','mm_account_deletion_verification_v1:')+':'+encodeURIComponent(intent);
+}
+function accountDeletionRead(owner){
+  try{
+    if(typeof owner!=='string'||!owner||owner.length>200)throw Error('Invalid owner');
+    const key=accountDeletionKey(owner),raw=localStorage.getItem(key);
+    if(raw===null)return {state:'none',key,raw};
+    const v=JSON.parse(raw);
+    if(!accountDeletionValid(v,owner))throw Error('Invalid deletion status');
+    if(v.state==='pending'&&v.intent){
+      const receipt=localStorage.getItem(accountDeletionVerificationKey(owner,v.intent));
+      if(receipt!==null){
+        const r=JSON.parse(receipt);
+        if(!r||r.version!==1||r.owner!==owner||r.app!==v.app||r.backend!==v.backend||r.intent!==v.intent||r.outcome!=='verification_failed'||Object.keys(r).some(k=>!['version','owner','app','backend','intent','outcome'].includes(k)))throw Error('Invalid verification receipt');
+        return {state:'none',key,raw,value:v};
+      }
+    }
+    return {state:v.state,key,raw,value:v};
+  }catch{return {state:'blocked',raw:null};}
+}
+function accountDeletionBlocked(owner){return !!owner&&accountDeletionRead(owner).state!=='none';}
+function accountDeletionPrepare(owner){
+  const r=accountDeletionRead(owner);if(r.state==='blocked')throw Error('Deletion status unavailable');
+  const intent=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+  const raw=JSON.stringify(r.state==='none'?{version:1,owner,...accountDeletionScope(),state:'pending',intent}:{...r.value,intent});
+  localStorage.setItem(r.key,raw);
+  if(localStorage.getItem(r.key)!==raw)throw Error('Deletion status not saved');
+  return raw;
+}
+function accountDeletionAcknowledge(owner,expected,state='acknowledged'){
+  try{
+    if(!['acknowledged','completed'].includes(state))return false;
+    const r=accountDeletionRead(owner);if(r.state==='blocked'||(r.raw!==expected&&state!=='completed'))return false;
+    const value=r.value||JSON.parse(expected);if(!accountDeletionValid(value,owner))return false;
+    const raw=JSON.stringify({...value,state});localStorage.setItem(r.key,raw);
+    return localStorage.getItem(r.key)===raw;
+  }catch{return false;}
+}
+function accountDeletionUndoVerificationIntent(owner,expected){
+  try{
+    const r=accountDeletionRead(owner);if(r.state!=='pending'||r.raw!==expected)return false;
+    // An intent-scoped receipt never removes or rewrites another tab's owner marker.
+    const key=accountDeletionVerificationKey(owner,r.value.intent);
+    const raw=JSON.stringify({version:1,owner,...accountDeletionScope(),intent:r.value.intent,outcome:'verification_failed'});
+    localStorage.setItem(key,raw);if(localStorage.getItem(key)!==raw)return false;
+    const latest=accountDeletionRead(owner);return latest.state==='none'&&latest.raw===expected;
+  }catch{return false;}
+}
+function accountDeletionPublicStatus(owner){
+  const state=accountDeletionRead(owner).state;
+  return state==='completed'?'Your account has been deleted.':state==='acknowledged'?'Deletion request received.':state==='pending'?'Account deletion is in progress.':'Please sign in again to continue.';
+}
+function deletionPausedCurrent(){
+  const p=_deletionPausedAccount;
+  return p&&p.client===supa&&p.epoch===_cloudAccountEpoch&&p.user.id===p.owner&&!authUser?p:null;
+}
 function onAuth(user){
-  if(user && supa && _deletedAccountOwners.get(supa)?.has(user.id)) return;
+  if(user&&supa&&(_deletedAccountOwners.get(supa)?.has(user.id)||accountDeletionBlocked(user.id))){
+    if(!authUser){
+      _deletionPausedAccount=deletionPause(supa,user,_cloudAccountEpoch);
+      renderAccount();
+      const note=$('delAcctNote');if(note)note.textContent=accountDeletionPublicStatus(user.id);
+    }else if(authUser.id===user.id&&authUser!==user){
+      ++_cloudAccountEpoch;++_cloudPushVersion;clearTimeout(_cloudPushT);
+    }
+    return;
+  }
+  if(user)_deletionPausedAccount=null;
   const was = authUser;
   if((was&&was.id)!==(user&&user.id)){
     clearSearchForIdentity();
@@ -25458,14 +25554,14 @@ async function authLogout(){
   toast('Logged out');
 }
 async function cloudPullMerge(){
-  if(!supa || !authUser || !personalCurrent(authUser.id,_cloudAccountEpoch)) return false;
+  if(!supa || !authUser || !personalCurrent(authUser.id,_cloudAccountEpoch) || accountDeletionBlocked(authUser.id)) return false;
   const owner=authUser.id,epoch=_cloudAccountEpoch,key=personalKey(owner);
   const origin=personalMergeOrigin(owner);
   const {hadPartition,preferences:preferenceBefore}=origin;
   _personalCloudReady=false; ++_cloudPushVersion; clearTimeout(_cloudPushT);
   try{
     const {data, error}=await supa.from('app_state').select('*').eq('user_id', owner).maybeSingle();
-    if(!personalCurrent(owner,epoch))return false;
+    if(!personalCurrent(owner,epoch)||accountDeletionBlocked(owner))return false;
     if(error) throw error;
     if(data!==null && (typeof data!=='object' || Array.isArray(data) || data.user_id!==owner ||
       ['fav_leagues','fav_teams','fav_matches','record'].some(k=>data[k]!=null && !Array.isArray(data[k])) ||
@@ -25511,10 +25607,10 @@ function renderSyncBadge(){
   node.textContent=cloudEnabled()&&authUser ? (status==='confirmed'?'synced':status==='pending'?'sync pending':status==='failed'?'sync failed':status==='storage unavailable'?'storage unavailable · sync paused':'sync not verified') : '';
 }
 function cloudPush(){
-  if(!supa||!authUser||!_personalCloudReady||!personalCurrent(authUser.id,_cloudAccountEpoch))return;
+  if(!supa||!authUser||!_personalCloudReady||!personalCurrent(authUser.id,_cloudAccountEpoch)||accountDeletionBlocked(authUser.id))return;
   const owner=authUser.id,epoch=_cloudAccountEpoch,revision=++_cloudPushVersion,client=supa;
   _cloudSync={owner,status:'pending'};renderSyncBadge();clearTimeout(_cloudPushT);
-  const current=()=>client===supa&&_personalCloudReady&&personalCurrent(owner,epoch)&&revision===_cloudPushVersion;
+  const current=()=>client===supa&&_personalCloudReady&&personalCurrent(owner,epoch)&&revision===_cloudPushVersion&&!accountDeletionBlocked(owner);
   _cloudPushT=setTimeout(async()=>{
     const previous=_cloudPushFlight;let release;
     _cloudPushFlight=new Promise(resolve=>release=resolve);
@@ -25534,7 +25630,9 @@ function renderAccount(){
   try{ aiShadowGate().catch(()=>{}); }catch(e){}   // build 339 - the owner card follows the account
   const fillBtn = $('archFillBtn'); if(fillBtn) fillBtn.classList.toggle('hidden', !isPublisher());   // build 340
   const box=$('acctBox'); if(!box) return;
-  let quarantineNotice='';
+  const paused=deletionPausedCurrent(),deleteButton=$('delAcctBtn');
+  if(deleteButton){const done=paused&&accountDeletionRead(paused.owner).state==='completed';deleteButton.textContent=done?'Deleted':paused?'Retry deletion':'Delete';deleteButton.disabled=!!done;}
+  let quarantineNotice=paused?'<div class="notice">'+accountDeletionPublicStatus(paused.owner)+'</div>':'';
   /* Owner decision 2026-11-21: the separation of pre-sign-in data stays, the notice about it is not shown. */
   renderSyncBadge();
   if(!cloudEnabled()){
@@ -25701,7 +25799,7 @@ function pushSupport(){
 }
 
 async function saveSubscription(sub, owner=authUser&&authUser.id, epoch=_cloudAccountEpoch, client=supa){
-  const current=()=>!!owner && client===supa && personalToken(owner,epoch);
+  const current=()=>!!owner && client===supa && personalToken(owner,epoch)&&!(typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(owner));
   if(!client || !current()) return false;
   _pushDisableProgress=null; // New registration intent invalidates older retry evidence.
   const j = sub.toJSON();
@@ -25724,7 +25822,7 @@ async function enablePush(){
   if(!sup.ok){ $('notifNote').textContent = sup.why; $('notifTypes').classList.remove('hidden'); return; }
   if(!supa || !authUser){ toast('Sign in first — notifications are tied to your account'); return; }
   const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
-  const current=()=>client===supa && personalToken(owner,epoch);
+  const current=()=>client===supa && personalToken(owner,epoch)&&!(typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(owner));
   if(!current()) return;
   _pushDisableProgress=null;
   const perm = await Notification.requestPermission();
@@ -25763,13 +25861,13 @@ function pushDisablePending(){
 async function disablePush(){
   if(!supa || !authUser) return false;
   const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
-  if(!personalToken(owner,epoch)) return false;
+  if(!personalToken(owner,epoch)||(typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(owner))) return false;
   const old=_pushDisableProgress;
   const previous=old&&old.client===client&&old.owner===owner&&old.epoch===epoch ? old : null;
   const progress={client,owner,epoch,endpoint:previous&&previous.endpoint,
     acknowledged:!!(previous&&previous.acknowledged),incomplete:true,busy:true,message:'Turning notifications off…'};
   _pushDisableProgress=progress; // A newer attempt owns all subsequent UI and retry evidence.
-  const current=()=>_pushDisableProgress===progress&&client===supa&&personalToken(owner,epoch);
+  const current=()=>_pushDisableProgress===progress&&client===supa&&personalToken(owner,epoch)&&!(typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(owner));
   const incomplete=message=>{
     if(!current()) return false;
     progress.message=message;progress.busy=false;
@@ -25835,7 +25933,7 @@ async function ensurePushFresh(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if(!supa || !authUser) return;
   const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
-  const current=()=>client===supa && personalToken(owner,epoch);
+  const current=()=>client===supa && personalToken(owner,epoch)&&!(typeof accountDeletionBlocked==='function'&&accountDeletionBlocked(owner));
   if(!current() || Notification.permission !== 'granted') return;
   try{
     const reg = await navigator.serviceWorker.ready;
@@ -25977,23 +26075,31 @@ $('tzSel').addEventListener('change', ()=>{
    The typed word is also what the server checks — the same confirmation, not a separate one that
    the browser could skip. */
 $('aiShadowBtn').addEventListener('click', ()=>{ loadAiShadow(true); });   // build 339
+var _accountDeletionDialogFinish=null;
+function accountDeletionDecision(current){
+  if(_accountDeletionDialogFinish)_accountDeletionDialogFinish(null);
+  const dialog=$('accountDeletionDialog'),form=$('accountDeletionForm'),password=$('accountDeletionPassword'),confirm=$('accountDeletionConfirm'),error=$('accountDeletionError');
+  password.value='';confirm.value='';error.textContent='';
+  return new Promise(resolve=>{
+    const finish=value=>{password.value='';confirm.value='';form.onsubmit=null;dialog.oncancel=null;$('accountDeletionCancel').onclick=null;if(_accountDeletionDialogFinish===finish)_accountDeletionDialogFinish=null;dialog.close();resolve(value);};
+    _accountDeletionDialogFinish=finish;
+    form.onsubmit=event=>{event.preventDefault();if(!current()){finish(null);return;}if(!password.value){error.textContent='Enter your password.';password.focus();return;}if(confirm.value.trim()!=='DELETE'){error.textContent='Type DELETE to confirm.';confirm.focus();return;}finish({password:password.value,typed:confirm.value});};
+    dialog.oncancel=event=>{event.preventDefault();finish(null);};$('accountDeletionCancel').onclick=()=>finish(null);
+    dialog.showModal();password.focus();
+  });
+}
 $('delAcctBtn').addEventListener('click', async ()=>{
   const note = $('delAcctNote');
-  if(!supa || !authUser){ note.textContent = 'You are not signed in, so there is no account to delete.'; return; }
+  const paused=deletionPausedCurrent(),appUser=authUser;
+  if(!supa || (!appUser&&!paused)){ note.textContent = 'Sign in to delete your account.'; return; }
 
-  const user=authUser, owner=user.id, epoch=_cloudAccountEpoch, client=supa;
-  const current=()=>supa===client && authUser===user && authUser.id===owner && epoch===_cloudAccountEpoch && $('delAcctNote')===note;
-  const warn = 'This requests permanent deletion of your account and associated server data.\n\n'
-    + 'A success response acknowledges the request; completed erasure and device sign-out are not independently verified by this app.\n'
-    + 'Device copies and backups are retained for separate review.\n\n'
-    + 'Deletion may be irreversible. To confirm, type DELETE below.';
-  const typed = prompt(warn, '');
-  if(!current()) return;
-  if(typed === null) return;                      // they backed out
-  if(typed.trim().toUpperCase() !== 'DELETE'){
-    note.textContent = 'Not deleted — you did not type DELETE.';
-    return;
-  }
+  const user=appUser||paused.user, owner=paused?paused.owner:user.id, epoch=_cloudAccountEpoch, client=supa;
+  const current=()=>supa===client && authUser===appUser && user.id===owner && (paused?deletionPausedCurrent()===paused:personalIdentity(owner,epoch)) && epoch===_cloudAccountEpoch && $('delAcctNote')===note;
+  if(!current()){note.textContent='Your account changed. Please sign in again.';return;}
+  const decision=await accountDeletionDecision(current);
+  if(!current()||!decision)return;
+  const {password,typed}=decision;
+  if(typeof password!=='string'||!password||password.length>1024||typed.trim()!=='DELETE'){note.textContent='Enter your password and type DELETE to confirm.';return;}
   note.textContent = 'Deleting…';
   // Bind SDK lookups to the initiating client. Never sign out through a mutable shared
   // client: an asynchronous SDK signOut could select a later user's session internally.
@@ -26006,21 +26112,35 @@ $('delAcctBtn').addEventListener('click', async ()=>{
   try{
     session=await ownedSession();
     if(!current()) return;
-    if(!session){ note.textContent='Your session could not be verified. Sign in again and retry; local data is retained.'; return; }
+    if(!session){ note.textContent='Please sign in again to delete your account.'; return; }
     sessionToken=session.access_token;
+    let compatible=false;
+    try{const r=await fetch(SUPA_URL+'/functions/v1/delete-account',{method:'GET',headers:{authorization:'Bearer '+sessionToken,apikey:SUPA_KEY}});const c=await r.json();compatible=r.ok&&c.version>=3&&c.protocol==='matchmind-account-deletion/1'&&c.capabilities?.password_required===true&&c.capabilities?.mode==='immediate'&&c.capabilities?.confirmation==='DELETE';}catch{}
+    if(!current())return;
+    if(!compatible){note.textContent='Account deletion is temporarily unavailable. Please try again later.';return;}
+    const priorIntent=accountDeletionRead(owner),cloudReadyBefore=_personalCloudReady;
+    let intent;
+    try{intent=accountDeletionPrepare(owner);}
+    catch{note.textContent='Unable to start deletion. Please try again.';return;}
+    if(!current())return;
+    _personalCloudReady=false;++_cloudPushVersion;clearTimeout(_cloudPushT);
     const res = await fetch(SUPA_URL + '/functions/v1/delete-account', {
       method:'POST',
       headers:{ 'content-type':'application/json', 'authorization':'Bearer '+sessionToken, 'apikey': SUPA_KEY },
-      body: JSON.stringify({ confirm:'DELETE' })
+      body: JSON.stringify({ confirmation:'DELETE',password })
     });
     if(!current()) return;
     const j = await res.json().catch(()=>({}));
     if(!current()) return;
     if(!res.ok || !j || j.ok!==true){
-      note.textContent='Account deletion was not confirmed. Local data is retained; retry or contact support.';
+      if(j?.state==='verification_failed'){
+        if(priorIntent.state==='none'&&accountDeletionUndoVerificationIntent(owner,intent)&&current())_personalCloudReady=cloudReadyBefore;
+        note.textContent='Incorrect password. Please try again.';
+      }else note.textContent='We could not finish deleting your account. Please try again.';
       return;
     }
-    const acknowledged='The server acknowledged the account-deletion request. Completed server-side erasure and device sign-out are not independently verified. Local copies, credentials and backups are retained for separate review.';
+    const completed=j.protocol==='matchmind-account-deletion/1'&&j.state==='completed'&&j.version>=3;
+    const acknowledged=completed?'Your account has been deleted.':'Deletion request received.';
     let latest=null, sessionAbsent=false;
     try{
       const {data,error}=await client.auth.getSession();
@@ -26032,7 +26152,7 @@ $('delAcctBtn').addEventListener('click', async ()=>{
     }catch(_){}
     if(!current()) return;
     if(!sessionAbsent && (!latest || latest.access_token!==sessionToken)){
-      note.textContent=acknowledged+' Session verification is unavailable or changed; this app context has not been detached.';
+      note.textContent=acknowledged;
       return;
     }
     // A successful deletion may revoke the SDK session before its reply arrives.
@@ -26040,16 +26160,19 @@ $('delAcctBtn').addEventListener('click', async ()=>{
     // context; no SDK signout or other session mutation is involved.
     // Retain local copies; normal detachment snapshots only this owner’s personal
     // state. Credentials, guest/other-owner records and unknown backups are untouched.
-    // The server implementation is unavailable here; its ok response confirms only its
-    // existing contract. Detach this app context without SDK signout or a page reload.
+    // Treat legacy and matched server responses conservatively. Detach only this app
+    // context without SDK signout, local erasure or a page reload.
+    const statusSaved=accountDeletionAcknowledge(owner,intent,completed?'completed':'acknowledged');
     const deleted=_deletedAccountOwners.get(client) || new Set();
     deleted.add(owner); _deletedAccountOwners.set(client,deleted);
     onAuth(null);
-    note.textContent=acknowledged+' This app session is detached.';
+    _deletionPausedAccount=deletionPause(client,user,_cloudAccountEpoch);
+    renderAccount();
+    note.textContent=acknowledged;
   }catch(e){
     if(!current()) return;
     // Report uncertainty only in the captured app context; never echo SDK/server details.
-    note.textContent='Could not confirm account deletion. Local data is retained; check your connection and retry.';
+    note.textContent='We could not confirm deletion. Please try again.';
   }
 });
 /* ================================================================

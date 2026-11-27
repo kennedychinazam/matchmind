@@ -1,0 +1,110 @@
+--- a/index.ts
++++ b/index.ts
+@@ -17,8 +17,9 @@
+ // But it deliberately does NOT carry team names for lookup or a league id: those would be a second
+ // copy of the truth that goes stale if a fixture moves. The app looks the fixture up by id.
+ 
+-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
++import { createClient } from "https://esm.sh/@supabase/supabase-js@2.119.2";
+ import webpush from "npm:web-push@3.6.7";
++import {sendBoundPush,recordBoundPush} from "./backend/push-lifecycle/sender-guard.mjs";
+ 
+ const admin = createClient(
+   Deno.env.get("SUPABASE_URL")!,
+@@ -28,7 +29,7 @@
+ /* Reported by the status check so a deploy can be VERIFIED, not assumed. Ken deployed this
+    function twice and had no way to tell which version was live — the status response looked
+    identical in both. Bump this whenever the file changes. */
+-const FN_VERSION = 98;
++const FN_VERSION = 99;
+ 
+ const PUB = Deno.env.get("VAPID_PUBLIC") ?? "";
+ const PRIV = Deno.env.get("VAPID_PRIVATE") ?? "";
+@@ -77,29 +78,14 @@
+ 
+ type Sub = {
+   endpoint: string; p256dh: string; auth: string; user_id: string;
+-  kickoff: boolean; result: boolean; digest: boolean;
++  kickoff: boolean; result: boolean; digest: boolean; updated_at: string;
+ };
+ 
+ /* A push endpoint dies when the user uninstalls, clears data, or the service expires it. The push
+    service tells us with 404/410, and those are the ONLY codes that mean "gone for good" — deleting
+    on any other error would silently unsubscribe people during a transient outage. */
+ async function push(sub: Sub, payload: unknown, problems: string[]) {
+-  try {
+-    await webpush.sendNotification(
+-      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+-      JSON.stringify(payload),
+-      { TTL: 1800 },   // half an hour: a kick-off reminder delivered later than that is noise
+-    );
+-    return true;
+-  } catch (e) {
+-    const code = (e as { statusCode?: number }).statusCode;
+-    if (code === 404 || code === 410) {
+-      await admin.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+-    } else {
+-      problems.push(`${code ?? "err"}: ${String((e as Error).message).slice(0, 120)}`);
+-    }
+-    return false;
+-  }
++  return sendBoundPush({admin,webpush,sub,payload,problems});
+ }
+ 
+ // Everyone who opted in to a given kind. One row per device, so a user with two phones gets two.
+@@ -143,11 +129,8 @@
+     .select("dedupe_key").eq("endpoint", endpoint).in("dedupe_key", keys);
+   return new Set((data ?? []).map((r) => String(r.dedupe_key)));
+ }
+-async function markSent(endpoint: string, key: string) {
+-  await admin.from("push_sent").upsert(
+-    { endpoint, dedupe_key: key, sent_at: new Date().toISOString() },
+-    { onConflict: "endpoint,dedupe_key" },
+-  );
++async function markSent(sub: Sub, key: string, problems: string[]) {
++  return recordBoundPush({admin,sub,key,problems});
+ }
+ 
+ // >>> GRADING — mirrors MatchMind-Pro.html; verify-sendpush-grade.js proves it on every lock run
+@@ -255,12 +238,12 @@
+   let m = raw.match(/(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);      // full timestamp in the column
+   if(m){
+     const d = new Date(`${m[1]}T${m[2].padStart(2,'0')}:${m[3]}:00Z`);
+-    return isNaN(d) ? null : d;
++    return Number.isNaN(d.getTime()) ? null : d;
+   }
+   m = raw.match(/^(\d{1,2}):(\d{2})/);                                // the expected HH:MM
+   if(!m || !dateStr) return null;
+   const d = new Date(`${dateStr}T${m[1].padStart(2,'0')}:${m[2]}:00Z`);
+-  return isNaN(d) ? null : d;
++  return Number.isNaN(d.getTime()) ? null : d;
+ }
+ const VOID_AFTER_HOURS = 48;
+ function pickOriginalKick(pred: any){
+@@ -340,7 +323,7 @@
+         body: `Kicks off in ${mins} minutes` + (pr?.pick ? ` · your pick: ${pr.pick}` : ""),
+         tag: key, kind: "kickoff", fxid: f.fxid, url: "./",
+       }, problems);
+-      if (ok) { await markSent(s.endpoint, key); sent++; }
++      if (ok) { await markSent(s, key, problems); sent++; }
+     }
+   }
+   return { sent, considered: due.length };
+@@ -420,7 +403,7 @@
+                  : grade === "void" ? ` Your pick (${pick}) was void — stake returned.` : ""),
+         tag: key, kind: "result", fxid: f.fxid, url: "./",
+       }, problems);
+-      if (ok) { await markSent(s.endpoint, key); sent++; }
++      if (ok) { await markSent(s, key, problems); sent++; }
+     }
+   }
+   return { sent, considered: playable.length, voided };
+@@ -449,7 +432,7 @@
+       title: "MatchMind — today's strongest picks",
+       body, tag: key, kind: "digest", url: "./",
+     }, problems);
+-    if (ok) { await markSent(s.endpoint, key); sent++; }
++    if (ok) { await markSent(s, key, problems); sent++; }
+   }
+   return { sent, considered: preds?.length ?? 0 };
+ }

@@ -1,5 +1,19 @@
 # Sequential repair queue â€” 26 November 2026
 
+## Current checkpoint - 27 November 2026, v11
+
+This checkpoint supersedes the earlier current-status paragraphs below; they remain as chronological evidence. MM-07 local client/server/lifecycle repair is accepted after primary review, synthetic failure injection, real PostgreSQL integration and phone-width Chrome visual review. Production and preview deployments are unchanged. The next job is MM-08: edition validation diagnostics, rejected-payload provenance, publication/collector monitoring and request deadlines, beginning with bounded inspection. Release and physical-device gates remain open.
+
+The public account-deletion flow is deliberately simple: password, type DELETE, then immediate deletion. The modal contains only a short permanent-deletion statement, the two fields and Cancel/Delete account. Recovery journal, lease, SDK, retained-copy and operator details belong in these internal documents. No three-day schedule is advertised. The server verifies the password against the authenticated caller using an isolated temporary client; the browser never stores the password. A capability check and a new confirmation field prevent submitting the new flow to the legacy password-free handler. Wrong-password responses cannot clear an older uncertain deletion or another attempt's intent.
+
+Primary final focused tests: 169/169; actual Chrome dialog/reload/PWA checks: 4/4; password-aware real-PostgreSQL handler integration: 2/2. These are separate runs, not an accumulated unique-test claim. Earlier 100/100 cross-recovery tests, SQL 16/17 plus corrected lock-observer 1/1, actual matched AI/lifecycle 1/1 and retained failing reproductions remain evidence. The final HTML SHA-256 is 16139b305c1a55329195b74368280da9bd20a5208c3d9fbf884e6e84be979c2a; unchanged worker SHA-256 is e1535f343745966a5a7adb818feba0a4216b8646a8c3cf5de097deda86104860. Final deletion candidate passes frozen-lock Deno checking and bundling. See MM07-LIFECYCLE-REVIEW.md and backend/account-lifecycle/ROLLOUT-PROPOSAL.md.
+
+Local safeguards include a durable app/backend/owner-scoped deletion intent, immutable owner/epoch binding, reload-safe pause, atomic cleanup and owner/generation-fenced push receipts, preserved operator recovery after login deletion, and a matched AI admission/dispatch fence. Confirmed completion is retained even when an older success arrives after a newer same-owner attempt; another account is unaffected. No local personal data is cleared. Old orphan rows are neither deleted nor validated by the NOT VALID proposal. Shared football/AI outputs are retained.
+
+Independent final review exposed a cross-tab read/remove race in the wrong-password path. Six injected-interleaving regressions were saved before the reviewing agent hit its usage limit. Primary completed and reviewed the repair: an exact app/backend/owner/intent verification-failure receipt leaves the main owner marker untouched; read/write failure remains closed. A fresh nonce remains blocking, and confirmed completion can reconstruct a fully validated marker if the original vanished. Three additional primary regressions cover corrupt/foreign receipts, completion precedence and foreign-owner reconstruction. Before-fix failure evidence is retained. No agent retry loop was used.
+
+OPEN before release: fresh schema/source fingerprints and staging-specific adaptation; matched SQL/Edge/client/sender/AI rollout; old sender/provider stop/drain evidence; exact session/publisher and unexamined storage/external-resource scope; operational-record privacy/retention procedure; legacy orphan reconciliation; controlled disposable-account hosted acceptance; physical S20/S23 checks. MM-05 strict typing still has 35 inherited errors and remains a release gate. MM-01 physical/legacy, MM-02 hosted sessions and MM-04 billing/retention gates remain open. Neither SQL installation, real authentication/deletion, push delivery nor production deployment occurred. Only MatchMind was accessed.
+
 The user's latest direction is to follow the original handover's hierarchy. One agent owns one job at a time. The primary agent reviews the result and runs appropriate verification before accepting it and starting the next agent. Every completed job report must name the next job. Avoid repeated work or agent loops without new evidence.
 
 The original 29-item order and acceptance requirements remain in ISSUE-REGISTER.md. Later discoveries attach to their owning item; they do not silently reorder the handover. In particular, preview edition-identity finding AUD-08 belongs under MM-03/MM-11 and does not supersede unfinished MM-01 storage work.
@@ -35,7 +49,7 @@ Primary accepted the collector correction after26 focused checks, the real empty
 MM-05 is now the active job: one agent is inspecting prompt/cache provenance and quota/deduplication locally. No MM-05 edits or hosted actions are authorized by that inspection phase. Primary will review its concrete plan, implementation and meaningful synthetic tests before MM-06 begins.
 
 
-## MM-05 local acceptance — 27 November 2026
+## MM-05 local acceptance â€” 27 November 2026
 
 Primary accepted the local AI prompt/provenance, atomic quota/work and client fencing repair after an independently clean54/54handler/PostgreSQL/client/credential run (0failed/skipped/cancelled), exact-v17 patch reconstruction and successful17module Deno bundle. Exact-app desktop PWA proof is PASS for appSHA2569fce3822952e48394f99f5a480e28987b64f96092973a94e81bdcced7eba2c98. Primary additionally fixed a reproduced nullable SQL completion guard and account/day/target quota-display and known-pending fallback issues. Preserved failures include the original quota race, repeated-refund draft, malformed completion, and earlier test-harness errors. See MM05-AI-SECURITY-REVIEW.md.
 
@@ -47,14 +61,14 @@ Next job: MM-06 server-side pre-kickoff prediction issuance and immutable publis
 MM-06 active27November: primary accepted the bounded read-only inspection plan and confirmed the client queue/price-await gap. Fresh named production/staging catalog-only inspection confirms no prediction triggers; production original columns are already restricted by column grants (only4metadata columns updatable), while staging differs. One agent now performs the scoped local client/server-PROPOSAL repair with synthetic browser and isolated PostgreSQL before/after tests. No result is accepted yet; no hosted changes. See MM06-ISSUANCE-REVIEW.md. Next after MM-06 acceptance: MM-07; not started.
 
 
-## MM-06 local acceptance — 27 November 2026
+## MM-06 local acceptance â€” 27 November 2026
 
 MM-06 client dispatch/ownership/readback fencing and production-specific server issuance/immutability PROPOSAL are accepted locally after primary code/SQL review, agent26/26client+PG tests, primary27/27client/AI/PWA and3/3targetedPG checks (separate overlapping runs). AppSHA256feb9112bcfb8cd00e767e77e1eec98c53904d23cf4d6d8464c178ecc1e9d0744; all bytes outside helper/flush preserve MM-05. Primary required and verified same-owner denial cleanup and invalid canonical identity fixes. Originals and build=-1 reconstructed history are preserved; service-role writes cannot rewrite original fields under the local proposal. Production authenticated original columns were already restricted by grants; no arbitrary client-update claim is made.
 
 Hosted SQL is unexecuted. Production/staging divergence and exact catalog/maintenance/stop-drain/rollback/matched rollout verification remain gates. MM-05 strict-type/dependency/hosted, MM-01 physical/legacy, MM-02 hosted sessions and MM-04 capacity/retention gates remain open. Production main and preview deployment remain unchanged. No personal data was cleared. See MM06-ISSUANCE-REVIEW.md. Next job: MM-07 recoverable deletion/lifecycle, read-only inspection first.
 
 
-## MM-07 scoped push checkpoint — 27 November 2026
+## MM-07 scoped push checkpoint â€” 27 November 2026
 
 MM-07 is ACTIVE, not complete. Primary accepted the local push-disable partial-result phase and repaired the existing inert deletion test harness. Final primary84/84checks pass (35push,22deletion,12predictionclient,14AIclient,1ChromePWA),0failures/skips/cancellations. AppSHA256ad8f2c1747c97af69b7f52809635926f1f86f965185d3f6c85cce544b8c67223; all app bytes outside push section preserve MM-06. Failures retain settings/endpoint retry evidence, last-type toggles no longer falsely commit, known endpoint retry survives browser disappearance within the same context, and UI distinguishes device-off from requested cloud registration removal. Retry evidence is memory-only; no cloud erasure guarantee is claimed.
 

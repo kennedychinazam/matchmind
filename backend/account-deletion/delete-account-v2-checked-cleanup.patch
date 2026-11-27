@@ -1,0 +1,125 @@
+--- a/index.ts
++++ b/index.ts
+@@ -1,4 +1,4 @@
+-// delete-account — lets a signed-in user erase their own account and everything tied to it.
++// delete-account - checked self-account deletion acknowledgement, not an erasure guarantee.
+ //
+ // WHY THIS HAS TO BE A SERVER FUNCTION. Supabase deliberately gives the browser no way to delete a
+ // user; `auth.admin.deleteUser()` needs the service-role key, which must never leave the server.
+@@ -6,15 +6,17 @@
+ //
+ // ⚠ "Verify JWT" must be ON for this function — the opposite of send-push.
+ //    It is the only thing standing between "delete my account" and "delete anyone's account".
+-//
++//    The handler additionally verifies the caller using getUser.
+ // ⚠ AND THE USER ID IS TAKEN FROM THE TOKEN, NEVER FROM THE REQUEST BODY.
+ //    If this accepted a user_id parameter, any signed-in user could delete any other user by
+ //    passing someone else's id. Deriving it from the verified token makes that impossible to
+ //    express: you can only ever delete the account you are logged in as.
+ 
+-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
++import { createClient } from "https://esm.sh/@supabase/supabase-js@2.119.2";
++import { deleteAccountRequest } from "./backend/account-deletion/deletion-service.mjs";
++import { createPasswordVerifier } from "./backend/account-deletion/password-verification.mjs";
+ 
+-const FN_VERSION = 1;
++const FN_VERSION = 3;
+ 
+ const admin = createClient(
+   Deno.env.get("SUPABASE_URL")!,
+@@ -24,7 +26,7 @@
+ const cors = (origin: string) => ({
+   "access-control-allow-origin": origin || "*",
+   "access-control-allow-headers": "authorization, content-type, apikey",
+-  "access-control-allow-methods": "POST, OPTIONS",
++  "access-control-allow-methods": "GET, POST, OPTIONS",
+   "vary": "origin",
+ });
+ const json = (b: unknown, status = 200, origin = "*") =>
+@@ -36,83 +38,7 @@
+ Deno.serve(async (req) => {
+   const origin = req.headers.get("origin") ?? "*";
+   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(origin) });
+-
+-  try {
+-    // ---- who is asking? strictly from the token ----
+-    const jwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+-    if (!jwt) return json({ ok: false, error: "You must be signed in." }, 401, origin);
+-
+-    const { data: who, error: whoErr } = await admin.auth.getUser(jwt);
+-    const user = who?.user;
+-    if (whoErr || !user) return json({ ok: false, error: "Your session has expired. Sign in again." }, 401, origin);
+-
+-    // ---- and they must mean it ----
+-    let body: { confirm?: string } = {};
+-    try { body = await req.json(); } catch (_) { /* empty */ }
+-    if (body.confirm !== "DELETE") {
+-      return json({ ok: false, error: "Confirmation missing." }, 400, origin);
+-    }
+-
+-    const uid = user.id;
+-    const deleted: Record<string, number | string> = {};
+-
+-    /* ORDER MATTERS, and the reason is which failure you would rather have.
+-       The auth user goes LAST. If a later step fails, the account still exists and the user can
+-       simply try again. Delete the auth row first and any failure after it leaves an account that
+-       cannot log in but whose data is still here — unrecoverable without hand-editing the database. */
+-
+-    // 1. push_sent is keyed by ENDPOINT, not by user, so it has to be resolved through the
+-    //    subscriptions before those are removed — otherwise its rows become unreachable orphans.
+-    const { data: subs } = await admin.from("push_subscriptions").select("endpoint").eq("user_id", uid);
+-    const endpoints = (subs ?? []).map((s) => String(s.endpoint));
+-    if (endpoints.length) {
+-      const { error, count } = await admin.from("push_sent")
+-        .delete({ count: "exact" }).in("endpoint", endpoints);
+-      deleted.push_sent = error ? `error: ${error.message}` : (count ?? 0);
+-    } else deleted.push_sent = 0;
+-
+-    // 2. their registered devices
+-    {
+-      const { error, count } = await admin.from("push_subscriptions")
+-        .delete({ count: "exact" }).eq("user_id", uid);
+-      deleted.push_subscriptions = error ? `error: ${error.message}` : (count ?? 0);
+-    }
+-
+-    // 3. their AI usage counters
+-    {
+-      const { error, count } = await admin.from("ai_usage")
+-        .delete({ count: "exact" }).eq("user_id", uid);
+-      deleted.ai_usage = error ? `error: ${error.message}` : (count ?? 0);
+-    }
+-
+-    /* NOT DELETED, deliberately:
+-       - `predictions` is the app's own archive of what the ENGINE forecast, keyed by fixture, not
+-         by person. It is what the accuracy record and the calibration reports are built from.
+-         Deleting a user must not tear holes in the app's own history — it is not their data.
+-       - `match_analysis` / `match_context` are shared AI write-ups, one per fixture for everyone.
+-       - `fixtures` is public football data.
+-       Their own copy of the prediction record lives in app_state and goes with the account. */
+-
+-    // 4. the account itself. profiles and app_state carry
+-    //    `references auth.users(id) on delete cascade`, so both vanish with it automatically —
+-    //    which is exactly why they are not deleted by hand above. The two tables added later
+-    //    (push_subscriptions, ai_usage) have no such constraint, which is why they do.
+-    const { error: delErr } = await admin.auth.admin.deleteUser(uid);
+-    if (delErr) {
+-      return json({
+-        ok: false,
+-        error: "Could not delete the account. Nothing else was lost — try again.",
+-        detail: delErr.message,
+-        deleted,
+-      }, 500, origin);
+-    }
+-    deleted.auth_user = 1;
+-    deleted.profiles_and_app_state = "cascaded";
+-
+-    console.log(`delete-account: removed ${uid}`, JSON.stringify(deleted));
+-    return json({ ok: true, version: FN_VERSION, deleted }, 200, origin);
+-  } catch (e) {
+-    console.error("delete-account fatal: " + String(e));
+-    return json({ ok: false, error: "Something went wrong. Your account was not deleted." }, 500, origin);
+-  }
++  const verifyPassword = createPasswordVerifier({createClient,url:Deno.env.get("SUPABASE_URL") ?? "",anonKey:Deno.env.get("SUPABASE_ANON_KEY") ?? ""});
++  const result = await deleteAccountRequest({ admin, req, verifyPassword });
++  return json({ ...result.body, version: FN_VERSION }, result.status, origin);
+ });

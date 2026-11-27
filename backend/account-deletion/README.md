@@ -1,0 +1,13 @@
+# Password-confirmed immediate deletion candidate
+
+Local candidate only. Nothing here authorizes deployment, a real sign-in or an account deletion.
+
+The exact captured delete-account v2 source is hash-checked before the builder applies the patch. Its pinned Supabase SDK remains2.119.2 with the existing frozen lock. The candidate reports function version3 and response protocol `matchmind-account-deletion/1`.
+
+GET returns static capability metadata without looking up identity, authenticating a password or calling journal RPCs. The response requires `password_required:true`, confirmation word `DELETE` and mode `immediate`. CORS permits GET/POST/OPTIONS. The matched client must require these capabilities/version before submitting a password. New POST uses **`{confirmation:'DELETE',password}`**, deliberately excluding the old `confirm` field so a rollback to legacy v2 cannot interpret a password submission as its old password-free deletion request. The legacy field alone is rejected before password or journal activity.
+
+POST first verifies the existing caller with admin.getUser, then validates the bounded body and a nonempty password of at most1024characters. `password-verification.mjs` creates a new isolated anon SDK client per attempt with persistence, automatic refresh and URL session detection disabled. It signs in using only the verified server user's email and submitted password. Only a returned user with exactly the verified UID succeeds. The password is not journalled, logged or returned; no browser/admin client session is used for reauthentication. Temporary session cleanup explicitly uses `signOut({scope:'local'})` on that isolated client only, best effort.
+
+Only the known `invalid_credentials` code returns403/verification_failed/password/not_attempted. Missing callback/configuration, missing server email, different UID, malformed results, other Auth errors and thrown/uncertain outcomes fail closed with503/verification_unavailable before any journal mutation. Missing/invalid body fields return400/rejected/confirmation/not_attempted. Successful verification continues the existing durable cleanup/Auth/reconciliation protocol immediately; there is no artificial three-day timer.
+
+The actual patched-handler suite covers these boundaries with synthetic SDK clients, including the capability route, password failures, supplied email/UID being ignored, isolated-session scope, no journal mutation before verification, and exact-source builder rejection. The two direct service/real PostgreSQL integration call sites use an invented password and explicit synthetic verification callback; they do not sign into real accounts. Existing server lifecycle, sender drain, retention and physical-device release gates remain separate.
