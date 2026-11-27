@@ -34,14 +34,14 @@ function harness(){
   let session={user:{id:'A'},access_token:'invented-session-A'},getSession=async()=>({data:{session},error:null});
   const client={auth:{getSession:()=>getSession(),signOut:async()=>{signouts++;return{error:null};}}};
   const no=()=>{};
-  const context=vm.createContext({$,supa:client,authUser:null,_cloudAccountEpoch:0,_cloudPushVersion:0,_cloudPushT:null,
-    _cloudSync:{},_leaguesLoadedAt:0,prefs:{},notif:{},themeMode:'dark',aiProvider:'gemini',aiCompare:'',
+  const context=vm.createContext({URL,$,supa:client,authUser:null,_cloudAccountEpoch:0,_cloudPushVersion:0,_cloudPushT:null,
+    _cloudSync:{},_leaguesLoadedAt:0,_fixtureInputSource:'sample',fixtureRawCurrent:()=>false,_presentationAsOf:null,_dataSourceExplicit:false,prefs:{},notif:{},themeMode:'dark',aiProvider:'gemini',aiCompare:'',
     afState:{record:[],favL:[],favT:[],favM:[],favAt:{},favDel:{}},favStamps:x=>x||{},
     applyTheme:no,credentialSelect:no,fixtureDeliveryReset:no,renderAISettings:no,renderNotif:no,renderAccount:no,renderFavs:no,renderFixtures:no,
     renderScores:no,renderTips:no,renderMoreRecord:no,renderTzSetting:no,applyStaticI18n:no,
     LANGUAGES_ON:false,curFavHome:null,curFavAway:null,clearSearchForIdentity:no,isPublisher:()=>false,cloudPullMerge:no,toast:no,clearTimeout:no,
     localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k),clear:()=>storage.clear()},
-    prompt:()=> 'DELETE',alert:()=>{alerts++;},location:{reload:()=>{reloads++;}},
+    prompt:()=> 'DELETE',alert:()=>{alerts++;},location:{href:'https://synthetic-delete.invalid/',reload:()=>{reloads++;}},
     SUPA_URL:'https://synthetic-delete.invalid',SUPA_KEY:'invented-public-identifier',
     fetch:async(url,init)=>{requests.push({url,init});return context.response();}
   });

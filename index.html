@@ -25703,6 +25703,7 @@ function pushSupport(){
 async function saveSubscription(sub, owner=authUser&&authUser.id, epoch=_cloudAccountEpoch, client=supa){
   const current=()=>!!owner && client===supa && personalToken(owner,epoch);
   if(!client || !current()) return false;
+  _pushDisableProgress=null; // New registration intent invalidates older retry evidence.
   const j = sub.toJSON();
   if(!current()) return false;
   const { error } = await client.from('push_subscriptions').upsert({
@@ -25725,6 +25726,7 @@ async function enablePush(){
   const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
   const current=()=>client===supa && personalToken(owner,epoch);
   if(!current()) return;
+  _pushDisableProgress=null;
   const perm = await Notification.requestPermission();
   if(!current()) return;
   if(perm !== 'granted'){
@@ -25752,25 +25754,80 @@ async function enablePush(){
     renderNotif();
   }
 }
+// Memory-only retry evidence; it is never shared across owners, clients or account epochs.
+var _pushDisableProgress = null;
+function pushDisablePending(){
+  const p=_pushDisableProgress;
+  return !!(p&&p.incomplete&&p.client===supa&&personalToken(p.owner,p.epoch));
+}
 async function disablePush(){
-  if(!supa || !authUser) return;
+  if(!supa || !authUser) return false;
   const owner=authUser.id, epoch=_cloudAccountEpoch, client=supa;
-  const current=()=>client===supa && personalToken(owner,epoch);
-  if(!current()) return;
-  try{
-    const reg = await navigator.serviceWorker.ready;
-    if(!current()) return;
-    const sub = await reg.pushManager.getSubscription();
-    if(!current()) return;
-    if(sub){
-      await client.from('push_subscriptions').delete().eq('endpoint', sub.endpoint).eq('user_id',owner);
-      if(!current()) return;
-      await sub.unsubscribe();
-      if(!current()) return;
+  if(!personalToken(owner,epoch)) return false;
+  const old=_pushDisableProgress;
+  const previous=old&&old.client===client&&old.owner===owner&&old.epoch===epoch ? old : null;
+  const progress={client,owner,epoch,endpoint:previous&&previous.endpoint,
+    acknowledged:!!(previous&&previous.acknowledged),incomplete:true,busy:true,message:'Turning notifications off…'};
+  _pushDisableProgress=progress; // A newer attempt owns all subsequent UI and retry evidence.
+  const current=()=>_pushDisableProgress===progress&&client===supa&&personalToken(owner,epoch);
+  const incomplete=message=>{
+    if(!current()) return false;
+    progress.message=message;progress.busy=false;
+    renderNotif();
+    return false;
+  };
+  const removeRegistration=async endpoint=>{
+    let removal;
+    try{removal=await client.from('push_subscriptions').delete().eq('endpoint',endpoint).eq('user_id',owner);}
+    catch(e){return incomplete('Could not confirm removal of the saved registration. This browser subscription and settings are kept. Try again.');}
+    if(!current()) return false;
+    if(!removal||removal.error!==null)
+      return incomplete('Could not confirm removal of the saved registration. This browser subscription and settings are kept. Try again.');
+    progress.acknowledged=true;
+    return true;
+  };
+  renderNotif();
+  let reg,sub;
+  try{reg=await navigator.serviceWorker.ready;}
+  catch(e){return incomplete('Could not inspect this browser subscription. Settings are kept. Try again.');}
+  if(!current()) return false;
+  try{sub=await reg.pushManager.getSubscription();}
+  catch(e){return incomplete('Could not inspect this browser subscription. Settings are kept. Try again.');}
+  if(!current()) return false;
+  if(sub){
+    if(typeof sub.endpoint!=='string'||!sub.endpoint.trim())
+      return incomplete('Could not verify this browser subscription. Settings are kept. Try again.');
+    progress.endpoint=sub.endpoint;
+    progress.acknowledged=false;
+    if(!await removeRegistration(sub.endpoint)||!current()) return false;
+    let unsubscribed;
+    try{unsubscribed=await sub.unsubscribe();}
+    catch(e){return incomplete('Removal of the saved registration was requested, but this browser could not finish turning off notifications. Settings are kept. Try again.');}
+    if(!current()) return false;
+    if(unsubscribed!==true)
+      return incomplete('Removal of the saved registration was requested, but this browser could not finish turning off notifications. Settings are kept. Try again.');
+  }else{
+    if(!progress.endpoint)
+      return incomplete('No browser subscription was found. Removal of the saved registration is unconfirmed. Settings are kept. Try again or contact support.');
+    if(!progress.acknowledged){
+      if(!await removeRegistration(progress.endpoint)||!current()) return false;
+      let remaining;
+      try{remaining=await reg.pushManager.getSubscription();}
+      catch(e){return incomplete('Removal of the saved registration was requested, but this browser subscription could not be checked. Settings are kept. Try again.');}
+      if(!current()) return false;
+      if(remaining)
+        return incomplete('This browser subscription changed while turning notifications off. Settings are kept. Try again.');
     }
-  }catch(e){if(!current()) return;}
+  }
+  if(!current()) return false;
+  // An acknowledged zero-row DELETE does not independently prove server-side absence.
+  progress.incomplete=false;
+  _pushDisableProgress=null;
   notif.kickoff = notif.result = notif.digest = false;
-  savePrefs(); renderNotif(); toast('Notifications off');
+  savePrefs(); renderNotif();
+  $('notifNote').textContent='Notifications are off in this browser. Removal of the saved registration was requested; it has not been independently confirmed.';
+  toast('Notifications off in this browser. Saved registration removal requested.');
+  return true;
 }
 /* A subscription can be revoked by the push service at any time. Re-checking on boot is what keeps
    the switch honest, instead of showing "On" for a subscription the server can no longer reach. */
@@ -25791,15 +25848,17 @@ async function ensurePushFresh(){
 function renderNotif(){
   const on = (typeof Notification !== 'undefined') && Notification.permission === 'granted'
              && (notif.kickoff || notif.result || notif.digest);
+  const pending=pushDisablePending();
   const st = $('notifState'), btn = $('notifMainBtn');
-  if(st) st.textContent = on ? 'On for this device' : 'Off';
-  if(btn) btn.textContent = on ? 'Turn off' : 'Turn on';
-  const box = $('notifTypes'); if(box) box.classList.toggle('hidden', !on);
+  if(st) st.textContent = pending ? (_pushDisableProgress.busy ? 'Turning notifications off…' : 'Could not finish turning off') : on ? 'On for this device' : 'Off';
+  if(btn) btn.textContent = pending ? (_pushDisableProgress.busy ? 'Turning off…' : 'Retry turning off') : on ? 'Turn off' : 'Turn on';
+  const box = $('notifTypes'); if(box) box.classList.toggle('hidden', !on&&!pending);
   document.querySelectorAll('[data-nt]').forEach(b=>{
     const k = b.dataset.nt; b.textContent = notif[k] ? 'On' : 'Off'; b.classList.toggle('active', !!notif[k]);
   });
   const note = $('notifNote');
-  if(note && on && !note.textContent) note.textContent = 'Notifications are per device — turning them on here does not affect your other phones.';
+  if(note && pending) note.textContent=_pushDisableProgress.message;
+  else if(note && on && !note.textContent) note.textContent = 'Notifications are per device — turning them on here does not affect your other phones.';
 }
 
 function renderLangSetting(){
@@ -25857,14 +25916,16 @@ function renderTzSetting(){
 $('notifMainBtn').addEventListener('click', ()=>{
   const on = (typeof Notification !== 'undefined') && Notification.permission==='granted'
              && (notif.kickoff||notif.result||notif.digest);
-  on ? disablePush() : enablePush();
+  (pushDisablePending() || on) ? disablePush() : enablePush();
 });
 document.querySelectorAll('[data-nt]').forEach(b=>b.addEventListener('click', async ()=>{
   const owner=_personalOwner, epoch=_cloudAccountEpoch, client=supa;
   const current=()=>client===supa && personalToken(owner,epoch);
   if(!current()) return;
-  const k = b.dataset.nt; notif[k] = !notif[k];
-  if(!notif.kickoff && !notif.result && !notif.digest){ await disablePush(); return; }
+  const k = b.dataset.nt, next={...notif,[k]:!notif[k]};
+  if(!next.kickoff && !next.result && !next.digest){ await disablePush(); return; }
+  _pushDisableProgress=null;
+  notif[k]=next[k];
   savePrefs(); renderNotif();
   try{ const reg=await navigator.serviceWorker.ready; if(!current()) return;
        const sub=await reg.pushManager.getSubscription(); if(!current()) return;
