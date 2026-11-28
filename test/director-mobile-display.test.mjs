@@ -6,6 +6,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PWA_PLAYWRIGHT||'playwright-core');
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+const currentBuild=Number(html.match(/const APP_BUILD\s*=\s*(\d+)/)?.[1]);assert.ok(Number.isSafeInteger(currentBuild)&&currentBuild>0);
 
 async function open(t,width=390){
  const browser=await chromium.launch({executablePath:process.env.MM_TEST_CHROMIUM||'/usr/bin/chromium',args:['--no-sandbox','--disable-background-networking']});
@@ -69,7 +70,7 @@ for(const mode of ['empty','failed'])test('More settles '+mode+' Records reads h
  await p.waitForFunction(mode=>_engineRecord.state===mode,mode);
  const text=await p.locator('#moreRecordLine').textContent();
  assert.doesNotMatch(text,/Reading|spinner|70\.0%/);
- assert.match(text,mode==='empty'?/No graded picks/:/Could not read/);
+ assert.match(text,mode==='empty'?/No graded picks/:/Record temporarily unavailable/);
  if(mode==='failed'){
   await p.evaluate(()=>{recordMode='loaded';navTo('scores');navTo('data');});
   await p.waitForFunction(()=>$('moreRecordLine').textContent.includes('7/10'));
@@ -83,7 +84,7 @@ test('an initially unavailable client does not prevent a later successful Record
   window.readyClient=supa;supa=null;navTo('data');await _engineRecordLoading;
   return $('moreRecordLine').textContent;
  });
- assert.match(first,/Could not read/);
+ assert.match(first,/Record temporarily unavailable/);
  await p.evaluate(async()=>{supa=readyClient;navTo('data');await _engineRecordLoading;});
  assert.match(await p.locator('#moreRecordLine').textContent(),/7\/10/);
 });
@@ -132,7 +133,7 @@ test('version labels identify app versus legal text, and time-zone copy cannot b
   prefs.tz='America/New_York';renderTzSetting();
   return{app:$('verLabel').textContent,legal:$('legalDraftNote').textContent,footer:legalFooter(),device,selected:$('tzHint').textContent};
  });
- assert.match(r.app,/App v0\.9 · build 362/);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
+ assert.equal(r.app,'App v0.9 · build '+currentBuild);assert.match(r.legal,/Legal text v1\.0/);assert.match(r.footer,/Legal text v1\.0/);
  assert.match(r.device,/Africa\/Lagos.*device/);assert.match(r.selected,/America\/New_York/);
  assert.doesNotMatch(r.device+r.selected,/right now|\d\d:\d\d/);
 });

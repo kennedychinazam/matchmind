@@ -19766,8 +19766,36 @@ function slipPool(cands, riskPct){
    the order's own wording. Named constants rather than inline strings for build 346's reason: the
    lock pins the words a user reads, and a sentence written twice drifts. */
 const SLIP_NO_PRICE = 'No price shown \u2014 these legs are not all priced by a bookmaker yet.';
-const SLIP_NO_PRICE_WHY = 'A total, a "to land" figure and a return can only be quoted from prices a bookmaker actually offered. At least one leg here has none on file, so no total is shown. The percentage is the engine\u2019s own and is unaffected.';
+const SLIP_NO_PRICE_WHY = 'A total price and cash return need a bookmaker price for every leg. Model probabilities are separate.';
 const SLIP_NO_PRICE_TARGET = 'No slip can be built to a target yet.';
+// Presentation arithmetic over existing issued selections; never creates a prediction or price.
+function slipOutcomeSummary(legs){
+ const empty={available:false,reason:'invalid_selection',hasDnb:false,fullWin:null,reducedReturn:null,refund:null,loss:null,survival:null,pricedLegs:0,fullWinOdds:null,minSurvivingOdds:null,expectedReturnOdds:null};
+ if(!Array.isArray(legs)||!legs.length||legs.length>SLIP_MAX_LEGS)return empty;
+ const markets={Winner:['1','X','2'],'Double Chance':['1X','X2','12'],'Draw No Bet':['1D','2D'],Goals:['O15','U15','O25','U25','O35','U35'],BTTS:['BTS','NBT']};
+ const ids=new Set();let full=1,survival=1,refund=1,odds=1,minOdds=1,ev=1,priced=0,valid=true,hasDnb=false;
+ for(const l of legs){
+  const isDnb=l?.code==='1D'||l?.code==='2D';hasDnb=hasDnb||isDnb||l?.market==='Draw No Bet';
+  const id=l?.f?.fxid;
+  if(!l||!Number.isSafeInteger(id)||id<=0||ids.has(id)||typeof l.market!=='string'||typeof l.code!=='string'||!Object.hasOwn(markets,l.market)||!markets[l.market].includes(l.code))return {...empty,hasDnb};
+  ids.add(id);
+  const price=typeof l._real==='number'&&Number.isFinite(l._real)&&l._real>1;
+  if(price){priced++;odds*=l._real;if(!isDnb)minOdds*=l._real;}
+  const q=l.prob,d=isDnb?l.pDraw:0;
+  if(typeof q!=='number'||!Number.isFinite(q)||q<0||q>1||typeof d!=='number'||!Number.isFinite(d)||d<0||d>=1){valid=false;continue;}
+  const w=q*(1-d),v=d;
+  full*=w;survival*=w+v;refund*=v;
+  if(price)ev*=w*l._real+v;
+ }
+ const allPriced=priced===legs.length&&Number.isFinite(odds)&&Number.isFinite(odds*10);
+ const result={...empty,hasDnb,pricedLegs:priced,fullWinOdds:allPriced?odds:null,reason:valid?null:'probability_unavailable'};
+ if(!valid)return result;
+ const bounded=x=>x<0&&x>-1e-12?0:x>1&&x<1+1e-12?1:x;
+ const reduced=bounded(survival-full-refund),loss=bounded(1-survival);
+ const values=[full,reduced,refund,loss];
+ if(values.some(x=>!Number.isFinite(x)||x<0||x>1)||Math.abs(values.reduce((a,x)=>a+x,0)-1)>1e-11)return {...result,reason:'probability_unavailable'};
+ return {...result,available:true,fullWin:full,reducedReturn:reduced,refund,loss,survival,minSurvivingOdds:allPriced?minOdds:null,expectedReturnOdds:allPriced&&Number.isFinite(ev*10)?ev:null};
+}
 function genSlip(){
   const cands = slipCandidatesFromBoard({ todayOnly: slipState.today, leagues: slipState.leagues, markets: slipState.markets });   // build 346 - the robot's picks only
   if(cands === null){ $('slipOut').innerHTML = `<div class="subnote" style="padding-top:12px">${SLIP_BOARD_UNREAD}</div>`; return; }
@@ -19821,49 +19849,9 @@ function genSlip(){
       return;
     }
   }
-  /* 🔑 BUILD 351 (WO-44) — THE TOTAL IS A PRODUCT OF REAL PRICES OR THERE IS NO TOTAL. Ken,
-     2026-10-10: *"show a real bookmaker price where one exists, and no odds otherwise."* This
-     multiplied `1/l.prob` and printed the result as "Odds", "To land" and "$10 returns", disclosed
-     only under "Why?". `comb` is untouched: the chance every leg lands is the engine's own number
-     and is the honest figure (build 329's reasoning), so it is still shown. */
-  let comb=1, odds=1, nPriced=0;
-  for(const l of legs){ comb*=l.prob; if(l._real != null && l._real > 1){ odds*=l._real; nPriced++; } }
-  /* ⚠ ONE GATE, NOT TWO. The first cut of this build wrote the rule twice - `allPriced`, and `odds`
-     set to null - and branched the screen on `allPriced` alone, so `odds = null` was belt-and-braces
-     that nothing could observe. `mut-351`'s "the slip keeps its total even when the gate says it has
-     none" walked straight past the suite because of it: the mutation was real, changed `odds`, and
-     changed nothing a reader or a check could see. A rule written in two places where only one of
-     them decides anything is the same defect as a check satisfied by either half of a two-part rule
-     (build 331), and it is caught by the same question: what is the smallest edit that keeps every
-     asserted string and still breaks the sentence? So `odds` CARRIES the rule - it is the total, or
-     it is null and there is no total - and `allPriced` survives only to count the priced legs and to
-     choose the Why text. */
-  const allPriced = legs.length > 0 && nPriced === legs.length;
-  odds = allPriced ? odds : null;
-  const badge = comb>=0.5 ? '👍 High probability slip' : comb>=0.3 ? '⚖️ Balanced slip' : '🎲 Long-shot slip';
-
-  /* Draw No Bet legs void on a draw — the stake comes back and that leg pays 1.00 — so the return
-     is a RANGE, not a number (build 44). Showing only the best case would be quietly dishonest.
-     For each DNB leg we know P(win) and P(draw) from the engine, so we can state the worst case
-     (every DNB leg drawn) and the expected return across every combination. */
-  const dnbLegs = legs.filter(l=>l.market==='Draw No Bet' && l.pDraw!=null);
-  let dnbRange = '';
-  /* build 351 - the range is money, so it is quoted only when every leg carries a real price. The
-     prices are the bookmaker's, not 1/prob, for the same reason the total above is. */
-  if(dnbLegs.length && odds != null){
-    let minOdds = 1;
-    for(const l of legs) if(!(l.market==='Draw No Bet' && l.pDraw!=null)) minOdds *= l._real;
-    // expected return: each DNB leg either wins (pays its odds) or voids (pays 1.00)
-    let ev = 1;
-    for(const l of legs){
-      if(l.market==='Draw No Bet' && l.pDraw!=null){
-        const pw = l.prob*(1-l.pDraw), pv = l.pDraw;      // win outright / voided
-        ev *= pw*l._real + pv*1;
-      } else ev *= l.prob*l._real;
-    }
-    dnbRange = `<p>${dnbLegs.length} Draw-No-Bet leg${dnbLegs.length>1?'s':''}: a draw returns that leg's stake instead of losing it, so $10 returns
-      <b>$${(10*minOdds).toFixed(2)} – $${(10*odds).toFixed(2)}</b> depending on how many draw. Average outcome $${(10*ev).toFixed(2)}.</p>`;
-  }
+  const outcomes=slipOutcomeSummary(legs),comb=outcomes.fullWin,odds=outcomes.fullWinOdds,nPriced=outcomes.pricedLegs;
+  const allPriced=odds!==null;
+  const badge=outcomes.hasDnb||!outcomes.available?'':comb>=0.5?'👍 High probability slip':comb>=0.3?'⚖️ Balanced slip':'🎲 Long-shot slip';
   /* 🚨 BUILD 218 — THE NUMBER ON SCREEN IS THE ONE ACHIEVED, AND WHEN IT IS NOT THE ONE ASKED FOR
      THE GAP IS STATED. A generator that silently returns 12.4 when you typed 50 is the same class of
      dishonesty as a confidence gate that invents a pick — Milestone 8's rule, applied to a control
@@ -19877,43 +19865,24 @@ function genSlip(){
       ? `<div class="muted" style="font-size:.68rem;margin-top:6px"><b style="color:var(--gold)">Target ${_target.toFixed(2)} is out of reach at ${slipState.riskPct}% risk.</b> The ${Math.min(SLIP_MAX_LEGS, _aim.pool)} best legs available multiply to <b>${reachable.toFixed(2)}</b>. Raise the risk slider, add bet types or leagues, or load more competitions.</div>`
       : `<div class="muted" style="font-size:.68rem;margin-top:6px">Target <b>${_target.toFixed(2)}</b> · built <b style="color:var(--gold)">${odds.toFixed(2)}</b> from ${legs.length} leg${legs.length===1?'':'s'}.</div>`;
   }
-  /* BUILD 233 — ONE LINE, AND THE REASONING BEHIND A TAP.
-     What was here: three stacked paragraphs of body copy under the totals. Ken read them and said
-     they did not make sense and were not wanted. He is right that it was a wall; he is not asking
-     to be lied to, so the load-bearing number — the chance the slip LOSES — stays on the visible
-     line and everything that explains it moves into "Why?". That is build 217's Tips decision
-     applied here: the reasoning stays in the product, it just stops being the first thing read. */
-  const loseNote = `Every leg must win — <b style="color:var(--text)">${(100*(1-comb)).toFixed(0)}% chance this loses</b>`;
-  const whyBits = [
-    `<p>The <b>${slipState.riskPct}%</b> risk setting caps each match on its own. Combining them is what makes the slip riskier than any single leg.</p>`
-  ];
-  if(dnbRange) whyBits.push(dnbRange);
-  /* 🔑 BUILD 351 (WO-44) — THE "FAIR ODDS" LINE IS DELETED WITH THE NUMBER IT EXCUSED. It read
-     "Fair odds come from the engine's own probabilities. A bookmaker's price will differ.", which
-     is a disclosure under a tap for a price printed in the headline cell. Ken's ruling replaces the
-     number, so the sentence has nothing left to explain. In its place, where a leg has no price,
-     one visible line - never a tooltip - says why there is no total. */
-  whyBits.push(allPriced
-    ? `<p>Every price here is a bookmaker's own, from the capture closest to kick-off. The percentage is the engine's.</p>`
-    : `<p>${SLIP_NO_PRICE_WHY}</p>`);
-
-  /* 🔑 BUILD 351 (WO-44) — NO TOTAL, NO "TO LAND" AND NO RETURNS UNLESS EVERY LEG IS PRICED. The
-     three cells are money, and money built on one unpriced leg is not a bookmaker's arithmetic. The
-     replacement is one plain line in the order's own words, on screen rather than under "Why?". */
-  $('slipOut').innerHTML =
-    (odds != null
-      ? `<div class="sliphead">
-       <div class="shcell"><span class="k">Odds</span><span class="v">${odds.toFixed(2)}</span></div>
-       <div class="shcell"><span class="k">To land</span><span class="v" style="color:${comb>=0.3?'var(--green2)':'var(--gold)'}">${(100*comb).toFixed(1)}%</span></div>
-       <div class="shcell"><span class="k">$10 returns</span><span class="v">$${(10*odds).toFixed(2)}</span></div>
-     </div>`
-      : `<div class="sliphead">
-       <div class="shcell"><span class="k">To land</span><span class="v" style="color:${comb>=0.3?'var(--green2)':'var(--gold)'}">${(100*comb).toFixed(1)}%</span></div>
-       <div class="shcell"><span class="k">Priced legs</span><span class="v">${nPriced} / ${legs.length}</span></div>
-     </div>
-     <div class="subnote"><b style="color:var(--gold)">${SLIP_NO_PRICE}</b></div>`)
-     +
-    `<div class="slipline">${badge} &middot; ${legs.length} leg${legs.length>1?'s':''} &middot; ${loseNote}
+  const pct=p=>(100*p).toFixed(1)+'%';
+  const cell=(label,value)=>'<div class="shcell"><span class="k">'+label+'</span><span class="v">'+value+'</span></div>';
+  const probability=outcomes.available?cell('Full win',pct(comb)):cell('Probability','Unavailable');
+  const priceHead=allPriced
+    ?'<div class="sliphead">'+cell('Full-win odds',odds.toFixed(2))+(!outcomes.hasDnb?probability:'')+cell('Max $10 return','$'+(10*odds).toFixed(2))+'</div>'
+    :'<div class="sliphead">'+(!outcomes.hasDnb?probability:'')+cell('Priced legs',nPriced+' / '+legs.length)+'</div><div class="subnote">'+SLIP_NO_PRICE+'</div>';
+  const outcomeHead=!outcomes.hasDnb?'':outcomes.available
+    ?'<div class="sliphead" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr))">'+cell('Full win',pct(outcomes.fullWin))+cell('Reduced return',pct(outcomes.reducedReturn))+cell('Stake back',pct(outcomes.refund))+cell('Lose',pct(outcomes.loss))+'</div>'
+    :'<div class="subnote" role="status">Probability unavailable</div>';
+  const loseNote=!outcomes.hasDnb&&outcomes.available?' · '+pct(outcomes.loss)+' chance of losing':'';
+  const whyBits=['<p>The '+slipState.riskPct+'% risk limit applies to each match. '+(outcomes.hasDnb?'DNB leg percentages exclude draws.':'Every leg must win for the full return.')+'</p>'];
+  if(outcomes.hasDnb&&outcomes.available&&allPriced&&outcomes.expectedReturnOdds!==null){
+    whyBits.push('<p>With no losing leg, a $10 stake returns $'+(10*outcomes.minSurvivingOdds).toFixed(2)+' – $'+(10*odds).toFixed(2)+'. Estimated gross return across all outcomes, including losses: $'+(10*outcomes.expectedReturnOdds).toFixed(2)+'.</p>');
+  }
+  whyBits.push(allPriced?'<p>Full-win odds and the maximum return require every leg to win. Prices are the bookmaker’s; probabilities are model estimates.</p>':'<p>'+SLIP_NO_PRICE_WHY+'</p>');
+  $('slipOut').innerHTML=priceHead+outcomeHead+
+    '<div class="subnote">Model estimates; assumes independent matches.'+(outcomes.hasDnb?' DNB leg percentages exclude draws.':'')+'</div>'+
+    `<div class="slipline">${badge?badge+' · ':''}${legs.length} leg${legs.length>1?'s':''}${loseNote}
        <button class="whybtn" id="slipWhy" aria-expanded="false">Why?</button></div>
      <div class="slipwhy" id="slipWhyBox" hidden>${whyBits.join('')}</div>
      ${targetNote}` +
@@ -19923,8 +19892,8 @@ function genSlip(){
         <div class="lgteams">${escapeHtml(l.f.home)}<span class="lgv">v</span>${escapeHtml(l.f.away)}</div>
         <div class="lgpick"><span class="lgsel">${escapeHtml(String((l.code && chipCode(l.code)) || l.sel || ''))}</span>
           <span class="lgmkt">${escapeHtml(String(l.market || ''))}</span>
-          <span class="lgprob">${(100*l.prob).toFixed(0)}%</span>
-          <span class="lgodds">${(l._real != null && l._real > 1) ? (+l._real).toFixed(2) : ''}</span></div>
+          <span class="lgprob">${typeof l.prob==='number'&&Number.isFinite(l.prob)&&l.prob>=0&&l.prob<=1?(100*l.prob).toFixed(0)+'%':'—'}</span>
+          <span class="lgodds">${(typeof l._real==='number' && Number.isFinite(l._real) && l._real>1) ? l._real.toFixed(2) : ''}</span></div>
       </button>`).join('') +
     `<button class="btn" id="reGen" style="margin-top:10px">&#8635; Regenerate</button>`;
   {
